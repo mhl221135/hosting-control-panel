@@ -337,7 +337,7 @@ docker-compose stop hosting-goaccess
 
 The default profile targets a 16 GB Orange Pi 5:
 
-- MySQL InnoDB buffer pool: 4096 MB
+- MySQL InnoDB buffer pool: 2048 MB, leaving memory for other host workloads
 - Redis maximum memory: 1024 MB with `allkeys-lru`
 - OPcache: 512 MB, 64 MB interned strings, 100000 files, JIT disabled
 - FastCGI cache: 128 MB index and 8 GB maximum disk usage
