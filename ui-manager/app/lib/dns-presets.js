@@ -19,20 +19,35 @@ class DnsPresetStore {
   read() {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
-      return Array.isArray(parsed) ? parsed : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map((preset) => {
+        if (Array.isArray(preset.records)) return preset;
+        return {
+          id: preset.id || crypto.randomUUID(),
+          label: preset.label || "Imported preset",
+          records: [{
+            id: crypto.randomUUID(),
+            type: preset.type,
+            nameTemplate: preset.nameTemplate,
+            contentTemplate: preset.contentTemplate,
+            ttl: preset.ttl,
+            priority: preset.priority,
+            proxied: preset.proxied,
+          }],
+          updatedAt: preset.updatedAt || new Date().toISOString(),
+        };
+      });
     } catch {
       return [];
     }
   }
 
-  validate(payload, existingId = "") {
-    const label = String(payload.label || "").trim();
+  validateRecord(payload, existingId = "") {
     const type = String(payload.type || "A").trim().toUpperCase();
     const nameTemplate = String(payload.nameTemplate || payload.name_template || "@").trim().toLowerCase();
     const contentTemplate = String(payload.contentTemplate || payload.content_template || "").trim();
     const ttl = Number(payload.ttl || 1);
     const priority = Number(payload.priority || 10);
-    if (!label || label.length > 80) throw validationError("Preset name is required and must be under 80 characters");
     if (!SUPPORTED_TYPES.includes(type)) throw validationError(`Supported DNS types are ${SUPPORTED_TYPES.join(", ")}`);
     if (!nameTemplate || nameTemplate.length > 253) throw validationError("DNS name template is required");
     if (!contentTemplate || contentTemplate.length > 2048) throw validationError("DNS content template is required");
@@ -44,13 +59,26 @@ class DnsPresetStore {
     }
     return {
       id: existingId || crypto.randomUUID(),
-      label,
       type,
       nameTemplate,
       contentTemplate,
       ttl,
       priority: type === "MX" ? priority : 0,
       proxied: ["A", "AAAA", "CNAME"].includes(type) && Boolean(payload.proxied),
+    };
+  }
+
+  validate(payload, existingId = "") {
+    const label = String(payload.label || "").trim();
+    if (!label || label.length > 80) throw validationError("Preset name is required and must be under 80 characters");
+    const incomingRecords = Array.isArray(payload.records) ? payload.records : [payload];
+    if (!incomingRecords.length || incomingRecords.length > 50) {
+      throw validationError("A DNS preset must contain between 1 and 50 records");
+    }
+    return {
+      id: existingId || crypto.randomUUID(),
+      label,
+      records: incomingRecords.map((record) => this.validateRecord(record, String(record.id || ""))),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -82,24 +110,30 @@ class DnsPresetStore {
     fs.writeFileSync(this.filePath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
   }
 
-  resolve(id, domain) {
+  resolveAll(id, domain) {
     const preset = this.read().find((item) => item.id === id);
     if (!preset) {
       const error = new Error("DNS preset not found");
       error.statusCode = 404;
       throw error;
     }
-    const replaceDomain = (value) => String(value).replaceAll("{domain}", domain);
-    const template = replaceDomain(preset.nameTemplate);
-    let name;
-    if (template === "@") name = domain;
-    else if (template.endsWith(`.${domain}`) || template === domain) name = template;
-    else name = `${template}.${domain}`;
-    return {
-      ...preset,
-      name,
-      content: replaceDomain(preset.contentTemplate),
-    };
+    return preset.records.map((record) => {
+      const replaceDomain = (value) => String(value).replaceAll("{domain}", domain);
+      const template = replaceDomain(record.nameTemplate);
+      let name;
+      if (template === "@") name = domain;
+      else if (template.endsWith(`.${domain}`) || template === domain) name = template;
+      else name = `${template}.${domain}`;
+      return {
+        ...record,
+        name,
+        content: replaceDomain(record.contentTemplate),
+      };
+    });
+  }
+
+  resolve(id, domain) {
+    return this.resolveAll(id, domain)[0];
   }
 }
 

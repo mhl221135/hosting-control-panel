@@ -12,7 +12,9 @@ const state = {
   backupStatus: null,
   dnsRecords: [],
   dnsPresets: [],
+  dnsPresetDraft: [],
   cloudflareIps: [],
+  wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
 };
@@ -65,6 +67,16 @@ function formObject(form) {
     output[element.name] = element.type === "checkbox" ? element.checked : element.value;
   }
   return output;
+}
+
+function syncProvisionDnsOptions() {
+  const form = $("#provisionForm");
+  const manageDns = form.elements.create_update_dns.checked;
+  const usePreset = form.elements.apply_dns_preset.checked;
+  form.elements.dns_ip.disabled = !manageDns;
+  form.elements.dns_ip.required = manageDns;
+  form.elements.dns_preset_id.disabled = !usePreset;
+  form.elements.dns_preset_id.required = usePreset;
 }
 
 async function withButton(button, pendingText, work) {
@@ -304,13 +316,16 @@ function renderHosts() {
 }
 
 async function loadData() {
-  const [status, siteData, poolData, presetData, backupData, imageOptimization] = await Promise.all([
+  const [status, siteData, poolData, presetData, backupData, imageOptimization, dnsData, ipData, packages] = await Promise.all([
     api("/api/status"),
     api("/api/sites"),
     api("/api/pools"),
     api("/api/pool-presets"),
     api("/api/backups/settings"),
     api("/api/sites/images/status"),
+    api("/api/dns-presets"),
+    api("/api/cloudflare/ip-addresses"),
+    api("/api/wordpress-packages"),
   ]);
   state.status = status;
   state.sites = siteData.sites || [];
@@ -319,6 +334,9 @@ async function loadData() {
   state.backupSettings = backupData.settings;
   state.backupStatus = backupData.status;
   state.imageOptimization = imageOptimization;
+  state.dnsPresets = dnsData.presets || [];
+  state.cloudflareIps = ipData.addresses || [];
+  state.wordpressPackages = packages;
   $("#provisionTier").innerHTML = Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}">${escapeHtml(tier)}</option>`).join("");
   renderSummary();
   renderSites();
@@ -327,6 +345,10 @@ async function loadData() {
   renderPools();
   renderHosts();
   renderImageOptimization();
+  renderDnsPresets();
+  renderDnsPresetDraft();
+  renderCloudflareIps();
+  renderWordPressPackages();
 }
 
 async function loadNpm() {
@@ -401,25 +423,68 @@ function resetDnsForm() {
 }
 
 function renderDnsPresets() {
-  $("#dnsPresetSelect").innerHTML = [
+  const options = [
     '<option value="">Select a preset</option>',
     ...state.dnsPresets.map((preset) =>
-      `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.label)} · ${escapeHtml(preset.type)} ${escapeHtml(preset.nameTemplate)}</option>`),
+      `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.label)} · ${(preset.records || []).length} record${(preset.records || []).length === 1 ? "" : "s"}</option>`),
   ].join("");
+  $("#dnsPresetSelect").innerHTML = options;
+  $("#provisionDnsPreset").innerHTML = options;
   const list = $("#dnsPresetList");
   list.className = state.dnsPresets.length ? "rows" : "rows empty";
   list.innerHTML = state.dnsPresets.length ? state.dnsPresets.map((preset) => `
     <div class="data-row preset-row">
-      <strong>${escapeHtml(preset.type)}</strong>
+      <strong>${(preset.records || []).length}</strong>
       <span>${escapeHtml(preset.label)}</span>
-      <code>${escapeHtml(preset.nameTemplate)} → ${escapeHtml(preset.contentTemplate)}</code>
-      <span>${preset.proxied ? "Proxied" : "DNS only"}</span>
+      <code>${(preset.records || []).map((record) => `${escapeHtml(record.type)} ${escapeHtml(record.nameTemplate)} → ${escapeHtml(record.contentTemplate)}`).join(" · ")}</code>
+      <span>record${(preset.records || []).length === 1 ? "" : "s"}</span>
       <div class="record-actions">
         <button class="secondary" data-edit-dns-preset="${escapeHtml(preset.id)}">Edit</button>
         <button class="secondary danger-button" data-delete-dns-preset="${escapeHtml(preset.id)}">Delete</button>
       </div>
     </div>
   `).join("") : "No DNS presets saved.";
+}
+
+function renderDnsPresetDraft() {
+  const list = $("#dnsPresetDraft");
+  list.className = state.dnsPresetDraft.length ? "rows" : "rows empty";
+  list.innerHTML = state.dnsPresetDraft.length ? state.dnsPresetDraft.map((record) => `
+    <div class="preset-draft-row">
+      <strong>${escapeHtml(record.type)}</strong>
+      <code>${escapeHtml(record.name_template)} → ${escapeHtml(record.content_template)}</code>
+      <span>${record.proxied ? "Proxied" : "DNS only"}</span>
+      <button type="button" class="secondary danger-button" data-remove-preset-record="${escapeHtml(record.id)}">Remove</button>
+    </div>
+  `).join("") : "Add at least one record.";
+}
+
+function resetDnsPresetForm() {
+  const form = $("#dnsPresetForm");
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.name_template.value = "@";
+  form.elements.ttl.value = "1";
+  form.elements.priority.value = "10";
+  form.elements.proxied.checked = true;
+  state.dnsPresetDraft = [];
+  renderDnsPresetDraft();
+  $("#cancelDnsPresetEdit").classList.add("hidden");
+}
+
+function presetRecordFromForm(form) {
+  const nameTemplate = form.elements.name_template.value.trim();
+  const contentTemplate = form.elements.content_template.value.trim();
+  if (!nameTemplate || !contentTemplate) throw new Error("Enter the DNS name and content before adding the record");
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    type: form.elements.type.value,
+    name_template: nameTemplate,
+    content_template: contentTemplate,
+    ttl: Number(form.elements.ttl.value || 1),
+    priority: Number(form.elements.priority.value || 10),
+    proxied: form.elements.proxied.checked,
+  };
 }
 
 async function loadDnsPresets() {
@@ -432,12 +497,40 @@ function renderCloudflareIps() {
   $("#cloudflareIpForm").elements.addresses.value = state.cloudflareIps.join("\n");
   $("#cloudflareIpOptions").innerHTML = state.cloudflareIps
     .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
+  $("#provisionDnsIpOptions").innerHTML = state.cloudflareIps
+    .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
+  const provisionDnsInput = $("#provisionForm").elements.dns_ip;
+  if (!provisionDnsInput.value && state.cloudflareIps.length) provisionDnsInput.value = state.cloudflareIps[0];
 }
 
 async function loadCloudflareIps() {
   const data = await api("/api/cloudflare/ip-addresses");
   state.cloudflareIps = data.addresses || [];
   renderCloudflareIps();
+}
+
+function renderWordPressPackages() {
+  for (const kind of ["plugins", "themes"]) {
+    const packages = state.wordpressPackages[kind] || [];
+    const list = $(kind === "plugins" ? "#pluginPackageList" : "#themePackageList");
+    list.className = packages.length ? "rows" : "rows empty";
+    list.innerHTML = packages.length ? packages.map((item) => `
+      <div class="package-row">
+        <div><strong>${escapeHtml(item.name)}</strong><span>${formatBytes(item.size)}</span></div>
+        <button type="button" class="secondary danger-button" data-delete-package="${escapeHtml(item.id)}" data-package-kind="${kind}">Delete</button>
+      </div>
+    `).join("") : `No uploaded ${kind}.`;
+    const choices = $(kind === "plugins" ? "#provisionPluginPackages" : "#provisionThemePackages");
+    choices.className = packages.length ? "package-checks" : "package-checks muted";
+    choices.innerHTML = packages.length ? packages.map((item) => `
+      <label class="check"><input type="checkbox" data-package-choice="${kind}" value="${escapeHtml(item.id)}" /> ${escapeHtml(item.name)}</label>
+    `).join("") : `No uploaded ${kind}.`;
+  }
+}
+
+async function loadWordPressPackages() {
+  state.wordpressPackages = await api("/api/wordpress-packages");
+  renderWordPressPackages();
 }
 
 async function refreshIntegrationView() {
@@ -528,6 +621,9 @@ $$("[data-tab-link]").forEach((button) => button.addEventListener("click", (even
 }));
 
 $("#siteSearch").addEventListener("input", renderSites);
+$("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);
+$("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncProvisionDnsOptions);
+syncProvisionDnsOptions();
 $("#optimizeAllImages").addEventListener("click", async () => {
   try {
     state.imageOptimization = await api("/api/sites/images/optimize-all", { method: "POST" });
@@ -657,11 +753,11 @@ $("#applyDnsPreset").addEventListener("click", async (event) => {
   const presetId = $("#dnsPresetSelect").value;
   if (!presetId) return notice("Select a DNS preset first.", "warning");
   try {
-    await withButton(event.currentTarget, "Applying...", () => api(
+    const result = await withButton(event.currentTarget, "Applying...", () => api(
       `/api/dns-presets/${encodeURIComponent(presetId)}/apply`,
       { method: "POST", body: JSON.stringify({ domain: state.selectedDomain }) },
     ));
-    notice(`DNS preset applied to ${state.selectedDomain}.`);
+    notice(`${result.count} preset record${result.count === 1 ? "" : "s"} added to ${state.selectedDomain}.`);
     await loadDns();
   } catch (error) { notice(error.message, "warning"); }
 });
@@ -700,6 +796,10 @@ $("#renewNpmSsl").addEventListener("click", async (event) => {
 $("#provisionForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = formObject(event.currentTarget);
+  body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
+  body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
+  if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
+  if (body.apply_dns_preset && !body.dns_preset_id) return notice("Select the DNS preset to add.", "warning");
   const resultPanel = $("#provisionResult");
   resultPanel.classList.add("hidden");
   try {
@@ -837,20 +937,37 @@ $("#backupHistory").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 
+$("#addDnsPresetRecord").addEventListener("click", () => {
+  const form = $("#dnsPresetForm");
+  try {
+    state.dnsPresetDraft.push(presetRecordFromForm(form));
+    renderDnsPresetDraft();
+    form.elements.content_template.value = "";
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsPresetDraft").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-preset-record]");
+  if (!button) return;
+  state.dnsPresetDraft = state.dnsPresetDraft.filter((record) => record.id !== button.dataset.removePresetRecord);
+  renderDnsPresetDraft();
+});
+
 $("#dnsPresetForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (!state.dnsPresetDraft.length) return notice("Add at least one record to the preset.", "warning");
+  const payload = {
+    id: event.currentTarget.elements.id.value,
+    label: event.currentTarget.elements.label.value,
+    records: state.dnsPresetDraft,
+  };
   try {
     await withButton(event.submitter, "Saving...", () => api("/api/dns-presets", {
       method: "POST",
-      body: JSON.stringify(formObject(event.currentTarget)),
+      body: JSON.stringify(payload),
     }));
-    event.currentTarget.reset();
-    event.currentTarget.elements.name_template.value = "@";
-    event.currentTarget.elements.ttl.value = "1";
-    event.currentTarget.elements.priority.value = "10";
-    event.currentTarget.elements.proxied.checked = true;
-    $("#cancelDnsPresetEdit").classList.add("hidden");
-    notice("DNS preset saved.");
+    resetDnsPresetForm();
+    notice("DNS preset set saved.");
     await loadDnsPresets();
   } catch (error) { notice(error.message, "warning"); }
 });
@@ -863,12 +980,16 @@ $("#dnsPresetList").addEventListener("click", async (event) => {
     const form = $("#dnsPresetForm");
     form.elements.id.value = preset.id;
     form.elements.label.value = preset.label;
-    form.elements.type.value = preset.type;
-    form.elements.name_template.value = preset.nameTemplate;
-    form.elements.content_template.value = preset.contentTemplate;
-    form.elements.ttl.value = preset.ttl;
-    form.elements.priority.value = preset.priority || 10;
-    form.elements.proxied.checked = preset.proxied;
+    state.dnsPresetDraft = (preset.records || []).map((record) => ({
+      id: record.id,
+      type: record.type,
+      name_template: record.nameTemplate,
+      content_template: record.contentTemplate,
+      ttl: record.ttl,
+      priority: record.priority || 10,
+      proxied: record.proxied,
+    }));
+    renderDnsPresetDraft();
     $("#cancelDnsPresetEdit").classList.remove("hidden");
     form.scrollIntoView({ behavior: "smooth", block: "nearest" });
     return;
@@ -882,15 +1003,40 @@ $("#dnsPresetList").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 
-$("#cancelDnsPresetEdit").addEventListener("click", () => {
-  const form = $("#dnsPresetForm");
-  form.reset();
-  form.elements.id.value = "";
-  form.elements.name_template.value = "@";
-  form.elements.ttl.value = "1";
-  form.elements.priority.value = "10";
-  form.elements.proxied.checked = true;
-  $("#cancelDnsPresetEdit").classList.add("hidden");
+$("#cancelDnsPresetEdit").addEventListener("click", resetDnsPresetForm);
+
+$$('[data-package-upload]').forEach((form) => form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const kind = form.dataset.packageUpload;
+  const files = [...form.elements.package.files];
+  if (!files.length) return;
+  try {
+    await withButton(event.submitter, "Uploading...", async () => {
+      for (const file of files) {
+        await api(`/api/wordpress-packages/${kind}?filename=${encodeURIComponent(file.name)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/zip" },
+          body: file,
+        });
+      }
+    });
+    form.reset();
+    await loadWordPressPackages();
+    notice(`${files.length} ${kind === "plugins" ? "plugin" : "theme"} package${files.length === 1 ? "" : "s"} uploaded.`);
+  } catch (error) { notice(error.message, "warning"); }
+}));
+
+$(".package-library").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-package]");
+  if (!button || !confirm("Delete this installation package from the library?")) return;
+  try {
+    await withButton(button, "Deleting...", () => api(
+      `/api/wordpress-packages/${button.dataset.packageKind}/${encodeURIComponent(button.dataset.deletePackage)}`,
+      { method: "DELETE" },
+    ));
+    await loadWordPressPackages();
+    notice("Installation package deleted.");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#saveCloudflareIps").addEventListener("click", async (event) => {

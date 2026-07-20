@@ -55,6 +55,47 @@ test("resolves @ and full host templates without duplicating the domain", () => 
   }
 });
 
+test("stores and resolves a multi-record DNS preset set", () => {
+  const value = fixture();
+  try {
+    const preset = value.presets.save({
+      label: "Mail records",
+      records: [
+        { type: "MX", name_template: "@", content_template: "mail.{domain}", priority: 10 },
+        { type: "TXT", name_template: "@", content_template: "v=spf1 include:{domain} ~all" },
+      ],
+    });
+    const records = value.presets.resolveAll(preset.id, "example.com");
+    assert.equal(records.length, 2);
+    assert.equal(records[0].name, "example.com");
+    assert.equal(records[0].content, "mail.example.com");
+    assert.equal(records[1].content, "v=spf1 include:example.com ~all");
+  } finally {
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("reads legacy single-record presets as one-record sets", () => {
+  const value = fixture();
+  try {
+    fs.writeFileSync(value.presets.filePath, JSON.stringify([{
+      id: "legacy-id",
+      label: "Legacy",
+      type: "A",
+      nameTemplate: "@",
+      contentTemplate: "192.0.2.5",
+      ttl: 1,
+      proxied: true,
+    }]));
+    const preset = value.presets.read()[0];
+    assert.equal(preset.id, "legacy-id");
+    assert.equal(preset.records.length, 1);
+    assert.equal(value.presets.resolveAll("legacy-id", "example.com")[0].content, "192.0.2.5");
+  } finally {
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("stores unique IPv4 addresses and rejects IPv6 or invalid input", () => {
   const value = fixture();
   try {
