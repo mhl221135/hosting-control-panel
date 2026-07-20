@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260721-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260721-3" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -93,10 +93,44 @@
               <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>
               <label class="check"><input name="create_npm_host" type="checkbox" checked /> Create NPM proxy host</label>
               <label class="check"><input name="issue_ssl" type="checkbox" checked /> Request SSL</label>
+              <label class="check"><input name="enable_comments" type="checkbox" /> Enable comments by default</label>
+              <label class="check"><input name="keep_default_plugins" type="checkbox" /> Keep bundled WordPress plugins</label>
+              <label class="check"><input name="keep_default_themes" type="checkbox" /> Keep bundled WordPress themes</label>
+            </fieldset>
+            <fieldset class="option-group full provision-dns-options">
+              <legend>Cloudflare DNS</legend>
+              <label class="check"><input name="create_update_dns" type="checkbox" checked /> Create or update website DNS</label>
+              <label>Server IPv4<input name="dns_ip" list="provisionDnsIpOptions" placeholder="Select or enter the server IP" /></label>
+              <datalist id="provisionDnsIpOptions"></datalist>
+              <label class="check"><input name="apply_dns_preset" type="checkbox" /> Add DNS preset records</label>
+              <label>DNS preset<select name="dns_preset_id" id="provisionDnsPreset"><option value="">Select a preset</option></select></label>
+            </fieldset>
+            <fieldset class="option-group full package-selection">
+              <legend>Installation packages</legend>
+              <div><strong>Plugins</strong><div id="provisionPluginPackages" class="package-checks muted">No uploaded plugins.</div></div>
+              <div><strong>Themes</strong><div id="provisionThemePackages" class="package-checks muted">No uploaded themes.</div></div>
             </fieldset>
             <div class="form-actions full"><button type="submit">Create website</button></div>
           </form>
           <div id="provisionResult" class="panel result hidden"></div>
+          <div class="two-column package-library">
+            <article class="panel">
+              <div class="card-head"><div><h3>Plugin library</h3><p class="muted">Persistent ZIP packages available during installation.</p></div></div>
+              <form class="package-upload" data-package-upload="plugins">
+                <input name="package" type="file" accept=".zip,application/zip" multiple required />
+                <button type="submit">Upload plugins</button>
+              </form>
+              <div id="pluginPackageList" class="rows empty">No uploaded plugins.</div>
+            </article>
+            <article class="panel">
+              <div class="card-head"><div><h3>Theme library</h3><p class="muted">The first selected uploaded theme becomes active.</p></div></div>
+              <form class="package-upload" data-package-upload="themes">
+                <input name="package" type="file" accept=".zip,application/zip" multiple required />
+                <button type="submit">Upload themes</button>
+              </form>
+              <div id="themePackageList" class="rows empty">No uploaded themes.</div>
+            </article>
+          </div>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="integrations">
@@ -110,7 +144,7 @@
               <div class="card-head"><div><h3>Cloudflare DNS</h3><p id="dnsZone" class="muted">Select a website.</p></div><button id="loadDns" class="secondary">Refresh</button></div>
               <div class="preset-apply">
                 <label>DNS preset<select id="dnsPresetSelect"><option value="">Select a preset</option></select></label>
-                <button id="applyDnsPreset" type="button" class="secondary">Apply preset</button>
+                <button id="applyDnsPreset" type="button" class="secondary">Add preset records</button>
               </div>
               <div id="dnsRecords" class="rows empty">No DNS records loaded.</div>
               <form id="dnsForm" class="compact-grid">
@@ -271,21 +305,23 @@
 
           <div class="two-column settings-tools">
             <article class="panel">
-              <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Use @ for the selected host, or a relative name such as www.</p></div></div>
+              <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Build a named set containing one or more reusable records.</p></div></div>
               <form id="dnsPresetForm" class="form-grid">
                 <input name="id" type="hidden" />
-                <label>Preset name<input name="label" placeholder="Main server A record" required /></label>
+                <label class="full">Preset name<input name="label" placeholder="Website mail and verification records" required /></label>
                 <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>CAA</option></select></label>
-                <label>Name template<input name="name_template" value="@" placeholder="@ or www" required /></label>
-                <label>Content template<input name="content_template" placeholder="IP, target, or {domain}" required /></label>
+                <label>Name template<input name="name_template" value="@" placeholder="@ or www" /></label>
+                <label>Content template<input name="content_template" placeholder="IP, target, or {domain}" /></label>
                 <label>TTL<input name="ttl" type="number" value="1" min="1" max="86400" /></label>
                 <label>MX priority<input name="priority" type="number" value="10" min="0" max="65535" /></label>
                 <label class="check inline"><input name="proxied" type="checkbox" checked /> Cloudflare proxy</label>
                 <div class="form-actions full button-row">
                   <button id="cancelDnsPresetEdit" type="button" class="secondary hidden">Cancel</button>
-                  <button type="submit">Save preset</button>
+                  <button id="addDnsPresetRecord" type="button" class="secondary">Add record to preset</button>
+                  <button type="submit">Save preset set</button>
                 </div>
               </form>
+              <div id="dnsPresetDraft" class="rows empty">Add at least one record.</div>
               <div id="dnsPresetList" class="rows empty">No DNS presets saved.</div>
             </article>
 
@@ -311,6 +347,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-2"></script>
+    <script src="/app.js?v=20260721-3"></script>
   </body>
 </html>

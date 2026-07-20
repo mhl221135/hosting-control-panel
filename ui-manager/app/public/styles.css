@@ -84,6 +84,16 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .full { grid-column: 1 / -1; }
 .option-group { display: flex; flex-wrap: wrap; gap: 14px 22px; border: 1px solid var(--line); border-radius: 6px; padding: 13px; }
 .option-group legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
+.provision-dns-options { display: grid; grid-template-columns: minmax(190px, auto) minmax(220px, 1fr) minmax(180px, auto) minmax(220px, 1fr); align-items: end; }
+.package-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.package-selection > div { display: grid; gap: 9px; }
+.package-checks { display: grid; gap: 7px; font-size: 12px; }
+.package-upload { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; margin-bottom: 14px; }
+.package-row, .preset-draft-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
+.package-row div { display: grid; gap: 3px; min-width: 0; }
+.package-row strong, .preset-draft-row code { overflow-wrap: anywhere; }
+.package-row span { color: var(--muted); }
+.preset-draft-row { grid-template-columns: 54px minmax(140px, 1fr) 70px auto; }
 .check { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 7px; font-weight: 550; }
 .check input { width: 16px; min-height: 16px; }
 .check.inline { align-self: end; min-height: 38px; }
@@ -119,6 +129,7 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .two-column { grid-template-columns: 1fr; }
   .site-row { grid-template-columns: 1fr 1fr; }
+  .provision-dns-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-row { grid-template-columns: 60px minmax(120px, 1fr) minmax(160px, 1fr); }
   .record-actions { justify-content: flex-start; }
 }
@@ -133,7 +144,7 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .workspace { padding: 0 14px 28px; }
   .topbar, .section-head, .card-head { align-items: flex-start; flex-direction: column; }
   .top-actions { justify-content: flex-start; }
-  .metrics, .form-grid, .site-row { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .site-row, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row { grid-template-columns: 1fr; }
   .backup-layout, .backup-row, .data-row, .preset-apply { grid-template-columns: 1fr; }
   .backup-actions, .record-actions { justify-content: flex-start; flex-wrap: wrap; }
   .compact-grid { grid-template-columns: 1fr; }

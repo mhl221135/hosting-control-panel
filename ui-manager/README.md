@@ -29,7 +29,14 @@ stored by the panel.
 
 Open **Provision** to create a site, PHP-FPM pool, database and database user,
 install WordPress, enable optional Redis/OPcache/FastCGI cache, and create the NPM
-proxy host and certificate. Generated credentials are shown once.
+proxy host and certificate. Provisioning can create/update Cloudflare host DNS,
+apply a named multi-record DNS preset, and install selected ZIP packages from the
+persistent plugin/theme library. Generated credentials are shown once.
+
+Fresh installations remove the Hello World post and close comments by default.
+Bundled WordPress plugins and inactive bundled themes are removed unless their
+retention controls are selected. If no custom theme is selected, the active
+bundled theme remains so the new website has a functioning frontend.
 
 ## Sites and image optimization
 
@@ -50,7 +57,8 @@ never writes those secrets to an export.
 
 ## Persistent and mounted paths
 
-- `/app/data`: panel account, encrypted settings, site state, and config backups
+- `/app/data`: panel account, encrypted settings, site state, config backups,
+  DNS presets, and uploaded WordPress package ZIPs
 - `/srv/websites`: website files
 - `/srv/exports`: portable export output
 - `/srv/imports`: staged import input

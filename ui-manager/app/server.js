@@ -23,6 +23,7 @@ const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases } = require("./lib/runtime-config");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
+const { WordPressPackageStore } = require("./lib/wordpress-packages");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -81,6 +82,7 @@ const integrationSettings = new IntegrationSettings(DATA_DIR);
 const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
 const dnsPresets = new DnsPresetStore(DATA_DIR);
+const wordpressPackages = new WordPressPackageStore(DATA_DIR);
 const ipAddresses = new IpAddressStore(DATA_DIR);
 const performanceSettings = new PerformanceSettings({
   dataDir: DATA_DIR,
@@ -122,6 +124,35 @@ function readBody(req) {
       if (data.length > 1024 * 1024) reject(new Error("Request body too large"));
     });
     req.on("end", () => resolve(data));
+    req.on("error", reject);
+  });
+}
+
+function readBinaryBody(req, limit = 128 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (Number(req.headers["content-length"] || 0) > limit) {
+      const error = new Error("Upload must be 128 MB or smaller");
+      error.statusCode = 413;
+      reject(error);
+      req.resume();
+      return;
+    }
+    const chunks = [];
+    let size = 0;
+    let failed = false;
+    req.on("data", (chunk) => {
+      if (failed) return;
+      size += chunk.length;
+      if (size > limit) {
+        failed = true;
+        const error = new Error("Upload must be 128 MB or smaller");
+        error.statusCode = 413;
+        reject(error);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => { if (!failed) resolve(Buffer.concat(chunks)); });
     req.on("error", reject);
   });
 }
@@ -785,9 +816,30 @@ async function handleApi(req, res) {
     const body = JSON.parse((await readBody(req)) || "{}");
     const domain = validateDomain(body.domain);
     const presetId = decodeURIComponent(requestUrl.pathname.split("/")[3]);
-    const record = dnsPresets.resolve(presetId, domain);
-    const result = await cloudflare.upsertRecord(domain, record);
-    sendJson(res, 200, { ok: true, record: result.result });
+    const records = dnsPresets.resolveAll(presetId, domain);
+    const results = [];
+    for (const record of records) results.push((await cloudflare.upsertRecord(domain, record)).result);
+    sendJson(res, 200, { ok: true, records: results, count: results.length });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/wordpress-packages") {
+    sendJson(res, 200, wordpressPackages.publicView());
+    return true;
+  }
+
+  if (req.method === "POST" && /^\/api\/wordpress-packages\/(plugins|themes)$/.test(requestUrl.pathname)) {
+    const kind = requestUrl.pathname.split("/").pop();
+    const filename = requestUrl.searchParams.get("filename") || "";
+    const content = await readBinaryBody(req);
+    sendJson(res, 201, { ok: true, package: wordpressPackages.upload(kind, filename, content) });
+    return true;
+  }
+
+  if (req.method === "DELETE" && /^\/api\/wordpress-packages\/(plugins|themes)\/[^/]+$/.test(requestUrl.pathname)) {
+    const parts = requestUrl.pathname.split("/");
+    wordpressPackages.delete(parts[3], decodeURIComponent(parts[4]));
+    sendJson(res, 200, { ok: true });
     return true;
   }
 
@@ -928,6 +980,12 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "WordPress administrator username is invalid" });
       return true;
     }
+    const pluginPackages = wordpressPackages.resolve("plugins", body.plugin_packages);
+    const themePackages = wordpressPackages.resolve("themes", body.theme_packages);
+    const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
+    const presetRecords = body.apply_dns_preset
+      ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
+      : [];
 
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
@@ -997,6 +1055,11 @@ async function handleApi(req, res) {
         adminPassword,
         redis: Boolean(body.redis),
         useHttps: false,
+        commentsEnabled: Boolean(body.enable_comments),
+        keepDefaultPlugins: Boolean(body.keep_default_plugins),
+        keepDefaultThemes: Boolean(body.keep_default_themes),
+        pluginPackages,
+        themePackages,
       });
       steps.push({ name: "wordpress", status: "complete" });
 
@@ -1009,6 +1072,23 @@ async function handleApi(req, res) {
         notes: String(body.notes || "").slice(0, 2000),
       });
       await execCommand("docker exec hosting-nginx nginx -s reload");
+
+      if (body.create_update_dns) {
+        try {
+          for (const host of domains) await cloudflare.upsertHostAddress(host, dnsIp, true);
+          steps.push({ name: "dns", status: "complete", count: domains.length });
+        } catch (error) {
+          steps.push({ name: "dns", status: "warning", message: error.message });
+        }
+      }
+      if (presetRecords.length) {
+        try {
+          for (const record of presetRecords) await cloudflare.upsertRecord(domain, record);
+          steps.push({ name: "dns-preset", status: "complete", count: presetRecords.length });
+        } catch (error) {
+          steps.push({ name: "dns-preset", status: "warning", message: error.message });
+        }
+      }
 
       let npmHost = null;
       if (body.create_npm_host) {

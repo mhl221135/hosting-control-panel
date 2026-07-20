@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { execFile } = require("child_process");
+const { execFile, spawn } = require("child_process");
 
 function execFileAsync(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -92,6 +92,51 @@ async function runWp(args, timeout = 180_000) {
   );
 }
 
+function outputNames(result) {
+  return String(result.stdout || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+}
+
+function copyPackageToPhp(filePath, destination, timeout = 180_000) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("docker", [
+      "exec", "-i", "hosting-php-fpm", "sh", "-c", 'umask 077; cat > "$1"', "package-copy", destination,
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeout);
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(stderr.trim() || `Could not copy WordPress package (exit ${code})`));
+    });
+    const input = fs.createReadStream(filePath);
+    input.on("error", (error) => {
+      child.stdin.destroy(error);
+      child.kill("SIGKILL");
+    });
+    input.pipe(child.stdin);
+  });
+}
+
+async function installWordPressPackage(kind, item, containerPath, activate = false) {
+  const command = kind === "plugins" ? "plugin" : "theme";
+  const temporary = `/tmp/hosting-package-${crypto.randomUUID()}.zip`;
+  try {
+    await copyPackageToPhp(item.path, temporary);
+    await runWp([
+      command, "install", temporary,
+      ...(activate ? ["--activate"] : []),
+      `--path=${containerPath}`,
+    ], 10 * 60 * 1000);
+  } finally {
+    await execFileAsync("docker", ["exec", "hosting-php-fpm", "rm", "-f", temporary]).catch(() => {});
+  }
+}
+
 function wordpressContainerPath(directory) {
   const relative = path.posix.normalize(String(directory || "").trim().replace(/^\/+/, ""));
   if (!relative || relative === "." || relative === ".." || relative.startsWith("../")) {
@@ -152,11 +197,46 @@ async function installWordPress(options) {
   ]);
   await runWp(["rewrite", "structure", "/%postname%/", `--path=${containerPath}`, "--hard"]);
 
+  const bundledPlugins = outputNames(await runWp(["plugin", "list", "--field=name", `--path=${containerPath}`]));
+  const bundledThemes = outputNames(await runWp(["theme", "list", "--field=name", `--path=${containerPath}`]));
+  const helloPosts = outputNames(await runWp([
+    "post", "list", "--post_type=post", "--post_status=any", "--format=ids", `--path=${containerPath}`,
+  ])).flatMap((line) => line.split(/\s+/).filter(Boolean));
+  if (helloPosts.length) await runWp(["post", "delete", ...helloPosts, "--force", `--path=${containerPath}`]);
+  await runWp([
+    "option", "update", "default_comment_status", options.commentsEnabled ? "open" : "closed", `--path=${containerPath}`,
+  ]);
+  await runWp(["option", "update", "default_ping_status", "closed", `--path=${containerPath}`]);
+
+  if (!options.keepDefaultPlugins && bundledPlugins.length) {
+    await runWp(["plugin", "deactivate", ...bundledPlugins, `--path=${containerPath}`]).catch(() => {});
+    await runWp(["plugin", "delete", ...bundledPlugins, `--path=${containerPath}`]);
+  }
+  for (const item of options.pluginPackages || []) {
+    await installWordPressPackage("plugins", item, containerPath, true);
+  }
+
   if (options.redis) {
     await runWp(["config", "set", "WP_REDIS_HOST", "hosting-redis", "--type=constant", `--path=${containerPath}`]);
     await runWp(["config", "set", "WP_REDIS_PREFIX", `${domain}:`, "--type=constant", `--path=${containerPath}`]);
     await runWp(["plugin", "install", "redis-cache", "--activate", `--path=${containerPath}`]);
     await runWp(["redis", "enable", `--path=${containerPath}`]);
+  }
+
+  for (const item of options.themePackages || []) {
+    await installWordPressPackage("themes", item, containerPath, false);
+  }
+  if ((options.themePackages || []).length) {
+    const themesAfterInstall = outputNames(await runWp(["theme", "list", "--field=name", `--path=${containerPath}`]));
+    const customThemes = themesAfterInstall.filter((name) => !bundledThemes.includes(name));
+    const activationTarget = customThemes[0] || themesAfterInstall.find((name) => !bundledThemes.includes(name));
+    if (!activationTarget) throw new Error("Uploaded theme package did not install a selectable theme");
+    await runWp(["theme", "activate", activationTarget, `--path=${containerPath}`]);
+  }
+  if (!options.keepDefaultThemes && bundledThemes.length) {
+    const activeThemes = outputNames(await runWp(["theme", "list", "--status=active", "--field=name", `--path=${containerPath}`]));
+    const removable = bundledThemes.filter((name) => !activeThemes.includes(name));
+    if (removable.length) await runWp(["theme", "delete", ...removable, `--path=${containerPath}`]);
   }
 
   await execFileAsync("docker", [

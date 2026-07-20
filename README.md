@@ -258,9 +258,13 @@ The Settings tab contains connection tests for:
 1. Open **Provision**.
 2. Enter the domain, website directory, title, administrator email, and user.
 3. Choose the PHP pool tier.
-4. Optionally enable `www`, Redis, OPcache, FastCGI cache, NPM host creation, and SSL.
-   Daily backup can also be enabled during provisioning.
-5. Submit the form and store the displayed one-time credentials.
+4. Choose whether to create/update Cloudflare host DNS and optionally apply a
+   named multi-record DNS preset.
+5. Select uploaded plugin/theme ZIP packages and optional cache, NPM, SSL, and
+   daily backup settings.
+6. Choose whether to keep bundled WordPress plugins/themes or enable comments.
+   These options are off by default, and the initial Hello World post is removed.
+7. Submit the form and store the displayed one-time credentials.
 
 Provisioning:
 
@@ -269,9 +273,16 @@ Provisioning:
 3. Validates and reloads nginx/PHP-FPM.
 4. Creates a MySQL database and user such as `yogali00_example_com`.
 5. Downloads and installs WordPress with WP-CLI.
-6. Configures Redis when selected.
-7. Creates or reuses the NPM proxy host.
-8. Requests and attaches the certificate when selected.
+6. Applies clean-install content settings and selected plugin/theme packages.
+7. Creates or updates Cloudflare DNS and preset records when selected.
+8. Configures Redis when selected.
+9. Creates or reuses the NPM proxy host.
+10. Requests and attaches the certificate when selected.
+
+Uploaded WordPress packages are stored persistently under
+`app-data/ui-manager/wordpress-packages`. Uploads are limited to ZIP files and
+128 MB each. Selected plugins are activated; selected themes are installed and
+the first available selected theme is activated.
 
 Names longer than MySQL's identifier limit use a deterministic hash suffix.
 
@@ -492,9 +503,11 @@ The **DNS & SSL** tab lists all Cloudflare records at the selected website host
 and below it, and supports creating, editing, and deleting A, AAAA, CNAME, TXT,
 MX, and CAA records.
 
-Reusable DNS presets are managed in **Settings** and can be applied to any
-selected website. Use `@` for the selected host, a relative name such as `www`,
-or `{domain}` in name and content templates.
+Reusable DNS preset sets are managed in **Settings**. Each named preset can
+contain up to 50 records and can be applied from **DNS & SSL** or during a new
+WordPress installation. Use `@` for the selected host, a relative name such as
+`www`, or `{domain}` in name and content templates. Existing single-record
+presets are migrated automatically when read.
 
 Both user-owned (`cfut_`) and account-owned (`cfat_`) Cloudflare API tokens are
 supported. Account-owned tokens also require the 32-character Cloudflare
