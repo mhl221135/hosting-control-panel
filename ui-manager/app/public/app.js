@@ -499,8 +499,6 @@ function renderCloudflareIps() {
     .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
   $("#provisionDnsIpOptions").innerHTML = state.cloudflareIps
     .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
-  const provisionDnsInput = $("#provisionForm").elements.dns_ip;
-  if (!provisionDnsInput.value && state.cloudflareIps.length) provisionDnsInput.value = state.cloudflareIps[0];
 }
 
 async function loadCloudflareIps() {
