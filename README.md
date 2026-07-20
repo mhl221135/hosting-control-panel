@@ -440,6 +440,30 @@ dumps are imported from that manifest. Without a manifest, the importer scans
 for its domain and aliases, and selects the newest matching dump using names
 such as `yogali00_b389_2026-07-19_02-00.sql.gz`.
 
+For a JSON-driven site list, put `import-sites.json` beside the database dumps.
+A sample is available at `examples/import-sites.sample.json`. Each entry only
+requires a website path relative to the `websites` directory and its domain:
+
+```json
+{
+  "version": 1,
+  "type": "hosting-sites-import",
+  "sites": [
+    {
+      "websitePath": "example.com",
+      "domain": "example.com",
+      "aliases": ["www.example.com"],
+      "poolTier": "medium"
+    }
+  ]
+}
+```
+
+The website files must already exist at `websites/<websitePath>`. The importer
+reads `DB_NAME` from that site's `wp-config.php` and selects the newest matching
+`.sql.gz` file from the chosen dump directory. The JSON therefore needs no
+database names, passwords, or dump paths.
+
 For each imported site the migration process:
 
 1. Refuses to overwrite a non-empty destination or an existing database.

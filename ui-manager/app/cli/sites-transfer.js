@@ -6,7 +6,7 @@ const readline = require("readline/promises");
 const { stdin, stdout } = require("process");
 const { IntegrationSettings } = require("../lib/integration-settings");
 const { CloudflareClient, NpmClient } = require("../lib/integrations");
-const { MigrationManager, newestDatabaseDump, validateIpv4, validateManifest } = require("../lib/migration-manager");
+const { MigrationManager, newestDatabaseDump, validateImportPlan, validateIpv4, validateManifest } = require("../lib/migration-manager");
 const { SiteState } = require("../lib/site-state");
 const { validateDomain } = require("../lib/provisioner");
 
@@ -115,13 +115,41 @@ async function manualManifest(sourceDirectory) {
   return validateManifest({ version: 1, type: "hosting-sites-export", createdAt: new Date().toISOString(), sites });
 }
 
+async function manifestFromImportPlan(sourceDirectory, importPlan) {
+  const plan = validateImportPlan(importPlan);
+  const sites = [];
+  for (const site of plan.sites) {
+    const configuredDatabase = await manager.wordpressDatabase(site.websitePath);
+    const dump = newestDatabaseDump(sourceDirectory, configuredDatabase);
+    if (!dump) {
+      throw new Error(`No .sql.gz dump found for ${site.domain} database ${configuredDatabase}`);
+    }
+    sites.push({
+      ...site,
+      database: configuredDatabase,
+      databaseDump: path.basename(dump),
+    });
+  }
+  return validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    createdAt: new Date().toISOString(),
+    sites,
+  });
+}
+
 async function importSites(sourceArgument) {
   const sourceDirectory = sourceInsideImports(sourceArgument || await prompt("Staged import directory", IMPORTS_ROOT));
   const manifestPath = path.join(sourceDirectory, "manifest.json");
-  const fromManifest = fs.existsSync(manifestPath);
-  const manifest = fromManifest
-    ? manager.readManifest(sourceDirectory)
-    : await manualManifest(sourceDirectory);
+  const importPlanPath = path.join(sourceDirectory, "import-sites.json");
+  const fromExport = fs.existsSync(manifestPath);
+  const fromImportPlan = !fromExport && fs.existsSync(importPlanPath);
+  let manifest;
+  if (fromExport) manifest = manager.readManifest(sourceDirectory);
+  else if (fromImportPlan) {
+    const importPlan = JSON.parse(fs.readFileSync(importPlanPath, "utf8"));
+    manifest = await manifestFromImportPlan(sourceDirectory, importPlan);
+  } else manifest = await manualManifest(sourceDirectory);
   if (!manifest.sites.length) throw new Error("No websites were selected for import");
   stdout.write(`\nImport plan:\n${manifest.sites.map((site) => `  - ${site.domain} -> ${site.websitePath} (${site.database})`).join("\n")}\n`);
   const detectedIp = await detectWanIp();
@@ -133,7 +161,7 @@ async function importSites(sourceArgument) {
   const result = await manager.importSites({
     sourceDirectory,
     manifest,
-    useExistingFiles: !fromManifest,
+    useExistingFiles: !fromExport,
     wanIp,
     updateDns,
     proxied,
