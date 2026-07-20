@@ -69,6 +69,7 @@ test("selects the newest timestamped dump matching wp-config DB_NAME", () => {
   try {
     fs.writeFileSync(path.join(directory, "yogali00_b389_2026-07-18_02-00.sql.gz"), "old");
     fs.writeFileSync(path.join(directory, "yogali00_b389_2026-07-19_02-00.sql.gz"), "new");
+    fs.writeFileSync(path.join(directory, "yogali00_b389_archive_2027-07-20_02-00.sql.gz"), "wrong database");
     fs.writeFileSync(path.join(directory, "unrelated_2026-07-20_02-00.sql.gz"), "other");
     assert.equal(path.basename(newestDatabaseDump(directory, "yogali00_b389")), "yogali00_b389_2026-07-19_02-00.sql.gz");
   } finally {

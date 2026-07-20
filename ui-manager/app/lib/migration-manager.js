@@ -47,10 +47,12 @@ function validateDatabaseName(value) {
 }
 
 function newestDatabaseDump(directory, database) {
-  const prefix = `${validateDatabaseName(database)}_`;
+  const name = validateDatabaseName(database);
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const timestamped = new RegExp(`^${escaped}_\\d{4}-\\d{2}-\\d{2}[T_]\\d{2}-\\d{2}(?:-\\d{2})?\\.sql\\.gz$`);
   const matches = fs.readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".sql.gz"))
-    .filter((entry) => entry.name === `${database}.sql.gz` || entry.name.startsWith(prefix))
+    .filter((entry) => entry.name === `${name}.sql.gz` || timestamped.test(entry.name))
     .map((entry) => entry.name)
     .sort()
     .reverse();
