@@ -14,7 +14,10 @@ const state = {
   dnsPresets: [],
   cloudflareIps: [],
   performance: null,
+  imageOptimization: null,
 };
+
+let imageOptimizationPollTimer = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -103,7 +106,7 @@ function switchTab(name) {
 }
 
 function primarySites() {
-  return state.sites.filter((site) => !site.isWwwAlias);
+  return state.sites.filter((site) => !site.isAlias);
 }
 
 function renderSummary() {
@@ -121,7 +124,9 @@ function renderSummary() {
 
 function renderSites() {
   const query = $("#siteSearch").value.trim().toLowerCase();
-  const sites = primarySites().filter((site) => site.host.toLowerCase().includes(query));
+  const sites = primarySites().filter((site) =>
+    [site.host, ...(site.aliases || [])].some((host) => host.toLowerCase().includes(query))
+  );
   const container = $("#sitesList");
   if (!sites.length) {
     container.innerHTML = '<div class="panel muted">No matching websites.</div>';
@@ -129,7 +134,7 @@ function renderSites() {
   }
   container.innerHTML = sites.map((site) => `
     <article class="site-row">
-      <div><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p></div>
+      <div><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
       <div>
         <strong>${escapeHtml(site.poolName || "No pool")}</strong>
         <p>Port ${escapeHtml(site.port || "—")}</p>
@@ -158,6 +163,34 @@ function renderSites() {
       </div>
     </article>
   `).join("");
+}
+
+function renderImageOptimization() {
+  const status = state.imageOptimization || {};
+  const button = $("#optimizeAllImages");
+  const label = $("#imageOptimizationStatus");
+  button.disabled = Boolean(status.running);
+  button.textContent = status.running ? `Optimizing ${status.completed || 0}/${status.total || 0}` : "Optimize all images";
+  if (status.running) {
+    label.textContent = status.currentDomain || "Starting...";
+  } else if (status.finishedAt) {
+    const created = (status.results || []).reduce((total, result) => total + Number(result.created || 0), 0);
+    const saved = (status.results || []).reduce((total, result) => total + Number(result.bytesSaved || 0), 0);
+    label.textContent = `${status.message || "Completed"} · ${created} WebP · ${formatBytes(saved)} saved`;
+  } else {
+    label.textContent = "";
+  }
+  window.clearTimeout(imageOptimizationPollTimer);
+  if (status.running) {
+    imageOptimizationPollTimer = window.setTimeout(async () => {
+      try {
+        state.imageOptimization = await api("/api/sites/images/status");
+        renderImageOptimization();
+      } catch (error) {
+        notice(error.message, "warning");
+      }
+    }, 5000);
+  }
 }
 
 function renderDomainOptions() {
@@ -265,18 +298,19 @@ function renderHosts() {
         `<option value="${escapeHtml(name)}" ${name === site.poolName ? "selected" : ""}>${escapeHtml(name)}</option>`
       ).join("")}</select></td>
       <td><input data-host-field="canonical_to" value="${escapeHtml(site.canonicalTo || "")}" /></td>
-      <td><input data-host-field="add_www_alias" type="checkbox" ${!site.host.startsWith("www.") && state.sites.some((entry) => entry.host === `www.${site.host}` && entry.canonicalTo === site.host) ? "checked" : ""} /></td>
+      <td><input data-host-field="add_www_alias" type="checkbox" ${!site.host.startsWith("www.") && state.sites.some((entry) => entry.host === `www.${site.host}` && entry.root === site.root && entry.port === site.port) ? "checked" : ""} /></td>
     </tr>
   `).join("");
 }
 
 async function loadData() {
-  const [status, siteData, poolData, presetData, backupData] = await Promise.all([
+  const [status, siteData, poolData, presetData, backupData, imageOptimization] = await Promise.all([
     api("/api/status"),
     api("/api/sites"),
     api("/api/pools"),
     api("/api/pool-presets"),
     api("/api/backups/settings"),
+    api("/api/sites/images/status"),
   ]);
   state.status = status;
   state.sites = siteData.sites || [];
@@ -284,6 +318,7 @@ async function loadData() {
   state.tiers = presetData.tiers || {};
   state.backupSettings = backupData.settings;
   state.backupStatus = backupData.status;
+  state.imageOptimization = imageOptimization;
   $("#provisionTier").innerHTML = Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}">${escapeHtml(tier)}</option>`).join("");
   renderSummary();
   renderSites();
@@ -291,6 +326,7 @@ async function loadData() {
   renderBackupOptions();
   renderPools();
   renderHosts();
+  renderImageOptimization();
 }
 
 async function loadNpm() {
@@ -492,6 +528,15 @@ $$("[data-tab-link]").forEach((button) => button.addEventListener("click", (even
 }));
 
 $("#siteSearch").addEventListener("input", renderSites);
+$("#optimizeAllImages").addEventListener("click", async () => {
+  try {
+    state.imageOptimization = await api("/api/sites/images/optimize-all", { method: "POST" });
+    renderImageOptimization();
+    notice("Image optimization started.");
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
 $("#sitesList").addEventListener("click", (event) => {
   const manage = event.target.closest("[data-manage-site]");
   if (manage) {

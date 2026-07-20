@@ -20,6 +20,8 @@ const { BackupManager } = require("./lib/backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
+const { annotateSiteAliases } = require("./lib/runtime-config");
+const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -99,6 +101,11 @@ const backupManager = new BackupManager({
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
     return getSitesWithPools(mapParsed, poolsParsed);
   },
+});
+const imageOptimizationManager = new ImageOptimizationManager({
+  dataDir: DATA_DIR,
+  backupManager,
+  optimizer: optimizeImages,
 });
 
 function sendJson(res, code, obj, headers = {}) {
@@ -506,14 +513,13 @@ async function validateAndReload(mapBefore = null, poolsBefore = null) {
 
 function getSitesWithPools(mapParsed, poolsParsed) {
   const states = siteState.read().sites;
-  return Object.values(mapParsed.hosts).map((s) => {
+  const sites = Object.values(mapParsed.hosts).map((s) => {
     const pool = s.port ? poolsParsed.byPort[s.port] : null;
     return {
       ...s,
       poolName: pool ? pool.name : "",
       pool: pool ? pool.settings : null,
       poolTier: detectTier(pool ? pool.settings : null),
-      isWwwAlias: s.host.startsWith("www.") && Boolean(s.canonicalTo),
       state: states[s.host] || {
         fastcgiCache: false,
         cacheVersion: 1,
@@ -524,6 +530,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
       },
     };
   });
+  return annotateSiteAliases(sites);
 }
 
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
@@ -891,6 +898,25 @@ async function handleApi(req, res) {
       () => optimizeImages(directory),
     );
     sendJson(res, 200, { ok: true, domain, ...result });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/sites/images/status") {
+    sendJson(res, 200, { ok: true, ...imageOptimizationManager.getStatus() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/sites/images/optimize-all") {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const sites = getSitesWithPools(mapParsed, poolsParsed)
+      .filter((site) => !site.isAlias)
+      .map((site) => ({
+        host: site.host,
+        directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+      }));
+    const status = imageOptimizationManager.start(sites);
+    sendJson(res, 202, { ok: true, ...status });
     return true;
   }
 

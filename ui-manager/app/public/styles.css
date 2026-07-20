@@ -60,6 +60,8 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .metrics strong { display: block; margin-top: 5px; font-size: 24px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 16px; margin-bottom: 16px; }
 .site-list { display: grid; gap: 8px; }
+.section-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.section-actions .muted { font-size: 12px; }
 .site-row { display: grid; grid-template-columns: minmax(210px, 1.3fr) minmax(150px, .8fr) minmax(190px, .7fr) minmax(400px, auto); gap: 16px; align-items: center; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
 .site-row .button-row { justify-content: flex-end; flex-wrap: wrap; }
 .site-row .button-row button { min-height: 32px; padding: 5px 8px; font-size: 11px; }

@@ -31,6 +31,14 @@ Open **Provision** to create a site, PHP-FPM pool, database and database user,
 install WordPress, enable optional Redis/OPcache/FastCGI cache, and create the NPM
 proxy host and certificate. Generated credentials are shown once.
 
+## Sites and image optimization
+
+Hosts that share the same document root and PHP-FPM pool are presented as one
+website with aliases, even when an imported configuration has no canonical
+redirect marker. Per-site and bulk image optimization preserve source images and
+create smaller WebP alternatives. The bulk job runs one primary website at a
+time, persists progress in `/app/data`, and does not overlap backup operations.
+
 ## Portable website migration
 
 The host-level `scripts/export-websites.sh` and `scripts/import-websites.sh`
