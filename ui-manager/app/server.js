@@ -767,7 +767,10 @@ async function handleApi(req, res) {
       return true;
     }
     const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
-    const result = await optimizeImages(directory);
+    const result = await backupManager.withLock(
+      { type: "images", domain, label: `Optimize images ${domain}` },
+      () => optimizeImages(directory),
+    );
     sendJson(res, 200, { ok: true, domain, ...result });
     return true;
   }

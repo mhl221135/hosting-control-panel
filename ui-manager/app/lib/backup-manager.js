@@ -237,7 +237,19 @@ class BackupManager {
     const startedAt = new Date().toISOString();
     try {
       const database = await this.databaseName(relative);
-      await execFileAsync("tar", [
+      await execFileAsync("ionice", [
+        "-c",
+        "2",
+        "-n",
+        "7",
+        "nice",
+        "-n",
+        "10",
+        "tar",
+        "--ignore-failed-read",
+        "--warning=no-file-changed",
+        "--exclude=*.tmp.webp",
+        "--exclude=*.tmp",
         "-czf",
         path.join(partial, "website.tar.gz"),
         "-C",
@@ -274,7 +286,17 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
-      await execFileAsync("tar", [
+      await execFileAsync("ionice", [
+        "-c",
+        "2",
+        "-n",
+        "7",
+        "nice",
+        "-n",
+        "10",
+        "tar",
+        "--ignore-failed-read",
+        "--warning=no-file-changed",
         "-czf",
         path.join(partial, "app-data.tar.gz"),
         "--exclude=./mysql",
@@ -332,7 +354,7 @@ class BackupManager {
       this.mysqlContainer,
       "sh",
       "-c",
-      'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" "$@"',
+      'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysqldump -uroot "$@"',
       "backup-mysqldump",
       ...argumentsList,
     ], { stdio: ["ignore", "pipe", "pipe"] });
@@ -361,7 +383,7 @@ class BackupManager {
       this.mysqlContainer,
       "sh",
       "-c",
-      'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"',
+      'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot "$1"',
       "backup-restore",
       database,
     ], { stdio: ["pipe", "ignore", "pipe"] });

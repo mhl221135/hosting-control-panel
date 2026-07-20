@@ -123,6 +123,36 @@ class NpmClient {
     });
   }
 
+  hostPayload(host, overrides = {}) {
+    return {
+      domain_names: host.domain_names || [],
+      forward_scheme: host.forward_scheme || "http",
+      forward_host: host.forward_host || "global-nginx-internal",
+      forward_port: Number(host.forward_port || 80),
+      certificate_id: Number(host.certificate_id || 0),
+      ssl_forced: Boolean(host.ssl_forced),
+      http2_support: Boolean(host.http2_support),
+      hsts_enabled: Boolean(host.hsts_enabled),
+      hsts_subdomains: Boolean(host.hsts_subdomains),
+      block_exploits: host.block_exploits !== false,
+      caching_enabled: Boolean(host.caching_enabled),
+      allow_websocket_upgrade: host.allow_websocket_upgrade !== false,
+      access_list_id: Number(host.access_list_id || 0),
+      advanced_config: host.advanced_config || "",
+      enabled: host.enabled !== false,
+      locations: Array.isArray(host.locations) ? host.locations : [],
+      meta: host.meta || {},
+      ...overrides,
+    };
+  }
+
+  async updateHost(host, overrides = {}) {
+    return this.request(`/nginx/proxy-hosts/${host.id}`, {
+      method: "PUT",
+      body: JSON.stringify(this.hostPayload(host, overrides)),
+    });
+  }
+
   async issueCertificate(host) {
     const domains = host.domain_names || [];
     const settings = this.settings();
@@ -140,32 +170,24 @@ class NpmClient {
       }),
       timeout: 180_000,
     });
-    return this.request(`/nginx/proxy-hosts/${host.id}`, {
-      method: "PUT",
-      body: JSON.stringify({
-        domain_names: host.domain_names || [],
-        forward_scheme: host.forward_scheme || "http",
-        forward_host: host.forward_host || "global-nginx-internal",
-        forward_port: Number(host.forward_port || 80),
-        certificate_id: certificate.id,
-        ssl_forced: true,
-        http2_support: true,
-        hsts_enabled: true,
-        hsts_subdomains: false,
-        block_exploits: host.block_exploits !== false,
-        caching_enabled: Boolean(host.caching_enabled),
-        allow_websocket_upgrade: host.allow_websocket_upgrade !== false,
-        access_list_id: Number(host.access_list_id || 0),
-        advanced_config: host.advanced_config || "",
-        enabled: host.enabled !== false,
-        locations: Array.isArray(host.locations) ? host.locations : [],
-        meta: host.meta || {},
-      }),
+    return this.updateHost(host, {
+      certificate_id: certificate.id,
+      ssl_forced: true,
+      http2_support: true,
+      hsts_enabled: true,
+      hsts_subdomains: false,
     });
   }
 
   async ensureHost(domains, issueSsl) {
-    const host = await this.createHost(domains);
+    let host = await this.createHost(domains);
+    if (host.forward_host !== "global-nginx-internal" || Number(host.forward_port) !== 80) {
+      host = await this.updateHost(host, {
+        forward_scheme: "http",
+        forward_host: "global-nginx-internal",
+        forward_port: 80,
+      });
+    }
     if (!issueSsl || host.certificate_id) return host;
     return this.issueCertificate(host);
   }

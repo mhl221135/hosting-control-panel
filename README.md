@@ -337,6 +337,11 @@ The scheduler uses the container timezone (`Europe/Kyiv`) and runs enabled
 website backups sequentially, followed by application data. Only one manual or
 scheduled backup can run at a time.
 
+Image optimization uses the same operation lock as backups, so archive
+compression and ImageMagick cannot saturate storage and CPU at the same time.
+Backup archives run with reduced CPU and I/O priority and omit transient WebP
+optimizer files.
+
 ## Cloudflare DNS
 
 The **DNS & SSL** tab lists all Cloudflare records at the selected website host

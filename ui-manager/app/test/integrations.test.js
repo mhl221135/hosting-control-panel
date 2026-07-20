@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { CloudflareClient } = require("../lib/integrations");
+const { CloudflareClient, NpmClient } = require("../lib/integrations");
 
 function response(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -104,4 +104,31 @@ test("verifies account-owned tokens with the account endpoint", async () => {
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test("normalizes an existing legacy website proxy target", async () => {
+  const client = new NpmClient(() => ({
+    npmApiUrl: "http://npm.test/api",
+    npmIdentity: "owner@example.com",
+    npmSecret: "secret",
+  }));
+  client.createHost = async () => ({
+    id: 5,
+    domain_names: ["example.com"],
+    forward_scheme: "http",
+    forward_host: "wp-example-com",
+    forward_port: 80,
+    certificate_id: 12,
+    enabled: true,
+  });
+  let update = null;
+  client.updateHost = async (host, overrides) => {
+    update = { host, overrides };
+    return { ...host, ...overrides };
+  };
+  const result = await client.ensureHost(["example.com"], false);
+  assert.equal(result.forward_host, "global-nginx-internal");
+  assert.equal(result.forward_port, 80);
+  assert.equal(update.host.id, 5);
+  assert.equal(result.certificate_id, 12);
 });
