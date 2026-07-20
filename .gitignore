@@ -1,4 +1,5 @@
 .env
+.nonprod-configs/
 .DS_Store
 *.bak
 *.log

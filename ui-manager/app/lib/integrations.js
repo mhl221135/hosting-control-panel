@@ -34,12 +34,14 @@ class NpmClient {
         baseUrl: String(settings.npmApiUrl || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
         identity: String(settings.npmIdentity || ""),
         secret: String(settings.npmSecret || ""),
+        acmeEmail: String(settings.acmeEmail || ""),
       };
     }
     return {
       baseUrl: String(process.env.NPM_API_URL || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
       identity: String(process.env.NPM_IDENTITY || ""),
       secret: String(process.env.NPM_SECRET || ""),
+      acmeEmail: String(process.env.ACME_EMAIL || ""),
     };
   }
 
@@ -123,6 +125,8 @@ class NpmClient {
 
   async issueCertificate(host) {
     const domains = host.domain_names || [];
+    const settings = this.settings();
+    if (!settings.acmeEmail) throw new IntegrationError("ACME email is not configured", 400);
     const certificate = await this.request("/nginx/certificates", {
       method: "POST",
       body: JSON.stringify({
@@ -130,6 +134,8 @@ class NpmClient {
         nice_name: domains[0],
         domain_names: domains,
         meta: {
+          letsencrypt_email: settings.acmeEmail,
+          letsencrypt_agree: true,
           dns_challenge: false,
           key_type: "ecdsa",
         },

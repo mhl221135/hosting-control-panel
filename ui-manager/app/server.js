@@ -8,6 +8,7 @@ const { CloudflareClient, NpmClient } = require("./lib/integrations");
 const {
   createDatabase,
   installWordPress,
+  optimizeImages,
   prepareSiteDirectory,
   randomPassword,
   setRedis,
@@ -15,6 +16,7 @@ const {
   validateDomain,
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
+const { BackupManager } = require("./lib/backup-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -24,6 +26,8 @@ const DEFAULT_POOL_PATH = path.join(DATA_DIR, "default-pool.json");
 const PRESETS_PATH = path.join(DATA_DIR, "pool-presets.json");
 const CACHE_MAP_PATH = process.env.CACHE_MAP_PATH || "/srv/configs/nginx/conf.d/cache.map";
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
+const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
+const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
 
 const ACTION_CMDS = {
   reload_nginx: process.env.RELOAD_NGINX_CMD || "",
@@ -68,6 +72,19 @@ const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 siteState.renderCacheMap();
+const backupManager = new BackupManager({
+  dataDir: DATA_DIR,
+  backupsRoot: BACKUPS_ROOT,
+  websitesRoot: WEBSITES_ROOT,
+  appDataRoot: APP_DATA_ROOT,
+  mysqlContainer: process.env.MYSQL_CONTAINER || "mysql-db",
+  phpContainer: process.env.PHP_CONTAINER || "global-php-fpm",
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed);
+  },
+});
 
 function sendJson(res, code, obj, headers = {}) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", ...headers });
@@ -411,7 +428,7 @@ async function validateAndReload(mapBefore = null, poolsBefore = null) {
       20_000,
     );
     await execCommand("docker exec global-nginx-internal nginx -s reload");
-    await execCommand("docker exec global-php-fpm kill -USR2 1");
+    await execCommand("docker exec global-php-fpm sh -c 'kill -USR2 1'");
     return output;
   } catch (error) {
     if (mapBefore !== null && poolsBefore !== null) {
@@ -436,6 +453,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
         fastcgiCache: false,
         cacheVersion: 1,
         redis: false,
+        backupEnabled: false,
         notes: "",
       },
     };
@@ -469,6 +487,65 @@ async function handleApi(req, res) {
         mysql: true,
       },
     });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/backups/settings") {
+    sendJson(res, 200, {
+      settings: backupManager.readSettings(),
+      status: backupManager.status(),
+    });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/backups/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const settings = backupManager.updateSettings({
+      scheduleTime: body.schedule_time,
+      retention: body.retention,
+      siteBackupsEnabled: body.site_backups_enabled,
+      appDataEnabled: body.app_data_enabled,
+    });
+    sendJson(res, 200, { ok: true, settings });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/backups") {
+    const name = requestUrl.searchParams.get("name") || "app-data";
+    const safeName = name === "app-data" ? name : validateDomain(name);
+    sendJson(res, 200, { name: safeName, backups: backupManager.history(safeName) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/backups/site") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const site = getSitesWithPools(mapParsed, poolsParsed)
+      .find((item) => item.host === domain && !item.isWwwAlias);
+    if (!site) {
+      sendJson(res, 404, { ok: false, message: "Site is not configured" });
+      return true;
+    }
+    sendJson(res, 201, await backupManager.runSite(site));
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/backups/app-data") {
+    sendJson(res, 201, await backupManager.runAppData());
+    return true;
+  }
+
+  if (req.method === "DELETE" && requestUrl.pathname.startsWith("/api/backups/")) {
+    const parts = requestUrl.pathname.slice("/api/backups/".length).split("/").map(decodeURIComponent);
+    if (parts.length !== 2) {
+      sendJson(res, 400, { ok: false, message: "Backup name and identifier are required" });
+      return true;
+    }
+    const name = parts[0] === "app-data" ? parts[0] : validateDomain(parts[0]);
+    backupManager.deleteBackup(name, parts[1]);
+    sendJson(res, 200, { ok: true });
     return true;
   }
 
@@ -582,9 +659,12 @@ async function handleApi(req, res) {
     const state = siteState.update(domain, {
       ...(typeof body.fastcgi_cache === "boolean" ? { fastcgiCache: body.fastcgi_cache } : {}),
       ...(typeof body.redis === "boolean" ? { redis: body.redis } : {}),
+      ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
       ...(typeof body.notes === "string" ? { notes: body.notes.slice(0, 2000) } : {}),
     });
-    await validateAndReload();
+    if (typeof body.fastcgi_cache === "boolean" || typeof body.redis === "boolean") {
+      await validateAndReload();
+    }
     sendJson(res, 200, { ok: true, state });
     return true;
   }
@@ -595,6 +675,21 @@ async function handleApi(req, res) {
     const state = siteState.purge(domain);
     await execCommand("docker exec global-nginx-internal nginx -s reload");
     sendJson(res, 200, { ok: true, state });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/sites/images/optimize") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const site = mapParsed.hosts[domain];
+    if (!site || site.canonicalTo) {
+      sendJson(res, 404, { ok: false, message: "Primary site is not configured" });
+      return true;
+    }
+    const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
+    const result = await optimizeImages(directory);
+    sendJson(res, 200, { ok: true, domain, ...result });
     return true;
   }
 
@@ -686,6 +781,7 @@ async function handleApi(req, res) {
       siteState.update(domain, {
         fastcgiCache: Boolean(body.fastcgi_cache),
         redis: Boolean(body.redis),
+        backupEnabled: Boolean(body.scheduled_backup),
         cacheVersion: 1,
         notes: String(body.notes || "").slice(0, 2000),
       });
@@ -1315,4 +1411,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
+  backupManager.start();
 });

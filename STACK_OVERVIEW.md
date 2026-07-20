@@ -1,9 +1,12 @@
 # Stack Overview
 
-Deployment source: `/media/ssdmount/websites-v2`
+Deployment source: `/media/ssdmount/websites-v2/sources`
 
-Website files and persistent service data remain under `/media/ssdmount/websites`.
-The existing `backup_websites.sh` is unchanged.
+Persistent data: `/media/ssdmount/websites-v2/app-data`
+
+Website files: `/media/ssdmount/websites-v2/websites`
+
+Managed backups: `/media/ssdmount/websites-v2/backups`
 
 ## Request path
 
@@ -35,11 +38,14 @@ The panel provides:
 - Site and PHP-FPM pool management
 - One-click WordPress provisioning
 - Per-site Redis object cache and FastCGI page-cache controls
+- Global gzip and on-demand WebP generation with original-image fallback
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
 - Encrypted integration settings for NPM and Cloudflare
 - MySQL installer container and database-prefix settings
+- Per-site manual and scheduled backup controls
+- Global website-backup pause, schedule, retention, app-data protection, and history
 - Runtime reload, OPcache clear, and log views
 
 The MySQL root password is not copied into panel settings. Database operations
@@ -47,21 +53,23 @@ read it from the MySQL container environment and execute inside that container.
 
 ## Configuration
 
-Runtime configuration is mounted from:
+Versioned configuration templates are stored in:
 
 - `global-configs-new-upd/nginx`
 - `global-configs-new-upd/php`
 - `global-configs-new-upd/php-fpm`
 - `global-configs-new-upd/wp`
 
-Important generated files:
+Active runtime configuration is mounted from `app-data/configs`. Important
+generated and persistent files include:
 
-- `nginx/conf.d/sites.map`: domain to document root and PHP upstream
-- `nginx/conf.d/cache.map`: per-site FastCGI cache state and cache version
-- `php-fpm/pools.conf`: per-site PHP-FPM pools
-- `ui-manager/data/auth.json`: hashed panel account
-- `ui-manager/data/integrations.json`: encrypted integration settings
-- `ui-manager/data/site-state.json`: Redis and cache state
+- `app-data/configs/nginx/conf.d/sites.map`: domain routing
+- `app-data/configs/nginx/conf.d/cache.map`: per-site FastCGI state
+- `app-data/configs/php-fpm/pools.conf`: per-site PHP-FPM pools
+- `app-data/ui-manager/auth.json`: hashed panel account
+- `app-data/ui-manager/integrations.json`: encrypted integration settings
+- `app-data/ui-manager/site-state.json`: Redis, cache, and backup state
+- `app-data/ui-manager/backup-settings.json`: schedule and retention
 
 ## Provisioning
 
@@ -88,3 +96,16 @@ OPcache and FastCGI cache are separate:
 
 FastCGI cache bypasses logged-in users, WordPress administration, requests with
 query strings, non-GET requests, and common WooCommerce session/cart traffic.
+
+## Backup flow
+
+1. The panel scheduler checks the configured local start time every 30 seconds.
+2. Enabled websites are processed sequentially.
+3. WordPress supplies the site's database name through WP-CLI.
+4. Website files are archived and MySQL creates a consistent compressed dump.
+5. A manifest is written and the partial directory is atomically promoted.
+6. Complete backup sets beyond the configured retention are removed.
+7. Application data is archived, excluding live MySQL files and nginx cache,
+   and paired with a consistent dump of every MySQL database.
+
+The existing `backup_websites.sh` is unchanged and is not part of this flow.

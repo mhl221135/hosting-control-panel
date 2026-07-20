@@ -92,6 +92,36 @@ async function runWp(args, timeout = 180_000) {
   );
 }
 
+function wordpressContainerPath(directory) {
+  const relative = path.posix.normalize(String(directory || "").trim().replace(/^\/+/, ""));
+  if (!relative || relative === "." || relative === ".." || relative.startsWith("../")) {
+    const error = new Error("Website path is outside the allowed root");
+    error.statusCode = 400;
+    throw error;
+  }
+  return `/var/www/${relative}`;
+}
+
+async function normalizeWordPressPermissions(directory) {
+  const containerPath = wordpressContainerPath(directory);
+  await execFileAsync("docker", [
+    "exec",
+    "global-php-fpm",
+    "sh",
+    "-c",
+    [
+      'set -eu; site="$1"',
+      'chown -R 33:33 "$site"',
+      'find "$site" -type d -exec chmod 775 {} +',
+      'find "$site" -type f -exec chmod 664 {} +',
+      'if [ -f "$site/wp-config.php" ]; then chmod 660 "$site/wp-config.php"; fi',
+    ].join("; "),
+    "permissions",
+    containerPath,
+  ], { timeout: 30 * 60 * 1000 });
+  return containerPath;
+}
+
 async function installWordPress(options) {
   const domain = validateDomain(options.domain);
   const containerPath = `/var/www/${options.directory}`;
@@ -146,7 +176,7 @@ async function updateWordPressUrl(directory, domain, useHttps) {
 }
 
 async function setRedis(directory, domain, enabled) {
-  const containerPath = `/var/www/${directory}`;
+  const containerPath = await normalizeWordPressPermissions(directory);
   validateDomain(domain);
   if (enabled) {
     await runWp(["config", "set", "WP_REDIS_HOST", "redis-mysweetdesign", "--type=constant", `--path=${containerPath}`]);
@@ -157,6 +187,48 @@ async function setRedis(directory, domain, enabled) {
   }
   await runWp(["redis", "disable", `--path=${containerPath}`]).catch(() => {});
   await runWp(["plugin", "deactivate", "redis-cache", `--path=${containerPath}`]).catch(() => {});
+}
+
+async function optimizeImages(directory) {
+  const containerPath = await normalizeWordPressPermissions(directory);
+  const script = [
+    'set -u; site="$1"; uploads="$site/wp-content/uploads"',
+    'if [ ! -d "$uploads" ]; then echo "created=0 skipped=0 failed=0 saved=0"; exit 0; fi',
+    "created=0; skipped=0; failed=0; saved=0",
+    'while IFS= read -r -d "" source; do',
+    '  target="$source.webp"',
+    '  if [ -f "$target" ] && [ "$target" -nt "$source" ]; then skipped=$((skipped + 1)); continue; fi',
+    '  temporary="$target.tmp.webp"',
+    '  if nice -n 10 convert "$source" -auto-orient -strip -quality 82 "$temporary" 2>/dev/null; then',
+    '    source_size=$(stat -c %s "$source"); target_size=$(stat -c %s "$temporary")',
+    '    if [ "$target_size" -lt "$source_size" ]; then',
+    '      mv -f "$temporary" "$target"; chmod 664 "$target"; created=$((created + 1)); saved=$((saved + source_size - target_size))',
+    '    else rm -f "$temporary"; skipped=$((skipped + 1)); fi',
+    '  else rm -f "$temporary"; failed=$((failed + 1)); fi',
+    'done < <(find "$uploads" -type f \\( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \\) -print0)',
+    'echo "created=$created skipped=$skipped failed=$failed saved=$saved"',
+  ].join("\n");
+  const result = await execFileAsync("docker", [
+    "exec",
+    "global-php-fpm",
+    "bash",
+    "-c",
+    script,
+    "optimize-images",
+    containerPath,
+  ], { timeout: 4 * 60 * 60 * 1000 });
+  const values = Object.fromEntries(
+    result.stdout.trim().split(/\s+/).map((entry) => {
+      const [key, value] = entry.split("=");
+      return [key, Number(value || 0)];
+    }),
+  );
+  return {
+    created: values.created || 0,
+    skipped: values.skipped || 0,
+    failed: values.failed || 0,
+    bytesSaved: values.saved || 0,
+  };
 }
 
 function prepareSiteDirectory(websitesRoot, directory) {
@@ -175,6 +247,7 @@ module.exports = {
   createDatabase,
   installWordPress,
   mysqlIdentifier,
+  optimizeImages,
   prepareSiteDirectory,
   randomPassword,
   safeSiteDirectory,

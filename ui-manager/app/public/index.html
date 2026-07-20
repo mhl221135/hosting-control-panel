@@ -26,6 +26,7 @@
           <button class="nav-item active" data-tab-link="sites">Sites</button>
           <button class="nav-item" data-tab-link="provision">Provision</button>
           <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
+          <button class="nav-item" data-tab-link="backups">Backups</button>
           <button class="nav-item" data-tab-link="runtime">Runtime</button>
           <button class="nav-item" data-tab-link="settings">Settings</button>
           <button class="nav-item" data-tab-link="account">Account</button>
@@ -84,6 +85,7 @@
               <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
               <label class="check"><input name="redis" type="checkbox" /> Enable Redis object cache</label>
               <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>
+              <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>
               <label class="check"><input name="create_npm_host" type="checkbox" checked /> Create NPM proxy host</label>
               <label class="check"><input name="issue_ssl" type="checkbox" checked /> Request SSL</label>
             </fieldset>
@@ -121,6 +123,37 @@
               </div>
             </article>
           </div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="backups">
+          <div class="section-head">
+            <div><h2>Backups</h2><p>Daily website archives, database dumps and application data protection.</p></div>
+            <button id="backupAppData">Back up app data now</button>
+          </div>
+
+          <div class="two-column backup-layout">
+            <form id="backupSettingsForm" class="panel form-stack">
+              <div><h3>Daily schedule</h3><p class="muted">The server uses Europe/Kyiv time.</p></div>
+              <label>Start time<input name="schedule_time" type="time" required /></label>
+              <label>Backup sets to keep<input name="retention" type="number" min="1" max="90" required /></label>
+              <label class="check"><input name="site_backups_enabled" type="checkbox" /> Enable website backups</label>
+              <label class="check"><input name="app_data_enabled" type="checkbox" /> Back up app data every day</label>
+              <div class="form-actions"><button type="submit">Save schedule</button></div>
+            </form>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Backup activity</h3><p class="muted">Only one backup runs at a time.</p></div><button id="refreshBackups" class="secondary">Refresh</button></div>
+              <div id="backupStatus" class="status-box">Loading backup status.</div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="card-head">
+              <div><h3>Stored backup sets</h3><p class="muted">Each website set contains its files and database dump.</p></div>
+              <select id="backupDomain" class="domain-select"></select>
+            </div>
+            <div id="backupHistory" class="rows empty">Select a website or app data.</div>
+          </article>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="runtime">
@@ -168,6 +201,7 @@
             <label>NPM API URL<input name="npmApiUrl" placeholder="http://nginx-proxy-manager:81/api" required /></label>
             <label>NPM account email<input name="npmIdentity" type="email" /></label>
             <label>NPM password<input name="npmSecret" type="password" placeholder="Leave empty to keep saved password" /></label>
+            <label>ACME email<input name="acmeEmail" type="email" placeholder="Used for Let's Encrypt" /></label>
             <label class="check inline"><input name="clearNpmSecret" type="checkbox" /> Clear saved NPM password</label>
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="npm">Test NPM</button></div>
 

@@ -40,7 +40,7 @@ proxy host and certificate. Generated credentials are shown once.
 
 ## Deploy
 
-From `/media/ssdmount/websites-v2`:
+From `/media/ssdmount/websites-v2/sources`:
 
 ```bash
 docker-compose build websites-config-ui global-php-fpm

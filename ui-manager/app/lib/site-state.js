@@ -28,6 +28,7 @@ class SiteState {
       fastcgiCache: false,
       cacheVersion: 1,
       redis: false,
+      backupEnabled: false,
       notes: "",
     };
   }

@@ -19,4 +19,4 @@ Files:
 - nginx/conf.d/default.conf  (single server config for all)
 
 IMPORTANT:
-- Create an empty folder for default root: /media/ssdmount/websites/_default (or change default in sites.map)
+- Create an empty folder for default root: /media/ssdmount/websites-v2/websites/_default (or change default in sites.map)

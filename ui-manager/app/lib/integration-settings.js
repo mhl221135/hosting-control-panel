@@ -57,6 +57,7 @@ class IntegrationSettings {
       npmApiUrl: stored.npmApiUrl || process.env.NPM_API_URL || "http://nginx-proxy-manager:81/api",
       npmIdentity: stored.npmIdentity || process.env.NPM_IDENTITY || "",
       npmSecret: this.decrypt(stored.npmSecret) || process.env.NPM_SECRET || "",
+      acmeEmail: stored.acmeEmail || process.env.ACME_EMAIL || "",
       cloudflareToken: this.decrypt(stored.cloudflareToken) || process.env.CLOUDFLARE_API_TOKEN || "",
       mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "mysql-db",
       mysqlSitePrefix: stored.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_",
@@ -69,6 +70,7 @@ class IntegrationSettings {
       npmApiUrl: settings.npmApiUrl,
       npmIdentity: settings.npmIdentity,
       npmSecretConfigured: Boolean(settings.npmSecret),
+      acmeEmail: settings.acmeEmail,
       cloudflareTokenConfigured: Boolean(settings.cloudflareToken),
       mysqlContainer: settings.mysqlContainer,
       mysqlSitePrefix: settings.mysqlSitePrefix,
@@ -80,6 +82,7 @@ class IntegrationSettings {
     const next = {
       npmApiUrl: String(payload.npmApiUrl || current.npmApiUrl || "http://nginx-proxy-manager:81/api").trim().replace(/\/$/, ""),
       npmIdentity: String(payload.npmIdentity || current.npmIdentity || "").trim().toLowerCase(),
+      acmeEmail: String(payload.acmeEmail || current.acmeEmail || process.env.ACME_EMAIL || "").trim().toLowerCase(),
       npmSecret: payload.clearNpmSecret
         ? ""
         : payload.npmSecret
@@ -98,6 +101,11 @@ class IntegrationSettings {
     };
     if (!/^https?:\/\//.test(next.npmApiUrl)) {
       const error = new Error("NPM API URL must start with http:// or https://");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (next.acmeEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next.acmeEmail)) {
+      const error = new Error("Enter a valid ACME email");
       error.statusCode = 400;
       throw error;
     }

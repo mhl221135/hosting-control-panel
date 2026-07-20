@@ -5,9 +5,9 @@ keeps the existing shared nginx/PHP architecture while adding an authenticated
 control panel for site provisioning, runtime management, Nginx Proxy Manager,
 Let's Encrypt, Cloudflare DNS, Redis, and FastCGI cache.
 
-The deployment source lives at `/media/ssdmount/websites-v2`. Existing website
-content and persistent application data remain under `/media/ssdmount/websites`
-and the other host paths already defined in `docker-compose.yml`.
+The deployment uses one self-contained root at `/media/ssdmount/websites-v2`.
+Source code, persistent service data, website content, and backups are separated
+into dedicated directories.
 
 ## Features
 
@@ -15,12 +15,17 @@ and the other host paths already defined in `docker-compose.yml`.
   cookies, session expiry, and CSRF protection
 - Account email and password changes from the panel
 - Site and per-site PHP-FPM pool management
+- Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
 - Automatic MySQL database and user creation
 - Nginx Proxy Manager proxy-host creation and Let's Encrypt certificate actions
 - Cloudflare A, AAAA, CNAME, and TXT record management
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
+- Global gzip compression and on-demand per-site WebP image generation
+- Per-site manual and scheduled backups with retention
+- Daily application-data archive and consistent all-databases dump
+- Backup history and complete-set deletion from the panel
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
 - Encrypted NPM and Cloudflare credentials at rest
@@ -92,6 +97,32 @@ that access.
         `-- pool-presets.json
 ```
 
+## Host Storage Layout
+
+```text
+/media/ssdmount/websites-v2/
+|-- sources/                 # Compose file, Dockerfiles and application source
+|-- app-data/                # Persistent service data and runtime configuration
+|   |-- configs/
+|   |   |-- nginx/
+|   |   |-- php/
+|   |   |-- php-fpm/
+|   |   `-- wp/
+|   |-- filebrowser/
+|   |-- mysql/
+|   |-- nginx-cache/
+|   |-- npm/
+|   |-- redis/
+|   `-- ui-manager/
+|-- websites/                # Website document roots
+`-- backups/
+    |-- app-data/
+    `-- example.com/
+```
+
+`sources/global-configs-new-upd` contains the versioned configuration templates.
+The active, panel-managed copies live in `app-data/configs`.
+
 ## Requirements
 
 - ARM64 or AMD64 Linux host
@@ -120,9 +151,9 @@ Set unique values for:
 - `MYSQL_APP_PASSWORD`
 - `NPM_DB_PASSWORD`
 
-NPM API and Cloudflare credentials may be left empty in `.env` and entered
-later in the panel's **Settings** tab. They are encrypted with AES-256-GCM in
-the persistent panel data directory.
+NPM API, ACME email, and Cloudflare credentials may be entered in the panel's
+**Settings** tab. Secrets are encrypted with AES-256-GCM in the persistent
+panel data directory.
 
 The MySQL root password is never copied into panel settings. The installer
 executes database operations inside the MySQL container, where the password is
@@ -131,7 +162,7 @@ already available through the container environment.
 ## Deploy on the ARM Host
 
 ```bash
-cd /media/ssdmount/websites-v2
+cd /media/ssdmount/websites-v2/sources
 docker-compose config --quiet
 docker-compose build websites-config-ui global-php-fpm
 docker-compose up -d
@@ -177,6 +208,7 @@ The Settings tab contains connection tests for:
 2. Enter the domain, website directory, title, administrator email, and user.
 3. Choose the PHP pool tier.
 4. Optionally enable `www`, Redis, FastCGI cache, NPM host creation, and SSL.
+   Daily backup can also be enabled during provisioning.
 5. Submit the form and store the displayed one-time credentials.
 
 Provisioning:
@@ -202,6 +234,17 @@ OPcache and FastCGI cache solve different problems:
 FastCGI cache bypasses logged-in users, WordPress administration, API and login
 paths, query strings, non-GET requests, and common WooCommerce cart/session
 cookies. Purging increments a per-site cache version and reloads nginx.
+
+## Compression and Images
+
+Nginx gzip compression is enabled globally for text, CSS, JavaScript, JSON, XML,
+SVG, and web fonts. Images are already compressed formats and are not gzipped.
+
+Each website row has an **Optimize images** action. It scans WordPress uploads,
+creates quality-82 WebP alternatives for JPEG and PNG files, preserves every
+original, skips current outputs, and keeps a WebP only when it is smaller.
+Nginx serves the WebP alternative to browsers that advertise WebP support and
+falls back to the original file for other clients.
 
 ## Security Notes
 
@@ -249,10 +292,45 @@ NPM, Redis, Docker, and other workloads without sustained swap pressure.
 
 ## Backups
 
-Backup behavior was intentionally not modified as part of this project. The
-host-specific `backup_websites.sh` is excluded from Git because it contains
-deployment credentials. Review and test restore procedures separately before
-production rollout.
+The panel owns the new backup schedule. In **Backups**, set one daily start time
+and the number of complete sets to retain (1-90). A global switch can pause all
+manual and scheduled website backups without losing per-site choices. Each
+website also has an independent daily-backup switch and a manual **Back up**
+action.
+
+A website backup is stored as:
+
+```text
+backups/example.com/2026-07-20T03-00-00Z/
+|-- website.tar.gz
+|-- database.sql.gz
+`-- manifest.json
+```
+
+Retention operates on the whole timestamped directory, so website files and the
+matching database dump cannot be pruned separately. Incomplete work stays in a
+hidden `.partial-*` directory and is removed after a failed run.
+
+The daily application-data backup is stored as:
+
+```text
+backups/app-data/2026-07-20T03-00-00Z/
+|-- app-data.tar.gz
+|-- databases.sql.gz
+`-- manifest.json
+```
+
+The application archive includes configuration, panel state, NPM certificates,
+Redis data, and Filebrowser data. It excludes live MySQL files and the
+regenerable nginx cache. `databases.sql.gz` is a consistent logical dump of all
+MySQL databases.
+
+The scheduler uses the container timezone (`Europe/Kyiv`) and runs enabled
+website backups sequentially, followed by application data. Only one manual or
+scheduled backup can run at a time.
+
+The legacy host-specific `backup_websites.sh` remains excluded from Git and is
+not invoked or modified by this panel.
 
 ## Additional Documentation
 

@@ -7,6 +7,9 @@ const state = {
   tiers: {},
   npmHosts: [],
   selectedDomain: "",
+  backupName: "app-data",
+  backupSettings: null,
+  backupStatus: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -87,9 +90,10 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
-  const titles = { sites: "Sites", provision: "Provision", integrations: "DNS & SSL", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", provision: "Provision", integrations: "DNS & SSL", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
+  if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
 }
@@ -122,12 +126,25 @@ function renderSites() {
   container.innerHTML = sites.map((site) => `
     <article class="site-row">
       <div><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p></div>
-      <div><strong>${escapeHtml(site.poolName || "No pool")}</strong><p>Port ${escapeHtml(site.port || "—")} · ${escapeHtml(site.poolTier || "custom")}</p></div>
+      <div>
+        <strong>${escapeHtml(site.poolName || "No pool")}</strong>
+        <p>Port ${escapeHtml(site.port || "—")}</p>
+        <label class="site-tier">PHP profile
+          <select data-site-pool-tier="${escapeHtml(site.host)}" data-pool-name="${escapeHtml(site.poolName)}" data-pool-port="${escapeHtml(site.port)}">
+            ${site.poolTier === "custom" ? '<option value="custom" selected disabled>Custom</option>' : ""}
+            ${Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}" ${tier === site.poolTier ? "selected" : ""}>${escapeHtml(tier)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
       <div class="site-flags">
         <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
         <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
+        <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
       </div>
       <div class="button-row">
+        <label class="check site-backup-check"><input type="checkbox" data-toggle-backup="${escapeHtml(site.host)}" ${site.state?.backupEnabled ? "checked" : ""} /> Daily</label>
+        <button class="secondary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
+        <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
         <button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>
         <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge</button>
@@ -143,6 +160,77 @@ function renderDomainOptions() {
   $("#integrationDomain").innerHTML = domains.map((domain) =>
     `<option value="${escapeHtml(domain)}" ${domain === state.selectedDomain ? "selected" : ""}>${escapeHtml(domain)}</option>`
   ).join("");
+}
+
+function renderBackupOptions() {
+  const names = ["app-data", ...primarySites().map((site) => site.host)];
+  if (!names.includes(state.backupName)) state.backupName = "app-data";
+  $("#backupDomain").innerHTML = names.map((name) =>
+    `<option value="${escapeHtml(name)}" ${name === state.backupName ? "selected" : ""}>${name === "app-data" ? "Application data" : escapeHtml(name)}</option>`
+  ).join("");
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+}
+
+function renderBackupStatus() {
+  const status = state.backupStatus || {};
+  const settings = state.backupSettings || {};
+  if (status.busy) {
+    $("#backupStatus").textContent = `${status.currentJob?.label || "Backup"} is running.\nStarted: ${new Date(status.currentJob?.startedAt).toLocaleString()}`;
+    return;
+  }
+  const last = status.lastResult;
+  $("#backupStatus").textContent = [
+    "No backup is currently running.",
+    `Daily start: ${settings.scheduleTime || "03:00"}`,
+    `Retention: ${settings.retention || 7} backup sets`,
+    `Website backups: ${settings.siteBackupsEnabled === false ? "paused" : "enabled"}`,
+    last ? `Last result: ${last.ok === false ? "failed" : "complete"} at ${new Date(last.finishedAt).toLocaleString()}${last.message ? `\n${last.message}` : ""}` : "No backup has run since the panel started.",
+  ].join("\n");
+}
+
+function renderBackupHistory(backups) {
+  const container = $("#backupHistory");
+  if (!backups.length) {
+    container.className = "rows empty";
+    container.textContent = "No backup sets stored for this selection.";
+    return;
+  }
+  container.className = "rows";
+  container.innerHTML = backups.map((backup) => `
+    <div class="backup-row">
+      <div><strong>${escapeHtml(backup.id)}</strong><p>${escapeHtml(new Date(backup.completedAt || backup.startedAt || "").toLocaleString())}</p></div>
+      <div><span>${backup.database ? `Database: ${escapeHtml(backup.database)}` : "All application databases"}</span><p>${formatBytes(backup.size)}</p></div>
+      <button class="secondary danger-button" data-delete-backup="${escapeHtml(backup.id)}">Delete</button>
+    </div>
+  `).join("");
+}
+
+async function loadBackupView() {
+  renderBackupOptions();
+  const [data, history] = await Promise.all([
+    api("/api/backups/settings"),
+    api(`/api/backups?name=${encodeURIComponent(state.backupName)}`),
+  ]);
+  state.backupSettings = data.settings;
+  state.backupStatus = data.status;
+  $("#backupSettingsForm").elements.schedule_time.value = data.settings.scheduleTime;
+  $("#backupSettingsForm").elements.retention.value = data.settings.retention;
+  $("#backupSettingsForm").elements.site_backups_enabled.checked = data.settings.siteBackupsEnabled;
+  $("#backupSettingsForm").elements.app_data_enabled.checked = data.settings.appDataEnabled;
+  renderBackupStatus();
+  renderBackupHistory(history.backups || []);
 }
 
 function renderPools() {
@@ -174,20 +262,24 @@ function renderHosts() {
 }
 
 async function loadData() {
-  const [status, siteData, poolData, presetData] = await Promise.all([
+  const [status, siteData, poolData, presetData, backupData] = await Promise.all([
     api("/api/status"),
     api("/api/sites"),
     api("/api/pools"),
     api("/api/pool-presets"),
+    api("/api/backups/settings"),
   ]);
   state.status = status;
   state.sites = siteData.sites || [];
   state.pools = poolData.pools || [];
   state.tiers = presetData.tiers || {};
+  state.backupSettings = backupData.settings;
+  state.backupStatus = backupData.status;
   $("#provisionTier").innerHTML = Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}">${escapeHtml(tier)}</option>`).join("");
   renderSummary();
   renderSites();
   renderDomainOptions();
+  renderBackupOptions();
   renderPools();
   renderHosts();
 }
@@ -266,6 +358,7 @@ async function loadIntegrationSettings() {
     const form = $("#integrationSettingsForm");
     form.elements.npmApiUrl.value = settings.npmApiUrl || "";
     form.elements.npmIdentity.value = settings.npmIdentity || "";
+    form.elements.acmeEmail.value = settings.acmeEmail || "";
     form.elements.npmSecret.value = "";
     form.elements.npmSecret.placeholder = settings.npmSecretConfigured ? "Saved password configured" : "Enter NPM password";
     form.elements.cloudflareToken.value = "";
@@ -317,6 +410,31 @@ $("#sitesList").addEventListener("click", (event) => {
   const fastcgi = event.target.closest("[data-toggle-fastcgi]");
   const redis = event.target.closest("[data-toggle-redis]");
   const purge = event.target.closest("[data-purge-cache]");
+  const backup = event.target.closest("[data-backup-site]");
+  const optimize = event.target.closest("[data-optimize-images]");
+  if (optimize) {
+    const domain = optimize.dataset.optimizeImages;
+    withButton(optimize, "Optimizing...", () => api("/api/sites/images/optimize", {
+      method: "POST",
+      body: JSON.stringify({ domain }),
+    }))
+      .then((result) => notice(`Created ${result.created} WebP images and saved ${formatBytes(result.bytesSaved)}.`))
+      .catch((error) => notice(error.message, "warning"));
+    return;
+  }
+  if (backup) {
+    const domain = backup.dataset.backupSite;
+    withButton(backup, "Backing up...", () => api("/api/backups/site", {
+      method: "POST",
+      body: JSON.stringify({ domain }),
+    }))
+      .then(() => {
+        notice(`${domain} backup completed.`);
+        state.backupName = domain;
+      })
+      .catch((error) => notice(error.message, "warning"));
+    return;
+  }
   const domain = fastcgi?.dataset.toggleFastcgi || redis?.dataset.toggleRedis || purge?.dataset.purgeCache;
   if (!domain) return;
   const site = state.sites.find((entry) => entry.host === domain);
@@ -429,7 +547,96 @@ WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
   }
 });
 
-$("#sitesList").addEventListener("change", () => {});
+$("#sitesList").addEventListener("change", async (event) => {
+  const tier = event.target.closest("[data-site-pool-tier]");
+  if (tier) {
+    tier.disabled = true;
+    try {
+      await api("/api/pools/upsert", {
+        method: "POST",
+        body: JSON.stringify({
+          name: tier.dataset.poolName,
+          port: Number(tier.dataset.poolPort),
+          tier: tier.value,
+          settings: {},
+        }),
+      });
+      await api("/api/validate", { method: "POST" });
+      await api("/api/actions/reload_php", { method: "POST" });
+      notice(`${tier.dataset.sitePoolTier} now uses the ${tier.value} PHP profile.`);
+      await loadData();
+    } catch (error) {
+      notice(error.message, "warning");
+      await loadData();
+    } finally {
+      tier.disabled = false;
+    }
+    return;
+  }
+  const checkbox = event.target.closest("[data-toggle-backup]");
+  if (!checkbox) return;
+  checkbox.disabled = true;
+  try {
+    await api("/api/site-state", {
+      method: "PUT",
+      body: JSON.stringify({
+        domain: checkbox.dataset.toggleBackup,
+        backup_enabled: checkbox.checked,
+      }),
+    });
+    notice(`Daily backup ${checkbox.checked ? "enabled" : "disabled"} for ${checkbox.dataset.toggleBackup}.`);
+    await loadData();
+  } catch (error) {
+    checkbox.checked = !checkbox.checked;
+    notice(error.message, "warning");
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+$("#backupDomain").addEventListener("change", async (event) => {
+  state.backupName = event.target.value;
+  try { await loadBackupView(); } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#refreshBackups").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadBackupView); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/backups/settings", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    notice("Backup schedule saved.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupAppData").addEventListener("click", async (event) => {
+  try {
+    await withButton(event.currentTarget, "Backing up...", () => api("/api/backups/app-data", { method: "POST" }));
+    state.backupName = "app-data";
+    notice("Application data backup completed.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupHistory").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-delete-backup]");
+  if (!button || !confirm("Delete this complete backup set?")) return;
+  try {
+    await withButton(button, "Deleting...", () => api(
+      `/api/backups/${encodeURIComponent(state.backupName)}/${encodeURIComponent(button.dataset.deleteBackup)}`,
+      { method: "DELETE" },
+    ));
+    notice("Backup set deleted.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
 
 $("#savePools").addEventListener("click", async (event) => {
   const pools = $$("#poolsTable tr").map((row) => ({
