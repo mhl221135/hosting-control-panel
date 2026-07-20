@@ -26,7 +26,7 @@ const DEFAULTS = {
     policy: "allkeys-lru",
   },
   mysql: {
-    bufferPoolMb: 4096,
+    bufferPoolMb: 2048,
     maxConnections: 150,
     redoLogCapacityMb: 1024,
   },

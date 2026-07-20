@@ -47,7 +47,7 @@ test("persists settings and writes managed runtime files", () => {
     const manager = new PerformanceSettings({ dataDir: directory, phpIniPath, nginxPath, nginxDefaultPath });
     manager.save(DEFAULTS);
     manager.applyFiles();
-    assert.equal(manager.read().mysql.bufferPoolMb, 4096);
+    assert.equal(manager.read().mysql.bufferPoolMb, 2048);
     assert.match(fs.readFileSync(phpIniPath, "utf8"), /opcache.max_accelerated_files = 100000/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
