@@ -22,6 +22,7 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases } = require("./lib/runtime-config");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
+const { resolvePublicFile } = require("./lib/static-files");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -399,13 +400,6 @@ function buildPoolSettings({ incomingPool, basePool, defaults, tierName, root, p
     catch_workers_output: "yes",
     request_terminate_timeout: incomingPool.request_terminate_timeout || basePool.request_terminate_timeout || "60s",
   };
-}
-
-function publicFile(reqPath) {
-  const safe = reqPath === "/" ? "/index.html" : reqPath;
-  const resolved = path.normalize(path.join("/app/public", safe));
-  if (!resolved.startsWith("/app/public")) return null;
-  return resolved;
 }
 
 function execAction(actionKey) {
@@ -1619,7 +1613,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const fp = publicFile(req.url);
+    const fp = resolvePublicFile("/app/public", req.url);
     if (!fp || !fs.existsSync(fp)) {
       res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
       res.end("Not found");
