@@ -107,4 +107,48 @@ function renderPools(parsed) {
   return output.join("\n");
 }
 
-module.exports = { parsePools, parseSitesMap, renderPools, renderSitesMap, sanitizeSectionName };
+function annotateSiteAliases(sites) {
+  const groups = new Map();
+  for (const site of sites) {
+    const key = site.root && site.port ? `${site.root}\u0000${site.port}` : `host\u0000${site.host}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(site);
+  }
+
+  const annotations = new Map();
+  for (const group of groups.values()) {
+    const canonicalTargets = new Map();
+    for (const site of group) {
+      if (site.canonicalTo) canonicalTargets.set(site.canonicalTo, (canonicalTargets.get(site.canonicalTo) || 0) + 1);
+    }
+    const primary = [...group].sort((left, right) => {
+      const targetDifference = (canonicalTargets.get(right.host) || 0) - (canonicalTargets.get(left.host) || 0);
+      if (targetDifference) return targetDifference;
+      const redirectDifference = Number(Boolean(left.canonicalTo)) - Number(Boolean(right.canonicalTo));
+      if (redirectDifference) return redirectDifference;
+      const wwwDifference = Number(left.host.startsWith("www.")) - Number(right.host.startsWith("www."));
+      if (wwwDifference) return wwwDifference;
+      return left.host.length - right.host.length || left.host.localeCompare(right.host);
+    })[0];
+    const aliases = group.filter((site) => site.host !== primary.host).map((site) => site.host).sort();
+    for (const site of group) {
+      annotations.set(site.host, {
+        ...site,
+        aliases: site.host === primary.host ? aliases : [],
+        isAlias: site.host !== primary.host,
+        isWwwAlias: site.host !== primary.host,
+        primaryHost: primary.host,
+      });
+    }
+  }
+  return sites.map((site) => annotations.get(site.host));
+}
+
+module.exports = {
+  annotateSiteAliases,
+  parsePools,
+  parseSitesMap,
+  renderPools,
+  renderSitesMap,
+  sanitizeSectionName,
+};

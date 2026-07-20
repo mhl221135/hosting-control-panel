@@ -11,7 +11,7 @@ const {
   validateImportPlan,
   validateManifest,
 } = require("../lib/migration-manager");
-const { parsePools, parseSitesMap, renderPools, renderSitesMap } = require("../lib/runtime-config");
+const { annotateSiteAliases, parsePools, parseSitesMap, renderPools, renderSitesMap } = require("../lib/runtime-config");
 
 test("validates portable manifests and rejects paths outside the transfer directory", () => {
   const manifest = validateManifest({
@@ -113,4 +113,28 @@ test("round trips runtime maps and pools", () => {
   const pools = parsePools("[www]\nlisten = 9000\npm = ondemand\n");
   assert.deepEqual(parsePools(renderPools(pools)).sections, pools.sections);
   assert.equal(transferId(new Date("2026-07-19T02:00:00Z")), "export-2026-07-19_02-00");
+});
+
+test("groups aliases by shared document root and PHP pool without requiring redirects", () => {
+  const sites = annotateSiteAliases([
+    { host: "www.example.com", root: "/var/www/example.com", port: 9001, canonicalTo: "" },
+    { host: "example.com", root: "/var/www/example.com", port: 9001, canonicalTo: "" },
+    { host: "shop.example.com", root: "/var/www/shop.example.com", port: 9002, canonicalTo: "" },
+  ]);
+  const primary = sites.find((site) => site.host === "example.com");
+  const alias = sites.find((site) => site.host === "www.example.com");
+  assert.equal(primary.isAlias, false);
+  assert.deepEqual(primary.aliases, ["www.example.com"]);
+  assert.equal(alias.isAlias, true);
+  assert.equal(alias.primaryHost, "example.com");
+  assert.equal(sites.find((site) => site.host === "shop.example.com").isAlias, false);
+});
+
+test("prefers an explicit canonical target as the primary host", () => {
+  const sites = annotateSiteAliases([
+    { host: "store.example.net", root: "/var/www/store", port: 9003, canonicalTo: "example.com" },
+    { host: "example.com", root: "/var/www/store", port: 9003, canonicalTo: "" },
+  ]);
+  assert.equal(sites.find((site) => site.host === "example.com").isAlias, false);
+  assert.equal(sites.find((site) => site.host === "store.example.net").primaryHost, "example.com");
 });

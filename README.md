@@ -15,6 +15,7 @@ into dedicated directories.
   cookies, session expiry, and CSRF protection
 - Account email and password changes from the panel
 - Site and per-site PHP-FPM pool management
+- Automatic grouping of `www` and other aliases under their primary website
 - Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
 - Automatic MySQL database and user creation
@@ -25,7 +26,7 @@ into dedicated directories.
 - Per-site PHP OPcache enablement
 - Validated global OPcache, FastCGI, Redis, MySQL, and PHP performance settings
 - Deterministic first-install accounts for the panel, NPM, and File Browser
-- Global gzip compression and on-demand per-site WebP image generation
+- Global gzip compression and per-site or bulk WebP image generation
 - Per-site manual and scheduled backups with retention
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel
@@ -298,6 +299,11 @@ creates quality-82 WebP alternatives for JPEG and PNG files, preserves every
 original, skips current outputs, and keeps a WebP only when it is smaller.
 Nginx serves the WebP alternative to browsers that advertise WebP support and
 falls back to the original file for other clients.
+
+The **Optimize all images** action processes primary websites sequentially in a
+persisted background job. Progress remains visible in the Sites header, aliases
+are not processed twice, and the job shares the backup lock so image conversion
+cannot overlap a backup or restore.
 
 ## Security Notes
 
