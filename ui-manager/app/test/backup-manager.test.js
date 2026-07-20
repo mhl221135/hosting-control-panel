@@ -118,3 +118,39 @@ test("rejects document roots outside the websites mount", () => {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("allocates a different identifier when two backups start in the same second", () => {
+  const fixture = managerFixture();
+  try {
+    const parent = fixture.manager.safeBackupParent("example.com");
+    const now = new Date("2026-07-20T03:00:00Z");
+    const first = fixture.manager.nextBackupId(parent, now);
+    fs.mkdirSync(path.join(parent, first));
+    const second = fixture.manager.nextBackupId(parent, now);
+    assert.equal(first, "2026-07-20T03-00-00Z");
+    assert.equal(second, "2026-07-20T03-00-01Z");
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("rejects a site restore when the manifest belongs to another host", () => {
+  const fixture = managerFixture();
+  try {
+    const id = "2026-07-20T03-00-00Z";
+    const directory = path.join(fixture.manager.safeBackupParent("example.com"), id);
+    fs.mkdirSync(directory);
+    fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify({
+      type: "site",
+      domain: "other.example",
+    }));
+    fs.writeFileSync(path.join(directory, "website.tar.gz"), "archive");
+    fs.writeFileSync(path.join(directory, "database.sql.gz"), "database");
+    assert.throws(
+      () => fixture.manager.readSiteManifest({ host: "example.com" }, id),
+      /does not belong/,
+    );
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});

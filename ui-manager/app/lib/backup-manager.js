@@ -163,6 +163,11 @@ class BackupManager {
       this.createAppDataBackup(this.readSettings().retention));
   }
 
+  async runSiteRestore(site, id) {
+    return this.withLock({ type: "restore", domain: site.host, label: `Restore ${site.host}` }, () =>
+      this.restoreSiteBackup(site, id));
+  }
+
   async withLock(job, work) {
     if (this.busy) {
       const error = new Error(`Another backup is already running: ${this.currentJob?.label || "backup"}`);
@@ -224,8 +229,8 @@ class BackupManager {
 
   async createSiteBackup(site, retention) {
     const relative = this.siteRelativePath(site);
-    const id = backupId();
     const parent = this.safeBackupParent(site.host);
+    const id = this.nextBackupId(parent);
     const partial = path.join(parent, `.partial-${id}`);
     const complete = path.join(parent, id);
     fs.mkdirSync(partial, { recursive: true });
@@ -262,8 +267,8 @@ class BackupManager {
 
   async createAppDataBackup(retention) {
     if (!fs.existsSync(this.appDataRoot)) throw new Error("App-data directory does not exist");
-    const id = backupId();
     const parent = this.safeBackupParent("app-data");
+    const id = this.nextBackupId(parent);
     const partial = path.join(parent, `.partial-${id}`);
     const complete = path.join(parent, id);
     fs.mkdirSync(partial, { recursive: true });
@@ -349,6 +354,144 @@ class BackupManager {
     ]);
   }
 
+  async importDatabase(database, inputPath) {
+    const process = spawn("docker", [
+      "exec",
+      "-i",
+      this.mysqlContainer,
+      "sh",
+      "-c",
+      'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" "$1"',
+      "backup-restore",
+      database,
+    ], { stdio: ["pipe", "ignore", "pipe"] });
+    let stderr = "";
+    process.stderr.on("data", (chunk) => {
+      if (stderr.length < 64 * 1024) stderr += chunk.toString();
+    });
+    await Promise.all([
+      pipeline(fs.createReadStream(inputPath), zlib.createGunzip(), process.stdin),
+      new Promise((resolve, reject) => {
+        process.on("error", reject);
+        process.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`MySQL restore failed${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+        });
+      }),
+    ]);
+  }
+
+  backupDirectory(name, id) {
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(id)) {
+      const error = new Error("Invalid backup identifier");
+      error.statusCode = 400;
+      throw error;
+    }
+    const parent = this.safeBackupParent(name);
+    const target = path.resolve(parent, id);
+    if (!target.startsWith(`${path.resolve(parent)}${path.sep}`) || !fs.existsSync(target)) {
+      const error = new Error("Backup not found");
+      error.statusCode = 404;
+      throw error;
+    }
+    return target;
+  }
+
+  readSiteManifest(site, id) {
+    const directory = this.backupDirectory(site.host, id);
+    let manifest;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
+    } catch {
+      throw new Error("Backup manifest is missing or invalid");
+    }
+    if (manifest.type !== "site" || manifest.domain !== site.host) {
+      throw new Error("Backup does not belong to the selected website");
+    }
+    for (const fileName of ["website.tar.gz", "database.sql.gz"]) {
+      if (!fs.existsSync(path.join(directory, fileName))) throw new Error(`Backup is missing ${fileName}`);
+    }
+    return { directory, manifest };
+  }
+
+  async restoreSiteBackup(site, id) {
+    const relative = this.siteRelativePath(site);
+    const currentDatabase = await this.databaseName(relative);
+    const { directory, manifest } = this.readSiteManifest(site, id);
+    if (manifest.websitePath !== relative || manifest.database !== currentDatabase) {
+      throw new Error("Backup website path or database does not match the current site");
+    }
+
+    const { stdout: archiveList } = await execFileAsync("tar", [
+      "-tzf",
+      path.join(directory, "website.tar.gz"),
+    ], { timeout: 10 * 60 * 1000, maxBuffer: 16 * 1024 * 1024 });
+    const entries = archiveList.split("\n").filter(Boolean);
+    if (!entries.length || entries.some((entry) =>
+      entry.startsWith("/") || entry.split("/").includes("..") ||
+      (entry !== relative && !entry.startsWith(`${relative}/`)))) {
+      throw new Error("Backup archive contains an unsafe website path");
+    }
+
+    const safety = await this.createSiteBackup(site, this.readSettings().retention + 1);
+    const suffix = cryptoSafeSuffix();
+    const staging = path.join(this.websitesRoot, `.restore-${suffix}`);
+    const rollback = path.join(this.websitesRoot, `.rollback-${suffix}`);
+    const current = path.resolve(this.websitesRoot, relative);
+    fs.mkdirSync(staging, { recursive: true });
+    let oldMoved = false;
+    let swapped = false;
+    try {
+      await execFileAsync("tar", [
+        "-xzf",
+        path.join(directory, "website.tar.gz"),
+        "-C",
+        staging,
+      ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      const restored = path.resolve(staging, relative);
+      if (!restored.startsWith(`${path.resolve(staging)}${path.sep}`) || !fs.existsSync(restored)) {
+        throw new Error("Website directory is missing from the backup archive");
+      }
+      fs.renameSync(current, rollback);
+      oldMoved = true;
+      fs.renameSync(restored, current);
+      swapped = true;
+      await this.importDatabase(currentDatabase, path.join(directory, "database.sql.gz"));
+      fs.rmSync(rollback, { recursive: true, force: true });
+      oldMoved = false;
+      swapped = false;
+      this.applyRetention(site.host, this.readSettings().retention);
+      return {
+        ok: true,
+        type: "restore",
+        domain: site.host,
+        restoredBackup: id,
+        safetyBackup: safety.id,
+      };
+    } catch (error) {
+      if (swapped) {
+        fs.rmSync(current, { recursive: true, force: true });
+        fs.renameSync(rollback, current);
+        oldMoved = false;
+        try {
+          await this.importDatabase(currentDatabase, path.join(
+            this.backupDirectory(site.host, safety.id),
+            "database.sql.gz",
+          ));
+        } catch (rollbackError) {
+          error.message += `; database rollback also failed: ${rollbackError.message}`;
+        }
+      } else if (oldMoved && fs.existsSync(rollback)) {
+        fs.renameSync(rollback, current);
+        oldMoved = false;
+      }
+      throw error;
+    } finally {
+      fs.rmSync(staging, { recursive: true, force: true });
+      if (!oldMoved && fs.existsSync(rollback)) fs.rmSync(rollback, { recursive: true, force: true });
+    }
+  }
+
   safeBackupParent(name) {
     if (name !== "app-data" && !/^[a-z0-9.-]+$/.test(name)) throw new Error("Invalid backup name");
     const root = path.resolve(this.backupsRoot);
@@ -356,6 +499,14 @@ class BackupManager {
     if (!parent.startsWith(`${root}${path.sep}`)) throw new Error("Unsafe backup path");
     fs.mkdirSync(parent, { recursive: true });
     return parent;
+  }
+
+  nextBackupId(parent, now = new Date()) {
+    for (let offset = 0; offset < 120; offset += 1) {
+      const id = backupId(new Date(now.getTime() + offset * 1000));
+      if (!fs.existsSync(path.join(parent, id)) && !fs.existsSync(path.join(parent, `.partial-${id}`))) return id;
+    }
+    throw new Error("Could not allocate a unique backup identifier");
   }
 
   history(name) {
@@ -376,18 +527,7 @@ class BackupManager {
   }
 
   deleteBackup(name, id) {
-    if (!/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(id)) {
-      const error = new Error("Invalid backup identifier");
-      error.statusCode = 400;
-      throw error;
-    }
-    const parent = this.safeBackupParent(name);
-    const target = path.resolve(parent, id);
-    if (!target.startsWith(`${path.resolve(parent)}${path.sep}`) || !fs.existsSync(target)) {
-      const error = new Error("Backup not found");
-      error.statusCode = 404;
-      throw error;
-    }
+    const target = this.backupDirectory(name, id);
     fs.rmSync(target, { recursive: true, force: true });
   }
 
@@ -395,6 +535,10 @@ class BackupManager {
     const entries = this.history(name);
     for (const backup of entries.slice(Number(retention))) this.deleteBackup(name, backup.id);
   }
+}
+
+function cryptoSafeSuffix() {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 module.exports = { BackupManager, DEFAULT_SETTINGS, backupId };

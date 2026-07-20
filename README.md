@@ -311,6 +311,14 @@ Retention operates on the whole timestamped directory, so website files and the
 matching database dump cannot be pruned separately. Incomplete work stays in a
 hidden `.partial-*` directory and is removed after a failed run.
 
+The **Restore** action is available for every website backup set. Before replacing
+the website files and importing its database, the panel creates a new safety
+backup. The file swap is staged inside the websites filesystem, and a failed
+database import triggers a best-effort rollback to the safety backup. Backup
+manifests must match the selected host, document root, and database. Application
+data restoration is deliberately a maintenance operation because the affected
+containers must be stopped; it is not exposed as an unsafe one-click action.
+
 The daily application-data backup is stored as:
 
 ```text
@@ -328,6 +336,22 @@ MySQL databases.
 The scheduler uses the container timezone (`Europe/Kyiv`) and runs enabled
 website backups sequentially, followed by application data. Only one manual or
 scheduled backup can run at a time.
+
+## Cloudflare DNS
+
+The **DNS & SSL** tab lists all Cloudflare records at the selected website host
+and below it, and supports creating, editing, and deleting A, AAAA, CNAME, TXT,
+MX, and CAA records.
+
+Reusable DNS presets are managed in **Settings** and can be applied to any
+selected website. Use `@` for the selected host, a relative name such as `www`,
+or `{domain}` in name and content templates.
+
+Settings also stores a reusable list of server IPv4 addresses. The bulk
+replacement tool changes only A records whose content exactly matches the
+selected old IP, across every active zone available to the configured
+Cloudflare token. It preserves proxy and TTL settings, requires confirmation,
+and reports each changed hostname.
 
 The legacy host-specific `backup_websites.sh` remains excluded from Git and is
 not invoked or modified by this panel.

@@ -225,32 +225,83 @@ class CloudflareClient {
     return data.result || {};
   }
 
-  async records(domain) {
-    const zone = await this.zoneForDomain(domain);
-    const data = await this.request(`/zones/${zone.id}/dns_records?name=${encodeURIComponent(domain)}&per_page=100`);
-    return { zone: { id: zone.id, name: zone.name }, records: data.result || [] };
+  async zones() {
+    const zones = [];
+    let page = 1;
+    while (true) {
+      const data = await this.request(`/zones?status=active&per_page=50&page=${page}`);
+      zones.push(...(data.result || []));
+      if (page >= Number(data.result_info?.total_pages || 1)) break;
+      page += 1;
+    }
+    return zones;
   }
 
-  async upsertRecord(domain, record) {
+  async records(domain) {
     const zone = await this.zoneForDomain(domain);
+    const data = await this.request(`/zones/${zone.id}/dns_records?per_page=5000`);
+    const records = (data.result || []).filter((record) =>
+      record.name === domain || record.name.endsWith(`.${domain}`));
+    return {
+      zone: { id: zone.id, name: zone.name },
+      scope: domain,
+      records: records.sort((left, right) =>
+        left.name.localeCompare(right.name) || left.type.localeCompare(right.type)),
+    };
+  }
+
+  recordPayload(domain, record) {
     const type = String(record.type || "A").toUpperCase();
     const name = String(record.name || domain).trim().toLowerCase();
     const content = String(record.content || "").trim();
-    if (!["A", "AAAA", "CNAME", "TXT"].includes(type)) {
-      throw new IntegrationError("Supported DNS types are A, AAAA, CNAME and TXT", 400);
+    if (!["A", "AAAA", "CNAME", "TXT", "MX", "CAA"].includes(type)) {
+      throw new IntegrationError("Supported DNS types are A, AAAA, CNAME, TXT, MX and CAA", 400);
     }
     if (!content) throw new IntegrationError("DNS record content is required", 400);
-    const existingData = await this.request(
-      `/zones/${zone.id}/dns_records?type=${encodeURIComponent(type)}&name=${encodeURIComponent(name)}`,
-    );
+    const ttl = Number(record.ttl || 1);
+    if (ttl !== 1 && (!Number.isInteger(ttl) || ttl < 60 || ttl > 86400)) {
+      throw new IntegrationError("TTL must be automatic (1) or between 60 and 86400 seconds", 400);
+    }
     const payload = {
       type,
       name,
       content,
-      ttl: Number(record.ttl || 1),
+      ttl,
       proxied: ["A", "AAAA", "CNAME"].includes(type) ? Boolean(record.proxied) : false,
       comment: String(record.comment || "Managed by Websites Config UI"),
     };
+    if (type === "MX") {
+      const priority = Number(record.priority || 10);
+      if (!Number.isInteger(priority) || priority < 0 || priority > 65535) {
+        throw new IntegrationError("MX priority must be between 0 and 65535", 400);
+      }
+      payload.priority = priority;
+    }
+    return payload;
+  }
+
+  async createRecord(domain, record) {
+    const zone = await this.zoneForDomain(domain);
+    return this.request(`/zones/${zone.id}/dns_records`, {
+      method: "POST",
+      body: JSON.stringify(this.recordPayload(domain, record)),
+    });
+  }
+
+  async updateRecord(domain, recordId, record) {
+    const zone = await this.zoneForDomain(domain);
+    return this.request(`/zones/${zone.id}/dns_records/${encodeURIComponent(recordId)}`, {
+      method: "PUT",
+      body: JSON.stringify(this.recordPayload(domain, record)),
+    });
+  }
+
+  async upsertRecord(domain, record) {
+    const zone = await this.zoneForDomain(domain);
+    const payload = this.recordPayload(domain, record);
+    const existingData = await this.request(
+      `/zones/${zone.id}/dns_records?type=${encodeURIComponent(payload.type)}&name=${encodeURIComponent(payload.name)}`,
+    );
     const existing = existingData.result?.[0];
     if (existing) {
       return this.request(`/zones/${zone.id}/dns_records/${existing.id}`, {
@@ -269,6 +320,33 @@ class CloudflareClient {
     return this.request(`/zones/${zone.id}/dns_records/${encodeURIComponent(recordId)}`, {
       method: "DELETE",
     });
+  }
+
+  async replaceARecords(fromIp, toIp) {
+    const zones = await this.zones();
+    const changes = [];
+    for (const zone of zones) {
+      const data = await this.request(
+        `/zones/${zone.id}/dns_records?type=A&content=${encodeURIComponent(fromIp)}&per_page=5000`,
+      );
+      for (const record of data.result || []) {
+        const payload = {
+          type: "A",
+          name: record.name,
+          content: toIp,
+          ttl: Number(record.ttl || 1),
+          proxied: Boolean(record.proxied),
+          comment: record.comment || "Managed by Websites Config UI",
+          tags: Array.isArray(record.tags) ? record.tags : [],
+        };
+        await this.request(`/zones/${zone.id}/dns_records/${record.id}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        changes.push({ zone: zone.name, name: record.name, from: fromIp, to: toIp });
+      }
+    }
+    return { zonesChecked: zones.length, changed: changes.length, records: changes };
   }
 }
 

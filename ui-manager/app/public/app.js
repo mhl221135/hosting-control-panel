@@ -10,6 +10,9 @@ const state = {
   backupName: "app-data",
   backupSettings: null,
   backupStatus: null,
+  dnsRecords: [],
+  dnsPresets: [],
+  cloudflareIps: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -212,7 +215,10 @@ function renderBackupHistory(backups) {
     <div class="backup-row">
       <div><strong>${escapeHtml(backup.id)}</strong><p>${escapeHtml(new Date(backup.completedAt || backup.startedAt || "").toLocaleString())}</p></div>
       <div><span>${backup.database ? `Database: ${escapeHtml(backup.database)}` : "All application databases"}</span><p>${formatBytes(backup.size)}</p></div>
-      <button class="secondary danger-button" data-delete-backup="${escapeHtml(backup.id)}">Delete</button>
+      <div class="backup-actions">
+        ${state.backupName === "app-data" ? "" : `<button class="secondary" data-restore-backup="${escapeHtml(backup.id)}">Restore</button>`}
+        <button class="secondary danger-button" data-delete-backup="${escapeHtml(backup.id)}">Delete</button>
+      </div>
     </div>
   `).join("");
 }
@@ -324,23 +330,80 @@ async function loadDns() {
     return;
   }
   const data = await api(`/api/cloudflare/records?domain=${encodeURIComponent(domain)}`);
-  $("#dnsZone").textContent = `Zone: ${data.zone.name}`;
+  $("#dnsZone").textContent = `Zone: ${data.zone.name} · showing ${data.scope} and its subdomains`;
   const records = data.records || [];
+  state.dnsRecords = records;
   $("#dnsRecords").className = records.length ? "rows" : "rows empty";
   $("#dnsRecords").innerHTML = records.length ? records.map((record) => `
     <div class="data-row">
       <strong>${escapeHtml(record.type)}</strong>
       <span>${escapeHtml(record.name)}</span>
       <code>${escapeHtml(record.content)}</code>
-      <button class="secondary" data-delete-dns="${escapeHtml(record.id)}">Delete</button>
+      <span>${record.proxied ? "Proxied" : record.ttl === 1 ? "Auto TTL" : `${escapeHtml(record.ttl)}s`}</span>
+      <div class="record-actions">
+        <button class="secondary" data-edit-dns="${escapeHtml(record.id)}">Edit</button>
+        <button class="secondary danger-button" data-delete-dns="${escapeHtml(record.id)}">Delete</button>
+      </div>
     </div>
-  `).join("") : "No records found for this exact hostname.";
-  $("#dnsForm [name=name]").value = domain;
+  `).join("") : "No records found for this host or its subdomains.";
+  if (!$("#dnsForm").elements.record_id.value) $("#dnsForm").elements.name.value = domain;
+}
+
+function resetDnsForm() {
+  const form = $("#dnsForm");
+  form.reset();
+  form.elements.record_id.value = "";
+  form.elements.name.value = state.selectedDomain;
+  form.elements.ttl.value = "1";
+  form.elements.priority.value = "10";
+  form.elements.proxied.checked = true;
+  $("#saveDnsRecord").textContent = "Add record";
+  $("#cancelDnsEdit").classList.add("hidden");
+}
+
+function renderDnsPresets() {
+  $("#dnsPresetSelect").innerHTML = [
+    '<option value="">Select a preset</option>',
+    ...state.dnsPresets.map((preset) =>
+      `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.label)} · ${escapeHtml(preset.type)} ${escapeHtml(preset.nameTemplate)}</option>`),
+  ].join("");
+  const list = $("#dnsPresetList");
+  list.className = state.dnsPresets.length ? "rows" : "rows empty";
+  list.innerHTML = state.dnsPresets.length ? state.dnsPresets.map((preset) => `
+    <div class="data-row preset-row">
+      <strong>${escapeHtml(preset.type)}</strong>
+      <span>${escapeHtml(preset.label)}</span>
+      <code>${escapeHtml(preset.nameTemplate)} → ${escapeHtml(preset.contentTemplate)}</code>
+      <span>${preset.proxied ? "Proxied" : "DNS only"}</span>
+      <div class="record-actions">
+        <button class="secondary" data-edit-dns-preset="${escapeHtml(preset.id)}">Edit</button>
+        <button class="secondary danger-button" data-delete-dns-preset="${escapeHtml(preset.id)}">Delete</button>
+      </div>
+    </div>
+  `).join("") : "No DNS presets saved.";
+}
+
+async function loadDnsPresets() {
+  const data = await api("/api/dns-presets");
+  state.dnsPresets = data.presets || [];
+  renderDnsPresets();
+}
+
+function renderCloudflareIps() {
+  $("#cloudflareIpForm").elements.addresses.value = state.cloudflareIps.join("\n");
+  $("#cloudflareIpOptions").innerHTML = state.cloudflareIps
+    .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
+}
+
+async function loadCloudflareIps() {
+  const data = await api("/api/cloudflare/ip-addresses");
+  state.cloudflareIps = data.addresses || [];
+  renderCloudflareIps();
 }
 
 async function refreshIntegrationView() {
   renderDomainOptions();
-  await Promise.allSettled([loadNpm(), loadDns()]);
+  await Promise.allSettled([loadNpm(), loadDns(), loadDnsPresets()]);
 }
 
 async function loadLogs() {
@@ -354,7 +417,11 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const settings = await api("/api/settings/integrations");
+    const [settings] = await Promise.all([
+      api("/api/settings/integrations"),
+      loadDnsPresets(),
+      loadCloudflareIps(),
+    ]);
     const form = $("#integrationSettingsForm");
     form.elements.npmApiUrl.value = settings.npmApiUrl || "";
     form.elements.npmIdentity.value = settings.npmIdentity || "";
@@ -467,19 +534,58 @@ $("#dnsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = formObject(event.currentTarget);
   body.domain = state.selectedDomain;
+  const recordId = body.record_id;
+  delete body.record_id;
   try {
-    await withButton(event.submitter, "Saving...", () => api("/api/cloudflare/records", { method: "POST", body: JSON.stringify(body) }));
+    const url = recordId ? `/api/cloudflare/records/${encodeURIComponent(recordId)}` : "/api/cloudflare/records";
+    await withButton(event.submitter, "Saving...", () => api(url, {
+      method: recordId ? "PUT" : "POST",
+      body: JSON.stringify(body),
+    }));
     notice("DNS record saved.");
+    resetDnsForm();
     await loadDns();
   } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#dnsRecords").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-dns]");
+  if (editButton) {
+    const record = state.dnsRecords.find((item) => item.id === editButton.dataset.editDns);
+    if (!record) return;
+    const form = $("#dnsForm");
+    form.elements.record_id.value = record.id;
+    form.elements.type.value = record.type;
+    form.elements.name.value = record.name;
+    form.elements.content.value = record.content;
+    form.elements.ttl.value = record.ttl || 1;
+    form.elements.priority.value = record.priority || 10;
+    form.elements.proxied.checked = Boolean(record.proxied);
+    $("#saveDnsRecord").textContent = "Update record";
+    $("#cancelDnsEdit").classList.remove("hidden");
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
   const button = event.target.closest("[data-delete-dns]");
-  if (!button || !confirm("Delete this DNS record?")) return;
+  if (!button || !confirm("Delete this DNS record? This cannot be undone.")) return;
   try {
     await api(`/api/cloudflare/records/${encodeURIComponent(button.dataset.deleteDns)}?domain=${encodeURIComponent(state.selectedDomain)}`, { method: "DELETE" });
     notice("DNS record deleted.");
+    await loadDns();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cancelDnsEdit").addEventListener("click", resetDnsForm);
+
+$("#applyDnsPreset").addEventListener("click", async (event) => {
+  const presetId = $("#dnsPresetSelect").value;
+  if (!presetId) return notice("Select a DNS preset first.", "warning");
+  try {
+    await withButton(event.currentTarget, "Applying...", () => api(
+      `/api/dns-presets/${encodeURIComponent(presetId)}/apply`,
+      { method: "POST", body: JSON.stringify({ domain: state.selectedDomain }) },
+    ));
+    notice(`DNS preset applied to ${state.selectedDomain}.`);
     await loadDns();
   } catch (error) { notice(error.message, "warning"); }
 });
@@ -626,6 +732,23 @@ $("#backupAppData").addEventListener("click", async (event) => {
 });
 
 $("#backupHistory").addEventListener("click", async (event) => {
+  const restoreButton = event.target.closest("[data-restore-backup]");
+  if (restoreButton) {
+    const message = `Restore ${state.backupName} from ${restoreButton.dataset.restoreBackup}?\n\nThe panel will create a safety backup first, then replace the website files and database.`;
+    if (!confirm(message)) return;
+    try {
+      const result = await withButton(restoreButton, "Restoring...", () => api("/api/backups/restore", {
+        method: "POST",
+        body: JSON.stringify({
+          domain: state.backupName,
+          backup_id: restoreButton.dataset.restoreBackup,
+        }),
+      }));
+      notice(`Restore complete. Safety backup: ${result.safetyBackup}.`);
+      await loadBackupView();
+    } catch (error) { notice(error.message, "warning"); }
+    return;
+  }
   const button = event.target.closest("[data-delete-backup]");
   if (!button || !confirm("Delete this complete backup set?")) return;
   try {
@@ -635,6 +758,96 @@ $("#backupHistory").addEventListener("click", async (event) => {
     ));
     notice("Backup set deleted.");
     await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsPresetForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/dns-presets", {
+      method: "POST",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    event.currentTarget.reset();
+    event.currentTarget.elements.name_template.value = "@";
+    event.currentTarget.elements.ttl.value = "1";
+    event.currentTarget.elements.priority.value = "10";
+    event.currentTarget.elements.proxied.checked = true;
+    $("#cancelDnsPresetEdit").classList.add("hidden");
+    notice("DNS preset saved.");
+    await loadDnsPresets();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsPresetList").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-dns-preset]");
+  if (editButton) {
+    const preset = state.dnsPresets.find((item) => item.id === editButton.dataset.editDnsPreset);
+    if (!preset) return;
+    const form = $("#dnsPresetForm");
+    form.elements.id.value = preset.id;
+    form.elements.label.value = preset.label;
+    form.elements.type.value = preset.type;
+    form.elements.name_template.value = preset.nameTemplate;
+    form.elements.content_template.value = preset.contentTemplate;
+    form.elements.ttl.value = preset.ttl;
+    form.elements.priority.value = preset.priority || 10;
+    form.elements.proxied.checked = preset.proxied;
+    $("#cancelDnsPresetEdit").classList.remove("hidden");
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-dns-preset]");
+  if (!deleteButton || !confirm("Delete this global DNS preset?")) return;
+  try {
+    await api(`/api/dns-presets/${encodeURIComponent(deleteButton.dataset.deleteDnsPreset)}`, { method: "DELETE" });
+    notice("DNS preset deleted.");
+    await loadDnsPresets();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cancelDnsPresetEdit").addEventListener("click", () => {
+  const form = $("#dnsPresetForm");
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.name_template.value = "@";
+  form.elements.ttl.value = "1";
+  form.elements.priority.value = "10";
+  form.elements.proxied.checked = true;
+  $("#cancelDnsPresetEdit").classList.add("hidden");
+});
+
+$("#saveCloudflareIps").addEventListener("click", async (event) => {
+  const addresses = $("#cloudflareIpForm").elements.addresses.value
+    .split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+  try {
+    const result = await withButton(event.currentTarget, "Saving...", () => api("/api/cloudflare/ip-addresses", {
+      method: "PUT",
+      body: JSON.stringify({ addresses }),
+    }));
+    state.cloudflareIps = result.addresses;
+    renderCloudflareIps();
+    notice("Cloudflare server IP list saved.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cloudflareIpForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  if (!confirm(`Replace every Cloudflare A record pointing to ${body.from_ip} with ${body.to_ip} across all accessible zones?`)) return;
+  try {
+    const result = await withButton(event.submitter, "Replacing...", () => api("/api/cloudflare/replace-a-records", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }));
+    $("#cloudflareIpResult").textContent = [
+      `Zones checked: ${result.zonesChecked}`,
+      `A records changed: ${result.changed}`,
+      ...(result.records || []).slice(0, 20).map((record) => `${record.name}: ${record.from} → ${record.to}`),
+      result.changed > 20 ? `...and ${result.changed - 20} more` : "",
+    ].filter(Boolean).join("\n");
+    notice(`${result.changed} Cloudflare A record${result.changed === 1 ? "" : "s"} updated.`);
+    await loadDns();
   } catch (error) { notice(error.message, "warning"); }
 });
 

@@ -17,6 +17,8 @@ const {
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
 const { BackupManager } = require("./lib/backup-manager");
+const { DnsPresetStore } = require("./lib/dns-presets");
+const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -70,6 +72,8 @@ const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
+const dnsPresets = new DnsPresetStore(DATA_DIR);
+const ipAddresses = new IpAddressStore(DATA_DIR);
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 siteState.renderCacheMap();
 const backupManager = new BackupManager({
@@ -537,6 +541,21 @@ async function handleApi(req, res) {
     return true;
   }
 
+  if (req.method === "POST" && requestUrl.pathname === "/api/backups/restore") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const site = getSitesWithPools(mapParsed, poolsParsed)
+      .find((item) => item.host === domain && !item.isWwwAlias);
+    if (!site) {
+      sendJson(res, 404, { ok: false, message: "Site is not configured" });
+      return true;
+    }
+    sendJson(res, 200, await backupManager.runSiteRestore(site, String(body.backup_id || "")));
+    return true;
+  }
+
   if (req.method === "DELETE" && requestUrl.pathname.startsWith("/api/backups/")) {
     const parts = requestUrl.pathname.slice("/api/backups/".length).split("/").map(decodeURIComponent);
     if (parts.length !== 2) {
@@ -623,7 +642,16 @@ async function handleApi(req, res) {
   if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/records") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const domain = validateDomain(body.domain);
-    const result = await cloudflare.upsertRecord(domain, body);
+    const result = await cloudflare.createRecord(domain, body);
+    sendJson(res, 201, { ok: true, record: result.result });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname.startsWith("/api/cloudflare/records/")) {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const recordId = decodeURIComponent(requestUrl.pathname.replace("/api/cloudflare/records/", ""));
+    const result = await cloudflare.updateRecord(domain, recordId, body);
     sendJson(res, 200, { ok: true, record: result.result });
     return true;
   }
@@ -633,6 +661,57 @@ async function handleApi(req, res) {
     const recordId = decodeURIComponent(requestUrl.pathname.replace("/api/cloudflare/records/", ""));
     await cloudflare.deleteRecord(domain, recordId);
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/dns-presets") {
+    sendJson(res, 200, { presets: dnsPresets.read() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/dns-presets") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, body.id ? 200 : 201, { ok: true, preset: dnsPresets.save(body) });
+    return true;
+  }
+
+  if (req.method === "DELETE" && requestUrl.pathname.startsWith("/api/dns-presets/")) {
+    const presetId = decodeURIComponent(requestUrl.pathname.replace("/api/dns-presets/", ""));
+    dnsPresets.delete(presetId);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (req.method === "POST" && /^\/api\/dns-presets\/[^/]+\/apply$/.test(requestUrl.pathname)) {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const presetId = decodeURIComponent(requestUrl.pathname.split("/")[3]);
+    const record = dnsPresets.resolve(presetId, domain);
+    const result = await cloudflare.upsertRecord(domain, record);
+    sendJson(res, 200, { ok: true, record: result.result });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/cloudflare/ip-addresses") {
+    sendJson(res, 200, { addresses: ipAddresses.read() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/cloudflare/ip-addresses") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, { ok: true, addresses: ipAddresses.save(body.addresses) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/replace-a-records") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const fromIp = validateIpv4(body.from_ip);
+    const toIp = validateIpv4(body.to_ip);
+    if (fromIp === toIp) {
+      sendJson(res, 400, { ok: false, message: "Old and replacement IP addresses must be different" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, ...(await cloudflare.replaceARecords(fromIp, toIp)) });
     return true;
   }
 

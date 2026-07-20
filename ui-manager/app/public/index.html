@@ -103,13 +103,23 @@
           <div class="two-column">
             <article class="panel">
               <div class="card-head"><div><h3>Cloudflare DNS</h3><p id="dnsZone" class="muted">Select a website.</p></div><button id="loadDns" class="secondary">Refresh</button></div>
+              <div class="preset-apply">
+                <label>DNS preset<select id="dnsPresetSelect"><option value="">Select a preset</option></select></label>
+                <button id="applyDnsPreset" type="button" class="secondary">Apply preset</button>
+              </div>
               <div id="dnsRecords" class="rows empty">No DNS records loaded.</div>
               <form id="dnsForm" class="compact-grid">
-                <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option></select></label>
+                <input name="record_id" type="hidden" />
+                <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>CAA</option></select></label>
                 <label>Name<input name="name" placeholder="website.com" /></label>
                 <label class="wide">Content<input name="content" placeholder="Server IP or target" required /></label>
+                <label>TTL<input name="ttl" type="number" value="1" min="1" max="86400" /></label>
+                <label>MX priority<input name="priority" type="number" value="10" min="0" max="65535" /></label>
                 <label class="check inline"><input name="proxied" type="checkbox" checked /> Cloudflare proxy</label>
-                <button type="submit">Save record</button>
+                <div class="button-row">
+                  <button id="saveDnsRecord" type="submit">Add record</button>
+                  <button id="cancelDnsEdit" type="button" class="secondary hidden">Cancel</button>
+                </div>
               </form>
             </article>
 
@@ -149,7 +159,7 @@
 
           <article class="panel">
             <div class="card-head">
-              <div><h3>Stored backup sets</h3><p class="muted">Each website set contains its files and database dump.</p></div>
+              <div><h3>Stored backup sets</h3><p class="muted">Website sets can be restored here. Application-data restore requires maintenance recovery with the stack stopped.</p></div>
               <select id="backupDomain" class="domain-select"></select>
             </div>
             <div id="backupHistory" class="rows empty">Select a website or app data.</div>
@@ -217,6 +227,46 @@
 
             <div class="form-actions full"><button type="submit">Save integration settings</button></div>
           </form>
+
+          <div class="two-column settings-tools">
+            <article class="panel">
+              <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Use @ for the selected host, or a relative name such as www.</p></div></div>
+              <form id="dnsPresetForm" class="form-grid">
+                <input name="id" type="hidden" />
+                <label>Preset name<input name="label" placeholder="Main server A record" required /></label>
+                <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>CAA</option></select></label>
+                <label>Name template<input name="name_template" value="@" placeholder="@ or www" required /></label>
+                <label>Content template<input name="content_template" placeholder="IP, target, or {domain}" required /></label>
+                <label>TTL<input name="ttl" type="number" value="1" min="1" max="86400" /></label>
+                <label>MX priority<input name="priority" type="number" value="10" min="0" max="65535" /></label>
+                <label class="check inline"><input name="proxied" type="checkbox" checked /> Cloudflare proxy</label>
+                <div class="form-actions full button-row">
+                  <button id="cancelDnsPresetEdit" type="button" class="secondary hidden">Cancel</button>
+                  <button type="submit">Save preset</button>
+                </div>
+              </form>
+              <div id="dnsPresetList" class="rows empty">No DNS presets saved.</div>
+            </article>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Replace Cloudflare server IP</h3><p class="muted">Updates matching A records across every accessible active zone.</p></div></div>
+              <form id="cloudflareIpForm" class="form-stack">
+                <label>Saved server IPv4 addresses
+                  <textarea name="addresses" rows="5" placeholder="192.0.2.10&#10;203.0.113.10"></textarea>
+                </label>
+                <div class="form-actions"><button id="saveCloudflareIps" type="button" class="secondary">Save IP list</button></div>
+                <label>Old IP
+                  <input name="from_ip" list="cloudflareIpOptions" placeholder="Select or enter current IP" required />
+                </label>
+                <label>Replacement IP
+                  <input name="to_ip" list="cloudflareIpOptions" placeholder="Select or enter new IP" required />
+                </label>
+                <datalist id="cloudflareIpOptions"></datalist>
+                <div class="form-actions"><button type="submit">Replace matching A records</button></div>
+              </form>
+              <div id="cloudflareIpResult" class="status-box compact-status">No bulk replacement has run.</div>
+            </article>
+          </div>
         </section>
       </div>
     </div>
