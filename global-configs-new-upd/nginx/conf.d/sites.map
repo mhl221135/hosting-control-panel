@@ -1,0 +1,11 @@
+map $host $site_root {
+  default /var/www/_default;
+}
+
+map $host $php_upstream {
+  default hosting-php-fpm:9000;
+}
+
+map $host $canonical_host {
+  default "";
+}

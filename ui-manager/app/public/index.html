@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hosting Control</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main id="loginView" class="login-view">
+      <form id="loginForm" class="login-panel">
+        <div class="brand-mark">HC</div>
+        <h1>Hosting Control</h1>
+        <p class="muted">Sign in to manage this server.</p>
+        <label>Email<input id="loginEmail" type="email" autocomplete="username" required /></label>
+        <label>Password<input id="loginPassword" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Sign in</button>
+        <p id="loginError" class="message error hidden"></p>
+      </form>
+    </main>
+
+    <div id="appView" class="app hidden">
+      <aside class="sidebar">
+        <a class="brand" href="#" data-tab-link="sites"><span class="brand-mark small">HC</span><span>Hosting Control</span></a>
+        <nav>
+          <button class="nav-item active" data-tab-link="sites">Sites</button>
+          <button class="nav-item" data-tab-link="provision">Provision</button>
+          <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
+          <button class="nav-item" data-tab-link="backups">Backups</button>
+          <button class="nav-item" data-tab-link="runtime">Runtime</button>
+          <button class="nav-item" data-tab-link="settings">Settings</button>
+          <button class="nav-item" data-tab-link="account">Account</button>
+        </nav>
+        <div class="sidebar-foot">
+          <span id="integrationSummary" class="status-line">Checking services</span>
+        </div>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Server workspace</p>
+            <h1 id="pageTitle">Sites</h1>
+          </div>
+          <div class="top-actions">
+            <span id="currentUser" class="muted"></span>
+            <button id="logoutButton" class="secondary">Sign out</button>
+          </div>
+        </header>
+
+        <div id="notice" class="notice hidden"></div>
+
+        <section class="tab-panel" data-tab-panel="sites">
+          <div class="metrics">
+            <article><span>Configured hosts</span><strong id="siteCount">0</strong></article>
+            <article><span>PHP pools</span><strong id="poolCount">0</strong></article>
+            <article><span>FastCGI enabled</span><strong id="cacheCount">0</strong></article>
+            <article><span>Redis enabled</span><strong id="redisCount">0</strong></article>
+          </div>
+
+          <div class="section-head">
+            <div><h2>Websites</h2><p>Internal routing, PHP resources and cache state.</p></div>
+            <input id="siteSearch" class="search" type="search" placeholder="Search domains" />
+          </div>
+          <div id="sitesList" class="site-list"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="provision">
+          <div class="section-head">
+            <div><h2>Create WordPress website</h2><p>Creates the route, pool, database, WordPress installation and optional edge host.</p></div>
+          </div>
+          <form id="provisionForm" class="panel form-grid">
+            <label>Domain<input name="domain" placeholder="website.com" required /></label>
+            <label>Website directory<input name="directory" placeholder="Defaults to domain" /></label>
+            <label>Website title<input name="title" placeholder="Website name" /></label>
+            <label>PHP pool profile
+              <select name="pool_tier" id="provisionTier"></select>
+            </label>
+            <label>WordPress admin email<input name="admin_email" type="email" required /></label>
+            <label>WordPress admin username<input name="admin_user" value="admin" required /></label>
+            <label>WordPress admin password<input name="admin_password" type="password" placeholder="Generated when empty" /></label>
+            <label>Notes<input name="notes" placeholder="Client or project note" /></label>
+            <fieldset class="option-group full">
+              <legend>Provisioning options</legend>
+              <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
+              <label class="check"><input name="redis" type="checkbox" /> Enable Redis object cache</label>
+              <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>
+              <label class="check"><input name="opcache" type="checkbox" checked /> Enable PHP OPcache</label>
+              <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>
+              <label class="check"><input name="create_npm_host" type="checkbox" checked /> Create NPM proxy host</label>
+              <label class="check"><input name="issue_ssl" type="checkbox" checked /> Request SSL</label>
+            </fieldset>
+            <div class="form-actions full"><button type="submit">Create website</button></div>
+          </form>
+          <div id="provisionResult" class="panel result hidden"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="integrations">
+          <div class="section-head">
+            <div><h2>DNS &amp; SSL</h2><p>Cloudflare records and Nginx Proxy Manager edge hosts.</p></div>
+            <select id="integrationDomain" class="domain-select"></select>
+          </div>
+
+          <div class="two-column">
+            <article class="panel">
+              <div class="card-head"><div><h3>Cloudflare DNS</h3><p id="dnsZone" class="muted">Select a website.</p></div><button id="loadDns" class="secondary">Refresh</button></div>
+              <div class="preset-apply">
+                <label>DNS preset<select id="dnsPresetSelect"><option value="">Select a preset</option></select></label>
+                <button id="applyDnsPreset" type="button" class="secondary">Apply preset</button>
+              </div>
+              <div id="dnsRecords" class="rows empty">No DNS records loaded.</div>
+              <form id="dnsForm" class="compact-grid">
+                <input name="record_id" type="hidden" />
+                <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>CAA</option></select></label>
+                <label>Name<input name="name" placeholder="website.com" /></label>
+                <label class="wide">Content<input name="content" placeholder="Server IP or target" required /></label>
+                <label>TTL<input name="ttl" type="number" value="1" min="1" max="86400" /></label>
+                <label>MX priority<input name="priority" type="number" value="10" min="0" max="65535" /></label>
+                <label class="check inline"><input name="proxied" type="checkbox" checked /> Cloudflare proxy</label>
+                <div class="button-row">
+                  <button id="saveDnsRecord" type="submit">Add record</button>
+                  <button id="cancelDnsEdit" type="button" class="secondary hidden">Cancel</button>
+                </div>
+              </form>
+            </article>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Nginx Proxy Manager</h3><p class="muted">Edge routing and Let's Encrypt.</p></div><button id="refreshNpm" class="secondary">Refresh</button></div>
+              <div id="npmHostStatus" class="status-box">Select a website.</div>
+              <div class="button-row">
+                <button id="ensureNpmHost">Create or link host</button>
+                <button id="issueNpmSsl" class="secondary">Issue SSL</button>
+                <button id="renewNpmSsl" class="secondary">Renew SSL</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="backups">
+          <div class="section-head">
+            <div><h2>Backups</h2><p>Daily website archives, database dumps and application data protection.</p></div>
+            <button id="backupAppData">Back up app data now</button>
+          </div>
+
+          <div class="two-column backup-layout">
+            <form id="backupSettingsForm" class="panel form-stack">
+              <div><h3>Daily schedule</h3><p class="muted">The server uses Europe/Kyiv time.</p></div>
+              <label>Start time<input name="schedule_time" type="time" required /></label>
+              <label>Backup sets to keep<input name="retention" type="number" min="1" max="90" required /></label>
+              <label class="check"><input name="site_backups_enabled" type="checkbox" /> Enable website backups</label>
+              <label class="check"><input name="app_data_enabled" type="checkbox" /> Back up app data every day</label>
+              <div class="form-actions"><button type="submit">Save schedule</button></div>
+            </form>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Backup activity</h3><p class="muted">Only one backup runs at a time.</p></div><button id="refreshBackups" class="secondary">Refresh</button></div>
+              <div id="backupStatus" class="status-box">Loading backup status.</div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="card-head">
+              <div><h3>Stored backup sets</h3><p class="muted">Website sets can be restored here. Application-data restore requires maintenance recovery with the stack stopped.</p></div>
+              <select id="backupDomain" class="domain-select"></select>
+            </div>
+            <div id="backupHistory" class="rows empty">Select a website or app data.</div>
+          </article>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="runtime">
+          <div class="section-head">
+            <div><h2>Runtime configuration</h2><p>Validate services, manage pools and edit internal host routing.</p></div>
+            <div class="button-row">
+              <button id="validateConfig" class="secondary">Validate</button>
+              <button id="reloadNginx" class="secondary">Reload nginx</button>
+              <button id="reloadPhp" class="secondary">Reload PHP-FPM</button>
+              <button id="clearOpcache" class="secondary">Clear OPcache</button>
+            </div>
+          </div>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>PHP-FPM pools</h3><p class="muted">Resource profiles and assigned ports.</p></div><button id="savePools">Save pools</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Port</th><th>Profile</th><th>Hosts</th></tr></thead><tbody id="poolsTable"></tbody></table></div>
+          </article>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>Internal routes</h3><p class="muted">Host, document root, pool and canonical destination.</p></div><button id="saveHosts">Save routes</button></div>
+            <div class="table-wrap"><table><thead><tr><th>Host</th><th>Root</th><th>Pool</th><th>Canonical</th><th>www</th></tr></thead><tbody id="hostsTable"></tbody></table></div>
+          </article>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>PHP-FPM logs</h3></div><button id="refreshLogs" class="secondary">Refresh</button></div>
+            <pre id="logViewer">No logs loaded.</pre>
+          </article>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="account">
+          <div class="section-head"><div><h2>Account</h2><p>Change the native panel login.</p></div></div>
+          <form id="accountForm" class="panel form-stack narrow">
+            <label>Email<input id="accountEmail" name="email" type="email" required /></label>
+            <label>Current password<input name="current_password" type="password" required /></label>
+            <label>New password<input name="new_password" type="password" placeholder="Leave empty to keep current password" /></label>
+            <label>Confirm new password<input name="confirm_password" type="password" /></label>
+            <div class="form-actions"><button type="submit">Save account</button></div>
+          </form>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="settings">
+          <div class="section-head"><div><h2>Integration settings</h2><p>Credentials are encrypted in the persistent panel data volume.</p></div></div>
+          <form id="integrationSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>Nginx Proxy Manager</h3><p>Used to create edge hosts and manage Let's Encrypt certificates.</p></div>
+            <label>NPM API URL<input name="npmApiUrl" placeholder="http://hosting-npm:81/api" required /></label>
+            <label>NPM account email<input name="npmIdentity" type="email" /></label>
+            <label>NPM password<input name="npmSecret" type="password" placeholder="Leave empty to keep saved password" /></label>
+            <label>ACME email<input name="acmeEmail" type="email" placeholder="Used for Let's Encrypt" /></label>
+            <label class="check inline"><input name="clearNpmSecret" type="checkbox" /> Clear saved NPM password</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-integration="npm">Test NPM</button></div>
+
+            <div class="group-title full"><h3>Cloudflare</h3><p>Token needs Zone:Read and DNS:Edit for managed zones.</p></div>
+            <label>Cloudflare API token<input name="cloudflareToken" type="password" placeholder="Leave empty to keep saved token" /></label>
+            <label>Cloudflare Account ID<input name="cloudflareAccountId" placeholder="Required for cfat_ account tokens" maxlength="32" /></label>
+            <label class="check inline"><input name="clearCloudflareToken" type="checkbox" /> Clear saved Cloudflare token</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-integration="cloudflare">Test Cloudflare</button></div>
+
+            <div class="group-title full"><h3>WordPress database installer</h3><p>The root password stays inside MySQL. The UI invokes MySQL using the container's existing environment.</p></div>
+            <label>MySQL container<input name="mysqlContainer" placeholder="hosting-db" required /></label>
+            <label>Database/user prefix<input name="mysqlSitePrefix" placeholder="yogali00_" maxlength="16" required /></label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-integration="mysql">Test MySQL</button></div>
+
+            <div class="form-actions full"><button type="submit">Save integration settings</button></div>
+          </form>
+
+          <form id="performanceSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>PHP and OPcache</h3></div>
+            <label>PHP memory per request (MB)<input name="phpMemoryLimitMb" type="number" min="128" max="2048" required /></label>
+            <label>PHP execution timeout (seconds)<input name="phpMaxExecutionSeconds" type="number" min="30" max="1800" required /></label>
+            <label>OPcache memory (MB)<input name="opcacheMemoryMb" type="number" min="128" max="2048" required /></label>
+            <label>Interned strings (MB)<input name="opcacheInternedStringsMb" type="number" min="16" max="256" required /></label>
+            <label>Cached PHP files<input name="opcacheMaxFiles" type="number" min="10000" max="1000000" required /></label>
+            <label>File check interval (seconds)<input name="opcacheRevalidateSeconds" type="number" min="0" max="3600" required /></label>
+            <label class="check inline"><input name="opcacheValidateTimestamps" type="checkbox" /> Check PHP files for changes</label>
+
+            <div class="group-title full"><h3>FastCGI page cache</h3></div>
+            <label>Cache index memory (MB)<input name="fastcgiKeysZoneMb" type="number" min="16" max="1024" required /></label>
+            <label>Maximum disk cache (GB)<input name="fastcgiMaxSizeGb" type="number" min="1" max="100" required /></label>
+            <label>Inactive expiry (minutes)<input name="fastcgiInactiveMinutes" type="number" min="1" max="1440" required /></label>
+            <label>Page validity (minutes)<input name="fastcgiValidMinutes" type="number" min="1" max="1440" required /></label>
+            <label>PHP response timeout (seconds)<input name="fastcgiReadTimeoutSeconds" type="number" min="30" max="1800" required /></label>
+            <label class="check inline"><input name="fastcgiCacheLock" type="checkbox" /> Prevent duplicate cache generation</label>
+
+            <div class="group-title full"><h3>Redis and MySQL</h3></div>
+            <label>Redis memory limit (MB)<input name="redisMaxMemoryMb" type="number" min="128" max="8192" required /></label>
+            <label>Redis eviction policy
+              <select name="redisPolicy">
+                <option value="allkeys-lru">All keys LRU</option>
+                <option value="allkeys-lfu">All keys LFU</option>
+                <option value="volatile-lru">Expiring keys LRU</option>
+                <option value="volatile-lfu">Expiring keys LFU</option>
+                <option value="noeviction">No eviction</option>
+              </select>
+            </label>
+            <label>MySQL buffer pool (MB)<input name="mysqlBufferPoolMb" type="number" min="512" max="12288" required /></label>
+            <label>MySQL maximum connections<input name="mysqlMaxConnections" type="number" min="25" max="1000" required /></label>
+            <label>MySQL redo capacity (MB)<input name="mysqlRedoLogCapacityMb" type="number" min="256" max="8192" required /></label>
+            <div class="form-actions full"><button type="submit">Apply performance settings</button></div>
+          </form>
+
+          <div class="two-column settings-tools">
+            <article class="panel">
+              <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Use @ for the selected host, or a relative name such as www.</p></div></div>
+              <form id="dnsPresetForm" class="form-grid">
+                <input name="id" type="hidden" />
+                <label>Preset name<input name="label" placeholder="Main server A record" required /></label>
+                <label>Type<select name="type"><option>A</option><option>AAAA</option><option>CNAME</option><option>TXT</option><option>MX</option><option>CAA</option></select></label>
+                <label>Name template<input name="name_template" value="@" placeholder="@ or www" required /></label>
+                <label>Content template<input name="content_template" placeholder="IP, target, or {domain}" required /></label>
+                <label>TTL<input name="ttl" type="number" value="1" min="1" max="86400" /></label>
+                <label>MX priority<input name="priority" type="number" value="10" min="0" max="65535" /></label>
+                <label class="check inline"><input name="proxied" type="checkbox" checked /> Cloudflare proxy</label>
+                <div class="form-actions full button-row">
+                  <button id="cancelDnsPresetEdit" type="button" class="secondary hidden">Cancel</button>
+                  <button type="submit">Save preset</button>
+                </div>
+              </form>
+              <div id="dnsPresetList" class="rows empty">No DNS presets saved.</div>
+            </article>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Replace Cloudflare server IP</h3><p class="muted">Updates matching A records across every accessible active zone.</p></div></div>
+              <form id="cloudflareIpForm" class="form-stack">
+                <label>Saved server IPv4 addresses
+                  <textarea name="addresses" rows="5" placeholder="203.0.113.10&#10;203.0.113.20"></textarea>
+                </label>
+                <div class="form-actions"><button id="saveCloudflareIps" type="button" class="secondary">Save IP list</button></div>
+                <label>Old IP
+                  <input name="from_ip" list="cloudflareIpOptions" placeholder="Select or enter current IP" required />
+                </label>
+                <label>Replacement IP
+                  <input name="to_ip" list="cloudflareIpOptions" placeholder="Select or enter new IP" required />
+                </label>
+                <datalist id="cloudflareIpOptions"></datalist>
+                <div class="form-actions"><button type="submit">Replace matching A records</button></div>
+              </form>
+              <div id="cloudflareIpResult" class="status-box compact-status">No bulk replacement has run.</div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/app.js"></script>
+  </body>
+</html>

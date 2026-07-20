@@ -1,0 +1,7 @@
+map $host $site_cache_enabled {
+  default 0;
+}
+
+map $host $site_cache_version {
+  default 1;
+}

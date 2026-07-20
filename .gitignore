@@ -1,0 +1,18 @@
+.env
+.nonprod-configs/
+.DS_Store
+*.bak
+*.log
+
+# Persistent runtime state and encrypted local credentials
+ui-manager/data/admin-account.json
+ui-manager/data/integration-settings.json
+ui-manager/data/integration-settings.key
+ui-manager/data/site-state.json
+nginx-proxy-manager/
+hosting-npm/
+backup_websites.sh
+
+# Local caches
+node_modules/
+coverage/

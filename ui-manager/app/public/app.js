@@ -1,0 +1,1030 @@
+const state = {
+  csrf: "",
+  user: "",
+  status: null,
+  sites: [],
+  pools: [],
+  tiers: {},
+  npmHosts: [],
+  selectedDomain: "",
+  backupName: "app-data",
+  backupSettings: null,
+  backupStatus: null,
+  dnsRecords: [],
+  dnsPresets: [],
+  cloudflareIps: [],
+  performance: null,
+};
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function notice(message, kind = "success") {
+  const box = $("#notice");
+  box.textContent = message;
+  box.className = `notice${kind === "warning" ? " warning" : ""}`;
+  window.clearTimeout(notice.timer);
+  notice.timer = window.setTimeout(() => box.classList.add("hidden"), 7000);
+}
+
+async function api(url, options = {}) {
+  const method = options.method || "GET";
+  const headers = { ...(options.headers || {}) };
+  if (options.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  if (!["GET", "HEAD", "OPTIONS"].includes(method) && state.csrf) headers["X-CSRF-Token"] = state.csrf;
+  const response = await fetch(url, { ...options, method, headers, credentials: "same-origin" });
+  const text = await response.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { message: text }; }
+  if (response.status === 401 && !url.startsWith("/api/auth/")) showLogin();
+  if (!response.ok) {
+    const error = new Error(data.message || `Request failed (${response.status})`);
+    error.details = data.details || "";
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
+function formObject(form) {
+  const output = {};
+  for (const element of form.elements) {
+    if (!element.name) continue;
+    output[element.name] = element.type === "checkbox" ? element.checked : element.value;
+  }
+  return output;
+}
+
+async function withButton(button, pendingText, work) {
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = pendingText;
+  try { return await work(); }
+  finally { button.disabled = false; button.textContent = original; }
+}
+
+function showLogin() {
+  $("#appView").classList.add("hidden");
+  $("#loginView").classList.remove("hidden");
+  state.csrf = "";
+}
+
+function showApp(session) {
+  state.csrf = session.csrf;
+  state.user = session.email;
+  $("#currentUser").textContent = session.email;
+  $("#accountEmail").value = session.email;
+  $("#loginView").classList.add("hidden");
+  $("#appView").classList.remove("hidden");
+  if (session.mustChangePassword) {
+    switchTab("account");
+    notice("Change the initial panel password before continuing.", "warning");
+  }
+}
+
+function switchTab(name) {
+  $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
+  $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
+  const titles = { sites: "Sites", provision: "Provision", integrations: "DNS & SSL", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
+  $("#pageTitle").textContent = titles[name] || "Hosting Control";
+  if (name === "integrations") refreshIntegrationView();
+  if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
+  if (name === "runtime") loadLogs();
+  if (name === "settings") loadIntegrationSettings();
+}
+
+function primarySites() {
+  return state.sites.filter((site) => !site.isWwwAlias);
+}
+
+function renderSummary() {
+  const sites = primarySites();
+  $("#siteCount").textContent = sites.length;
+  $("#poolCount").textContent = state.pools.length;
+  $("#cacheCount").textContent = sites.filter((site) => site.state?.fastcgiCache).length;
+  $("#redisCount").textContent = sites.filter((site) => site.state?.redis).length;
+  const enabled = [];
+  if (state.status?.integrations?.npm) enabled.push("NPM");
+  if (state.status?.integrations?.cloudflare) enabled.push("Cloudflare");
+  enabled.push("MySQL");
+  $("#integrationSummary").textContent = `${enabled.join(" · ")} ready`;
+}
+
+function renderSites() {
+  const query = $("#siteSearch").value.trim().toLowerCase();
+  const sites = primarySites().filter((site) => site.host.toLowerCase().includes(query));
+  const container = $("#sitesList");
+  if (!sites.length) {
+    container.innerHTML = '<div class="panel muted">No matching websites.</div>';
+    return;
+  }
+  container.innerHTML = sites.map((site) => `
+    <article class="site-row">
+      <div><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p></div>
+      <div>
+        <strong>${escapeHtml(site.poolName || "No pool")}</strong>
+        <p>Port ${escapeHtml(site.port || "—")}</p>
+        <label class="site-tier">PHP profile
+          <select data-site-pool-tier="${escapeHtml(site.host)}" data-pool-name="${escapeHtml(site.poolName)}" data-pool-port="${escapeHtml(site.port)}">
+            ${site.poolTier === "custom" ? '<option value="custom" selected disabled>Custom</option>' : ""}
+            ${Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}" ${tier === site.poolTier ? "selected" : ""}>${escapeHtml(tier)}</option>`).join("")}
+          </select>
+        </label>
+      </div>
+      <div class="site-flags">
+        <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
+        <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
+        <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
+        <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
+      </div>
+      <div class="button-row">
+        <label class="check site-backup-check"><input type="checkbox" data-toggle-backup="${escapeHtml(site.host)}" ${site.state?.backupEnabled ? "checked" : ""} /> Daily</label>
+        <button class="secondary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
+        <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
+        <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
+        <button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>
+        <button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>
+        <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge</button>
+        <button class="secondary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderDomainOptions() {
+  const domains = primarySites().map((site) => site.host);
+  if (!state.selectedDomain || !domains.includes(state.selectedDomain)) state.selectedDomain = domains[0] || "";
+  $("#integrationDomain").innerHTML = domains.map((domain) =>
+    `<option value="${escapeHtml(domain)}" ${domain === state.selectedDomain ? "selected" : ""}>${escapeHtml(domain)}</option>`
+  ).join("");
+}
+
+function renderBackupOptions() {
+  const names = ["app-data", ...primarySites().map((site) => site.host)];
+  if (!names.includes(state.backupName)) state.backupName = "app-data";
+  $("#backupDomain").innerHTML = names.map((name) =>
+    `<option value="${escapeHtml(name)}" ${name === state.backupName ? "selected" : ""}>${name === "app-data" ? "Application data" : escapeHtml(name)}</option>`
+  ).join("");
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let size = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index += 1) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(size >= 10 ? 1 : 2)} ${unit}`;
+}
+
+function renderBackupStatus() {
+  const status = state.backupStatus || {};
+  const settings = state.backupSettings || {};
+  if (status.busy) {
+    $("#backupStatus").textContent = `${status.currentJob?.label || "Backup"} is running.\nStarted: ${new Date(status.currentJob?.startedAt).toLocaleString()}`;
+    return;
+  }
+  const last = status.lastResult;
+  $("#backupStatus").textContent = [
+    "No backup is currently running.",
+    `Daily start: ${settings.scheduleTime || "03:00"}`,
+    `Retention: ${settings.retention || 7} backup sets`,
+    `Website backups: ${settings.siteBackupsEnabled === false ? "paused" : "enabled"}`,
+    last ? `Last result: ${last.ok === false ? "failed" : "complete"} at ${new Date(last.finishedAt).toLocaleString()}${last.message ? `\n${last.message}` : ""}` : "No backup has run since the panel started.",
+  ].join("\n");
+}
+
+function renderBackupHistory(backups) {
+  const container = $("#backupHistory");
+  if (!backups.length) {
+    container.className = "rows empty";
+    container.textContent = "No backup sets stored for this selection.";
+    return;
+  }
+  container.className = "rows";
+  container.innerHTML = backups.map((backup) => `
+    <div class="backup-row">
+      <div><strong>${escapeHtml(backup.id)}</strong><p>${escapeHtml(new Date(backup.completedAt || backup.startedAt || "").toLocaleString())}</p></div>
+      <div><span>${backup.database ? `Database: ${escapeHtml(backup.database)}` : "All application databases"}</span><p>${formatBytes(backup.size)}</p></div>
+      <div class="backup-actions">
+        ${state.backupName === "app-data" ? "" : `<button class="secondary" data-restore-backup="${escapeHtml(backup.id)}">Restore</button>`}
+        <button class="secondary danger-button" data-delete-backup="${escapeHtml(backup.id)}">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function loadBackupView() {
+  renderBackupOptions();
+  const [data, history] = await Promise.all([
+    api("/api/backups/settings"),
+    api(`/api/backups?name=${encodeURIComponent(state.backupName)}`),
+  ]);
+  state.backupSettings = data.settings;
+  state.backupStatus = data.status;
+  $("#backupSettingsForm").elements.schedule_time.value = data.settings.scheduleTime;
+  $("#backupSettingsForm").elements.retention.value = data.settings.retention;
+  $("#backupSettingsForm").elements.site_backups_enabled.checked = data.settings.siteBackupsEnabled;
+  $("#backupSettingsForm").elements.app_data_enabled.checked = data.settings.appDataEnabled;
+  renderBackupStatus();
+  renderBackupHistory(history.backups || []);
+}
+
+function renderPools() {
+  $("#poolsTable").innerHTML = state.pools.map((pool) => `
+    <tr>
+      <td><input data-pool-field="name" value="${escapeHtml(pool.name)}" /></td>
+      <td><input data-pool-field="port" type="number" value="${escapeHtml(pool.port)}" /></td>
+      <td><select data-pool-field="tier">${Object.keys(state.tiers).map((tier) =>
+        `<option value="${escapeHtml(tier)}" ${tier === pool.tier ? "selected" : ""}>${escapeHtml(tier)}</option>`
+      ).join("")}</select></td>
+      <td>${escapeHtml((pool.hosts || []).join(", "))}</td>
+    </tr>
+  `).join("");
+}
+
+function renderHosts() {
+  const poolOptions = state.pools.map((pool) => pool.name);
+  $("#hostsTable").innerHTML = state.sites.map((site) => `
+    <tr>
+      <td><input data-host-field="host" value="${escapeHtml(site.host)}" /></td>
+      <td><input data-host-field="root" value="${escapeHtml(site.root)}" /></td>
+      <td><select data-host-field="pool_name">${poolOptions.map((name) =>
+        `<option value="${escapeHtml(name)}" ${name === site.poolName ? "selected" : ""}>${escapeHtml(name)}</option>`
+      ).join("")}</select></td>
+      <td><input data-host-field="canonical_to" value="${escapeHtml(site.canonicalTo || "")}" /></td>
+      <td><input data-host-field="add_www_alias" type="checkbox" ${!site.host.startsWith("www.") && state.sites.some((entry) => entry.host === `www.${site.host}` && entry.canonicalTo === site.host) ? "checked" : ""} /></td>
+    </tr>
+  `).join("");
+}
+
+async function loadData() {
+  const [status, siteData, poolData, presetData, backupData] = await Promise.all([
+    api("/api/status"),
+    api("/api/sites"),
+    api("/api/pools"),
+    api("/api/pool-presets"),
+    api("/api/backups/settings"),
+  ]);
+  state.status = status;
+  state.sites = siteData.sites || [];
+  state.pools = poolData.pools || [];
+  state.tiers = presetData.tiers || {};
+  state.backupSettings = backupData.settings;
+  state.backupStatus = backupData.status;
+  $("#provisionTier").innerHTML = Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}">${escapeHtml(tier)}</option>`).join("");
+  renderSummary();
+  renderSites();
+  renderDomainOptions();
+  renderBackupOptions();
+  renderPools();
+  renderHosts();
+}
+
+async function loadNpm() {
+  if (!state.status?.integrations?.npm) {
+    state.npmHosts = [];
+    $("#npmHostStatus").textContent = "NPM credentials are not configured in the UI container.";
+    return;
+  }
+  const data = await api("/api/npm/hosts");
+  state.npmHosts = data.hosts || [];
+  renderNpmStatus();
+}
+
+function selectedNpmHost() {
+  return state.npmHosts.find((host) => (host.domain_names || []).includes(state.selectedDomain));
+}
+
+function renderNpmStatus() {
+  const host = selectedNpmHost();
+  if (!host) {
+    $("#npmHostStatus").textContent = `No NPM proxy host is linked to ${state.selectedDomain || "this site"}.`;
+    return;
+  }
+  const certificate = host.certificate;
+  $("#npmHostStatus").textContent = [
+    `Host #${host.id}: ${host.enabled ? "enabled" : "disabled"}`,
+    `Target: ${host.forward_scheme}://${host.forward_host}:${host.forward_port}`,
+    certificate ? `SSL: ${certificate.nice_name || "issued"} · expires ${certificate.expires_on || "unknown"}` : "SSL: not attached",
+    `Force HTTPS: ${host.ssl_forced ? "yes" : "no"}`,
+  ].join("\n");
+}
+
+async function loadDns() {
+  const domain = state.selectedDomain;
+  if (!domain) return;
+  if (!state.status?.integrations?.cloudflare) {
+    $("#dnsZone").textContent = "Cloudflare token is not configured.";
+    $("#dnsRecords").className = "rows empty";
+    $("#dnsRecords").textContent = "Cloudflare integration unavailable.";
+    return;
+  }
+  const data = await api(`/api/cloudflare/records?domain=${encodeURIComponent(domain)}`);
+  $("#dnsZone").textContent = `Zone: ${data.zone.name} · showing ${data.scope} and its subdomains`;
+  const records = data.records || [];
+  state.dnsRecords = records;
+  $("#dnsRecords").className = records.length ? "rows" : "rows empty";
+  $("#dnsRecords").innerHTML = records.length ? records.map((record) => `
+    <div class="data-row">
+      <strong>${escapeHtml(record.type)}</strong>
+      <span>${escapeHtml(record.name)}</span>
+      <code>${escapeHtml(record.content)}</code>
+      <span>${record.proxied ? "Proxied" : record.ttl === 1 ? "Auto TTL" : `${escapeHtml(record.ttl)}s`}</span>
+      <div class="record-actions">
+        <button class="secondary" data-edit-dns="${escapeHtml(record.id)}">Edit</button>
+        <button class="secondary danger-button" data-delete-dns="${escapeHtml(record.id)}">Delete</button>
+      </div>
+    </div>
+  `).join("") : "No records found for this host or its subdomains.";
+  if (!$("#dnsForm").elements.record_id.value) $("#dnsForm").elements.name.value = domain;
+}
+
+function resetDnsForm() {
+  const form = $("#dnsForm");
+  form.reset();
+  form.elements.record_id.value = "";
+  form.elements.name.value = state.selectedDomain;
+  form.elements.ttl.value = "1";
+  form.elements.priority.value = "10";
+  form.elements.proxied.checked = true;
+  $("#saveDnsRecord").textContent = "Add record";
+  $("#cancelDnsEdit").classList.add("hidden");
+}
+
+function renderDnsPresets() {
+  $("#dnsPresetSelect").innerHTML = [
+    '<option value="">Select a preset</option>',
+    ...state.dnsPresets.map((preset) =>
+      `<option value="${escapeHtml(preset.id)}">${escapeHtml(preset.label)} · ${escapeHtml(preset.type)} ${escapeHtml(preset.nameTemplate)}</option>`),
+  ].join("");
+  const list = $("#dnsPresetList");
+  list.className = state.dnsPresets.length ? "rows" : "rows empty";
+  list.innerHTML = state.dnsPresets.length ? state.dnsPresets.map((preset) => `
+    <div class="data-row preset-row">
+      <strong>${escapeHtml(preset.type)}</strong>
+      <span>${escapeHtml(preset.label)}</span>
+      <code>${escapeHtml(preset.nameTemplate)} → ${escapeHtml(preset.contentTemplate)}</code>
+      <span>${preset.proxied ? "Proxied" : "DNS only"}</span>
+      <div class="record-actions">
+        <button class="secondary" data-edit-dns-preset="${escapeHtml(preset.id)}">Edit</button>
+        <button class="secondary danger-button" data-delete-dns-preset="${escapeHtml(preset.id)}">Delete</button>
+      </div>
+    </div>
+  `).join("") : "No DNS presets saved.";
+}
+
+async function loadDnsPresets() {
+  const data = await api("/api/dns-presets");
+  state.dnsPresets = data.presets || [];
+  renderDnsPresets();
+}
+
+function renderCloudflareIps() {
+  $("#cloudflareIpForm").elements.addresses.value = state.cloudflareIps.join("\n");
+  $("#cloudflareIpOptions").innerHTML = state.cloudflareIps
+    .map((address) => `<option value="${escapeHtml(address)}"></option>`).join("");
+}
+
+async function loadCloudflareIps() {
+  const data = await api("/api/cloudflare/ip-addresses");
+  state.cloudflareIps = data.addresses || [];
+  renderCloudflareIps();
+}
+
+async function refreshIntegrationView() {
+  renderDomainOptions();
+  await Promise.allSettled([loadNpm(), loadDns(), loadDnsPresets()]);
+}
+
+async function loadLogs() {
+  try {
+    const data = await api("/api/logs");
+    $("#logViewer").textContent = data.logs || "No log output.";
+  } catch (error) {
+    $("#logViewer").textContent = error.message;
+  }
+}
+
+async function loadIntegrationSettings() {
+  try {
+    const [settings, performanceData] = await Promise.all([
+      api("/api/settings/integrations"),
+      api("/api/settings/performance"),
+      loadDnsPresets(),
+      loadCloudflareIps(),
+    ]);
+    const form = $("#integrationSettingsForm");
+    form.elements.npmApiUrl.value = settings.npmApiUrl || "";
+    form.elements.npmIdentity.value = settings.npmIdentity || "";
+    form.elements.acmeEmail.value = settings.acmeEmail || "";
+    form.elements.npmSecret.value = "";
+    form.elements.npmSecret.placeholder = settings.npmSecretConfigured ? "Saved password configured" : "Enter NPM password";
+    form.elements.cloudflareToken.value = "";
+    form.elements.cloudflareToken.placeholder = settings.cloudflareTokenConfigured ? "Saved token configured" : "Enter Cloudflare token";
+    form.elements.cloudflareAccountId.value = settings.cloudflareAccountId || "";
+    form.elements.mysqlContainer.value = settings.mysqlContainer || "hosting-db";
+    form.elements.mysqlSitePrefix.value = settings.mysqlSitePrefix || "yogali00_";
+    form.elements.clearNpmSecret.checked = false;
+    form.elements.clearCloudflareToken.checked = false;
+    state.performance = performanceData.settings;
+    const performance = $("#performanceSettingsForm");
+    performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
+    performance.elements.phpMaxExecutionSeconds.value = state.performance.php.maxExecutionSeconds;
+    performance.elements.opcacheMemoryMb.value = state.performance.opcache.memoryMb;
+    performance.elements.opcacheInternedStringsMb.value = state.performance.opcache.internedStringsMb;
+    performance.elements.opcacheMaxFiles.value = state.performance.opcache.maxFiles;
+    performance.elements.opcacheRevalidateSeconds.value = state.performance.opcache.revalidateSeconds;
+    performance.elements.opcacheValidateTimestamps.checked = state.performance.opcache.validateTimestamps;
+    performance.elements.fastcgiKeysZoneMb.value = state.performance.fastcgi.keysZoneMb;
+    performance.elements.fastcgiMaxSizeGb.value = state.performance.fastcgi.maxSizeGb;
+    performance.elements.fastcgiInactiveMinutes.value = state.performance.fastcgi.inactiveMinutes;
+    performance.elements.fastcgiValidMinutes.value = state.performance.fastcgi.validMinutes;
+    performance.elements.fastcgiReadTimeoutSeconds.value = state.performance.fastcgi.readTimeoutSeconds;
+    performance.elements.fastcgiCacheLock.checked = state.performance.fastcgi.cacheLock;
+    performance.elements.redisMaxMemoryMb.value = state.performance.redis.maxMemoryMb;
+    performance.elements.redisPolicy.value = state.performance.redis.policy;
+    performance.elements.mysqlBufferPoolMb.value = state.performance.mysql.bufferPoolMb;
+    performance.elements.mysqlMaxConnections.value = state.performance.mysql.maxConnections;
+    performance.elements.mysqlRedoLogCapacityMb.value = state.performance.mysql.redoLogCapacityMb;
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+}
+
+$("#loginForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.submitter;
+  $("#loginError").classList.add("hidden");
+  try {
+    const session = await withButton(button, "Signing in...", () => api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: $("#loginEmail").value, password: $("#loginPassword").value }),
+    }));
+    showApp(session);
+    await loadData();
+  } catch (error) {
+    $("#loginError").textContent = error.message;
+    $("#loginError").classList.remove("hidden");
+  }
+});
+
+$("#logoutButton").addEventListener("click", async () => {
+  await api("/api/auth/logout", { method: "POST" });
+  showLogin();
+});
+
+$$("[data-tab-link]").forEach((button) => button.addEventListener("click", (event) => {
+  event.preventDefault();
+  switchTab(button.dataset.tabLink);
+}));
+
+$("#siteSearch").addEventListener("input", renderSites);
+$("#sitesList").addEventListener("click", (event) => {
+  const manage = event.target.closest("[data-manage-site]");
+  if (manage) {
+    state.selectedDomain = manage.dataset.manageSite;
+    switchTab("integrations");
+    return;
+  }
+  const fastcgi = event.target.closest("[data-toggle-fastcgi]");
+  const redis = event.target.closest("[data-toggle-redis]");
+  const opcache = event.target.closest("[data-toggle-opcache]");
+  const purge = event.target.closest("[data-purge-cache]");
+  const backup = event.target.closest("[data-backup-site]");
+  const optimize = event.target.closest("[data-optimize-images]");
+  if (optimize) {
+    const domain = optimize.dataset.optimizeImages;
+    withButton(optimize, "Optimizing...", () => api("/api/sites/images/optimize", {
+      method: "POST",
+      body: JSON.stringify({ domain }),
+    }))
+      .then((result) => notice(`Created ${result.created} WebP images and saved ${formatBytes(result.bytesSaved)}.`))
+      .catch((error) => notice(error.message, "warning"));
+    return;
+  }
+  if (backup) {
+    const domain = backup.dataset.backupSite;
+    withButton(backup, "Backing up...", () => api("/api/backups/site", {
+      method: "POST",
+      body: JSON.stringify({ domain }),
+    }))
+      .then(() => {
+        notice(`${domain} backup completed.`);
+        state.backupName = domain;
+      })
+      .catch((error) => notice(error.message, "warning"));
+    return;
+  }
+  const domain =
+    fastcgi?.dataset.toggleFastcgi ||
+    redis?.dataset.toggleRedis ||
+    opcache?.dataset.toggleOpcache ||
+    purge?.dataset.purgeCache;
+  if (!domain) return;
+  const site = state.sites.find((entry) => entry.host === domain);
+  const request = purge
+    ? api("/api/site-state/purge", { method: "POST", body: JSON.stringify({ domain }) })
+    : api("/api/site-state", {
+        method: "PUT",
+        body: JSON.stringify({
+          domain,
+          ...(fastcgi ? { fastcgi_cache: !site.state?.fastcgiCache } : {}),
+          ...(redis ? { redis: !site.state?.redis } : {}),
+          ...(opcache ? { opcache: site.state?.opcache === false } : {}),
+        }),
+      });
+  withButton(event.target.closest("button"), "Working...", () => request)
+    .then(async () => {
+      notice(purge ? "Site page cache purged." : "Site cache settings updated.");
+      await loadData();
+    })
+    .catch((error) => notice(error.message, "warning"));
+});
+
+$("#integrationDomain").addEventListener("change", async (event) => {
+  state.selectedDomain = event.target.value;
+  await refreshIntegrationView();
+});
+$("#loadDns").addEventListener("click", () => loadDns().catch((error) => notice(error.message, "warning")));
+$("#refreshNpm").addEventListener("click", () => loadNpm().catch((error) => notice(error.message, "warning")));
+
+$("#dnsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  body.domain = state.selectedDomain;
+  const recordId = body.record_id;
+  delete body.record_id;
+  try {
+    const url = recordId ? `/api/cloudflare/records/${encodeURIComponent(recordId)}` : "/api/cloudflare/records";
+    await withButton(event.submitter, "Saving...", () => api(url, {
+      method: recordId ? "PUT" : "POST",
+      body: JSON.stringify(body),
+    }));
+    notice("DNS record saved.");
+    resetDnsForm();
+    await loadDns();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsRecords").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-dns]");
+  if (editButton) {
+    const record = state.dnsRecords.find((item) => item.id === editButton.dataset.editDns);
+    if (!record) return;
+    const form = $("#dnsForm");
+    form.elements.record_id.value = record.id;
+    form.elements.type.value = record.type;
+    form.elements.name.value = record.name;
+    form.elements.content.value = record.content;
+    form.elements.ttl.value = record.ttl || 1;
+    form.elements.priority.value = record.priority || 10;
+    form.elements.proxied.checked = Boolean(record.proxied);
+    $("#saveDnsRecord").textContent = "Update record";
+    $("#cancelDnsEdit").classList.remove("hidden");
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
+  const button = event.target.closest("[data-delete-dns]");
+  if (!button || !confirm("Delete this DNS record? This cannot be undone.")) return;
+  try {
+    await api(`/api/cloudflare/records/${encodeURIComponent(button.dataset.deleteDns)}?domain=${encodeURIComponent(state.selectedDomain)}`, { method: "DELETE" });
+    notice("DNS record deleted.");
+    await loadDns();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cancelDnsEdit").addEventListener("click", resetDnsForm);
+
+$("#applyDnsPreset").addEventListener("click", async (event) => {
+  const presetId = $("#dnsPresetSelect").value;
+  if (!presetId) return notice("Select a DNS preset first.", "warning");
+  try {
+    await withButton(event.currentTarget, "Applying...", () => api(
+      `/api/dns-presets/${encodeURIComponent(presetId)}/apply`,
+      { method: "POST", body: JSON.stringify({ domain: state.selectedDomain }) },
+    ));
+    notice(`DNS preset applied to ${state.selectedDomain}.`);
+    await loadDns();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+async function ensureNpm(issueSsl) {
+  const domain = state.selectedDomain;
+  if (!domain) return;
+  await api("/api/npm/hosts/ensure", {
+    method: "POST",
+    body: JSON.stringify({ domain, add_www: true, issue_ssl: issueSsl }),
+  });
+  await loadNpm();
+}
+
+$("#ensureNpmHost").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Working...", () => ensureNpm(false)); notice("NPM host is ready."); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#issueNpmSsl").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Issuing...", () => ensureNpm(true)); notice("SSL certificate issued."); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#renewNpmSsl").addEventListener("click", async (event) => {
+  const host = selectedNpmHost();
+  if (!host?.certificate_id) return notice("This host has no certificate to renew.", "warning");
+  try {
+    await withButton(event.currentTarget, "Renewing...", () => api("/api/npm/certificates/renew", {
+      method: "POST",
+      body: JSON.stringify({ certificate_id: host.certificate_id }),
+    }));
+    notice("Certificate renewed.");
+    await loadNpm();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#provisionForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  const resultPanel = $("#provisionResult");
+  resultPanel.classList.add("hidden");
+  try {
+    const result = await withButton(event.submitter, "Creating website...", () => api("/api/provision", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }));
+    resultPanel.innerHTML = `
+      <h3>${escapeHtml(result.domain)} created</h3>
+      <p>Database and WordPress credentials are shown once. Store them securely.</p>
+      <pre>Database: ${escapeHtml(result.database.name)}
+Database user: ${escapeHtml(result.database.user)}
+Database password: ${escapeHtml(result.database.password)}
+
+WordPress user: ${escapeHtml(result.wordpress.adminUser)}
+WordPress password: ${escapeHtml(result.wordpress.adminPassword)}
+WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
+      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
+    `;
+    resultPanel.classList.remove("hidden");
+    notice("Website provisioning completed.");
+    await loadData();
+  } catch (error) {
+    resultPanel.innerHTML = `<h3>Provisioning stopped</h3><p>${escapeHtml(error.message)}</p><pre>${escapeHtml(error.details || "")}</pre>`;
+    resultPanel.classList.remove("hidden");
+    notice("Provisioning did not complete. Review the result before retrying.", "warning");
+  }
+});
+
+$("#sitesList").addEventListener("change", async (event) => {
+  const tier = event.target.closest("[data-site-pool-tier]");
+  if (tier) {
+    tier.disabled = true;
+    try {
+      await api("/api/pools/upsert", {
+        method: "POST",
+        body: JSON.stringify({
+          name: tier.dataset.poolName,
+          port: Number(tier.dataset.poolPort),
+          tier: tier.value,
+          settings: {},
+        }),
+      });
+      await api("/api/validate", { method: "POST" });
+      await api("/api/actions/reload_php", { method: "POST" });
+      notice(`${tier.dataset.sitePoolTier} now uses the ${tier.value} PHP profile.`);
+      await loadData();
+    } catch (error) {
+      notice(error.message, "warning");
+      await loadData();
+    } finally {
+      tier.disabled = false;
+    }
+    return;
+  }
+  const checkbox = event.target.closest("[data-toggle-backup]");
+  if (!checkbox) return;
+  checkbox.disabled = true;
+  try {
+    await api("/api/site-state", {
+      method: "PUT",
+      body: JSON.stringify({
+        domain: checkbox.dataset.toggleBackup,
+        backup_enabled: checkbox.checked,
+      }),
+    });
+    notice(`Daily backup ${checkbox.checked ? "enabled" : "disabled"} for ${checkbox.dataset.toggleBackup}.`);
+    await loadData();
+  } catch (error) {
+    checkbox.checked = !checkbox.checked;
+    notice(error.message, "warning");
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+$("#backupDomain").addEventListener("change", async (event) => {
+  state.backupName = event.target.value;
+  try { await loadBackupView(); } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#refreshBackups").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadBackupView); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/backups/settings", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    notice("Backup schedule saved.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupAppData").addEventListener("click", async (event) => {
+  try {
+    await withButton(event.currentTarget, "Backing up...", () => api("/api/backups/app-data", { method: "POST" }));
+    state.backupName = "app-data";
+    notice("Application data backup completed.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#backupHistory").addEventListener("click", async (event) => {
+  const restoreButton = event.target.closest("[data-restore-backup]");
+  if (restoreButton) {
+    const message = `Restore ${state.backupName} from ${restoreButton.dataset.restoreBackup}?\n\nThe panel will create a safety backup first, then replace the website files and database.`;
+    if (!confirm(message)) return;
+    try {
+      const result = await withButton(restoreButton, "Restoring...", () => api("/api/backups/restore", {
+        method: "POST",
+        body: JSON.stringify({
+          domain: state.backupName,
+          backup_id: restoreButton.dataset.restoreBackup,
+        }),
+      }));
+      notice(`Restore complete. Safety backup: ${result.safetyBackup}.`);
+      await loadBackupView();
+    } catch (error) { notice(error.message, "warning"); }
+    return;
+  }
+  const button = event.target.closest("[data-delete-backup]");
+  if (!button || !confirm("Delete this complete backup set?")) return;
+  try {
+    await withButton(button, "Deleting...", () => api(
+      `/api/backups/${encodeURIComponent(state.backupName)}/${encodeURIComponent(button.dataset.deleteBackup)}`,
+      { method: "DELETE" },
+    ));
+    notice("Backup set deleted.");
+    await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsPresetForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/dns-presets", {
+      method: "POST",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    event.currentTarget.reset();
+    event.currentTarget.elements.name_template.value = "@";
+    event.currentTarget.elements.ttl.value = "1";
+    event.currentTarget.elements.priority.value = "10";
+    event.currentTarget.elements.proxied.checked = true;
+    $("#cancelDnsPresetEdit").classList.add("hidden");
+    notice("DNS preset saved.");
+    await loadDnsPresets();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#dnsPresetList").addEventListener("click", async (event) => {
+  const editButton = event.target.closest("[data-edit-dns-preset]");
+  if (editButton) {
+    const preset = state.dnsPresets.find((item) => item.id === editButton.dataset.editDnsPreset);
+    if (!preset) return;
+    const form = $("#dnsPresetForm");
+    form.elements.id.value = preset.id;
+    form.elements.label.value = preset.label;
+    form.elements.type.value = preset.type;
+    form.elements.name_template.value = preset.nameTemplate;
+    form.elements.content_template.value = preset.contentTemplate;
+    form.elements.ttl.value = preset.ttl;
+    form.elements.priority.value = preset.priority || 10;
+    form.elements.proxied.checked = preset.proxied;
+    $("#cancelDnsPresetEdit").classList.remove("hidden");
+    form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-dns-preset]");
+  if (!deleteButton || !confirm("Delete this global DNS preset?")) return;
+  try {
+    await api(`/api/dns-presets/${encodeURIComponent(deleteButton.dataset.deleteDnsPreset)}`, { method: "DELETE" });
+    notice("DNS preset deleted.");
+    await loadDnsPresets();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cancelDnsPresetEdit").addEventListener("click", () => {
+  const form = $("#dnsPresetForm");
+  form.reset();
+  form.elements.id.value = "";
+  form.elements.name_template.value = "@";
+  form.elements.ttl.value = "1";
+  form.elements.priority.value = "10";
+  form.elements.proxied.checked = true;
+  $("#cancelDnsPresetEdit").classList.add("hidden");
+});
+
+$("#saveCloudflareIps").addEventListener("click", async (event) => {
+  const addresses = $("#cloudflareIpForm").elements.addresses.value
+    .split(/[\s,]+/).map((value) => value.trim()).filter(Boolean);
+  try {
+    const result = await withButton(event.currentTarget, "Saving...", () => api("/api/cloudflare/ip-addresses", {
+      method: "PUT",
+      body: JSON.stringify({ addresses }),
+    }));
+    state.cloudflareIps = result.addresses;
+    renderCloudflareIps();
+    notice("Cloudflare server IP list saved.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#cloudflareIpForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  if (!confirm(`Replace every Cloudflare A record pointing to ${body.from_ip} with ${body.to_ip} across all accessible zones?`)) return;
+  try {
+    const result = await withButton(event.submitter, "Replacing...", () => api("/api/cloudflare/replace-a-records", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }));
+    $("#cloudflareIpResult").textContent = [
+      `Zones checked: ${result.zonesChecked}`,
+      `A records changed: ${result.changed}`,
+      ...(result.records || []).slice(0, 20).map((record) => `${record.name}: ${record.from} → ${record.to}`),
+      result.changed > 20 ? `...and ${result.changed - 20} more` : "",
+    ].filter(Boolean).join("\n");
+    notice(`${result.changed} Cloudflare A record${result.changed === 1 ? "" : "s"} updated.`);
+    await loadDns();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#savePools").addEventListener("click", async (event) => {
+  const pools = $$("#poolsTable tr").map((row) => ({
+    name: row.querySelector('[data-pool-field="name"]').value,
+    port: Number(row.querySelector('[data-pool-field="port"]').value),
+    tier: row.querySelector('[data-pool-field="tier"]').value,
+    settings: {},
+  }));
+  try {
+    await withButton(event.currentTarget, "Saving...", () => api("/api/pools/bulk-upsert", { method: "POST", body: JSON.stringify({ pools }) }));
+    await api("/api/validate", { method: "POST" });
+    notice("PHP pools saved and validated.");
+    await loadData();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#saveHosts").addEventListener("click", async (event) => {
+  const hosts = $$("#hostsTable tr").map((row) => ({
+    host: row.querySelector('[data-host-field="host"]').value,
+    root: row.querySelector('[data-host-field="root"]').value,
+    pool_name: row.querySelector('[data-host-field="pool_name"]').value,
+    canonical_to: row.querySelector('[data-host-field="canonical_to"]').value,
+    add_www_alias: row.querySelector('[data-host-field="add_www_alias"]').checked,
+  }));
+  try {
+    await withButton(event.currentTarget, "Saving...", () => api("/api/hosts/bulk-upsert", { method: "POST", body: JSON.stringify({ hosts }) }));
+    await api("/api/validate", { method: "POST" });
+    notice("Routes saved and validated.");
+    await loadData();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+const runtimeActions = {
+  validateConfig: ["/api/validate", "Validating...", "Configuration is valid."],
+  reloadNginx: ["/api/actions/reload_nginx", "Reloading...", "nginx reloaded."],
+  reloadPhp: ["/api/actions/reload_php", "Reloading...", "PHP-FPM reloaded."],
+  clearOpcache: ["/api/actions/clear_opcache", "Clearing...", "OPcache cleared."],
+};
+for (const [id, [url, pending, complete]] of Object.entries(runtimeActions)) {
+  $(`#${id}`).addEventListener("click", async (event) => {
+    try { await withButton(event.currentTarget, pending, () => api(url, { method: "POST" })); notice(complete); await loadLogs(); }
+    catch (error) { notice(error.message, "warning"); }
+  });
+}
+$("#refreshLogs").addEventListener("click", loadLogs);
+
+$("#integrationSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/settings/integrations", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    notice("Integration settings saved.");
+    await loadData();
+    await loadIntegrationSettings();
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$("#performanceSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const number = (name) => Number(form.elements[name].value);
+  const body = {
+    php: {
+      memoryLimitMb: number("phpMemoryLimitMb"),
+      maxExecutionSeconds: number("phpMaxExecutionSeconds"),
+    },
+    opcache: {
+      memoryMb: number("opcacheMemoryMb"),
+      internedStringsMb: number("opcacheInternedStringsMb"),
+      maxFiles: number("opcacheMaxFiles"),
+      revalidateSeconds: number("opcacheRevalidateSeconds"),
+      validateTimestamps: form.elements.opcacheValidateTimestamps.checked,
+    },
+    fastcgi: {
+      keysZoneMb: number("fastcgiKeysZoneMb"),
+      maxSizeGb: number("fastcgiMaxSizeGb"),
+      inactiveMinutes: number("fastcgiInactiveMinutes"),
+      validMinutes: number("fastcgiValidMinutes"),
+      readTimeoutSeconds: number("fastcgiReadTimeoutSeconds"),
+      cacheLock: form.elements.fastcgiCacheLock.checked,
+    },
+    redis: {
+      maxMemoryMb: number("redisMaxMemoryMb"),
+      policy: form.elements.redisPolicy.value,
+    },
+    mysql: {
+      bufferPoolMb: number("mysqlBufferPoolMb"),
+      maxConnections: number("mysqlMaxConnections"),
+      redoLogCapacityMb: number("mysqlRedoLogCapacityMb"),
+    },
+  };
+  try {
+    await withButton(event.submitter, "Applying...", () => api("/api/settings/performance", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }));
+    notice("Performance settings applied.");
+    await loadIntegrationSettings();
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$$("[data-test-integration]").forEach((button) => button.addEventListener("click", async () => {
+  const target = button.dataset.testIntegration;
+  try {
+    const result = await withButton(button, "Testing...", () => api("/api/settings/test", {
+      method: "POST",
+      body: JSON.stringify({ target }),
+    }));
+    notice(result.message);
+  } catch (error) {
+    notice(`${target}: ${error.message}`, "warning");
+  }
+}));
+
+$("#accountForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const result = await withButton(event.submitter, "Saving...", () => api("/api/auth/account", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    state.csrf = result.csrf;
+    state.user = result.email;
+    $("#currentUser").textContent = result.email;
+    $("#accountEmail").value = result.email;
+    event.currentTarget.reset();
+    $("#accountEmail").value = result.email;
+    notice("Account updated.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+(async () => {
+  try {
+    const session = await api("/api/auth/status");
+    if (!session.authenticated) return showLogin();
+    showApp(session);
+    await loadData();
+  } catch {
+    showLogin();
+  }
+})();

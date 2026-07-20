@@ -1,0 +1,29 @@
+{
+  "low": {
+    "pm": "ondemand",
+    "max_children": "3",
+    "start_servers": "1",
+    "min_spare_servers": "1",
+    "max_spare_servers": "2",
+    "process_idle_timeout": "20s",
+    "max_requests": "400"
+  },
+  "medium": {
+    "pm": "ondemand",
+    "max_children": "6",
+    "start_servers": "1",
+    "min_spare_servers": "1",
+    "max_spare_servers": "2",
+    "process_idle_timeout": "30s",
+    "max_requests": "500"
+  },
+  "high": {
+    "pm": "dynamic",
+    "max_children": "10",
+    "start_servers": "2",
+    "min_spare_servers": "2",
+    "max_spare_servers": "4",
+    "process_idle_timeout": "45s",
+    "max_requests": "700"
+  }
+}

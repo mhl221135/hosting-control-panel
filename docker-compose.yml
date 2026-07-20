@@ -1,0 +1,191 @@
+services:
+  hosting-files:
+    image: hosting-files:2.63
+    build:
+      context: ./filebrowser-custom
+    container_name: hosting-files
+    user: "33:33"
+    environment:
+      FILEBROWSER_ADMIN_USERNAME: ${FILEBROWSER_ADMIN_USERNAME:?Set FILEBROWSER_ADMIN_USERNAME in .env}
+      FILEBROWSER_ADMIN_PASSWORD: ${FILEBROWSER_ADMIN_PASSWORD:?Set FILEBROWSER_ADMIN_PASSWORD in .env}
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/filebrowser/config:/config
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/filebrowser/database:/database
+    restart: unless-stopped
+    networks:
+      - hosting-net
+
+  hosting-ui:
+    image: hosting-ui:2.3
+    build:
+      context: ./ui-manager
+    container_name: hosting-ui
+    user: "0:0"
+    restart: unless-stopped
+    ports:
+      - "8687:8687"
+    environment:
+      PORT: 8687
+      DATA_DIR: /app/data
+      SITES_MAP_PATH: /srv/configs/nginx/conf.d/sites.map
+      POOLS_PATH: /srv/configs/php-fpm/pools.conf
+      CACHE_MAP_PATH: /srv/configs/nginx/conf.d/cache.map
+      WEBSITES_ROOT: /srv/websites
+      APP_DATA_ROOT: /srv/app-data
+      BACKUPS_ROOT: /srv/backups
+      MYSQL_CONTAINER: hosting-db
+      PHP_CONTAINER: hosting-php-fpm
+      TZ: Europe/Kyiv
+      UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:?Set UI_ADMIN_EMAIL in .env}
+      UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:?Set UI_ADMIN_PASSWORD in .env}
+      UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
+      NPM_API_URL: ${NPM_API_URL:-http://hosting-npm:81/api}
+      NPM_IDENTITY: ${NPM_IDENTITY:?Set NPM_IDENTITY in .env}
+      NPM_SECRET: ${NPM_SECRET:?Set NPM_SECRET in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      MYSQL_SITE_PREFIX: ${MYSQL_SITE_PREFIX:-yogali00_}
+      RELOAD_NGINX_CMD: "docker exec hosting-nginx nginx -s reload"
+      RELOAD_PHP_CMD: "docker exec hosting-php-fpm sh -c 'kill -USR2 1'"
+      CLEAR_OPCACHE_CMD: "docker exec hosting-php-fpm sh -lc 'kill -USR2 1'"
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/ui-manager:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups:/srv/backups
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
+    networks:
+      - hosting-net
+
+  hosting-php-fpm:
+    image: custom-php-fpm:8.4
+    build:
+      context: ./php-fpm-custom-upd
+    container_name: hosting-php-fpm
+    restart: unless-stopped
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/www
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini:/usr/local/etc/php/conf.d/000-global.ini:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.conf:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/pools.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp/wp-global.php:/global/wp-global.php:ro
+    networks:
+      - hosting-net
+
+  hosting-nginx:
+    image: nginx:alpine
+    container_name: hosting-nginx
+    restart: unless-stopped
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/www
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/nginx-cache:/var/cache/nginx
+    depends_on:
+      - hosting-php-fpm
+    networks:
+      - hosting-net
+
+  hosting-goaccess:
+    profiles:
+      - production
+    image: justsky/goaccess-for-nginxproxymanager:latest
+    container_name: hosting-goaccess
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Kyiv
+    ports:
+      - "7890:7880"
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/data/logs:/opt/log
+    networks:
+      - hosting-net
+
+  hosting-npm:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: hosting-npm
+    restart: always
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    environment:
+      DB_MYSQL_HOST: hosting-db
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: ${NPM_DB_USER:-npm_db}
+      DB_MYSQL_PASSWORD: ${NPM_DB_PASSWORD:?Set NPM_DB_PASSWORD in .env}
+      DB_MYSQL_NAME: ${NPM_DB_NAME:-npm_db}
+      INITIAL_ADMIN_EMAIL: ${NPM_IDENTITY:?Set NPM_IDENTITY in .env}
+      INITIAL_ADMIN_PASSWORD: ${NPM_SECRET:?Set NPM_SECRET in .env}
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/data:/data
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/letsencrypt:/etc/letsencrypt
+    depends_on:
+      - hosting-db
+    networks:
+      - hosting-net
+
+  hosting-redis:
+    image: redis:7-alpine
+    container_name: hosting-redis
+    restart: unless-stopped
+    command:
+      redis-server
+      --appendonly yes
+      --save 900 1 --save 300 10 --save 60 10000
+      --maxmemory 1024mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/redis:/data
+    networks:
+      - hosting-net
+
+  hosting-db:
+    image: mysql:8.4
+    container_name: hosting-db
+    restart: always
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=row
+      --innodb_buffer_pool_size=4G
+      --innodb_redo_log_capacity=1G
+      --innodb_flush_log_at_trx_commit=2
+      --innodb_flush_method=O_DIRECT
+      --max_connections=150
+      --skip-name-resolve=ON
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: ${NPM_DB_NAME:-npm_db}
+      MYSQL_USER: ${NPM_DB_USER:-npm_db}
+      MYSQL_PASSWORD: ${NPM_DB_PASSWORD:?Set NPM_DB_PASSWORD in .env}
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/mysql:/var/lib/mysql
+    networks:
+      - hosting-net
+
+  hosting-phpmyadmin:
+    image: arm64v8/phpmyadmin
+    container_name: hosting-phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: hosting-db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "8484:80"
+    depends_on:
+      - hosting-db
+    networks:
+      - hosting-net
+
+networks:
+  hosting-net:
+    name: hosting-net
+    driver: bridge
