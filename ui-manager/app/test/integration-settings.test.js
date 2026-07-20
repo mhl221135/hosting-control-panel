@@ -10,13 +10,13 @@ test("stores NPM, ACME, and Cloudflare settings without exposing secrets", () =>
   try {
     const settings = new IntegrationSettings(directory);
     const publicView = settings.update({
-      npmApiUrl: "http://nginx-proxy-manager:81/api",
+      npmApiUrl: "http://hosting-npm:81/api",
       npmIdentity: "Owner@Example.com",
       npmSecret: "npm-password",
       acmeEmail: "Acme@Example.com",
       cloudflareToken: "cloudflare-token",
       cloudflareAccountId: "0123456789abcdef0123456789abcdef",
-      mysqlContainer: "mysql-db",
+      mysqlContainer: "hosting-db",
       mysqlSitePrefix: "site_",
     });
     assert.equal(publicView.npmIdentity, "owner@example.com");

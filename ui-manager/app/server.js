@@ -30,6 +30,7 @@ const CACHE_MAP_PATH = process.env.CACHE_MAP_PATH || "/srv/configs/nginx/conf.d/
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
 const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
 const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
+const DEFAULT_PHP_UPSTREAM = process.env.DEFAULT_PHP_UPSTREAM || "hosting-php-fpm:9000";
 
 const ACTION_CMDS = {
   reload_nginx: process.env.RELOAD_NGINX_CMD || "",
@@ -81,8 +82,8 @@ const backupManager = new BackupManager({
   backupsRoot: BACKUPS_ROOT,
   websitesRoot: WEBSITES_ROOT,
   appDataRoot: APP_DATA_ROOT,
-  mysqlContainer: process.env.MYSQL_CONTAINER || "mysql-db",
-  phpContainer: process.env.PHP_CONTAINER || "global-php-fpm",
+  mysqlContainer: process.env.MYSQL_CONTAINER || "hosting-db",
+  phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
   siteProvider: async () => {
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
@@ -233,7 +234,7 @@ function parseSitesMap(content) {
 
   return {
     defaultRoot: roots.defaultValue || "/var/www/_default",
-    defaultUpstream: upstreams.defaultValue || "global-php-fpm:9000",
+    defaultUpstream: DEFAULT_PHP_UPSTREAM,
     defaultCanonical: canonicals.defaultValue || '""',
     hosts,
   };
@@ -428,11 +429,11 @@ function execCommand(command, timeout = 30_000) {
 async function validateAndReload(mapBefore = null, poolsBefore = null) {
   try {
     const output = await execCommand(
-      "docker exec global-nginx-internal nginx -t && docker exec global-php-fpm php-fpm -t",
+      "docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t",
       20_000,
     );
-    await execCommand("docker exec global-nginx-internal nginx -s reload");
-    await execCommand("docker exec global-php-fpm sh -c 'kill -USR2 1'");
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+    await execCommand("docker exec hosting-php-fpm sh -c 'kill -USR2 1'");
     return output;
   } catch (error) {
     if (mapBefore !== null && poolsBefore !== null) {
@@ -752,7 +753,7 @@ async function handleApi(req, res) {
     const body = JSON.parse((await readBody(req)) || "{}");
     const domain = validateDomain(body.domain);
     const state = siteState.purge(domain);
-    await execCommand("docker exec global-nginx-internal nginx -s reload");
+    await execCommand("docker exec hosting-nginx nginx -s reload");
     sendJson(res, 200, { ok: true, state });
     return true;
   }
@@ -823,7 +824,7 @@ async function handleApi(req, res) {
       host: domain,
       root,
       port,
-      upstream: `global-php-fpm:${port}`,
+      upstream: `hosting-php-fpm:${port}`,
       canonicalTo: "",
     };
     const domains = [domain];
@@ -834,7 +835,7 @@ async function handleApi(req, res) {
         host: alias,
         root,
         port,
-        upstream: `global-php-fpm:${port}`,
+        upstream: `hosting-php-fpm:${port}`,
         canonicalTo: domain,
       };
     }
@@ -867,7 +868,7 @@ async function handleApi(req, res) {
         cacheVersion: 1,
         notes: String(body.notes || "").slice(0, 2000),
       });
-      await execCommand("docker exec global-nginx-internal nginx -s reload");
+      await execCommand("docker exec hosting-nginx nginx -s reload");
 
       let npmHost = null;
       if (body.create_npm_host) {
@@ -1010,12 +1011,13 @@ async function handleApi(req, res) {
         const site = mapParsed.hosts[hostName];
         if (site.port === oldPort) {
           site.port = port;
-          site.upstream = `global-php-fpm:${port}`;
+          site.upstream = `hosting-php-fpm:${port}`;
         }
       }
     }
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: "Pool updated" });
     return true;
   }
@@ -1086,13 +1088,14 @@ async function handleApi(req, res) {
           const site = mapParsed.hosts[hostName];
           if (site.port === oldPort) {
             site.port = port;
-            site.upstream = `global-php-fpm:${port}`;
+            site.upstream = `hosting-php-fpm:${port}`;
           }
         }
       }
     }
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} pool rows` });
     return true;
   }
@@ -1127,6 +1130,7 @@ async function handleApi(req, res) {
     poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((n) => n !== name);
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: `Removed pool ${name}` });
     return true;
   }
@@ -1148,7 +1152,7 @@ async function handleApi(req, res) {
   if (req.method === "GET" && req.url.startsWith("/api/logs")) {
     return new Promise((resolve) => {
       // PHP-FPM logs to stderr (Docker logs), not a physical file.
-      exec(`docker logs --tail 200 global-php-fpm`, { timeout: 5000 }, (err, stdout, stderr) => {
+      exec(`docker logs --tail 200 hosting-php-fpm`, { timeout: 5000 }, (err, stdout, stderr) => {
         if (err) {
           sendJson(res, 500, { ok: false, message: "Could not read log stream", error: err.message });
         } else {
@@ -1162,7 +1166,7 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && req.url === "/api/validate") {
     return new Promise((resolve) => {
-      exec("docker exec global-nginx-internal nginx -t && docker exec global-php-fpm php-fpm -t", { timeout: 15000 }, (err, stdout, stderr) => {
+      exec("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", { timeout: 15000 }, (err, stdout, stderr) => {
         if (err) {
           sendJson(res, 400, { ok: false, message: "Config validation failed", output: `${stdout}\n${stderr}`.trim() });
         } else {
@@ -1214,7 +1218,7 @@ async function handleApi(req, res) {
         host,
         root,
         port,
-        upstream: `global-php-fpm:${port}`,
+        upstream: `hosting-php-fpm:${port}`,
         canonicalTo: canonicalTarget,
       };
 
@@ -1224,7 +1228,7 @@ async function handleApi(req, res) {
           host: alias,
           root,
           port,
-          upstream: `global-php-fpm:${port}`,
+          upstream: `hosting-php-fpm:${port}`,
           canonicalTo: host,
         };
       } else if (!host.startsWith("www.")) {
@@ -1236,6 +1240,7 @@ async function handleApi(req, res) {
     }
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} host rows` });
     return true;
   }
@@ -1280,7 +1285,7 @@ async function handleApi(req, res) {
       host,
       root,
       port,
-      upstream: `global-php-fpm:${port}`,
+      upstream: `hosting-php-fpm:${port}`,
       canonicalTo: canonicalTarget,
     };
 
@@ -1290,7 +1295,7 @@ async function handleApi(req, res) {
         host: alias,
         root,
         port,
-        upstream: `global-php-fpm:${port}`,
+        upstream: `hosting-php-fpm:${port}`,
         canonicalTo: host,
       };
     }
@@ -1322,6 +1327,7 @@ async function handleApi(req, res) {
     }
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: "Host updated" });
     return true;
   }
@@ -1352,6 +1358,7 @@ async function handleApi(req, res) {
     }
 
     writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await validateAndReload(mapBefore, poolsBefore);
     sendJson(res, 200, { ok: true, message: `Removed ${host}` });
     return true;
   }

@@ -31,14 +31,14 @@ class NpmClient {
     if (this.settingsProvider) {
       const settings = this.settingsProvider();
       return {
-        baseUrl: String(settings.npmApiUrl || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
+        baseUrl: String(settings.npmApiUrl || "http://hosting-npm:81/api").replace(/\/$/, ""),
         identity: String(settings.npmIdentity || ""),
         secret: String(settings.npmSecret || ""),
         acmeEmail: String(settings.acmeEmail || ""),
       };
     }
     return {
-      baseUrl: String(process.env.NPM_API_URL || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
+      baseUrl: String(process.env.NPM_API_URL || "http://hosting-npm:81/api").replace(/\/$/, ""),
       identity: String(process.env.NPM_IDENTITY || ""),
       secret: String(process.env.NPM_SECRET || ""),
       acmeEmail: String(process.env.ACME_EMAIL || ""),
@@ -105,7 +105,7 @@ class NpmClient {
       body: JSON.stringify({
         domain_names: domains,
         forward_scheme: "http",
-        forward_host: "global-nginx-internal",
+        forward_host: "hosting-nginx",
         forward_port: 80,
         certificate_id: 0,
         ssl_forced: false,
@@ -127,7 +127,7 @@ class NpmClient {
     return {
       domain_names: host.domain_names || [],
       forward_scheme: host.forward_scheme || "http",
-      forward_host: host.forward_host || "global-nginx-internal",
+      forward_host: host.forward_host || "hosting-nginx",
       forward_port: Number(host.forward_port || 80),
       certificate_id: Number(host.certificate_id || 0),
       ssl_forced: Boolean(host.ssl_forced),
@@ -181,10 +181,10 @@ class NpmClient {
 
   async ensureHost(domains, issueSsl) {
     let host = await this.createHost(domains);
-    if (host.forward_host !== "global-nginx-internal" || Number(host.forward_port) !== 80) {
+    if (host.forward_host !== "hosting-nginx" || Number(host.forward_port) !== 80) {
       host = await this.updateHost(host, {
         forward_scheme: "http",
-        forward_host: "global-nginx-internal",
+        forward_host: "hosting-nginx",
         forward_port: 80,
       });
     }

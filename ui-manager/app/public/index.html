@@ -208,7 +208,7 @@
           <div class="section-head"><div><h2>Integration settings</h2><p>Credentials are encrypted in the persistent panel data volume.</p></div></div>
           <form id="integrationSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>Nginx Proxy Manager</h3><p>Used to create edge hosts and manage Let's Encrypt certificates.</p></div>
-            <label>NPM API URL<input name="npmApiUrl" placeholder="http://nginx-proxy-manager:81/api" required /></label>
+            <label>NPM API URL<input name="npmApiUrl" placeholder="http://hosting-npm:81/api" required /></label>
             <label>NPM account email<input name="npmIdentity" type="email" /></label>
             <label>NPM password<input name="npmSecret" type="password" placeholder="Leave empty to keep saved password" /></label>
             <label>ACME email<input name="acmeEmail" type="email" placeholder="Used for Let's Encrypt" /></label>
@@ -222,7 +222,7 @@
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="cloudflare">Test Cloudflare</button></div>
 
             <div class="group-title full"><h3>WordPress database installer</h3><p>The root password stays inside MySQL. The UI invokes MySQL using the container's existing environment.</p></div>
-            <label>MySQL container<input name="mysqlContainer" placeholder="mysql-db" required /></label>
+            <label>MySQL container<input name="mysqlContainer" placeholder="hosting-db" required /></label>
             <label>Database/user prefix<input name="mysqlSitePrefix" placeholder="yogali00_" maxlength="16" required /></label>
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="mysql">Test MySQL</button></div>
 

@@ -10,6 +10,7 @@ ui-manager/data/integration-settings.json
 ui-manager/data/integration-settings.key
 ui-manager/data/site-state.json
 nginx-proxy-manager/
+hosting-npm/
 backup_websites.sh
 
 # Local caches

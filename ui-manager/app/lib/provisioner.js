@@ -57,7 +57,7 @@ function randomPassword(length = 32) {
 }
 
 async function createDatabase(domain, config = {}) {
-  const container = String(config.mysqlContainer || process.env.MYSQL_CONTAINER || "mysql-db");
+  const container = String(config.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db");
   if (!/^[a-zA-Z0-9_.-]+$/.test(container)) {
     const error = new Error("MySQL container name is invalid");
     error.statusCode = 400;
@@ -87,7 +87,7 @@ async function createDatabase(domain, config = {}) {
 async function runWp(args, timeout = 180_000) {
   return execFileAsync(
     "docker",
-    ["exec", "-u", "33:33", "global-php-fpm", "wp", "--allow-root", ...args],
+    ["exec", "-u", "33:33", "hosting-php-fpm", "wp", "--allow-root", ...args],
     { timeout },
   );
 }
@@ -106,7 +106,7 @@ async function normalizeWordPressPermissions(directory) {
   const containerPath = wordpressContainerPath(directory);
   await execFileAsync("docker", [
     "exec",
-    "global-php-fpm",
+    "hosting-php-fpm",
     "sh",
     "-c",
     [
@@ -134,7 +134,7 @@ async function installWordPress(options) {
     `--dbname=${database.name}`,
     `--dbuser=${database.user}`,
     `--dbpass=${database.password}`,
-    "--dbhost=mysql-db",
+    "--dbhost=hosting-db",
     "--dbcharset=utf8mb4",
     "--skip-check",
     "--force",
@@ -153,7 +153,7 @@ async function installWordPress(options) {
   await runWp(["rewrite", "structure", "/%postname%/", `--path=${containerPath}`, "--hard"]);
 
   if (options.redis) {
-    await runWp(["config", "set", "WP_REDIS_HOST", "redis-mysweetdesign", "--type=constant", `--path=${containerPath}`]);
+    await runWp(["config", "set", "WP_REDIS_HOST", "hosting-redis", "--type=constant", `--path=${containerPath}`]);
     await runWp(["config", "set", "WP_REDIS_PREFIX", `${domain}:`, "--type=constant", `--path=${containerPath}`]);
     await runWp(["plugin", "install", "redis-cache", "--activate", `--path=${containerPath}`]);
     await runWp(["redis", "enable", `--path=${containerPath}`]);
@@ -161,7 +161,7 @@ async function installWordPress(options) {
 
   await execFileAsync("docker", [
     "exec",
-    "global-php-fpm",
+    "hosting-php-fpm",
     "sh",
     "-lc",
     `find ${containerPath} -type d -exec chmod 775 {} + && find ${containerPath} -type f -exec chmod 664 {} + && chmod 640 ${containerPath}/wp-config.php`,
@@ -179,7 +179,7 @@ async function setRedis(directory, domain, enabled) {
   const containerPath = await normalizeWordPressPermissions(directory);
   validateDomain(domain);
   if (enabled) {
-    await runWp(["config", "set", "WP_REDIS_HOST", "redis-mysweetdesign", "--type=constant", `--path=${containerPath}`]);
+    await runWp(["config", "set", "WP_REDIS_HOST", "hosting-redis", "--type=constant", `--path=${containerPath}`]);
     await runWp(["config", "set", "WP_REDIS_PREFIX", `${domain}:`, "--type=constant", `--path=${containerPath}`]);
     await runWp(["plugin", "install", "redis-cache", "--activate", `--path=${containerPath}`]);
     await runWp(["redis", "enable", `--path=${containerPath}`]);
@@ -210,7 +210,7 @@ async function optimizeImages(directory) {
   ].join("\n");
   const result = await execFileAsync("docker", [
     "exec",
-    "global-php-fpm",
+    "hosting-php-fpm",
     "bash",
     "-c",
     script,

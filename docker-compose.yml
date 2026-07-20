@@ -1,9 +1,7 @@
 services:
-  
-
-  filebrowser-web:
+  hosting-files:
     image: filebrowser/filebrowser:latest
-    container_name: filebrowser-web
+    container_name: hosting-files
     user: "33:33"
     volumes:
       - /media/ssdmount/websites-v2/websites:/srv
@@ -11,13 +9,13 @@ services:
       - /media/ssdmount/websites-v2/app-data/filebrowser/database:/database
     restart: unless-stopped
     networks:
-      - db-network
-  websites-config-ui:
+      - hosting-net
 
-    image: websites-config-ui:2.3
+  hosting-ui:
+    image: hosting-ui:2.3
     build:
       context: ./ui-manager
-    container_name: websites-config-ui
+    container_name: hosting-ui
     user: "0:0"
     restart: unless-stopped
     ports:
@@ -31,21 +29,22 @@ services:
       WEBSITES_ROOT: /srv/websites
       APP_DATA_ROOT: /srv/app-data
       BACKUPS_ROOT: /srv/backups
-      MYSQL_CONTAINER: mysql-db
-      PHP_CONTAINER: global-php-fpm
+      MYSQL_CONTAINER: hosting-db
+      PHP_CONTAINER: hosting-php-fpm
       TZ: Europe/Kyiv
       UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:-admin@example.com}
       UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:-change-this-before-deploy}
       UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
-      NPM_API_URL: ${NPM_API_URL:-http://nginx-proxy-manager:81/api}
+      NPM_API_URL: ${NPM_API_URL:-http://hosting-npm:81/api}
       NPM_IDENTITY: ${NPM_IDENTITY:-}
       NPM_SECRET: ${NPM_SECRET:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       MYSQL_SITE_PREFIX: ${MYSQL_SITE_PREFIX:-yogali00_}
-      RELOAD_NGINX_CMD: "docker exec global-nginx-internal nginx -s reload"
-      RELOAD_PHP_CMD: "docker exec global-php-fpm sh -c 'kill -USR2 1'"
-      CLEAR_OPCACHE_CMD: "docker exec global-php-fpm sh -lc 'kill -USR2 1'"
+      RELOAD_NGINX_CMD: "docker exec hosting-nginx nginx -s reload"
+      RELOAD_PHP_CMD: "docker exec hosting-php-fpm sh -c 'kill -USR2 1'"
+      CLEAR_OPCACHE_CMD: "docker exec hosting-php-fpm sh -lc 'kill -USR2 1'"
     volumes:
       - /media/ssdmount/websites-v2/app-data/ui-manager:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
@@ -57,13 +56,13 @@ services:
       - /media/ssdmount/websites-v2/app-data/configs/php:/srv/configs/php
       - /media/ssdmount/websites-v2/app-data/configs/wp:/srv/configs/wp
     networks:
-      - db-network
-  global-php-fpm:
-    #image: php:8.4-fpm-alpine
+      - hosting-net
+
+  hosting-php-fpm:
     image: custom-php-fpm:8.4
     build:
       context: ./php-fpm-custom-upd
-    container_name: global-php-fpm
+    container_name: hosting-php-fpm
     restart: unless-stopped
     volumes:
       - /media/ssdmount/websites-v2/websites:/var/www
@@ -72,11 +71,11 @@ services:
       - /media/ssdmount/websites-v2/app-data/configs/php-fpm/pools.conf:/usr/local/etc/php-fpm.d/www.conf:ro
       - /media/ssdmount/websites-v2/app-data/configs/wp/wp-global.php:/global/wp-global.php:ro
     networks:
-      - db-network
+      - hosting-net
 
-  global-nginx-internal:
+  hosting-nginx:
     image: nginx:alpine
-    container_name: global-nginx-internal
+    container_name: hosting-nginx
     restart: unless-stopped
     volumes:
       - /media/ssdmount/websites-v2/websites:/var/www
@@ -84,38 +83,35 @@ services:
       - /media/ssdmount/websites-v2/app-data/configs/nginx/conf.d:/etc/nginx/conf.d:ro
       - /media/ssdmount/websites-v2/app-data/nginx-cache:/var/cache/nginx
     depends_on:
-      - global-php-fpm
+      - hosting-php-fpm
     networks:
-      - db-network
-      
-  goaccess:
+      - hosting-net
+
+  hosting-goaccess:
     profiles:
       - production
     image: justsky/goaccess-for-nginxproxymanager:latest
-    container_name: goaccess
+    container_name: hosting-goaccess
     restart: unless-stopped
     environment:
-      - TZ=Europe/Kyiv
+      TZ: Europe/Kyiv
     ports:
       - "7890:7880"
     volumes:
       - /media/ssdmount/websites-v2/app-data/npm/data/logs:/opt/log
     networks:
-      - db-network
+      - hosting-net
 
-
-
-
-  nginx-proxy-manager:
+  hosting-npm:
     image: jc21/nginx-proxy-manager:latest
-    container_name: nginx-proxy-manager
+    container_name: hosting-npm
     restart: always
     ports:
-      - "80:80"       # HTTP
-      - "81:81"       # Admin UI
-      - "443:443"     # HTTPS
+      - "80:80"
+      - "81:81"
+      - "443:443"
     environment:
-      DB_MYSQL_HOST: mysql-db
+      DB_MYSQL_HOST: hosting-db
       DB_MYSQL_PORT: 3306
       DB_MYSQL_USER: ${NPM_DB_USER:-npm_db}
       DB_MYSQL_PASSWORD: ${NPM_DB_PASSWORD:?Set NPM_DB_PASSWORD in .env}
@@ -123,21 +119,15 @@ services:
     volumes:
       - /media/ssdmount/websites-v2/app-data/npm/data:/data
       - /media/ssdmount/websites-v2/app-data/npm/letsencrypt:/etc/letsencrypt
-    networks:
-      - db-network
     depends_on:
-      - mysql
+      - hosting-db
+    networks:
+      - hosting-net
 
-
-
-#redis conteiner exist but i laxzy and not enabled it for websites yet- i think need uimanager app have button to enable redis- not sure also maybe fastcgi cache can be added to this stack?
-  redis:
+  hosting-redis:
     image: redis:7-alpine
-    container_name: redis-mysweetdesign
+    container_name: hosting-redis
     restart: unless-stopped
-    # only listen on localhost so nobody can bypass your tunnel
-    ports:
-      - "6379:6379"
     command: >
       redis-server
       --appendonly yes
@@ -145,13 +135,12 @@ services:
     volumes:
       - /media/ssdmount/websites-v2/app-data/redis:/data
     networks:
-      - db-network
+      - hosting-net
 
-  mysql:
+  hosting-db:
     image: mysql:8.4
-    container_name: mysql-db
+    container_name: hosting-db
     restart: always
-
     command: >
       --server-id=1
       --log-bin=mysql-bin
@@ -168,29 +157,25 @@ services:
       MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
     volumes:
       - /media/ssdmount/websites-v2/app-data/mysql:/var/lib/mysql
-    ports:
-      - "3306:3306"
     networks:
-      - db-network
+      - hosting-net
 
-  phpmyadmin:
+  hosting-phpmyadmin:
     image: arm64v8/phpmyadmin
-    container_name: phpmyadmin
+    container_name: hosting-phpmyadmin
     restart: always
     environment:
-      PMA_HOST: mysql-db
+      PMA_HOST: hosting-db
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
       UPLOAD_LIMIT: 64M
     ports:
       - "8484:80"
     depends_on:
-      - mysql
+      - hosting-db
     networks:
-      - db-network
+      - hosting-net
 
-
-
-    
 networks:
-  db-network:
+  hosting-net:
+    name: hosting-net
     driver: bridge

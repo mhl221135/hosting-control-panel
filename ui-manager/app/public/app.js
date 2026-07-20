@@ -431,7 +431,7 @@ async function loadIntegrationSettings() {
     form.elements.cloudflareToken.value = "";
     form.elements.cloudflareToken.placeholder = settings.cloudflareTokenConfigured ? "Saved token configured" : "Enter Cloudflare token";
     form.elements.cloudflareAccountId.value = settings.cloudflareAccountId || "";
-    form.elements.mysqlContainer.value = settings.mysqlContainer || "mysql-db";
+    form.elements.mysqlContainer.value = settings.mysqlContainer || "hosting-db";
     form.elements.mysqlSitePrefix.value = settings.mysqlSitePrefix || "yogali00_";
     form.elements.clearNpmSecret.checked = false;
     form.elements.clearCloudflareToken.checked = false;

@@ -1,7 +1,7 @@
 # Websites Control Panel
 
 The panel is built into the main Compose project and runs as
-`websites-config-ui` on port 8687.
+`hosting-ui` on port 8687.
 
 ## First login
 
@@ -43,8 +43,8 @@ proxy host and certificate. Generated credentials are shown once.
 From `/media/ssdmount/websites-v2/sources`:
 
 ```bash
-docker-compose build websites-config-ui global-php-fpm
-docker-compose up -d websites-config-ui global-php-fpm global-nginx-internal
+docker-compose build hosting-ui hosting-php-fpm
+docker-compose up -d hosting-ui hosting-php-fpm hosting-nginx
 ```
 
 Before deployment, set a unique `UI_ADMIN_PASSWORD` and preferably

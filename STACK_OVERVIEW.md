@@ -11,23 +11,23 @@ Managed backups: `/media/ssdmount/websites-v2/backups`
 ## Request path
 
 1. Nginx Proxy Manager accepts public HTTP/HTTPS traffic.
-2. It forwards website traffic to `global-nginx-internal:80`.
+2. It forwards website traffic to `hosting-nginx:80`.
 3. Internal nginx selects the document root and PHP-FPM pool from `sites.map`.
-4. PHP runs in the site's dedicated pool in `global-php-fpm`.
-5. WordPress uses `mysql-db` and may use `redis-mysweetdesign`.
+4. PHP runs in the site's dedicated pool in `hosting-php-fpm`.
+5. WordPress uses `hosting-db` and may use `hosting-redis`.
 
 The control panel remains a separate container from PHP. It has Docker socket
 access for provisioning and reload operations, while website PHP does not.
 
 ## Services
 
-- `websites-config-ui`: authenticated control panel on port 8687
-- `global-nginx-internal`: internal virtual hosts and optional FastCGI cache
-- `global-php-fpm`: shared PHP 8.4 runtime with per-site pools and WP-CLI
-- `nginx-proxy-manager`: public proxy hosts and Let's Encrypt certificates
-- `mysql-db`: MySQL 8.4
-- `redis-mysweetdesign`: Redis 7
-- `phpmyadmin`, `filebrowser-web`, and `goaccess`: existing administration tools
+- `hosting-ui`: authenticated control panel on port 8687
+- `hosting-nginx`: internal virtual hosts and optional FastCGI cache
+- `hosting-php-fpm`: shared PHP 8.4 runtime with per-site pools and WP-CLI
+- `hosting-npm`: public proxy hosts and Let's Encrypt certificates
+- `hosting-db`: MySQL 8.4
+- `hosting-redis`: Redis 7
+- `hosting-phpmyadmin`, `hosting-files`, and `hosting-goaccess`: administration tools
 
 ## Control panel
 

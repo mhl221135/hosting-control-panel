@@ -35,8 +35,8 @@ class BackupManager {
     this.backupsRoot = options.backupsRoot;
     this.websitesRoot = options.websitesRoot;
     this.appDataRoot = options.appDataRoot;
-    this.mysqlContainer = options.mysqlContainer || "mysql-db";
-    this.phpContainer = options.phpContainer || "global-php-fpm";
+    this.mysqlContainer = options.mysqlContainer || "hosting-db";
+    this.phpContainer = options.phpContainer || "hosting-php-fpm";
     this.siteProvider = options.siteProvider;
     this.settingsPath = path.join(this.dataDir, "backup-settings.json");
     this.busy = false;

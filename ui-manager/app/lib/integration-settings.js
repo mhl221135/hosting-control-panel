@@ -54,13 +54,13 @@ class IntegrationSettings {
   resolved() {
     const stored = this.readStored();
     return {
-      npmApiUrl: stored.npmApiUrl || process.env.NPM_API_URL || "http://nginx-proxy-manager:81/api",
+      npmApiUrl: stored.npmApiUrl || process.env.NPM_API_URL || "http://hosting-npm:81/api",
       npmIdentity: stored.npmIdentity || process.env.NPM_IDENTITY || "",
       npmSecret: this.decrypt(stored.npmSecret) || process.env.NPM_SECRET || "",
       acmeEmail: stored.acmeEmail || process.env.ACME_EMAIL || "",
       cloudflareToken: this.decrypt(stored.cloudflareToken) || process.env.CLOUDFLARE_API_TOKEN || "",
       cloudflareAccountId: stored.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
-      mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "mysql-db",
+      mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db",
       mysqlSitePrefix: stored.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_",
     };
   }
@@ -82,7 +82,7 @@ class IntegrationSettings {
   update(payload) {
     const current = this.readStored();
     const next = {
-      npmApiUrl: String(payload.npmApiUrl || current.npmApiUrl || "http://nginx-proxy-manager:81/api").trim().replace(/\/$/, ""),
+      npmApiUrl: String(payload.npmApiUrl || current.npmApiUrl || "http://hosting-npm:81/api").trim().replace(/\/$/, ""),
       npmIdentity: String(payload.npmIdentity || current.npmIdentity || "").trim().toLowerCase(),
       acmeEmail: String(payload.acmeEmail || current.acmeEmail || process.env.ACME_EMAIL || "").trim().toLowerCase(),
       npmSecret: payload.clearNpmSecret
@@ -98,7 +98,7 @@ class IntegrationSettings {
       cloudflareAccountId: String(
         payload.cloudflareAccountId || current.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
       ).trim().toLowerCase(),
-      mysqlContainer: String(payload.mysqlContainer || current.mysqlContainer || "mysql-db").trim(),
+      mysqlContainer: String(payload.mysqlContainer || current.mysqlContainer || "hosting-db").trim(),
       mysqlSitePrefix: String(payload.mysqlSitePrefix || current.mysqlSitePrefix || "yogali00_")
         .trim()
         .toLowerCase(),

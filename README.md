@@ -40,20 +40,20 @@ Internet
 Nginx Proxy Manager :80/:443
   |
   v
-global-nginx-internal
+hosting-nginx
   |
   +--> FastCGI page cache (optional per site)
   |
   v
-global-php-fpm (one pool per site)
+hosting-php-fpm (one pool per site)
   |
-  +--> mysql-db
-  +--> redis-mysweetdesign
+  +--> hosting-db
+  +--> hosting-redis
 
 Administrator
   |
   v
-websites-config-ui :8687
+hosting-ui :8687
   +--> mounted runtime configuration
   +--> Docker socket for controlled provisioning/reloads
   +--> NPM API
@@ -164,7 +164,7 @@ already available through the container environment.
 ```bash
 cd /media/ssdmount/websites-v2/sources
 docker-compose config --quiet
-docker-compose build websites-config-ui global-php-fpm
+docker-compose build hosting-ui hosting-php-fpm
 docker-compose up -d
 ```
 
@@ -183,9 +183,10 @@ The published port mappings retain the existing stack layout:
 | Nginx Proxy Manager UI | 81 |
 | Nginx Proxy Manager HTTPS | 443 |
 | GoAccess | 7890 |
-| Redis | 6379 |
-| MySQL | 3306 |
 | phpMyAdmin | 8484 |
+
+MySQL (`hosting-db:3306`) and Redis (`hosting-redis:6379`) are available only
+to containers on `hosting-net`; neither port is published on the host.
 
 Router/firewall exposure is an independent host/network decision. The panel
 does not modify router rules.
@@ -262,26 +263,26 @@ falls back to the original file for other clients.
 Validate configuration:
 
 ```bash
-docker exec global-nginx-internal nginx -t
-docker exec global-php-fpm php-fpm -t
+docker exec hosting-nginx nginx -t
+docker exec hosting-php-fpm php-fpm -t
 ```
 
 Inspect status and logs:
 
 ```bash
 docker-compose ps
-docker logs --tail 100 websites-config-ui
-docker logs --tail 100 global-nginx-internal
-docker logs --tail 100 global-php-fpm
-docker logs --tail 100 mysql-db
-docker logs --tail 100 nginx-proxy-manager
+docker logs --tail 100 hosting-ui
+docker logs --tail 100 hosting-nginx
+docker logs --tail 100 hosting-php-fpm
+docker logs --tail 100 hosting-db
+docker logs --tail 100 hosting-npm
 ```
 
 GoAccess is production-only:
 
 ```bash
-docker-compose --profile production up -d goaccess
-docker-compose stop goaccess
+docker-compose --profile production up -d hosting-goaccess
+docker-compose stop hosting-goaccess
 ```
 
 ## Resource Sizing

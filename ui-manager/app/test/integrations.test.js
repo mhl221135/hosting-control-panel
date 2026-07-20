@@ -127,7 +127,7 @@ test("normalizes an existing legacy website proxy target", async () => {
     return { ...host, ...overrides };
   };
   const result = await client.ensureHost(["example.com"], false);
-  assert.equal(result.forward_host, "global-nginx-internal");
+  assert.equal(result.forward_host, "hosting-nginx");
   assert.equal(result.forward_port, 80);
   assert.equal(update.host.id, 5);
   assert.equal(result.certificate_id, 12);
