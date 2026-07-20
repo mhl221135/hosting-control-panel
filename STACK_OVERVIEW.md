@@ -37,7 +37,8 @@ The panel provides:
 - Account email and password changes
 - Site and PHP-FPM pool management
 - One-click WordPress provisioning
-- Per-site Redis object cache and FastCGI page-cache controls
+- Per-site Redis object cache, OPcache, and FastCGI page-cache controls
+- Global PHP, OPcache, FastCGI, Redis, and MySQL performance settings
 - Global gzip and on-demand WebP generation with original-image fallback
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
@@ -50,6 +51,15 @@ The panel provides:
 
 The MySQL root password is not copied into panel settings. Database operations
 read it from the MySQL container environment and execute inside that container.
+Redis is not published on the host and has no password; only services attached
+to `hosting-net` can reach it.
+
+## Installation and upgrades
+
+`bootstrap.sh` asks for the storage root and credentials, clones the public
+repository into `<root>/sources`, and runs the fresh installer.
+`scripts/upgrade.sh` fast-forwards the source and recreates updated containers
+without replacing `app-data`, `websites`, `backups`, or active copied configs.
 
 ## Configuration
 
@@ -68,7 +78,8 @@ generated and persistent files include:
 - `app-data/configs/php-fpm/pools.conf`: per-site PHP-FPM pools
 - `app-data/ui-manager/auth.json`: hashed panel account
 - `app-data/ui-manager/integrations.json`: encrypted integration settings
-- `app-data/ui-manager/site-state.json`: Redis, cache, and backup state
+- `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
+- `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
 
 ## Provisioning
@@ -89,10 +100,11 @@ MySQL identifier limit are shortened with a deterministic hash suffix.
 
 ## Caching
 
-OPcache and FastCGI cache are separate:
+OPcache, FastCGI cache, and Redis are separate:
 
-- OPcache stores compiled PHP bytecode and is enabled globally.
+- OPcache stores compiled PHP bytecode and can be disabled in each site's pool.
 - FastCGI cache stores complete anonymous HTML responses and is opt-in per site.
+- Redis stores WordPress objects and is enabled with the Redis Cache plugin.
 
 FastCGI cache bypasses logged-in users, WordPress administration, requests with
 query strings, non-GET requests, and common WooCommerce session/cart traffic.

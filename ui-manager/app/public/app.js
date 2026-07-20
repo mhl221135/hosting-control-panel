@@ -13,6 +13,7 @@ const state = {
   dnsRecords: [],
   dnsPresets: [],
   cloudflareIps: [],
+  performance: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -142,6 +143,7 @@ function renderSites() {
       <div class="site-flags">
         <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
         <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
+        <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
         <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
       </div>
       <div class="button-row">
@@ -150,6 +152,7 @@ function renderSites() {
         <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
         <button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>
+        <button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>
         <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge</button>
         <button class="secondary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
       </div>
@@ -417,8 +420,9 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings] = await Promise.all([
+    const [settings, performanceData] = await Promise.all([
       api("/api/settings/integrations"),
+      api("/api/settings/performance"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -435,6 +439,26 @@ async function loadIntegrationSettings() {
     form.elements.mysqlSitePrefix.value = settings.mysqlSitePrefix || "yogali00_";
     form.elements.clearNpmSecret.checked = false;
     form.elements.clearCloudflareToken.checked = false;
+    state.performance = performanceData.settings;
+    const performance = $("#performanceSettingsForm");
+    performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
+    performance.elements.phpMaxExecutionSeconds.value = state.performance.php.maxExecutionSeconds;
+    performance.elements.opcacheMemoryMb.value = state.performance.opcache.memoryMb;
+    performance.elements.opcacheInternedStringsMb.value = state.performance.opcache.internedStringsMb;
+    performance.elements.opcacheMaxFiles.value = state.performance.opcache.maxFiles;
+    performance.elements.opcacheRevalidateSeconds.value = state.performance.opcache.revalidateSeconds;
+    performance.elements.opcacheValidateTimestamps.checked = state.performance.opcache.validateTimestamps;
+    performance.elements.fastcgiKeysZoneMb.value = state.performance.fastcgi.keysZoneMb;
+    performance.elements.fastcgiMaxSizeGb.value = state.performance.fastcgi.maxSizeGb;
+    performance.elements.fastcgiInactiveMinutes.value = state.performance.fastcgi.inactiveMinutes;
+    performance.elements.fastcgiValidMinutes.value = state.performance.fastcgi.validMinutes;
+    performance.elements.fastcgiReadTimeoutSeconds.value = state.performance.fastcgi.readTimeoutSeconds;
+    performance.elements.fastcgiCacheLock.checked = state.performance.fastcgi.cacheLock;
+    performance.elements.redisMaxMemoryMb.value = state.performance.redis.maxMemoryMb;
+    performance.elements.redisPolicy.value = state.performance.redis.policy;
+    performance.elements.mysqlBufferPoolMb.value = state.performance.mysql.bufferPoolMb;
+    performance.elements.mysqlMaxConnections.value = state.performance.mysql.maxConnections;
+    performance.elements.mysqlRedoLogCapacityMb.value = state.performance.mysql.redoLogCapacityMb;
   } catch (error) {
     notice(error.message, "warning");
   }
@@ -477,6 +501,7 @@ $("#sitesList").addEventListener("click", (event) => {
   }
   const fastcgi = event.target.closest("[data-toggle-fastcgi]");
   const redis = event.target.closest("[data-toggle-redis]");
+  const opcache = event.target.closest("[data-toggle-opcache]");
   const purge = event.target.closest("[data-purge-cache]");
   const backup = event.target.closest("[data-backup-site]");
   const optimize = event.target.closest("[data-optimize-images]");
@@ -503,7 +528,11 @@ $("#sitesList").addEventListener("click", (event) => {
       .catch((error) => notice(error.message, "warning"));
     return;
   }
-  const domain = fastcgi?.dataset.toggleFastcgi || redis?.dataset.toggleRedis || purge?.dataset.purgeCache;
+  const domain =
+    fastcgi?.dataset.toggleFastcgi ||
+    redis?.dataset.toggleRedis ||
+    opcache?.dataset.toggleOpcache ||
+    purge?.dataset.purgeCache;
   if (!domain) return;
   const site = state.sites.find((entry) => entry.host === domain);
   const request = purge
@@ -514,6 +543,7 @@ $("#sitesList").addEventListener("click", (event) => {
           domain,
           ...(fastcgi ? { fastcgi_cache: !site.state?.fastcgiCache } : {}),
           ...(redis ? { redis: !site.state?.redis } : {}),
+          ...(opcache ? { opcache: site.state?.opcache === false } : {}),
         }),
       });
   withButton(event.target.closest("button"), "Working...", () => request)
@@ -906,6 +936,52 @@ $("#integrationSettingsForm").addEventListener("submit", async (event) => {
     }));
     notice("Integration settings saved.");
     await loadData();
+    await loadIntegrationSettings();
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$("#performanceSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const number = (name) => Number(form.elements[name].value);
+  const body = {
+    php: {
+      memoryLimitMb: number("phpMemoryLimitMb"),
+      maxExecutionSeconds: number("phpMaxExecutionSeconds"),
+    },
+    opcache: {
+      memoryMb: number("opcacheMemoryMb"),
+      internedStringsMb: number("opcacheInternedStringsMb"),
+      maxFiles: number("opcacheMaxFiles"),
+      revalidateSeconds: number("opcacheRevalidateSeconds"),
+      validateTimestamps: form.elements.opcacheValidateTimestamps.checked,
+    },
+    fastcgi: {
+      keysZoneMb: number("fastcgiKeysZoneMb"),
+      maxSizeGb: number("fastcgiMaxSizeGb"),
+      inactiveMinutes: number("fastcgiInactiveMinutes"),
+      validMinutes: number("fastcgiValidMinutes"),
+      readTimeoutSeconds: number("fastcgiReadTimeoutSeconds"),
+      cacheLock: form.elements.fastcgiCacheLock.checked,
+    },
+    redis: {
+      maxMemoryMb: number("redisMaxMemoryMb"),
+      policy: form.elements.redisPolicy.value,
+    },
+    mysql: {
+      bufferPoolMb: number("mysqlBufferPoolMb"),
+      maxConnections: number("mysqlMaxConnections"),
+      redoLogCapacityMb: number("mysqlRedoLogCapacityMb"),
+    },
+  };
+  try {
+    await withButton(event.submitter, "Applying...", () => api("/api/settings/performance", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }));
+    notice("Performance settings applied.");
     await loadIntegrationSettings();
   } catch (error) {
     notice(error.message, "warning");

@@ -85,6 +85,7 @@
               <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
               <label class="check"><input name="redis" type="checkbox" /> Enable Redis object cache</label>
               <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>
+              <label class="check"><input name="opcache" type="checkbox" checked /> Enable PHP OPcache</label>
               <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>
               <label class="check"><input name="create_npm_host" type="checkbox" checked /> Create NPM proxy host</label>
               <label class="check"><input name="issue_ssl" type="checkbox" checked /> Request SSL</label>
@@ -229,6 +230,41 @@
             <div class="form-actions full"><button type="submit">Save integration settings</button></div>
           </form>
 
+          <form id="performanceSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>PHP and OPcache</h3></div>
+            <label>PHP memory per request (MB)<input name="phpMemoryLimitMb" type="number" min="128" max="2048" required /></label>
+            <label>PHP execution timeout (seconds)<input name="phpMaxExecutionSeconds" type="number" min="30" max="1800" required /></label>
+            <label>OPcache memory (MB)<input name="opcacheMemoryMb" type="number" min="128" max="2048" required /></label>
+            <label>Interned strings (MB)<input name="opcacheInternedStringsMb" type="number" min="16" max="256" required /></label>
+            <label>Cached PHP files<input name="opcacheMaxFiles" type="number" min="10000" max="1000000" required /></label>
+            <label>File check interval (seconds)<input name="opcacheRevalidateSeconds" type="number" min="0" max="3600" required /></label>
+            <label class="check inline"><input name="opcacheValidateTimestamps" type="checkbox" /> Check PHP files for changes</label>
+
+            <div class="group-title full"><h3>FastCGI page cache</h3></div>
+            <label>Cache index memory (MB)<input name="fastcgiKeysZoneMb" type="number" min="16" max="1024" required /></label>
+            <label>Maximum disk cache (GB)<input name="fastcgiMaxSizeGb" type="number" min="1" max="100" required /></label>
+            <label>Inactive expiry (minutes)<input name="fastcgiInactiveMinutes" type="number" min="1" max="1440" required /></label>
+            <label>Page validity (minutes)<input name="fastcgiValidMinutes" type="number" min="1" max="1440" required /></label>
+            <label>PHP response timeout (seconds)<input name="fastcgiReadTimeoutSeconds" type="number" min="30" max="1800" required /></label>
+            <label class="check inline"><input name="fastcgiCacheLock" type="checkbox" /> Prevent duplicate cache generation</label>
+
+            <div class="group-title full"><h3>Redis and MySQL</h3></div>
+            <label>Redis memory limit (MB)<input name="redisMaxMemoryMb" type="number" min="128" max="8192" required /></label>
+            <label>Redis eviction policy
+              <select name="redisPolicy">
+                <option value="allkeys-lru">All keys LRU</option>
+                <option value="allkeys-lfu">All keys LFU</option>
+                <option value="volatile-lru">Expiring keys LRU</option>
+                <option value="volatile-lfu">Expiring keys LFU</option>
+                <option value="noeviction">No eviction</option>
+              </select>
+            </label>
+            <label>MySQL buffer pool (MB)<input name="mysqlBufferPoolMb" type="number" min="512" max="12288" required /></label>
+            <label>MySQL maximum connections<input name="mysqlMaxConnections" type="number" min="25" max="1000" required /></label>
+            <label>MySQL redo capacity (MB)<input name="mysqlRedoLogCapacityMb" type="number" min="256" max="8192" required /></label>
+            <div class="form-actions full"><button type="submit">Apply performance settings</button></div>
+          </form>
+
           <div class="two-column settings-tools">
             <article class="panel">
               <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Use @ for the selected host, or a relative name such as www.</p></div></div>
@@ -253,7 +289,7 @@
               <div class="card-head"><div><h3>Replace Cloudflare server IP</h3><p class="muted">Updates matching A records across every accessible active zone.</p></div></div>
               <form id="cloudflareIpForm" class="form-stack">
                 <label>Saved server IPv4 addresses
-                  <textarea name="addresses" rows="5" placeholder="192.0.2.10&#10;203.0.113.10"></textarea>
+                  <textarea name="addresses" rows="5" placeholder="203.0.113.10&#10;203.0.113.20"></textarea>
                 </label>
                 <div class="form-actions"><button id="saveCloudflareIps" type="button" class="secondary">Save IP list</button></div>
                 <label>Old IP

@@ -1,6 +1,6 @@
 # Websites V2
 
-Private, Docker-based multi-site WordPress hosting for ARM64 Linux. The stack
+Docker-based multi-site WordPress hosting for ARM64 and AMD64 Linux. The stack
 keeps the existing shared nginx/PHP architecture while adding an authenticated
 control panel for site provisioning, runtime management, Nginx Proxy Manager,
 Let's Encrypt, Cloudflare DNS, Redis, and FastCGI cache.
@@ -22,6 +22,9 @@ into dedicated directories.
 - Cloudflare A, AAAA, CNAME, and TXT record management
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
+- Per-site PHP OPcache enablement
+- Validated global OPcache, FastCGI, Redis, MySQL, and PHP performance settings
+- Deterministic first-install accounts for the panel, NPM, and File Browser
 - Global gzip compression and on-demand per-site WebP image generation
 - Per-site manual and scheduled backups with retention
 - Daily application-data archive and consistent all-databases dump
@@ -70,8 +73,16 @@ that access.
 .
 |-- docker-compose.yml
 |-- .env.example
+|-- bootstrap.sh
 |-- README.md
 |-- STACK_OVERVIEW.md
+|-- scripts/
+|   |-- configure.sh
+|   |-- install.sh
+|   `-- upgrade.sh
+|-- filebrowser-custom/
+|   |-- Dockerfile
+|   `-- entrypoint.sh
 |-- global-configs-new-upd/
 |   |-- nginx/
 |   |   |-- nginx.conf
@@ -128,45 +139,74 @@ The active, panel-managed copies live in `app-data/configs`.
 - ARM64 or AMD64 Linux host
 - Docker Engine
 - Docker Compose v1.29+ or Docker Compose v2
-- Existing writable host directories referenced by Compose
 - DNS records pointing to the host when public websites are enabled
-- Nginx Proxy Manager administrator or dedicated API account
 - Optional Cloudflare API token with `Zone:Read` and `DNS:Edit`
 
-## Configuration
+## Fresh Installation
 
-Create the deployment environment file:
+Download and run the public bootstrap installer:
 
 ```bash
-cp .env.example .env
-chmod 600 .env
+curl -fsSL https://raw.githubusercontent.com/mhl221135/hosting-control-panel/main/bootstrap.sh \
+  -o /tmp/websites-v2-bootstrap.sh
+sudo sh /tmp/websites-v2-bootstrap.sh
 ```
 
-Set unique values for:
+It asks for the installation root (default
+`/media/ssdmount/websites-v2`) and every initial login and password. It then
+clones the project into `<root>/sources`, writes a mode-600 `.env`, creates the
+storage layout, copies only missing configuration templates, builds the custom
+images, and starts the stack.
+
+The interactive setup requests:
 
 - `UI_ADMIN_EMAIL`
 - `UI_ADMIN_PASSWORD`
-- `UI_SETTINGS_KEY`
+- `NPM_IDENTITY`
+- `NPM_SECRET`
+- `ACME_EMAIL`
+- `FILEBROWSER_ADMIN_USERNAME`
+- `FILEBROWSER_ADMIN_PASSWORD`
 - `MYSQL_ROOT_PASSWORD`
-- `MYSQL_APP_PASSWORD`
+- `NPM_DB_USER`
 - `NPM_DB_PASSWORD`
+- `NPM_DB_NAME`
+- optional Cloudflare token and account ID
 
-NPM API, ACME email, and Cloudflare credentials may be entered in the panel's
-**Settings** tab. Secrets are encrypted with AES-256-GCM in the persistent
-panel data directory.
+The installer generates `UI_SETTINGS_KEY` automatically. On an empty data tree,
+NPM creates its first administrator from `NPM_IDENTITY` and `NPM_SECRET`. File
+Browser creates its first administrator from `FILEBROWSER_ADMIN_USERNAME` and
+`FILEBROWSER_ADMIN_PASSWORD`. Existing persistent databases are never
+overwritten when `.env` changes.
+
+NPM API, ACME email, and Cloudflare credentials can also be maintained in the
+panel's **Settings** tab. Secrets are encrypted with AES-256-GCM in the
+persistent panel data directory.
 
 The MySQL root password is never copied into panel settings. The installer
 executes database operations inside the MySQL container, where the password is
 already available through the container environment.
 
-## Deploy on the ARM Host
+For an already cloned source tree, run:
 
 ```bash
 cd /media/ssdmount/websites-v2/sources
-docker-compose config --quiet
-docker-compose build hosting-ui hosting-php-fpm
-docker-compose up -d
+sudo ./scripts/install.sh --configure
 ```
+
+## Upgrade
+
+Upgrade an existing installation without replacing persistent data, websites,
+backups, or active configuration:
+
+```bash
+cd /media/ssdmount/websites-v2/sources
+sudo ./scripts/upgrade.sh
+```
+
+The upgrade requires a clean source checkout, pulls `main` with fast-forward
+only, refreshes upstream images, rebuilds custom images, validates Compose, and
+recreates changed containers. Add `--production` to refresh GoAccess too.
 
 Normal startup excludes GoAccess. Start production-only services with:
 
@@ -186,7 +226,9 @@ The published port mappings retain the existing stack layout:
 | phpMyAdmin | 8484 |
 
 MySQL (`hosting-db:3306`) and Redis (`hosting-redis:6379`) are available only
-to containers on `hosting-net`; neither port is published on the host.
+to containers on `hosting-net`; neither port is published on the host. Redis
+does not use a password because it is not published and is isolated to this
+Docker network.
 
 Router/firewall exposure is an independent host/network decision. The panel
 does not modify router rules.
@@ -194,8 +236,11 @@ does not modify router rules.
 ## First Login
 
 Open `http://SERVER_IP:8687` or publish the panel behind your existing proxy.
-Sign in using `UI_ADMIN_EMAIL` and `UI_ADMIN_PASSWORD`. Change the temporary
-account details from **Account** after the first login.
+Sign in using `UI_ADMIN_EMAIL` and `UI_ADMIN_PASSWORD`.
+
+NPM uses `NPM_IDENTITY` and `NPM_SECRET`. File Browser uses
+`FILEBROWSER_ADMIN_USERNAME` and `FILEBROWSER_ADMIN_PASSWORD`. phpMyAdmin uses
+the MySQL root or a site database account; it has no separate password database.
 
 The Settings tab contains connection tests for:
 
@@ -208,7 +253,7 @@ The Settings tab contains connection tests for:
 1. Open **Provision**.
 2. Enter the domain, website directory, title, administrator email, and user.
 3. Choose the PHP pool tier.
-4. Optionally enable `www`, Redis, FastCGI cache, NPM host creation, and SSL.
+4. Optionally enable `www`, Redis, OPcache, FastCGI cache, NPM host creation, and SSL.
    Daily backup can also be enabled during provisioning.
 5. Submit the form and store the displayed one-time credentials.
 
@@ -227,10 +272,13 @@ Names longer than MySQL's identifier limit use a deterministic hash suffix.
 
 ## Cache Model
 
-OPcache and FastCGI cache solve different problems:
+OPcache, FastCGI cache, and Redis solve different problems:
 
-- OPcache stores compiled PHP bytecode and is enabled globally.
+- OPcache stores compiled PHP bytecode. Each site can disable it in its own
+  PHP-FPM pool; memory and file limits are global.
 - FastCGI cache stores complete anonymous HTML responses and is opt-in per site.
+- Redis stores WordPress objects and requires the Redis Cache plugin. The panel
+  installs and configures that plugin when Redis is enabled for a site.
 
 FastCGI cache bypasses logged-in users, WordPress administration, API and login
 paths, query strings, non-GET requests, and common WooCommerce cart/session
@@ -287,9 +335,16 @@ docker-compose stop hosting-goaccess
 
 ## Resource Sizing
 
-The default MySQL InnoDB buffer pool is 512 MB, suitable for the current 2 GB
-ARM host. Increase it only when the host has enough memory for MySQL, PHP-FPM,
-NPM, Redis, Docker, and other workloads without sustained swap pressure.
+The default profile targets a 16 GB Orange Pi 5:
+
+- MySQL InnoDB buffer pool: 4096 MB
+- Redis maximum memory: 1024 MB with `allkeys-lru`
+- OPcache: 512 MB, 64 MB interned strings, 100000 files, JIT disabled
+- FastCGI cache: 128 MB index and 8 GB maximum disk usage
+- PHP-FPM pool tiers: 3, 6, and 10 maximum workers
+
+These values are editable in **Settings → Performance**. Do not deploy this
+profile unchanged on the current 2 GB OPI3 test host.
 
 ## Backups
 

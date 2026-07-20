@@ -10,7 +10,7 @@
   },
   "medium": {
     "pm": "ondemand",
-    "max_children": "4",
+    "max_children": "6",
     "start_servers": "1",
     "min_spare_servers": "1",
     "max_spare_servers": "2",
@@ -19,7 +19,7 @@
   },
   "high": {
     "pm": "dynamic",
-    "max_children": "8",
+    "max_children": "10",
     "start_servers": "2",
     "min_spare_servers": "2",
     "max_spare_servers": "4",

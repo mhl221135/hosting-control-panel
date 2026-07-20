@@ -1,7 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
-const { exec } = require("child_process");
+const { exec, execFile } = require("child_process");
 const { AuthStore } = require("./lib/auth");
 const { IntegrationSettings } = require("./lib/integration-settings");
 const { CloudflareClient, NpmClient } = require("./lib/integrations");
@@ -19,6 +19,7 @@ const { SiteState } = require("./lib/site-state");
 const { BackupManager } = require("./lib/backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
+const { PerformanceSettings } = require("./lib/performance-settings");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -31,6 +32,9 @@ const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
 const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
 const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
 const DEFAULT_PHP_UPSTREAM = process.env.DEFAULT_PHP_UPSTREAM || "hosting-php-fpm:9000";
+const PHP_INI_PATH = process.env.PHP_INI_PATH || "/srv/configs/php/global.ini";
+const NGINX_CONFIG_PATH = process.env.NGINX_CONFIG_PATH || "/srv/configs/nginx/nginx.conf";
+const NGINX_DEFAULT_PATH = process.env.NGINX_DEFAULT_PATH || "/srv/configs/nginx/conf.d/default.conf";
 
 const ACTION_CMDS = {
   reload_nginx: process.env.RELOAD_NGINX_CMD || "",
@@ -50,7 +54,7 @@ const DEFAULT_POOL_PRESETS = {
   },
   medium: {
     pm: "ondemand",
-    max_children: "4",
+    max_children: "6",
     start_servers: "1",
     min_spare_servers: "1",
     max_spare_servers: "2",
@@ -59,7 +63,7 @@ const DEFAULT_POOL_PRESETS = {
   },
   high: {
     pm: "dynamic",
-    max_children: "8",
+    max_children: "10",
     start_servers: "2",
     min_spare_servers: "2",
     max_spare_servers: "4",
@@ -75,6 +79,12 @@ const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
 const dnsPresets = new DnsPresetStore(DATA_DIR);
 const ipAddresses = new IpAddressStore(DATA_DIR);
+const performanceSettings = new PerformanceSettings({
+  dataDir: DATA_DIR,
+  phpIniPath: PHP_INI_PATH,
+  nginxPath: NGINX_CONFIG_PATH,
+  nginxDefaultPath: NGINX_DEFAULT_PATH,
+});
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 siteState.renderCacheMap();
 const backupManager = new BackupManager({
@@ -426,6 +436,56 @@ function execCommand(command, timeout = 30_000) {
   });
 }
 
+function execFileCommand(file, args, timeout = 30_000) {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { timeout, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
+      const output = `${stdout}\n${stderr}`.trim();
+      if (error) {
+        error.output = output;
+        reject(error);
+        return;
+      }
+      resolve(output);
+    });
+  });
+}
+
+async function applyDynamicPerformance(settings) {
+  await execFileCommand("docker", [
+    "exec",
+    "hosting-redis",
+    "redis-cli",
+    "CONFIG",
+    "SET",
+    "maxmemory",
+    `${settings.redis.maxMemoryMb}mb`,
+  ]);
+  await execFileCommand("docker", [
+    "exec",
+    "hosting-redis",
+    "redis-cli",
+    "CONFIG",
+    "SET",
+    "maxmemory-policy",
+    settings.redis.policy,
+  ]);
+
+  const sql = [
+    `SET PERSIST innodb_buffer_pool_size = ${settings.mysql.bufferPoolMb * 1024 * 1024}`,
+    `SET PERSIST max_connections = ${settings.mysql.maxConnections}`,
+    `SET PERSIST innodb_redo_log_capacity = ${settings.mysql.redoLogCapacityMb * 1024 * 1024}`,
+  ].join("; ");
+  await execFileCommand("docker", [
+    "exec",
+    "-e",
+    `MYSQL_PERFORMANCE_SQL=${sql}`,
+    "hosting-db",
+    "sh",
+    "-c",
+    'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "$MYSQL_PERFORMANCE_SQL"',
+  ], 60_000);
+}
+
 async function validateAndReload(mapBefore = null, poolsBefore = null) {
   try {
     const output = await execCommand(
@@ -458,6 +518,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
         fastcgiCache: false,
         cacheVersion: 1,
         redis: false,
+        opcache: true,
         backupEnabled: false,
         notes: "",
       },
@@ -579,6 +640,42 @@ async function handleApi(req, res) {
     const updated = integrationSettings.update(body);
     npm.cachedToken = null;
     sendJson(res, 200, { ok: true, settings: updated });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/settings/performance") {
+    sendJson(res, 200, { settings: performanceSettings.read() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/settings/performance") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const previousSettings = performanceSettings.read();
+    const snapshot = performanceSettings.snapshot();
+    try {
+      const settings = performanceSettings.save(body);
+      performanceSettings.applyFiles(settings);
+      await validateAndReload();
+      await applyDynamicPerformance(settings);
+      sendJson(res, 200, {
+        ok: true,
+        settings,
+        message: "Performance settings applied to PHP, nginx, Redis, and MySQL.",
+      });
+    } catch (error) {
+      performanceSettings.restore(snapshot);
+      try {
+        await validateAndReload();
+      } catch (rollbackError) {
+        console.error(`Could not reload restored PHP/nginx settings: ${rollbackError.message}`);
+      }
+      try {
+        await applyDynamicPerformance(previousSettings);
+      } catch (rollbackError) {
+        console.error(`Could not restore Redis/MySQL settings: ${rollbackError.message}`);
+      }
+      throw error;
+    }
     return true;
   }
 
@@ -736,14 +833,35 @@ async function handleApi(req, res) {
       const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
       await setRedis(directory, domain, body.redis);
     }
+    let opcacheChanged = false;
+    let mapBefore = null;
+    let poolsBefore = null;
+    if (typeof body.opcache === "boolean" && body.opcache !== Boolean(siteState.get(domain).opcache)) {
+      mapBefore = mapContent;
+      poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
+      const poolsParsed = parsePools(poolsBefore);
+      const pool = poolsParsed.byPort[site.port];
+      if (!pool) {
+        sendJson(res, 400, { ok: false, message: "The site's PHP pool was not found" });
+        return true;
+      }
+      pool.settings["php_admin_value[opcache.enable]"] = body.opcache ? "1" : "0";
+      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+      opcacheChanged = true;
+    }
     const state = siteState.update(domain, {
       ...(typeof body.fastcgi_cache === "boolean" ? { fastcgiCache: body.fastcgi_cache } : {}),
       ...(typeof body.redis === "boolean" ? { redis: body.redis } : {}),
+      ...(typeof body.opcache === "boolean" ? { opcache: body.opcache } : {}),
       ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
       ...(typeof body.notes === "string" ? { notes: body.notes.slice(0, 2000) } : {}),
     });
-    if (typeof body.fastcgi_cache === "boolean" || typeof body.redis === "boolean") {
-      await validateAndReload();
+    if (
+      typeof body.fastcgi_cache === "boolean" ||
+      typeof body.redis === "boolean" ||
+      typeof body.opcache === "boolean"
+    ) {
+      await validateAndReload(opcacheChanged ? mapBefore : null, opcacheChanged ? poolsBefore : null);
     }
     sendJson(res, 200, { ok: true, state });
     return true;
@@ -819,6 +937,7 @@ async function handleApi(req, res) {
       port,
       presets,
     });
+    poolsParsed.sections[poolName]["php_admin_value[opcache.enable]"] = body.opcache === false ? "0" : "1";
     poolsParsed.sectionOrder.push(poolName);
     mapParsed.hosts[domain] = {
       host: domain,
@@ -864,6 +983,7 @@ async function handleApi(req, res) {
       siteState.update(domain, {
         fastcgiCache: Boolean(body.fastcgi_cache),
         redis: Boolean(body.redis),
+        opcache: body.opcache !== false,
         backupEnabled: Boolean(body.scheduled_backup),
         cacheVersion: 1,
         notes: String(body.notes || "").slice(0, 2000),
@@ -1501,4 +1621,11 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
   backupManager.start();
+  if (fs.existsSync(performanceSettings.path)) {
+    setTimeout(() => {
+      applyDynamicPerformance(performanceSettings.read()).catch((error) => {
+        console.error(`Could not reapply dynamic performance settings: ${error.message}`);
+      });
+    }, 15_000);
+  }
 });

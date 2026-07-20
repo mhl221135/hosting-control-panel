@@ -24,12 +24,14 @@ class SiteState {
   }
 
   get(domain) {
-    return this.read().sites[domain] || {
+    return {
       fastcgiCache: false,
       cacheVersion: 1,
       redis: false,
+      opcache: true,
       backupEnabled: false,
       notes: "",
+      ...(this.read().sites[domain] || {}),
     };
   }
 
