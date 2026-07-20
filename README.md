@@ -78,6 +78,8 @@ that access.
 |-- STACK_OVERVIEW.md
 |-- scripts/
 |   |-- configure.sh
+|   |-- export-websites.sh
+|   |-- import-websites.sh
 |   |-- install.sh
 |   `-- upgrade.sh
 |-- filebrowser-custom/
@@ -126,6 +128,8 @@ that access.
 |   |-- redis/
 |   `-- ui-manager/
 |-- websites/                # Website document roots
+|-- exports/                 # Portable migration exports
+|-- imports/                 # Staged migration input
 `-- backups/
     |-- app-data/
     `-- example.com/
@@ -397,6 +401,60 @@ Image optimization uses the same operation lock as backups, so archive
 compression and ImageMagick cannot saturate storage and CPU at the same time.
 Backup archives run with reduced CPU and I/O priority and omit transient WebP
 optimizer files.
+
+## Website Migration
+
+Create a portable export from the running stack:
+
+```bash
+cd /media/ssdmount/websites-v2/sources
+sudo ./scripts/export-websites.sh
+```
+
+The script can export every configured primary site or a comma-separated
+selection. It writes a directory such as:
+
+```text
+exports/export-2026-07-19_02-00/
+|-- manifest.json
+|-- sites/
+|   `-- example_com.tar.gz
+`-- databases/
+    `-- yogali00_example_com_2026-07-19_02-00.sql.gz
+```
+
+`manifest.json` contains no passwords. For each site it records the primary
+domain, aliases, canonical redirects, website path, original database name,
+archive and dump paths, PHP profile, and cache/backup state.
+
+Import an export or adopt website directories that were copied manually:
+
+```bash
+sudo ./scripts/import-websites.sh
+```
+
+The host script asks for a source directory and stages it under `imports`. If
+the source contains `manifest.json`, website archives and matching database
+dumps are imported from that manifest. Without a manifest, the importer scans
+`websites` for unconfigured `wp-config.php` files, reads each `DB_NAME`, asks
+for its domain and aliases, and selects the newest matching dump using names
+such as `yogali00_b389_2026-07-19_02-00.sql.gz`.
+
+For each imported site the migration process:
+
+1. Refuses to overwrite a non-empty destination or an existing database.
+2. Creates a database and MySQL user with the database name.
+3. Generates a new random database password and writes it to `wp-config.php`.
+4. Imports the compressed SQL dump and normalizes WordPress permissions.
+5. Creates the PHP-FPM pool, internal nginx routes, aliases, and cache state.
+6. Creates or replaces Cloudflare host records with valid IPv4 A records.
+7. Creates the NPM proxy host, requests SSL, and updates the WordPress URL.
+
+A DNS CNAME cannot target an IP address. The importer therefore uses A records
+for both apex domains and subdomains. Cloudflare and NPM credentials are read
+from encrypted panel settings or `.env`; they are never embedded in migration
+scripts or manifests. DNS, NPM, and SSL failures are reported as warnings so
+imported files and databases remain available for correction.
 
 ## Cloudflare DNS
 

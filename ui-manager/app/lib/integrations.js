@@ -181,14 +181,18 @@ class NpmClient {
 
   async ensureHost(domains, issueSsl) {
     let host = await this.createHost(domains);
-    if (host.forward_host !== "hosting-nginx" || Number(host.forward_port) !== 80) {
+    const currentDomains = Array.isArray(host.domain_names) ? host.domain_names : [];
+    const mergedDomains = [...new Set([...currentDomains, ...domains])];
+    const domainsChanged = domains.some((domain) => !currentDomains.includes(domain));
+    if (host.forward_host !== "hosting-nginx" || Number(host.forward_port) !== 80 || domainsChanged) {
       host = await this.updateHost(host, {
+        domain_names: mergedDomains,
         forward_scheme: "http",
         forward_host: "hosting-nginx",
         forward_port: 80,
       });
     }
-    if (!issueSsl || host.certificate_id) return host;
+    if (!issueSsl || (host.certificate_id && !domainsChanged)) return host;
     return this.issueCertificate(host);
   }
 
@@ -338,6 +342,37 @@ class CloudflareClient {
     const existing = existingData.result?.[0];
     if (existing) {
       return this.request(`/zones/${zone.id}/dns_records/${existing.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    }
+    return this.request(`/zones/${zone.id}/dns_records`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async upsertHostAddress(domain, ipv4, proxied = true) {
+    const zone = await this.zoneForDomain(domain);
+    const name = String(domain || "").trim().toLowerCase();
+    const data = await this.request(
+      `/zones/${zone.id}/dns_records?name=${encodeURIComponent(name)}&per_page=100`,
+    );
+    const records = data.result || [];
+    const existingA = records.find((record) => record.type === "A");
+    for (const record of records.filter((item) => ["AAAA", "CNAME"].includes(item.type))) {
+      await this.request(`/zones/${zone.id}/dns_records/${record.id}`, { method: "DELETE" });
+    }
+    const payload = this.recordPayload(domain, {
+      type: "A",
+      name,
+      content: ipv4,
+      ttl: 1,
+      proxied,
+      comment: "Managed by Websites migration import",
+    });
+    if (existingA) {
+      return this.request(`/zones/${zone.id}/dns_records/${existingA.id}`, {
         method: "PUT",
         body: JSON.stringify(payload),
       });

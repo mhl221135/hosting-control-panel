@@ -86,6 +86,46 @@ test("replaces only exact matching A records and preserves Cloudflare settings",
   }
 });
 
+test("replaces conflicting CNAME with an A record during host migration", async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+    if (url.includes("/zones?name=blog.example.com")) {
+      return response({ success: true, result: [] });
+    }
+    if (url.includes("/zones?name=example.com")) {
+      return response({ success: true, result: [{ id: "zone-1", name: "example.com" }] });
+    }
+    if (url.includes("/dns_records?name=blog.example.com")) {
+      return response({ success: true, result: [{ id: "cname-1", type: "CNAME", name: "blog.example.com" }] });
+    }
+    if (url.endsWith("/dns_records/cname-1") && options.method === "DELETE") {
+      return response({ success: true, result: { id: "cname-1" } });
+    }
+    if (url.endsWith("/dns_records") && options.method === "POST") {
+      return response({ success: true, result: { id: "a-1" } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const client = new CloudflareClient(() => ({ cloudflareToken: "test-token" }));
+    await client.upsertHostAddress("blog.example.com", "198.51.100.20", true);
+    assert.equal(calls.some((call) => call.method === "DELETE" && call.url.endsWith("cname-1")), true);
+    const created = calls.find((call) => call.method === "POST");
+    assert.deepEqual(created.body, {
+      type: "A",
+      name: "blog.example.com",
+      content: "198.51.100.20",
+      ttl: 1,
+      proxied: true,
+      comment: "Managed by Websites migration import",
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("verifies account-owned tokens with the account endpoint", async () => {
   const originalFetch = global.fetch;
   let requestedUrl = "";
@@ -131,4 +171,34 @@ test("normalizes an existing legacy website proxy target", async () => {
   assert.equal(result.forward_port, 80);
   assert.equal(update.host.id, 5);
   assert.equal(result.certificate_id, 12);
+});
+
+test("adds missing aliases and replaces the NPM certificate", async () => {
+  const client = new NpmClient(() => ({
+    npmApiUrl: "http://npm.test/api",
+    npmIdentity: "owner@example.com",
+    npmSecret: "secret",
+  }));
+  client.createHost = async () => ({
+    id: 9,
+    domain_names: ["example.com"],
+    forward_scheme: "http",
+    forward_host: "hosting-nginx",
+    forward_port: 80,
+    certificate_id: 12,
+  });
+  let updatedDomains = [];
+  client.updateHost = async (host, overrides) => {
+    updatedDomains = overrides.domain_names;
+    return { ...host, ...overrides };
+  };
+  let issued = false;
+  client.issueCertificate = async (host) => {
+    issued = true;
+    return { ...host, certificate_id: 13 };
+  };
+  const result = await client.ensureHost(["example.com", "www.example.com"], true);
+  assert.deepEqual(updatedDomains, ["example.com", "www.example.com"]);
+  assert.equal(issued, true);
+  assert.equal(result.certificate_id, 13);
 });

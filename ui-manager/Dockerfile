@@ -7,6 +7,7 @@ RUN apk add --no-cache docker-cli tar tzdata \
 
 COPY app/server.js /app/server.js
 COPY app/lib /app/lib
+COPY app/cli /app/cli
 COPY app/public /app/public
 
 ENV PORT=8687

@@ -113,6 +113,8 @@ mkdir -p \
   "$hosting_root/app-data/redis" \
   "$hosting_root/app-data/ui-manager" \
   "$hosting_root/backups/app-data" \
+  "$hosting_root/exports" \
+  "$hosting_root/imports" \
   "$hosting_root/websites/_default"
 
 chown -R 33:33 \

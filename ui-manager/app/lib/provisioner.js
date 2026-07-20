@@ -247,6 +247,7 @@ module.exports = {
   createDatabase,
   installWordPress,
   mysqlIdentifier,
+  normalizeWordPressPermissions,
   optimizeImages,
   prepareSiteDirectory,
   randomPassword,
