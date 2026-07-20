@@ -1,0 +1,189 @@
+services:
+  
+
+  filebrowser-web:
+    image: filebrowser/filebrowser:latest
+    container_name: filebrowser-web
+    user: "33:33"
+    volumes:
+      - /media/ssdmount/websites:/srv
+      - /media/ssdmount/filebrowser-web/config:/config
+      - /media/ssdmount/filebrowser-web/database:/database
+    restart: unless-stopped
+    networks:
+      - db-network
+  websites-config-ui:
+
+    image: websites-config-ui:2.3
+    build:
+      context: ./ui-manager
+    container_name: websites-config-ui
+    user: "0:0"
+    restart: unless-stopped
+    ports:
+      - "8687:8687"
+    environment:
+      PORT: 8687
+      DATA_DIR: /app/data
+      SITES_MAP_PATH: /srv/configs/nginx/conf.d/sites.map
+      POOLS_PATH: /srv/configs/php-fpm/pools.conf
+      CACHE_MAP_PATH: /srv/configs/nginx/conf.d/cache.map
+      WEBSITES_ROOT: /srv/websites
+      UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:-admin@example.com}
+      UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:-change-this-before-deploy}
+      UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
+      NPM_API_URL: ${NPM_API_URL:-http://nginx-proxy-manager:81/api}
+      NPM_IDENTITY: ${NPM_IDENTITY:-}
+      NPM_SECRET: ${NPM_SECRET:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      MYSQL_SITE_PREFIX: ${MYSQL_SITE_PREFIX:-yogali00_}
+      RELOAD_NGINX_CMD: "docker exec global-nginx-internal nginx -s reload"
+      RELOAD_PHP_CMD: "docker exec global-php-fpm kill -USR2 1"
+      CLEAR_OPCACHE_CMD: "docker exec global-php-fpm sh -lc 'kill -USR2 1'"
+    volumes:
+      - /media/ssdmount/websites-v2/ui-manager/data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /media/ssdmount/websites:/srv/websites
+      - /media/ssdmount/websites-v2/global-configs-new-upd/nginx:/srv/configs/nginx
+      - /media/ssdmount/websites-v2/global-configs-new-upd/php-fpm:/srv/configs/php-fpm
+      - /media/ssdmount/websites-v2/global-configs-new-upd/php:/srv/configs/php
+      - /media/ssdmount/websites-v2/global-configs-new-upd/wp:/srv/configs/wp
+    networks:
+      - db-network
+  global-php-fpm:
+    #image: php:8.4-fpm-alpine
+    image: custom-php-fpm:8.4
+    build:
+      context: ./php-fpm-custom-upd
+    container_name: global-php-fpm
+    restart: unless-stopped
+    volumes:
+      - /media/ssdmount/websites:/var/www
+      - /media/ssdmount/websites-v2/global-configs-new-upd/php/global.ini:/usr/local/etc/php/conf.d/000-global.ini:ro
+      - /media/ssdmount/websites-v2/global-configs-new-upd/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.conf:ro
+      - /media/ssdmount/websites-v2/global-configs-new-upd/php-fpm/pools.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+      - /media/ssdmount/websites-v2/global-configs-new-upd/wp/wp-global.php:/global/wp-global.php:ro
+    networks:
+      - db-network
+
+  global-nginx-internal:
+    image: nginx:alpine
+    container_name: global-nginx-internal
+    restart: unless-stopped
+    volumes:
+      - /media/ssdmount/websites:/var/www
+      - /media/ssdmount/websites-v2/global-configs-new-upd/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /media/ssdmount/websites-v2/global-configs-new-upd/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /media/ssdmount/nginx-cache:/var/cache/nginx
+    depends_on:
+      - global-php-fpm
+    networks:
+      - db-network
+      
+  goaccess:
+    profiles:
+      - production
+    image: justsky/goaccess-for-nginxproxymanager:latest
+    container_name: goaccess
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Kyiv
+    ports:
+      - "7890:7880"
+    volumes:
+      - /media/ssdmount/websites/nginx-proxy-manager/data/logs:/opt/log
+    networks:
+      - db-network
+
+
+
+
+  nginx-proxy-manager:
+    image: jc21/nginx-proxy-manager:latest
+    container_name: nginx-proxy-manager
+    restart: always
+    ports:
+      - "80:80"       # HTTP
+      - "81:81"       # Admin UI
+      - "443:443"     # HTTPS
+    environment:
+      DB_MYSQL_HOST: mysql-db
+      DB_MYSQL_PORT: 3306
+      DB_MYSQL_USER: ${NPM_DB_USER:-npm_db}
+      DB_MYSQL_PASSWORD: ${NPM_DB_PASSWORD:?Set NPM_DB_PASSWORD in .env}
+      DB_MYSQL_NAME: ${NPM_DB_NAME:-npm_db}
+    volumes:
+      - /media/ssdmount/websites/nginx-proxy-manager/data:/data
+      - /media/ssdmount/websites/nginx-proxy-manager/letsencrypt:/etc/letsencrypt
+    networks:
+      - db-network
+    depends_on:
+      - mysql
+
+
+
+#redis conteiner exist but i laxzy and not enabled it for websites yet- i think need uimanager app have button to enable redis- not sure also maybe fastcgi cache can be added to this stack?
+  redis:
+    image: redis:7-alpine
+    container_name: redis-mysweetdesign
+    restart: unless-stopped
+    # only listen on localhost so nobody can bypass your tunnel
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --save 900 1 --save 300 10 --save 60 10000
+    volumes:
+      - /media/ssdmount/redis-data:/data
+    networks:
+      - db-network
+
+  mysql:
+    image: mysql:8.4
+    container_name: mysql-db
+    restart: always
+
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=row
+      --innodb_buffer_pool_size=512M
+      --innodb_log_file_size=256M
+      --innodb_flush_log_at_trx_commit=2
+      --innodb_flush_method=O_DIRECT
+      --max_connections=200
+      --skip-name-resolve=ON
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_USER: ${MYSQL_APP_USER:-replication_user}
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:?Set MYSQL_APP_PASSWORD in .env}
+    volumes:
+      - /media/ssdmount/databases/db_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - db-network
+
+  phpmyadmin:
+    image: arm64v8/phpmyadmin
+    container_name: phpmyadmin
+    restart: always
+    environment:
+      PMA_HOST: mysql-db
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      UPLOAD_LIMIT: 64M
+    ports:
+      - "8484:80"
+    depends_on:
+      - mysql
+    networks:
+      - db-network
+
+
+
+    
+networks:
+  db-network:
+    driver: bridge

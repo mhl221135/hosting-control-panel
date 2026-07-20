@@ -1,0 +1,269 @@
+class IntegrationError extends Error {
+  constructor(message, statusCode = 502, details = "") {
+    super(message);
+    this.statusCode = statusCode;
+    this.details = details;
+  }
+}
+
+async function readResponse(response) {
+  const text = await response.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { raw: text };
+  }
+  if (!response.ok) {
+    const message = data?.error?.message || data?.errors?.[0]?.message || data?.message || `HTTP ${response.status}`;
+    throw new IntegrationError(message, response.status, text.slice(0, 2000));
+  }
+  return data;
+}
+
+class NpmClient {
+  constructor(settingsProvider = null) {
+    this.settingsProvider = settingsProvider;
+    this.cachedToken = null;
+  }
+
+  settings() {
+    if (this.settingsProvider) {
+      const settings = this.settingsProvider();
+      return {
+        baseUrl: String(settings.npmApiUrl || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
+        identity: String(settings.npmIdentity || ""),
+        secret: String(settings.npmSecret || ""),
+      };
+    }
+    return {
+      baseUrl: String(process.env.NPM_API_URL || "http://nginx-proxy-manager:81/api").replace(/\/$/, ""),
+      identity: String(process.env.NPM_IDENTITY || ""),
+      secret: String(process.env.NPM_SECRET || ""),
+    };
+  }
+
+  configured() {
+    const settings = this.settings();
+    return Boolean(settings.identity && settings.secret);
+  }
+
+  async token() {
+    if (!this.configured()) throw new IntegrationError("NPM credentials are not configured", 503);
+    const settings = this.settings();
+    if (this.cachedToken && this.cachedToken.expiresAt > Date.now() + 60_000) return this.cachedToken.value;
+    const response = await fetch(`${settings.baseUrl}/tokens`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity: settings.identity, secret: settings.secret }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const data = await readResponse(response);
+    if (!data.token) throw new IntegrationError("NPM did not return an access token");
+    this.cachedToken = {
+      value: data.token,
+      expiresAt: data.expires ? new Date(data.expires).getTime() : Date.now() + 50 * 60_000,
+    };
+    return data.token;
+  }
+
+  async request(path, options = {}) {
+    const settings = this.settings();
+    const token = await this.token();
+    const response = await fetch(`${settings.baseUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      signal: AbortSignal.timeout(options.timeout || 120_000),
+    });
+    return readResponse(response);
+  }
+
+  async listHosts() {
+    return this.request("/nginx/proxy-hosts?expand=certificate,access_list");
+  }
+
+  async listCertificates() {
+    return this.request("/nginx/certificates?expand=owner");
+  }
+
+  async findHost(domain) {
+    const hosts = await this.listHosts();
+    return hosts.find((host) => Array.isArray(host.domain_names) && host.domain_names.includes(domain)) || null;
+  }
+
+  async createHost(domains) {
+    const existing = await this.findHost(domains[0]);
+    if (existing) return existing;
+    return this.request("/nginx/proxy-hosts", {
+      method: "POST",
+      body: JSON.stringify({
+        domain_names: domains,
+        forward_scheme: "http",
+        forward_host: "global-nginx-internal",
+        forward_port: 80,
+        certificate_id: 0,
+        ssl_forced: false,
+        hsts_enabled: false,
+        hsts_subdomains: false,
+        http2_support: false,
+        block_exploits: true,
+        caching_enabled: false,
+        allow_websocket_upgrade: true,
+        access_list_id: 0,
+        advanced_config: "",
+        enabled: true,
+        locations: [],
+      }),
+    });
+  }
+
+  async issueCertificate(host) {
+    const domains = host.domain_names || [];
+    const certificate = await this.request("/nginx/certificates", {
+      method: "POST",
+      body: JSON.stringify({
+        provider: "letsencrypt",
+        nice_name: domains[0],
+        domain_names: domains,
+        meta: {
+          dns_challenge: false,
+          key_type: "ecdsa",
+        },
+      }),
+      timeout: 180_000,
+    });
+    return this.request(`/nginx/proxy-hosts/${host.id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        domain_names: host.domain_names || [],
+        forward_scheme: host.forward_scheme || "http",
+        forward_host: host.forward_host || "global-nginx-internal",
+        forward_port: Number(host.forward_port || 80),
+        certificate_id: certificate.id,
+        ssl_forced: true,
+        http2_support: true,
+        hsts_enabled: true,
+        hsts_subdomains: false,
+        block_exploits: host.block_exploits !== false,
+        caching_enabled: Boolean(host.caching_enabled),
+        allow_websocket_upgrade: host.allow_websocket_upgrade !== false,
+        access_list_id: Number(host.access_list_id || 0),
+        advanced_config: host.advanced_config || "",
+        enabled: host.enabled !== false,
+        locations: Array.isArray(host.locations) ? host.locations : [],
+        meta: host.meta || {},
+      }),
+    });
+  }
+
+  async ensureHost(domains, issueSsl) {
+    const host = await this.createHost(domains);
+    if (!issueSsl || host.certificate_id) return host;
+    return this.issueCertificate(host);
+  }
+
+  async renewCertificate(certificateId) {
+    return this.request(`/nginx/certificates/${Number(certificateId)}/renew`, { method: "POST" });
+  }
+}
+
+class CloudflareClient {
+  constructor(settingsProvider = null) {
+    this.settingsProvider = settingsProvider;
+    this.baseUrl = "https://api.cloudflare.com/client/v4";
+  }
+
+  token() {
+    if (this.settingsProvider) return String(this.settingsProvider().cloudflareToken || "");
+    return String(process.env.CLOUDFLARE_API_TOKEN || "");
+  }
+
+  configured() {
+    return Boolean(this.token());
+  }
+
+  async request(path, options = {}) {
+    if (!this.configured()) throw new IntegrationError("Cloudflare API token is not configured", 503);
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${this.token()}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const data = await readResponse(response);
+    if (data.success === false) {
+      throw new IntegrationError(data.errors?.[0]?.message || "Cloudflare request failed");
+    }
+    return data;
+  }
+
+  async zoneForDomain(domain) {
+    const labels = String(domain).toLowerCase().split(".");
+    for (let index = 0; index <= labels.length - 2; index += 1) {
+      const name = labels.slice(index).join(".");
+      const data = await this.request(`/zones?name=${encodeURIComponent(name)}&status=active`);
+      if (Array.isArray(data.result) && data.result.length) return data.result[0];
+    }
+    throw new IntegrationError(`No active Cloudflare zone found for ${domain}`, 404);
+  }
+
+  async verify() {
+    const data = await this.request("/user/tokens/verify");
+    return data.result || {};
+  }
+
+  async records(domain) {
+    const zone = await this.zoneForDomain(domain);
+    const data = await this.request(`/zones/${zone.id}/dns_records?name=${encodeURIComponent(domain)}&per_page=100`);
+    return { zone: { id: zone.id, name: zone.name }, records: data.result || [] };
+  }
+
+  async upsertRecord(domain, record) {
+    const zone = await this.zoneForDomain(domain);
+    const type = String(record.type || "A").toUpperCase();
+    const name = String(record.name || domain).trim().toLowerCase();
+    const content = String(record.content || "").trim();
+    if (!["A", "AAAA", "CNAME", "TXT"].includes(type)) {
+      throw new IntegrationError("Supported DNS types are A, AAAA, CNAME and TXT", 400);
+    }
+    if (!content) throw new IntegrationError("DNS record content is required", 400);
+    const existingData = await this.request(
+      `/zones/${zone.id}/dns_records?type=${encodeURIComponent(type)}&name=${encodeURIComponent(name)}`,
+    );
+    const payload = {
+      type,
+      name,
+      content,
+      ttl: Number(record.ttl || 1),
+      proxied: ["A", "AAAA", "CNAME"].includes(type) ? Boolean(record.proxied) : false,
+      comment: String(record.comment || "Managed by Websites Config UI"),
+    };
+    const existing = existingData.result?.[0];
+    if (existing) {
+      return this.request(`/zones/${zone.id}/dns_records/${existing.id}`, {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      });
+    }
+    return this.request(`/zones/${zone.id}/dns_records`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async deleteRecord(domain, recordId) {
+    const zone = await this.zoneForDomain(domain);
+    return this.request(`/zones/${zone.id}/dns_records/${encodeURIComponent(recordId)}`, {
+      method: "DELETE",
+    });
+  }
+}
+
+module.exports = { CloudflareClient, IntegrationError, NpmClient };
