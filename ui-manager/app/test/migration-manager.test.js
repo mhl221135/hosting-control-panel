@@ -8,6 +8,7 @@ const {
   newestDatabaseDump,
   resolveInside,
   transferId,
+  validateImportPlan,
   validateManifest,
 } = require("../lib/migration-manager");
 const { parsePools, parseSitesMap, renderPools, renderSitesMap } = require("../lib/runtime-config");
@@ -33,6 +34,34 @@ test("validates portable manifests and rejects paths outside the transfer direct
     type: "hosting-sites-export",
     sites: [{ domain: "example.com", websitePath: "../site", database: "db", databaseDump: "db.sql.gz" }],
   }), /website path/);
+});
+
+test("validates lightweight import JSON and applies safe defaults", () => {
+  const plan = validateImportPlan({
+    version: 1,
+    type: "hosting-sites-import",
+    sites: [{ websitePath: "example.com", domain: "example.com", aliases: ["www.example.com"] }],
+  });
+  assert.equal(plan.sites[0].poolTier, "medium");
+  assert.deepEqual(plan.sites[0].state, {
+    opcache: true,
+    redis: false,
+    fastcgiCache: false,
+    backupEnabled: true,
+  });
+  assert.throws(() => validateImportPlan({
+    version: 1,
+    type: "hosting-sites-import",
+    sites: [{ websitePath: "../example.com", domain: "example.com" }],
+  }), /website path/);
+  assert.throws(() => validateImportPlan({
+    version: 1,
+    type: "hosting-sites-import",
+    sites: [
+      { websitePath: "one", domain: "example.com", aliases: ["www.example.com"] },
+      { websitePath: "two", domain: "www.example.com" },
+    ],
+  }), /Duplicate domain/);
 });
 
 test("selects the newest timestamped dump matching wp-config DB_NAME", () => {

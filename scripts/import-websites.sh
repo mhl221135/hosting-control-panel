@@ -24,7 +24,7 @@ hosting_root="$(awk '
 ' "$env_file")"
 hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
 
-printf "Directory containing manifest.json export or database .sql.gz dumps: "
+printf "Directory containing manifest.json, import-sites.json, or database .sql.gz dumps: "
 IFS= read -r source_directory
 if [ ! -d "$source_directory" ]; then
   echo "Import source directory does not exist." >&2

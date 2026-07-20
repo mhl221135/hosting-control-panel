@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "type": "hosting-sites-import",
+  "sites": [
+    {
+      "websitePath": "example.com",
+      "domain": "example.com",
+      "aliases": ["www.example.com"],
+      "canonicalAliases": ["www.example.com"],
+      "poolTier": "medium"
+    },
+    {
+      "websitePath": "shop.example.net",
+      "domain": "shop.example.net",
+      "poolTier": "low",
+      "state": {
+        "opcache": true,
+        "redis": false,
+        "fastcgiCache": false,
+        "backupEnabled": true
+      }
+    }
+  ]
+}

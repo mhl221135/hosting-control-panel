@@ -35,9 +35,10 @@ proxy host and certificate. Generated credentials are shown once.
 
 The host-level `scripts/export-websites.sh` and `scripts/import-websites.sh`
 commands run `/app/cli/sites-transfer.js` inside this container. The CLI can
-export configured sites with a JSON manifest or adopt manually copied
-WordPress folders and timestamped `.sql.gz` dumps. It reuses the panel's
-encrypted Cloudflare/NPM settings and never writes those secrets to an export.
+export configured sites with a JSON manifest, read a lightweight
+`import-sites.json`, or adopt manually copied WordPress folders and timestamped
+`.sql.gz` dumps. It reuses the panel's encrypted Cloudflare/NPM settings and
+never writes those secrets to an export.
 
 ## Persistent and mounted paths
 

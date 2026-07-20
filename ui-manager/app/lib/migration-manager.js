@@ -95,6 +95,39 @@ function validateManifest(payload) {
   return { ...payload, sites };
 }
 
+function validateImportPlan(payload) {
+  if (!payload || payload.version !== 1 || payload.type !== "hosting-sites-import" || !Array.isArray(payload.sites)) {
+    throw new Error("Unsupported or invalid lightweight import JSON");
+  }
+  const domains = new Set();
+  const sites = payload.sites.map((raw) => {
+    const domain = validateDomain(raw.domain);
+    if (domains.has(domain)) throw new Error(`Duplicate domain in import JSON: ${domain}`);
+    domains.add(domain);
+    const aliases = [...new Set((raw.aliases || []).map(validateDomain))].filter((alias) => alias !== domain);
+    aliases.forEach((alias) => {
+      if (domains.has(alias)) throw new Error(`Duplicate domain in import JSON: ${alias}`);
+      domains.add(alias);
+    });
+    return {
+      domain,
+      aliases,
+      canonicalAliases: [...new Set((raw.canonicalAliases || []).map(validateDomain))]
+        .filter((alias) => aliases.includes(alias)),
+      websitePath: safeRelative(raw.websitePath, "website path"),
+      poolTier: ["low", "medium", "high"].includes(raw.poolTier) ? raw.poolTier : "medium",
+      state: {
+        opcache: raw.state?.opcache !== false,
+        redis: Boolean(raw.state?.redis),
+        fastcgiCache: Boolean(raw.state?.fastcgiCache),
+        backupEnabled: raw.state?.backupEnabled !== false,
+      },
+    };
+  });
+  if (!sites.length) throw new Error("Lightweight import JSON contains no websites");
+  return { ...payload, sites };
+}
+
 class MigrationManager {
   constructor(options) {
     this.dataDir = options.dataDir;
@@ -516,6 +549,7 @@ module.exports = {
   safeRelative,
   transferId,
   validateDatabaseName,
+  validateImportPlan,
   validateIpv4,
   validateManifest,
 };
