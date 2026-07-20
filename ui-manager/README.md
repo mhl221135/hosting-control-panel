@@ -31,10 +31,20 @@ Open **Provision** to create a site, PHP-FPM pool, database and database user,
 install WordPress, enable optional Redis/OPcache/FastCGI cache, and create the NPM
 proxy host and certificate. Generated credentials are shown once.
 
+## Portable website migration
+
+The host-level `scripts/export-websites.sh` and `scripts/import-websites.sh`
+commands run `/app/cli/sites-transfer.js` inside this container. The CLI can
+export configured sites with a JSON manifest or adopt manually copied
+WordPress folders and timestamped `.sql.gz` dumps. It reuses the panel's
+encrypted Cloudflare/NPM settings and never writes those secrets to an export.
+
 ## Persistent and mounted paths
 
 - `/app/data`: panel account, encrypted settings, site state, and config backups
 - `/srv/websites`: website files
+- `/srv/exports`: portable export output
+- `/srv/imports`: staged import input
 - `/srv/configs/nginx`: internal nginx configuration
 - `/srv/configs/php-fpm`: PHP-FPM pool configuration
 - `/var/run/docker.sock`: controlled provisioning and service reload operations

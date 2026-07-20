@@ -34,6 +34,8 @@ services:
       WEBSITES_ROOT: /srv/websites
       APP_DATA_ROOT: /srv/app-data
       BACKUPS_ROOT: /srv/backups
+      EXPORTS_ROOT: /srv/exports
+      IMPORTS_ROOT: /srv/imports
       MYSQL_CONTAINER: hosting-db
       PHP_CONTAINER: hosting-php-fpm
       TZ: Europe/Kyiv
@@ -56,6 +58,8 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups:/srv/backups
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports:/srv/exports
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/imports:/srv/imports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php

@@ -8,6 +8,10 @@ Website files: `/media/ssdmount/websites-v2/websites`
 
 Managed backups: `/media/ssdmount/websites-v2/backups`
 
+Portable exports: `/media/ssdmount/websites-v2/exports`
+
+Staged imports: `/media/ssdmount/websites-v2/imports`
+
 ## Request path
 
 1. Nginx Proxy Manager accepts public HTTP/HTTPS traffic.
@@ -121,3 +125,15 @@ query strings, non-GET requests, and common WooCommerce session/cart traffic.
    and paired with a consistent dump of every MySQL database.
 
 The existing `backup_websites.sh` is unchanged and is not part of this flow.
+
+## Migration flow
+
+`scripts/export-websites.sh` runs the migration CLI inside `hosting-ui`, groups
+hosts by document root and PHP pool, archives each website, dumps its WordPress
+database, and writes a password-free JSON manifest.
+
+`scripts/import-websites.sh` stages an export or dump directory below
+`imports`. Manifest imports restore archives. Manual imports discover copied
+WordPress directories from `wp-config.php` and match the newest timestamped
+dump by `DB_NAME`. Import creates database credentials, runtime routes and
+pools, Cloudflare A records, the NPM host, and SSL.
