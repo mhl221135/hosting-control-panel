@@ -347,6 +347,10 @@ Reusable DNS presets are managed in **Settings** and can be applied to any
 selected website. Use `@` for the selected host, a relative name such as `www`,
 or `{domain}` in name and content templates.
 
+Both user-owned (`cfut_`) and account-owned (`cfat_`) Cloudflare API tokens are
+supported. Account-owned tokens also require the 32-character Cloudflare
+Account ID in Settings.
+
 Settings also stores a reusable list of server IPv4 addresses. The bulk
 replacement tool changes only A records whose content exactly matches the
 selected old IP, across every active zone available to the configured

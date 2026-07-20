@@ -59,6 +59,7 @@ class IntegrationSettings {
       npmSecret: this.decrypt(stored.npmSecret) || process.env.NPM_SECRET || "",
       acmeEmail: stored.acmeEmail || process.env.ACME_EMAIL || "",
       cloudflareToken: this.decrypt(stored.cloudflareToken) || process.env.CLOUDFLARE_API_TOKEN || "",
+      cloudflareAccountId: stored.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
       mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "mysql-db",
       mysqlSitePrefix: stored.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_",
     };
@@ -72,6 +73,7 @@ class IntegrationSettings {
       npmSecretConfigured: Boolean(settings.npmSecret),
       acmeEmail: settings.acmeEmail,
       cloudflareTokenConfigured: Boolean(settings.cloudflareToken),
+      cloudflareAccountId: settings.cloudflareAccountId,
       mysqlContainer: settings.mysqlContainer,
       mysqlSitePrefix: settings.mysqlSitePrefix,
     };
@@ -93,6 +95,9 @@ class IntegrationSettings {
         : payload.cloudflareToken
           ? this.encrypt(payload.cloudflareToken)
           : current.cloudflareToken || "",
+      cloudflareAccountId: String(
+        payload.cloudflareAccountId || current.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
+      ).trim().toLowerCase(),
       mysqlContainer: String(payload.mysqlContainer || current.mysqlContainer || "mysql-db").trim(),
       mysqlSitePrefix: String(payload.mysqlSitePrefix || current.mysqlSitePrefix || "yogali00_")
         .trim()
@@ -106,6 +111,11 @@ class IntegrationSettings {
     }
     if (next.acmeEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next.acmeEmail)) {
       const error = new Error("Enter a valid ACME email");
+      error.statusCode = 400;
+      throw error;
+    }
+    if (next.cloudflareAccountId && !/^[a-f0-9]{32}$/.test(next.cloudflareAccountId)) {
+      const error = new Error("Cloudflare Account ID must be a 32-character hexadecimal value");
       error.statusCode = 400;
       throw error;
     }

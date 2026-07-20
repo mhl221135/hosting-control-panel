@@ -15,12 +15,14 @@ test("stores NPM, ACME, and Cloudflare settings without exposing secrets", () =>
       npmSecret: "npm-password",
       acmeEmail: "Acme@Example.com",
       cloudflareToken: "cloudflare-token",
+      cloudflareAccountId: "0123456789abcdef0123456789abcdef",
       mysqlContainer: "mysql-db",
       mysqlSitePrefix: "site_",
     });
     assert.equal(publicView.npmIdentity, "owner@example.com");
     assert.equal(publicView.acmeEmail, "acme@example.com");
     assert.equal(publicView.npmSecretConfigured, true);
+    assert.equal(publicView.cloudflareAccountId, "0123456789abcdef0123456789abcdef");
     assert.equal(settings.resolved().npmSecret, "npm-password");
     assert.equal(settings.resolved().cloudflareToken, "cloudflare-token");
     assert.doesNotMatch(fs.readFileSync(settings.settingsPath, "utf8"), /npm-password|cloudflare-token/);

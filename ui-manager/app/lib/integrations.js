@@ -134,8 +134,6 @@ class NpmClient {
         nice_name: domains[0],
         domain_names: domains,
         meta: {
-          letsencrypt_email: settings.acmeEmail,
-          letsencrypt_agree: true,
           dns_challenge: false,
           key_type: "ecdsa",
         },
@@ -188,6 +186,11 @@ class CloudflareClient {
     return String(process.env.CLOUDFLARE_API_TOKEN || "");
   }
 
+  accountId() {
+    if (this.settingsProvider) return String(this.settingsProvider().cloudflareAccountId || "");
+    return String(process.env.CLOUDFLARE_ACCOUNT_ID || "");
+  }
+
   configured() {
     return Boolean(this.token());
   }
@@ -221,7 +224,15 @@ class CloudflareClient {
   }
 
   async verify() {
-    const data = await this.request("/user/tokens/verify");
+    const token = this.token();
+    const accountId = this.accountId();
+    if (token.startsWith("cfat_") && !accountId) {
+      throw new IntegrationError("Cloudflare Account ID is required for an account-owned token", 400);
+    }
+    const endpoint = token.startsWith("cfat_")
+      ? `/accounts/${encodeURIComponent(accountId)}/tokens/verify`
+      : "/user/tokens/verify";
+    const data = await this.request(endpoint);
     return data.result || {};
   }
 

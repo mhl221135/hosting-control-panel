@@ -85,3 +85,23 @@ test("replaces only exact matching A records and preserves Cloudflare settings",
     global.fetch = originalFetch;
   }
 });
+
+test("verifies account-owned tokens with the account endpoint", async () => {
+  const originalFetch = global.fetch;
+  let requestedUrl = "";
+  global.fetch = async (url) => {
+    requestedUrl = url;
+    return response({ success: true, result: { id: "token-1", status: "active" } });
+  };
+  try {
+    const client = new CloudflareClient(() => ({
+      cloudflareToken: "cfat_test-token",
+      cloudflareAccountId: "0123456789abcdef0123456789abcdef",
+    }));
+    const result = await client.verify();
+    assert.equal(result.status, "active");
+    assert.match(requestedUrl, /accounts\/0123456789abcdef0123456789abcdef\/tokens\/verify$/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
