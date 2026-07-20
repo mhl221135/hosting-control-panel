@@ -274,6 +274,7 @@ class MigrationManager {
 
   async prepareWebsite(site, sourceDirectory, useExistingFiles) {
     const destination = resolveInside(this.websitesRoot, site.websitePath, "website path");
+    let extracted = false;
     if (site.websiteArchive) {
       if (fs.existsSync(destination) && fs.readdirSync(destination).length) {
         if (!useExistingFiles) throw new Error(`Website directory is not empty: ${site.websitePath}`);
@@ -281,10 +282,11 @@ class MigrationManager {
         const archive = resolveInside(sourceDirectory, site.websiteArchive, "website archive");
         await this.verifyArchive(archive, site.websitePath);
         await execFileAsync("tar", ["-xzf", archive, "-C", this.websitesRoot], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+        extracted = true;
       }
     }
     if (!fs.existsSync(path.join(destination, "wp-config.php"))) throw new Error(`wp-config.php not found in ${site.websitePath}`);
-    return destination;
+    return { destination, extracted };
   }
 
   async databaseExists(database) {
@@ -423,10 +425,17 @@ class MigrationManager {
     const wanIp = validateIpv4(options.wanIp);
     const prepared = [];
     const createdDatabases = [];
+    const preparedFiles = [];
     let runtimeChange;
     try {
       for (const site of manifest.sites) {
-        await this.prepareWebsite(site, sourceDirectory, Boolean(options.useExistingFiles));
+        const website = await this.prepareWebsite(site, sourceDirectory, Boolean(options.useExistingFiles));
+        const configPath = path.join(website.destination, "wp-config.php");
+        preparedFiles.push({
+          configPath,
+          configContent: website.extracted ? null : fs.readFileSync(configPath),
+          extractedDirectory: website.extracted ? website.destination : "",
+        });
         const configuredDatabase = await this.wordpressDatabase(site.websitePath);
         const database = validateDatabaseName(site.database || configuredDatabase);
         if (await this.databaseExists(database)) throw new Error(`Database already exists: ${database}`);
@@ -453,7 +462,15 @@ class MigrationManager {
           cleanupErrors.push(`${database}: ${cleanupError.message}`);
         }
       }
-      if (cleanupErrors.length) error.message += `; database cleanup failed (${cleanupErrors.join(", ")})`;
+      for (const website of [...preparedFiles].reverse()) {
+        try {
+          if (website.extractedDirectory) fs.rmSync(website.extractedDirectory, { recursive: true, force: true });
+          else if (website.configContent) fs.writeFileSync(website.configPath, website.configContent);
+        } catch (cleanupError) {
+          cleanupErrors.push(`${website.configPath}: ${cleanupError.message}`);
+        }
+      }
+      if (cleanupErrors.length) error.message += `; recovery cleanup failed (${cleanupErrors.join(", ")})`;
       throw error;
     }
     const results = [];
