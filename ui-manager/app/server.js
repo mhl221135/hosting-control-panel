@@ -1415,6 +1415,20 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/provision/import-upload") {
+    const offset = requestUrl.searchParams.get("offset");
+    const totalSize = requestUrl.searchParams.get("total_size");
+    if (offset !== null || totalSize !== null) {
+      const start = Number(offset);
+      const total = Number(totalSize);
+      const length = Number(req.headers["content-length"] || 0);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(total) || !Number.isSafeInteger(length)
+          || start < 0 || total < 1 || length < 1 || start + length > total) {
+        sendJson(res, 400, { ok: false, message: "Upload chunk range is invalid" });
+        req.resume();
+        return true;
+      }
+      req.headers["content-range"] = `bytes ${start}-${start + length - 1}/${total}`;
+    }
     const result = await provisionImports.upload(
       req,
       requestUrl.searchParams.get("upload_id"),

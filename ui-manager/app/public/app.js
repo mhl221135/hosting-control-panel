@@ -116,12 +116,17 @@ function provisionUploadId() {
 
 function uploadProvisionChunk(file, uploadId, kind, start, end, progress) {
   return new Promise((resolve, reject) => {
-    const query = new URLSearchParams({ upload_id: uploadId, kind, filename: file.name });
+    const query = new URLSearchParams({
+      upload_id: uploadId,
+      kind,
+      filename: file.name,
+      offset: String(start),
+      total_size: String(file.size),
+    });
     const request = new XMLHttpRequest();
     request.open("POST", `/api/provision/import-upload?${query}`);
     request.withCredentials = true;
     request.setRequestHeader("Content-Type", "application/octet-stream");
-    request.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${file.size}`);
     if (state.csrf) request.setRequestHeader("X-CSRF-Token", state.csrf);
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) progress(start + event.loaded, file.size);
