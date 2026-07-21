@@ -78,6 +78,9 @@ website with aliases, even when an imported configuration has no canonical
 redirect marker. Per-site and bulk image optimization preserve source images and
 create smaller WebP alternatives. The bulk job runs one primary website at a
 time, persists progress in `/app/data`, and does not overlap backup operations.
+Automatic optimization is disabled by default. Settings holds the global daily
+schedule, and each primary website has an independent **Images daily** checkbox.
+Scheduled runs skip current WebP files and share the backup operation lock.
 Nginx performs delivery without changing website content: the original JPG or
 PNG URL serves its WebP sidecar to compatible browsers. These negotiated URLs
 bypass shared caches to prevent Cloudflare from mixing response formats.

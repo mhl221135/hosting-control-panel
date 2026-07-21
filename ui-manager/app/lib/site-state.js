@@ -30,6 +30,7 @@ class SiteState {
       redis: false,
       opcache: true,
       backupEnabled: false,
+      imageOptimizationEnabled: false,
       notes: "",
       ...(this.read().sites[domain] || {}),
     };

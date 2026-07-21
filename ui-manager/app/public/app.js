@@ -376,9 +376,11 @@ function renderSites() {
         <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
         <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
         <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
+        <span class="badge ${state.imageOptimization?.settings?.enabled && site.state?.imageOptimizationEnabled ? "on" : ""}">Images ${state.imageOptimization?.settings?.enabled === false ? "paused" : site.state?.imageOptimizationEnabled ? "daily" : "manual"}</span>
       </div>
       <div class="site-actions">
         <label class="check site-backup-check"><input type="checkbox" data-toggle-backup="${escapeHtml(site.host)}" ${site.state?.backupEnabled ? "checked" : ""} /> Daily</label>
+        <label class="check site-backup-check"><input type="checkbox" data-toggle-image-optimization="${escapeHtml(site.host)}" ${site.state?.imageOptimizationEnabled ? "checked" : ""} /> Images daily</label>
         <button class="secondary site-action-primary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
         <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
@@ -881,9 +883,10 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData] = await Promise.all([
+    const [settings, performanceData, imageData] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
+      api("/api/sites/images/status"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -923,6 +926,10 @@ async function loadIntegrationSettings() {
     performance.elements.mysqlBufferPoolMb.value = state.performance.mysql.bufferPoolMb;
     performance.elements.mysqlMaxConnections.value = state.performance.mysql.maxConnections;
     performance.elements.mysqlRedoLogCapacityMb.value = state.performance.mysql.redoLogCapacityMb;
+    state.imageOptimization = imageData;
+    const imageForm = $("#imageOptimizationSettingsForm");
+    imageForm.elements.schedule_time.value = imageData.settings?.scheduleTime || "04:00";
+    imageForm.elements.enabled.checked = Boolean(imageData.settings?.enabled);
   } catch (error) {
     notice(error.message, "warning");
   }
@@ -1288,24 +1295,43 @@ $("#sitesList").addEventListener("change", async (event) => {
     }
     return;
   }
-  const checkbox = event.target.closest("[data-toggle-backup]");
+  const checkbox = event.target.closest("[data-toggle-backup], [data-toggle-image-optimization]");
   if (!checkbox) return;
+  const isImages = Boolean(checkbox.dataset.toggleImageOptimization);
+  const domain = isImages ? checkbox.dataset.toggleImageOptimization : checkbox.dataset.toggleBackup;
   checkbox.disabled = true;
   try {
     await api("/api/site-state", {
       method: "PUT",
       body: JSON.stringify({
-        domain: checkbox.dataset.toggleBackup,
-        backup_enabled: checkbox.checked,
+        domain,
+        ...(isImages
+          ? { image_optimization_enabled: checkbox.checked }
+          : { backup_enabled: checkbox.checked }),
       }),
     });
-    notice(`Daily backup ${checkbox.checked ? "enabled" : "disabled"} for ${checkbox.dataset.toggleBackup}.`);
+    notice(`${isImages ? "Daily image optimization" : "Daily backup"} ${checkbox.checked ? "enabled" : "disabled"} for ${domain}.`);
     await loadData();
   } catch (error) {
     checkbox.checked = !checkbox.checked;
     notice(error.message, "warning");
   } finally {
     checkbox.disabled = false;
+  }
+});
+
+$("#imageOptimizationSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/sites/images/settings", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    state.imageOptimization = { ...(state.imageOptimization || {}), settings: data.settings };
+    notice("Automatic image optimization schedule saved.");
+    await loadData();
+  } catch (error) {
+    notice(error.message, "warning");
   }
 });
 

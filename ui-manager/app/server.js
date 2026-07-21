@@ -124,6 +124,14 @@ const imageOptimizationManager = new ImageOptimizationManager({
   dataDir: DATA_DIR,
   backupManager,
   optimizer: optimizeImages,
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed).map((site) => ({
+      ...site,
+      directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+    }));
+  },
 });
 const statsCollector = new StatsCollector({
   websitesRoot: WEBSITES_ROOT,
@@ -584,6 +592,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
         redis: false,
         opcache: true,
         backupEnabled: false,
+        imageOptimizationEnabled: false,
         notes: "",
       },
     };
@@ -1355,6 +1364,7 @@ async function handleApi(req, res) {
       ...(typeof body.redis === "boolean" ? { redis: body.redis } : {}),
       ...(typeof body.opcache === "boolean" ? { opcache: body.opcache } : {}),
       ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
+      ...(typeof body.image_optimization_enabled === "boolean" ? { imageOptimizationEnabled: body.image_optimization_enabled } : {}),
       ...(typeof body.notes === "string" ? { notes: body.notes.slice(0, 2000) } : {}),
     });
     if (
@@ -1396,7 +1406,21 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "GET" && requestUrl.pathname === "/api/sites/images/status") {
-    sendJson(res, 200, { ok: true, ...imageOptimizationManager.getStatus() });
+    sendJson(res, 200, {
+      ok: true,
+      ...imageOptimizationManager.getStatus(),
+      settings: imageOptimizationManager.readSettings(),
+    });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/sites/images/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const settings = imageOptimizationManager.updateSettings({
+      enabled: body.enabled,
+      scheduleTime: body.schedule_time,
+    });
+    sendJson(res, 200, { ok: true, settings });
     return true;
   }
 
@@ -2201,6 +2225,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
   backupManager.start();
+  imageOptimizationManager.startScheduler();
   if (fs.existsSync(performanceSettings.path)) {
     setTimeout(() => {
       applyDynamicPerformance(performanceSettings.read()).catch((error) => {
