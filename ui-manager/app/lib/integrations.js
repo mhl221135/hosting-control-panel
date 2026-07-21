@@ -1,4 +1,17 @@
 const crypto = require("crypto");
+const dns = require("dns").promises;
+
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function resolvePublicAddress(domain) {
+  try {
+    const addresses = await dns.resolve4(domain);
+    if (addresses.length) return addresses;
+  } catch (error) {
+    if (!["ENODATA", "ENOTFOUND", "SERVFAIL"].includes(error.code)) throw error;
+  }
+  return dns.resolve6(domain);
+}
 
 class IntegrationError extends Error {
   constructor(message, statusCode = 502, details = "") {
@@ -24,9 +37,13 @@ async function readResponse(response) {
 }
 
 class NpmClient {
-  constructor(settingsProvider = null) {
+  constructor(settingsProvider = null, options = {}) {
     this.settingsProvider = settingsProvider;
     this.cachedToken = null;
+    this.resolveDns = options.resolveDns || resolvePublicAddress;
+    this.sleep = options.sleep || sleep;
+    this.dnsAttempts = Number(options.dnsAttempts || 24);
+    this.dnsDelayMs = Number(options.dnsDelayMs || 5000);
   }
 
   settings() {
@@ -155,10 +172,32 @@ class NpmClient {
     });
   }
 
+  async waitForDns(domains) {
+    let pending = [...new Set(domains)];
+    for (let attempt = 1; attempt <= this.dnsAttempts; attempt += 1) {
+      const results = await Promise.all(pending.map(async (domain) => {
+        try {
+          const addresses = await this.resolveDns(domain);
+          return Array.isArray(addresses) && addresses.length > 0 ? null : domain;
+        } catch {
+          return domain;
+        }
+      }));
+      pending = results.filter(Boolean);
+      if (pending.length === 0) return;
+      if (attempt < this.dnsAttempts) await this.sleep(this.dnsDelayMs);
+    }
+    throw new IntegrationError(
+      `DNS is not ready for: ${pending.join(", ")}. Wait for propagation, then retry SSL.`,
+      409,
+    );
+  }
+
   async issueCertificate(host) {
     const domains = host.domain_names || [];
     const settings = this.settings();
     if (!settings.acmeEmail) throw new IntegrationError("ACME email is not configured", 400);
+    await this.waitForDns(domains);
     const certificate = await this.request("/nginx/certificates", {
       method: "POST",
       body: JSON.stringify({

@@ -252,3 +252,38 @@ test("adds missing aliases and replaces the NPM certificate", async () => {
   assert.equal(issued, true);
   assert.equal(result.certificate_id, 13);
 });
+
+test("waits for every certificate hostname to resolve before ACME", async () => {
+  const attempts = new Map();
+  let sleeps = 0;
+  const client = new NpmClient(null, {
+    dnsAttempts: 3,
+    dnsDelayMs: 1,
+    sleep: async () => { sleeps += 1; },
+    resolveDns: async (domain) => {
+      const count = (attempts.get(domain) || 0) + 1;
+      attempts.set(domain, count);
+      if (domain.startsWith("www.") && count < 2) throw Object.assign(new Error("not found"), { code: "ENOTFOUND" });
+      return ["192.0.2.1"];
+    },
+  });
+
+  await client.waitForDns(["example.com", "www.example.com"]);
+  assert.equal(attempts.get("example.com"), 1);
+  assert.equal(attempts.get("www.example.com"), 2);
+  assert.equal(sleeps, 1);
+});
+
+test("reports unresolved certificate hostnames after DNS timeout", async () => {
+  const client = new NpmClient(null, {
+    dnsAttempts: 2,
+    dnsDelayMs: 1,
+    sleep: async () => {},
+    resolveDns: async () => { throw Object.assign(new Error("not found"), { code: "ENOTFOUND" }); },
+  });
+
+  await assert.rejects(
+    client.waitForDns(["www.example.com"]),
+    (error) => error.statusCode === 409 && error.message.includes("www.example.com"),
+  );
+});

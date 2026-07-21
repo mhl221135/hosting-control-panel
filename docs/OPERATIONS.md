@@ -127,6 +127,13 @@ Verify the token can read the zone, the domain is correct, and an account-owned
 token has its account ID. The client walks parent labels to find the longest
 active zone for subdomains.
 
+### Automatic SSL is not attached after provisioning
+
+The panel waits up to two minutes for every requested certificate name to
+resolve before contacting ACME. If DNS remains unavailable, provisioning keeps
+the valid local site and NPM host but reports the unresolved names as an NPM
+warning. Correct DNS and use **DNS & SSL -> Issue SSL** to retry.
+
 ### Cloudflare Security authentication fails
 
 Use the separate Security token with zone discovery and Rulesets/WAF permissions

@@ -294,7 +294,9 @@ Provisioning:
 7. Creates or updates Cloudflare DNS and preset records when selected.
 8. Configures Redis when selected.
 9. Creates or reuses the NPM proxy host.
-10. Requests and attaches the certificate when selected.
+10. Waits for every certificate hostname to resolve publicly, then requests and
+    attaches the certificate when selected. Fresh DNS is checked every five
+    seconds for up to two minutes to avoid immediate ACME `NXDOMAIN` failures.
 
 Uploaded WordPress packages are stored persistently under
 `app-data/ui-manager/wordpress-packages`. Uploads are limited to ZIP files and
