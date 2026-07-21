@@ -147,7 +147,7 @@ that access.
 |-- websites/                # Website document roots
 |-- exports/                 # Portable migration exports
 |-- imports/                 # Staged migration input
-`-- backups/
+`-- backups/                 # Default; BACKUPS_DIR may place this on another disk
     |-- app-data/
     `-- example.com/
 ```
@@ -176,7 +176,8 @@ sudo sh /tmp/websites-v2-bootstrap.sh
 ```
 
 It asks for the installation root (default
-`/media/ssdmount/websites-v2`) and every initial login and password. It then
+`/media/ssdmount/websites-v2`), an independent absolute backup directory, and
+every initial login and password. It then
 clones the project into `<root>/sources`, writes a mode-600 `.env`, creates the
 storage layout, copies only missing configuration templates, builds the custom
 images, and starts the stack.
@@ -442,6 +443,11 @@ These values are editable in **Settings → Performance**. Do not deploy this
 profile unchanged on the current 2 GB OPI3 test host.
 
 ## Backups
+
+The host backup location is configured by `BACKUPS_DIR` in `.env`. It defaults
+to `<HOSTING_ROOT>/backups` but may point to another mounted disk, such as
+`/media/seagate/websites-backups-v2`. Inside the panel it is always mounted as
+`/srv/backups`.
 
 The panel owns the new backup schedule. In **Backups**, set one daily start time
 and the number of complete sets to retain (1-90). A global switch can pause all

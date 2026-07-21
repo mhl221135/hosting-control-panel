@@ -92,6 +92,13 @@ case "$hosting_root" in
   *) printf "Installation root must be an absolute path.\n" >&4; exit 1 ;;
 esac
 
+prompt_required "Backups directory" "$hosting_root/backups"
+backups_dir="$ANSWER"
+case "$backups_dir" in
+  /*) ;;
+  *) printf "Backups directory must be an absolute path.\n" >&4; exit 1 ;;
+esac
+
 prompt_required "Panel administrator email"
 ui_admin_email="$ANSWER"
 prompt_password "Panel administrator password"
@@ -136,7 +143,8 @@ fi
 umask 077
 temporary="$env_file.tmp.$$"
 {
-  printf "HOSTING_ROOT=%s\n\n" "$(dotenv_value "$hosting_root")"
+  printf "HOSTING_ROOT=%s\n" "$(dotenv_value "$hosting_root")"
+  printf "BACKUPS_DIR=%s\n\n" "$(dotenv_value "$backups_dir")"
   printf "UI_ADMIN_EMAIL=%s\n" "$(dotenv_value "$ui_admin_email")"
   printf "UI_ADMIN_PASSWORD=%s\n" "$(dotenv_value "$ui_admin_password")"
   printf "UI_SETTINGS_KEY=%s\n\n" "$(dotenv_value "$ui_settings_key")"

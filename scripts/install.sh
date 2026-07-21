@@ -53,6 +53,13 @@ env_value() {
 
 hosting_root="${requested_root:-${HOSTING_ROOT:-$(env_value HOSTING_ROOT)}}"
 hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
+backups_dir="${BACKUPS_DIR:-$(env_value BACKUPS_DIR)}"
+backups_dir="${backups_dir:-$hosting_root/backups}"
+
+case "$backups_dir" in
+  /*) ;;
+  *) echo "BACKUPS_DIR must be an absolute path." >&2; exit 1 ;;
+esac
 
 required_variables="
 UI_ADMIN_EMAIL
@@ -112,7 +119,7 @@ mkdir -p \
   "$hosting_root/app-data/npm/letsencrypt" \
   "$hosting_root/app-data/redis" \
   "$hosting_root/app-data/ui-manager" \
-  "$hosting_root/backups/app-data" \
+  "$backups_dir/app-data" \
   "$hosting_root/exports" \
   "$hosting_root/imports" \
   "$hosting_root/websites/_default"

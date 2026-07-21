@@ -97,6 +97,14 @@ function parseRedisInfo(content) {
   };
 }
 
+function parseOpcacheStatus(content) {
+  const body = String(content || "").split(/\r?\n\r?\n/).slice(-1)[0].trim();
+  if (!body) throw new Error("OPcache probe returned an empty response");
+  const value = JSON.parse(body);
+  if (!value || typeof value !== "object") throw new Error("OPcache probe returned invalid data");
+  return value;
+}
+
 function tailText(filePath, maxBytes = 1024 * 1024) {
   if (!fs.existsSync(filePath)) return "";
   const descriptor = fs.openSync(filePath, "r");
@@ -213,11 +221,22 @@ class StatsCollector {
         if (!names.length) return "";
         return this.exec("docker", ["stats", "--no-stream", "--format", "{{json .}}", ...names], { timeout: 25_000 });
       };
-      const [dockerStats, phpTop, redisInfo, fastcgiSize] = await Promise.allSettled([
+      const [dockerStats, phpTop, redisInfo, fastcgiSize, opcacheStatus] = await Promise.allSettled([
         loadDockerStats(),
         this.exec("docker", ["top", "hosting-php-fpm", "-eo", "pid,pcpu,pmem,rss,etime,args"]),
         this.exec("docker", ["exec", "hosting-redis", "redis-cli", "--raw", "INFO"]),
         this.exec("docker", ["exec", "hosting-nginx", "du", "-sk", "/var/cache/nginx/fastcgi"], { timeout: 30_000 }),
+        this.exec("docker", [
+          "exec",
+          "-e", "SCRIPT_FILENAME=/global/opcache-status.php",
+          "-e", "SCRIPT_NAME=/opcache-status.php",
+          "-e", "REQUEST_METHOD=GET",
+          "-e", "REQUEST_URI=/opcache-status.php",
+          "-e", "SERVER_PROTOCOL=HTTP/1.1",
+          "-e", "GATEWAY_INTERFACE=CGI/1.1",
+          "-e", "REDIRECT_STATUS=200",
+          "hosting-php-fpm", "cgi-fcgi", "-bind", "-connect", "127.0.0.1:9000",
+        ]),
       ]);
       const warnings = [];
       const value = (result, fallback, label, parser) => {
@@ -235,6 +254,7 @@ class StatsCollector {
         fastcgi: {
           cacheBytes: value(fastcgiSize, 0, "FastCGI cache size", (output) => number(output.split(/\s+/)[0]) * 1024),
         },
+        opcache: value(opcacheStatus, null, "OPcache statistics", parseOpcacheStatus),
         warnings,
       };
     });
@@ -289,4 +309,5 @@ module.exports = {
   parseDockerStats,
   parsePhpPools,
   parseRedisInfo,
+  parseOpcacheStatus,
 };
