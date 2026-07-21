@@ -24,6 +24,9 @@ const state = {
 };
 
 let imageOptimizationPollTimer = null;
+let provisionInFlight = false;
+const PROVISION_UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
+const PROVISION_UPLOAD_RETRIES = 3;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -111,27 +114,59 @@ function provisionUploadId() {
   });
 }
 
-function uploadProvisionImport(file, uploadId, kind, progress) {
+function uploadProvisionChunk(file, uploadId, kind, start, end, progress) {
   return new Promise((resolve, reject) => {
     const query = new URLSearchParams({ upload_id: uploadId, kind, filename: file.name });
     const request = new XMLHttpRequest();
     request.open("POST", `/api/provision/import-upload?${query}`);
     request.withCredentials = true;
     request.setRequestHeader("Content-Type", "application/octet-stream");
+    request.setRequestHeader("Content-Range", `bytes ${start}-${end - 1}/${file.size}`);
     if (state.csrf) request.setRequestHeader("X-CSRF-Token", state.csrf);
     request.upload.addEventListener("progress", (event) => {
-      if (event.lengthComputable) progress(Math.round((event.loaded / event.total) * 100));
+      if (event.lengthComputable) progress(start + event.loaded, file.size);
     });
     request.addEventListener("load", () => {
       let response = {};
       try { response = request.responseText ? JSON.parse(request.responseText) : {}; } catch { response = {}; }
       if (request.status >= 200 && request.status < 300) resolve(response);
-      else reject(new Error(response.message || `Upload failed (${request.status})`));
+      else {
+        const error = new Error(response.message || `Upload failed (${request.status})`);
+        error.retryable = request.status >= 500 || request.status === 408 || request.status === 429;
+        reject(error);
+      }
     });
-    request.addEventListener("error", () => reject(new Error("Upload connection failed")));
+    request.addEventListener("error", () => {
+      const error = new Error("Upload connection failed");
+      error.retryable = true;
+      reject(error);
+    });
     request.addEventListener("abort", () => reject(new Error("Upload was cancelled")));
-    request.send(file);
+    request.send(file.slice(start, end));
   });
+}
+
+async function uploadProvisionImport(file, uploadId, kind, progress) {
+  for (let start = 0; start < file.size; start += PROVISION_UPLOAD_CHUNK_SIZE) {
+    const end = Math.min(start + PROVISION_UPLOAD_CHUNK_SIZE, file.size);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await uploadProvisionChunk(file, uploadId, kind, start, end, progress);
+        progress(end, file.size);
+        break;
+      } catch (error) {
+        if (!error.retryable || attempt >= PROVISION_UPLOAD_RETRIES) throw error;
+        await new Promise((resolve) => window.setTimeout(resolve, 750 * (2 ** attempt)));
+      }
+    }
+  }
+}
+
+function uploadProgress(label, loaded, total) {
+  const percent = total ? Math.round((loaded / total) * 100) : 0;
+  const loadedMb = (loaded / 1024 / 1024).toFixed(1);
+  const totalMb = (total / 1024 / 1024).toFixed(1);
+  return `${label}: ${percent}% (${loadedMb} MB / ${totalMb} MB)`;
 }
 
 async function withButton(button, pendingText, work) {
@@ -1155,6 +1190,7 @@ $("#renewNpmSsl").addEventListener("click", async (event) => {
 
 $("#provisionForm").addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (provisionInFlight) return notice("An import or provisioning operation is already running.", "warning");
   const body = formObject(event.currentTarget);
   const importing = body.source_mode === "import";
   body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
@@ -1166,18 +1202,20 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   if (importing && (!websiteArchive || !databaseDump)) return notice("Select both the website archive and database dump.", "warning");
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
+  const submitButton = event.submitter || $("#provisionSubmit");
   resultPanel.classList.add("hidden");
+  provisionInFlight = true;
   try {
-    const result = await withButton(event.submitter, importing ? "Uploading files..." : "Creating website...", async () => {
+    const result = await withButton(submitButton, importing ? "Uploading files..." : "Creating website...", async () => {
       if (importing) {
         body.import_upload_id = provisionUploadId();
-        await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (percent) => {
-          importProgress.textContent = `Uploading website archive: ${percent}%`;
+        await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (loaded, total) => {
+          importProgress.textContent = uploadProgress("Uploading website archive", loaded, total);
         });
-        await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (percent) => {
-          importProgress.textContent = `Website archive uploaded. Uploading database: ${percent}%`;
+        await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
+          importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
         });
-        event.submitter.textContent = "Extracting and importing...";
+        submitButton.textContent = "Extracting and importing...";
         importProgress.textContent = "Uploads complete. Extracting files, importing the database, and configuring services.";
       }
       return api("/api/provision", { method: "POST", body: JSON.stringify(body) });
@@ -1214,6 +1252,8 @@ WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
     resultPanel.innerHTML = `<h3>Provisioning stopped</h3><p>${escapeHtml(error.message)}</p><pre>${escapeHtml(error.details || "")}</pre>`;
     resultPanel.classList.remove("hidden");
     notice("Provisioning did not complete. Review the result before retrying.", "warning");
+  } finally {
+    provisionInFlight = false;
   }
 });
 

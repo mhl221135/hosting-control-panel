@@ -292,18 +292,24 @@ replacement, and preserves imported WordPress users, content, plugins, and
 themes. It then applies the selected pool, cache, backup, DNS, NPM, and SSL
 options.
 
-Uploads stream into `imports/ui-provision` instead of being held in UI memory.
-Website archives are limited to 8 GB, database dumps to 4 GB, and abandoned
-staging directories expire after 24 hours. Archive paths are checked before
-extraction and symlinks are rejected. The import itself shares the storage lock
-with backups, image optimization, and deletion.
+Uploads use resumable 16 MB chunks staged under `imports/ui-provision` instead
+of being held in UI memory. Website archives are limited to 8 GB, database dumps
+to 4 GB, and abandoned staging directories expire after 24 hours. Database input
+can be SQL/SQL.GZ or a TAR.GZ/TGZ containing exactly one dump. Archive paths are
+checked before extraction and website symlinks are safely excluded. The import
+itself shares the storage lock with backups, image optimization, and deletion.
 
 When the panel is behind NPM, its proxy host needs these Advanced directives for
 large streamed uploads:
 
 ```nginx
 client_max_body_size 8g;
+client_body_timeout 1h;
 proxy_request_buffering off;
+proxy_connect_timeout 60s;
+proxy_send_timeout 1h;
+proxy_read_timeout 4h;
+send_timeout 1h;
 ```
 
 After creating the panel's NPM host, apply those directives without changing

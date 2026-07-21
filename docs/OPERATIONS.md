@@ -118,8 +118,16 @@ configuration and save it:
 
 ```nginx
 client_max_body_size 8g;
+client_body_timeout 1h;
 proxy_request_buffering off;
+proxy_connect_timeout 60s;
+proxy_send_timeout 1h;
+proxy_read_timeout 4h;
+send_timeout 1h;
 ```
+
+Imports use resumable 16 MB chunks. Failed chunks retry without restarting the
+full archive, and the page blocks duplicate provisioning submissions.
 
 The bundled helper applies this only to the named panel proxy host and is safe
 to rerun:
