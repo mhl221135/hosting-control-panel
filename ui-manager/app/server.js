@@ -24,7 +24,7 @@ const { BackupManager } = require("./lib/backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
-const { annotateSiteAliases } = require("./lib/runtime-config");
+const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
@@ -430,7 +430,7 @@ function writeDefaultPool(payload) {
 
 function buildPoolSettings({ incomingPool, basePool, defaults, tierName, root, port, presets }) {
   const tier = (presets || {})[tierName] || {};
-  return {
+  const settings = {
     ...basePool,
     user: incomingPool.user || basePool.user || defaults.user || "www-data",
     group: incomingPool.group || basePool.group || defaults.group || "www-data",
@@ -463,6 +463,7 @@ function buildPoolSettings({ incomingPool, basePool, defaults, tierName, root, p
     catch_workers_output: "yes",
     request_terminate_timeout: incomingPool.request_terminate_timeout || basePool.request_terminate_timeout || "60s",
   };
+  return setPoolOpcache(settings, settings["php_admin_value[opcache.enable]"] !== "0");
 }
 
 function execAction(actionKey) {
@@ -1345,7 +1346,7 @@ async function handleApi(req, res) {
         sendJson(res, 400, { ok: false, message: "The site's PHP pool was not found" });
         return true;
       }
-      pool.settings["php_admin_value[opcache.enable]"] = body.opcache ? "1" : "0";
+      setPoolOpcache(pool.settings, body.opcache);
       writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
       opcacheChanged = true;
     }
@@ -1480,7 +1481,7 @@ async function handleApi(req, res) {
       port,
       presets,
     });
-    poolsParsed.sections[poolName]["php_admin_value[opcache.enable]"] = body.opcache === false ? "0" : "1";
+    setPoolOpcache(poolsParsed.sections[poolName], body.opcache !== false);
     poolsParsed.sectionOrder.push(poolName);
     mapParsed.hosts[domain] = {
       host: domain,

@@ -6,7 +6,14 @@ const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
 const { migrateWordPressUrl, normalizeWordPressPermissions, validateDomain } = require("./provisioner");
-const { parsePools, parseSitesMap, renderPools, renderSitesMap, sanitizeSectionName } = require("./runtime-config");
+const {
+  parsePools,
+  parseSitesMap,
+  renderPools,
+  renderSitesMap,
+  sanitizeSectionName,
+  setPoolOpcache,
+} = require("./runtime-config");
 
 const execFileAsync = promisify(execFile);
 const DATABASE_PATTERN = /^[A-Za-z0-9_$-]{1,32}$/;
@@ -414,15 +421,14 @@ class MigrationManager {
       if (pools.sections[poolName]) throw new Error(`PHP pool already exists: ${poolName}`);
       const tier = presets[site.poolTier] || presets.medium || DEFAULT_PRESETS.medium;
       const root = `/var/www/${site.websitePath}`;
-      pools.sections[poolName] = {
+      pools.sections[poolName] = setPoolOpcache({
         user: "www-data", group: "www-data", listen: String(port), pm: String(tier.pm),
         "pm.max_children": String(tier.max_children), "pm.start_servers": String(tier.start_servers),
         "pm.min_spare_servers": String(tier.min_spare_servers), "pm.max_spare_servers": String(tier.max_spare_servers),
         "pm.process_idle_timeout": String(tier.process_idle_timeout), "pm.max_requests": String(tier.max_requests),
         "php_admin_value[open_basedir]": `${root}/:/global/:/tmp/`,
-        "php_admin_value[opcache.enable]": site.state.opcache === false ? "0" : "1",
         clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
-      };
+      }, site.state.opcache !== false);
       pools.sectionOrder.push(poolName);
       map.hosts[site.domain] = { host: site.domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
       for (const alias of site.aliases) {
