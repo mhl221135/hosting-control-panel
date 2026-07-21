@@ -31,6 +31,7 @@ profile, cache state, and backup state.
 | --- | --- |
 | **PHP profile** | Applies the selected Low, Medium, or High worker profile to the site's existing PHP-FPM pool. |
 | **Daily** | Includes or excludes the site from scheduled and **Back up enabled sites** runs. The global website-backup switch can pause all sites without clearing these choices. |
+| **Images daily** | Includes or excludes the site from the optional daily incremental WebP schedule configured in Settings. |
 | **Back up** | Creates a complete website set containing files, a compressed database dump, and a manifest. |
 | **Optimize images** | Scans WordPress uploads and creates missing WebP derivatives. Existing WebP files are skipped. |
 | **Enable/Disable FastCGI** | Adds or removes the site from the anonymous-page cache map and reloads internal nginx. |
@@ -39,6 +40,10 @@ profile, cache state, and backup state.
 | **Purge cache** | Increments the site's FastCGI cache version so previous cached responses are no longer used. |
 | **DNS & SSL** | Opens the DNS & SSL workspace with this website selected. |
 | **Optimize all images** | Processes primary websites sequentially and displays current domain and completed count. |
+
+The Settings tab contains the global automatic image optimization switch and
+daily start time. Turning the global switch off pauses every site's daily image
+job without clearing individual **Images daily** selections.
 
 FastCGI, Redis, and OPcache are separate layers. FastCGI stores complete
 anonymous HTML responses, Redis stores WordPress objects, and OPcache stores

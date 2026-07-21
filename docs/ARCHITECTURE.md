@@ -62,7 +62,7 @@ routes. There is no Express framework or external npm dependency.
 | `integrations.js` | NPM, ACME, Cloudflare DNS and Security clients |
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
-| `site-state.js` | Redis, OPcache, FastCGI, backup switches |
+| `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
 | `backup-manager.js` | schedule, locks, archives, retention, restore |
 | `migration-manager.js` | portable export/import and runtime adoption |
 | `performance-settings.js` | validated managed configuration directives |
@@ -70,7 +70,7 @@ routes. There is no Express framework or external npm dependency.
 | `wordpress-packages.js` | uploaded plugin/theme ZIP library |
 | `provision-import-store.js` | streamed import staging and archive normalization |
 | `stats-collector.js` | on-demand runtime and traffic summaries |
-| `image-optimization-manager.js` | persistent sequential WebP job state |
+| `image-optimization-manager.js` | persistent sequential WebP job state and daily scheduler |
 
 ## Authentication And Secrets
 
