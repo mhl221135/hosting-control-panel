@@ -2,7 +2,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache docker-cli tar tzdata \
+RUN apk add --no-cache docker-cli tar tzdata unzip \
     && mkdir -p /srv/websites /srv/configs/nginx/conf.d /srv/configs/php-fpm /app/data
 
 COPY app/server.js /app/server.js

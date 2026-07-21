@@ -305,6 +305,27 @@ async function updateWordPressUrl(directory, domain, useHttps) {
   await runWp(["option", "update", "siteurl", url, `--path=${containerPath}`]);
 }
 
+async function migrateWordPressUrl(directory, domain, useHttps) {
+  const containerPath = `/var/www/${directory}`;
+  const url = `${useHttps ? "https" : "http"}://${validateDomain(domain)}`;
+  const previous = new Set();
+  for (const option of ["home", "siteurl"]) {
+    try {
+      const result = await runWp(["option", "get", option, `--path=${containerPath}`]);
+      const value = String(result.stdout || "").trim().replace(/\/$/, "");
+      if (/^https?:\/\//i.test(value) && value !== url) previous.add(value);
+    } catch {
+      // The explicit option updates below remain sufficient when an old value cannot be read.
+    }
+  }
+  for (const oldUrl of previous) {
+    await runWp([
+      "search-replace", oldUrl, url, "--all-tables-with-prefix", "--skip-columns=guid", `--path=${containerPath}`,
+    ]);
+  }
+  await updateWordPressUrl(directory, domain, useHttps);
+}
+
 async function setRedis(directory, domain, enabled) {
   const containerPath = await normalizeWordPressPermissions(directory);
   validateDomain(domain);
@@ -377,6 +398,7 @@ module.exports = {
   createDatabase,
   dropDatabaseAndUser,
   installWordPress,
+  migrateWordPressUrl,
   mysqlIdentifier,
   normalizeWordPressPermissions,
   optimizeImages,

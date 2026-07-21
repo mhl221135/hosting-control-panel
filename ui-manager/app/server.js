@@ -9,6 +9,7 @@ const {
   createDatabase,
   dropDatabaseAndUser,
   installWordPress,
+  mysqlIdentifier,
   optimizeImages,
   prepareSiteDirectory,
   randomPassword,
@@ -29,6 +30,8 @@ const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
 const { StatsCollector } = require("./lib/stats-collector");
 const { buildSiteRemovalPlan } = require("./lib/site-removal-plan");
+const { MigrationManager, safeRelative } = require("./lib/migration-manager");
+const { ProvisionImportStore } = require("./lib/provision-import-store");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -40,6 +43,8 @@ const CACHE_MAP_PATH = process.env.CACHE_MAP_PATH || "/srv/configs/nginx/conf.d/
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
 const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
 const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
+const EXPORTS_ROOT = process.env.EXPORTS_ROOT || "/srv/exports";
+const IMPORTS_ROOT = process.env.IMPORTS_ROOT || "/srv/imports";
 const DEFAULT_PHP_UPSTREAM = process.env.DEFAULT_PHP_UPSTREAM || "hosting-php-fpm:9000";
 const PHP_INI_PATH = process.env.PHP_INI_PATH || "/srv/configs/php/global.ini";
 const NGINX_CONFIG_PATH = process.env.NGINX_CONFIG_PATH || "/srv/configs/nginx/nginx.conf";
@@ -123,6 +128,19 @@ const imageOptimizationManager = new ImageOptimizationManager({
 const statsCollector = new StatsCollector({
   websitesRoot: WEBSITES_ROOT,
   npmLogsRoot: path.join(APP_DATA_ROOT, "npm/data/logs"),
+});
+const provisionImports = new ProvisionImportStore({ importsRoot: IMPORTS_ROOT });
+const migrationManager = new MigrationManager({
+  dataDir: DATA_DIR,
+  exportsRoot: EXPORTS_ROOT,
+  websitesRoot: WEBSITES_ROOT,
+  sitesMapPath: SITES_MAP_PATH,
+  poolsPath: POOLS_PATH,
+  mysqlContainer: process.env.MYSQL_CONTAINER || "hosting-db",
+  phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
+  npm,
+  cloudflare,
+  siteState,
 });
 
 function sendJson(res, code, obj, headers = {}) {
@@ -792,6 +810,86 @@ async function executeSiteRemoval(domain, body) {
   });
 }
 
+async function provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords }) {
+  const uploadId = String(body.import_upload_id || "");
+  const settings = integrationSettings.resolved();
+  const databaseName = mysqlIdentifier(domain, settings.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_");
+  const alias = body.add_www && !domain.startsWith("www.") ? `www.${domain}` : "";
+  const aliases = alias ? [alias] : [];
+
+  return backupManager.withLock({ type: "site-import", domain, label: `Import ${domain}` }, async () => {
+    const prepared = await provisionImports.prepare(uploadId, directory);
+    const manifest = {
+      version: 1,
+      type: "hosting-sites-export",
+      id: `ui-${uploadId}`,
+      createdAt: new Date().toISOString(),
+      sites: [{
+        domain,
+        aliases,
+        canonicalAliases: aliases,
+        websitePath: directory,
+        database: databaseName,
+        websiteArchive: prepared.websiteArchive,
+        databaseDump: prepared.databaseDump,
+        poolTier: String(body.pool_tier || "medium"),
+        state: {
+          fastcgiCache: Boolean(body.fastcgi_cache),
+          redis: Boolean(body.redis),
+          opcache: body.opcache !== false,
+          backupEnabled: Boolean(body.scheduled_backup),
+        },
+      }],
+    };
+    const imported = await migrationManager.importSites({
+      sourceDirectory: prepared.sourceDirectory,
+      manifest,
+      useExistingFiles: false,
+      wanIp: dnsIp,
+      updateDns: Boolean(body.create_update_dns),
+      proxied: true,
+      createNpmHost: Boolean(body.create_npm_host),
+      issueSsl: Boolean(body.issue_ssl),
+      includeCredentials: true,
+    });
+    const result = imported.results[0];
+    const steps = [
+      { name: "website-import", status: "complete" },
+      { name: "database", status: "complete", database: result.database },
+      { name: "runtime", status: "complete", port: result.port },
+    ];
+    for (const warning of result.warnings || []) steps.push({ name: "integration", status: "warning", message: warning });
+    if (body.redis) {
+      try {
+        await setRedis(directory, domain, true);
+        steps.push({ name: "redis", status: "complete" });
+      } catch (error) {
+        steps.push({ name: "redis", status: "warning", message: error.message });
+      }
+    }
+    if (presetRecords.length) {
+      try {
+        for (const record of presetRecords) await cloudflare.upsertRecord(domain, record);
+        steps.push({ name: "dns-preset", status: "complete", count: presetRecords.length });
+      } catch (error) {
+        steps.push({ name: "dns-preset", status: "warning", message: error.message });
+      }
+    }
+    siteState.update(domain, { notes: String(body.notes || "").slice(0, 2000) });
+    provisionImports.remove(uploadId);
+    return {
+      ok: true,
+      imported: true,
+      domain,
+      directory,
+      port: result.port,
+      database: { name: result.database, user: result.database, password: result.databasePassword },
+      wordpress: { preserved: true },
+      steps,
+    };
+  });
+}
+
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
   backupFile(SITES_MAP_PATH, mapBefore);
   backupFile(POOLS_PATH, poolsBefore);
@@ -1296,22 +1394,34 @@ async function handleApi(req, res) {
     return true;
   }
 
+  if (req.method === "POST" && requestUrl.pathname === "/api/provision/import-upload") {
+    const result = await provisionImports.upload(
+      req,
+      requestUrl.searchParams.get("upload_id"),
+      requestUrl.searchParams.get("kind"),
+      requestUrl.searchParams.get("filename"),
+    );
+    sendJson(res, 201, { ok: true, upload: result });
+    return true;
+  }
+
   if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const domain = validateDomain(body.domain);
-    const directory = String(body.directory || domain).trim();
+    const directory = safeRelative(String(body.directory || domain).trim(), "website directory");
+    const sourceMode = body.source_mode === "import" ? "import" : "fresh";
     const adminEmail = String(body.admin_email || "").trim().toLowerCase();
     const adminUser = String(body.admin_user || "admin").trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
+    if (sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
       sendJson(res, 400, { ok: false, message: "Enter a valid WordPress administrator email" });
       return true;
     }
-    if (!/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
+    if (sourceMode === "fresh" && !/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
       sendJson(res, 400, { ok: false, message: "WordPress administrator username is invalid" });
       return true;
     }
-    const pluginPackages = wordpressPackages.resolve("plugins", body.plugin_packages);
-    const themePackages = wordpressPackages.resolve("themes", body.theme_packages);
+    const pluginPackages = sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
+    const themePackages = sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
     const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
     const presetRecords = body.apply_dns_preset
       ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
@@ -1323,6 +1433,12 @@ async function handleApi(req, res) {
     const poolsParsed = parsePools(poolsBefore);
     if (mapParsed.hosts[domain]) {
       sendJson(res, 409, { ok: false, message: "Domain is already configured" });
+      return true;
+    }
+
+    if (sourceMode === "import") {
+      const result = await provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords });
+      sendJson(res, 201, result);
       return true;
     }
 

@@ -96,6 +96,14 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .form-stack { display: grid; gap: 14px; }
 .narrow { max-width: 560px; }
 .full { grid-column: 1 / -1; }
+.source-mode { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; padding: 4px; }
+.source-mode legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
+.source-mode label { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 9px; border-radius: 4px; padding: 10px; cursor: pointer; }
+.source-mode label:has(input:checked) { background: #eaf7f5; color: var(--accent-dark); }
+.source-mode input { width: 17px; min-height: 17px; }
+.source-mode span { display: grid; gap: 2px; }
+.source-mode small, .import-source small { color: var(--muted); font-weight: 450; }
+.option-group.import-source { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
 .option-group { display: flex; flex-wrap: wrap; gap: 14px 22px; border: 1px solid var(--line); border-radius: 6px; padding: 13px; }
 .option-group legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
 .provision-dns-options { display: grid; grid-template-columns: minmax(190px, auto) minmax(220px, 1fr) minmax(180px, auto) minmax(220px, 1fr); align-items: end; }
@@ -192,7 +200,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .workspace { padding: 0 14px 28px; }
   .topbar, .section-head, .card-head { align-items: flex-start; flex-direction: column; }
   .top-actions { justify-content: flex-start; }
-  .metrics, .form-grid, .site-row, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .site-row, .source-mode, .import-source, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid { grid-template-columns: 1fr; }
+  .option-group.import-source { grid-template-columns: 1fr; }
   .stats-detail-grid > div { border-right: 0; border-bottom: 1px solid var(--line); }
   .stats-detail-grid > div:last-child { border-bottom: 0; }
   .backup-layout, .backup-row, .data-row, .preset-apply, .security-rule-row { grid-template-columns: 1fr; }
