@@ -1,9 +1,9 @@
 # Hosting Control UI Guide
 
 This guide documents the authenticated Hosting Control panel shipped with
-Websites V2. Screenshots show a live deployment, so domains, counters, resource
-usage, and timestamps are examples rather than installation defaults. Passwords
-and API tokens are never rendered by the panel after they are saved.
+Websites V2. Production screenshots are intentionally excluded because hosting
+inventories, certificate names, service routes, logs, account identifiers, and
+resource data are sensitive even when passwords and API tokens are masked.
 
 ## Navigation and conventions
 
@@ -19,8 +19,6 @@ notice area. Do not close the browser during an upload, but long-running server
 jobs continue independently after the request has started.
 
 ## Sites
-
-![Sites workspace](images/ui/sites.png)
 
 The Sites workspace is the daily operations view. Summary counters show
 configured primary hosts, PHP pools, FastCGI-enabled sites, and Redis-enabled
@@ -48,8 +46,6 @@ compiled PHP bytecode.
 
 ## Stats
 
-![Statistics workspace](images/ui/stats.png)
-
 Statistics are collected on demand; there is no permanent metrics database or
 high-frequency background collector.
 
@@ -69,8 +65,6 @@ Traffic details are based on a bounded recent access-log sample. They are useful
 for diagnosis, not long-term analytics or billing.
 
 ## Provision
-
-![Provision workspace](images/ui/provision.png)
 
 Provision creates a complete WordPress runtime: files, PHP-FPM pool, internal
 route, database, database user, optional Cloudflare DNS, NPM proxy host, and
@@ -120,8 +114,6 @@ it does not silently overwrite an existing non-empty website or database.
 
 ## DNS & SSL
 
-![DNS and SSL workspace](images/ui/dns-ssl.png)
-
 This workspace combines Cloudflare zone records with Nginx Proxy Manager edge
 state for one selected website.
 
@@ -144,8 +136,6 @@ challenge path support certificate issuance.
 
 ## Security
 
-![Cloudflare Security workspace](images/ui/security.png)
-
 Only Cloudflare rules created by Hosting Control are displayed or modified.
 Unrelated user-managed WAF rules remain outside panel ownership.
 
@@ -163,8 +153,6 @@ scoped independently. Rules apply at zone scope even though a website is used
 to select the zone.
 
 ## Backups
-
-![Backups workspace](images/ui/backups.png)
 
 Website backup sets contain `website.tar.gz`, `database.sql.gz`, and
 `manifest.json`. Application-data sets contain an app-data archive and a
@@ -191,8 +179,6 @@ one-click panel action.
 
 ## Delete
 
-![Website deletion workspace](images/ui/delete.png)
-
 Deletion is ownership-aware and requires typing the selected domain. Always
 click **Refresh preview** immediately before removal so shared or externally
 changed resources are detected.
@@ -217,8 +203,6 @@ skipped rather than force-deleted.
 
 ## Runtime
 
-![Runtime workspace](images/ui/runtime.png)
-
 Runtime is the low-level configuration editor. Prefer Sites and Provision for
 normal work; use Runtime for diagnosis and manual correction.
 
@@ -236,8 +220,6 @@ Manual route or pool changes can affect every site. Export or back up the
 current configuration before large edits.
 
 ## Settings
-
-![Settings workspace](images/ui/settings.png)
 
 ### Integration settings
 
@@ -298,4 +280,3 @@ browser-autofilled credentials cannot be captured accidentally.
 - [Operations](OPERATIONS.md)
 - [API routes](API.md)
 - [Architecture](ARCHITECTURE.md)
-
