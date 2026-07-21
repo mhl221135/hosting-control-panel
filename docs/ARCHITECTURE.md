@@ -132,8 +132,10 @@ and rewrites `wp-config.php`; source credentials are never required.
 ## External Integrations
 
 NPM hosts forward managed websites to `hosting-nginx:80` and own public ACME
-certificates. Cloudflare DNS discovers the longest matching active zone and can
-perform exact-match bulk A-record replacement.
+certificates. Before requesting ACME, the NPM client waits up to two minutes for
+every requested hostname to resolve, preventing a newly created alias from
+causing an immediate `NXDOMAIN` failure. Cloudflare DNS discovers the longest
+matching active zone and can perform exact-match bulk A-record replacement.
 
 Cloudflare Security uses a separate token and only changes rules with a
 panel-owned reference. Sensitive-probe and XML-RPC rules are host-scoped. The
