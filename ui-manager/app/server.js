@@ -90,8 +90,8 @@ const DEFAULT_POOL_PRESETS = {
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
-const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
+const npm = new NpmClient(() => integrationSettings.resolved(), { certificateDns: cloudflare });
 const cloudflareSecurity = new CloudflareClient(() => integrationSettings.resolved(), {
   tokenSetting: "cloudflareSecurityToken",
   tokenEnvironment: "CLOUDFLARE_SECURITY_API_TOKEN",
