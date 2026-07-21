@@ -31,6 +31,7 @@ class SiteState {
       opcache: true,
       backupEnabled: false,
       imageOptimizationEnabled: false,
+      siteType: "wordpress",
       notes: "",
       ...(this.read().sites[domain] || {}),
     };

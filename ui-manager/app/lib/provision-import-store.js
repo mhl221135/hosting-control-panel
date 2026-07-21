@@ -348,6 +348,43 @@ class ProvisionImportStore {
     };
   }
 
+  async installWebsiteArchive(idValue, destination) {
+    this.removeExpired();
+    const id = uploadId(idValue);
+    const metadata = this.read(id);
+    if (!metadata.files.website) {
+      const error = new Error("Upload the website archive before importing");
+      error.statusCode = 400;
+      throw error;
+    }
+    const directory = this.directory(id);
+    const archive = path.join(directory, metadata.files.website.path);
+    if (!fs.existsSync(archive)) throw new Error("The staged website archive is missing");
+    const websiteManifest = await this.archiveEntries(archive, "Website", { skipSymlinks: true });
+    const workspace = path.join(directory, "static-prepared");
+    const extracted = path.join(workspace, "extracted");
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.mkdirSync(extracted, { recursive: true, mode: 0o700 });
+    await this.extractArchive(archive, extracted, websiteManifest.symlinks);
+    walk(extracted, () => {});
+
+    const topLevel = fs.readdirSync(extracted, { withFileTypes: true });
+    const source = topLevel.length === 1 && topLevel[0].isDirectory()
+      ? path.join(extracted, topLevel[0].name)
+      : extracted;
+    const entries = fs.readdirSync(source, { withFileTypes: true });
+    if (!entries.length) throw new Error("Website archive contains no files");
+    for (const entry of entries) {
+      fs.cpSync(path.join(source, entry.name), path.join(destination, entry.name), {
+        recursive: true,
+        force: false,
+        errorOnExist: true,
+        preserveTimestamps: true,
+      });
+    }
+    return { fileCount: entries.length };
+  }
+
   remove(id) {
     fs.rmSync(this.directory(id), { recursive: true, force: true });
   }

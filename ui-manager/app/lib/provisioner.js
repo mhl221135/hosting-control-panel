@@ -344,7 +344,7 @@ async function optimizeImages(directory) {
   const containerPath = await normalizeWordPressPermissions(directory);
   const script = [
     'set -u; site="$1"; uploads="$site/wp-content/uploads"',
-    'if [ ! -d "$uploads" ]; then echo "created=0 skipped=0 failed=0 saved=0"; exit 0; fi',
+    'if [ ! -d "$uploads" ]; then uploads="$site"; fi',
     "created=0; skipped=0; failed=0; saved=0",
     'while IFS= read -r -d "" source; do',
     '  target="$source.webp"',

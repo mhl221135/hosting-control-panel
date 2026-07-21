@@ -14,6 +14,7 @@ test("defaults OPcache on and preserves it with older site-state files", () => {
     );
     const state = new SiteState(directory, path.join(directory, "cache.map"));
     assert.equal(state.get("example.com").opcache, true);
+    assert.equal(state.get("example.com").siteType, "wordpress");
     assert.equal(state.get("example.com").redis, true);
     assert.equal(state.update("example.com", { opcache: false }).opcache, false);
   } finally {

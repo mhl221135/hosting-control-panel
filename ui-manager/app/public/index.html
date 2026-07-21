@@ -125,42 +125,48 @@
 
         <section class="tab-panel hidden" data-tab-panel="provision">
           <div class="section-head">
-            <div><h2>Create WordPress website</h2><p>Creates the route, pool, database, WordPress installation and optional edge host.</p></div>
+            <div><h2>Create website</h2><p>Creates an isolated PHP pool, route, optional database, DNS, edge host, and SSL certificate.</p></div>
           </div>
           <form id="provisionForm" class="panel form-grid">
             <fieldset class="source-mode full">
+              <legend>Website type</legend>
+              <label><input name="site_type" type="radio" value="wordpress" checked /><span><strong>WordPress</strong><small>Database-backed WordPress installation or import.</small></span></label>
+              <label><input name="site_type" type="radio" value="static" /><span><strong>Static / PHP</strong><small>HTML, CSS, JavaScript, assets, and optional PHP without MySQL.</small></span></label>
+            </fieldset>
+            <fieldset class="source-mode full">
               <legend>Website source</legend>
-              <label><input name="source_mode" type="radio" value="fresh" checked /><span><strong>New WordPress</strong><small>Download and configure a clean installation.</small></span></label>
-              <label><input name="source_mode" type="radio" value="import" /><span><strong>Import website</strong><small>Restore files and a database from another server.</small></span></label>
+              <label><input name="source_mode" type="radio" value="fresh" checked /><span><strong>New website</strong><small>Install WordPress or create an empty HTML/PHP starter.</small></span></label>
+              <label><input name="source_mode" type="radio" value="import" /><span><strong>Import website</strong><small>Upload an archive, plus a database for WordPress.</small></span></label>
             </fieldset>
             <label>Domain<input name="domain" placeholder="website.com" required /></label>
             <label>Website directory<input name="directory" placeholder="Defaults to domain" /></label>
-            <label data-provision-fresh>Website title<input name="title" placeholder="Website name" /></label>
+            <label data-provision-wordpress data-provision-fresh>Website title<input name="title" placeholder="Website name" /></label>
             <label>PHP pool profile
               <select name="pool_tier" id="provisionTier"></select>
             </label>
-            <label data-provision-fresh>WordPress admin email<input name="admin_email" type="email" required /></label>
-            <label data-provision-fresh>WordPress admin username<input name="admin_user" value="admin" required /></label>
-            <label data-provision-fresh>WordPress admin password<input name="admin_password" type="password" placeholder="Generated when empty" /></label>
+            <label data-provision-wordpress data-provision-fresh>WordPress admin email<input name="admin_email" type="email" required /></label>
+            <label data-provision-wordpress data-provision-fresh>WordPress admin username<input name="admin_user" value="admin" required /></label>
+            <label data-provision-wordpress data-provision-fresh>WordPress admin password<input name="admin_password" type="password" placeholder="Generated when empty" /></label>
             <label>Notes<input name="notes" placeholder="Client or project note" /></label>
             <fieldset class="option-group full import-source hidden" data-provision-import>
               <legend>Import files</legend>
-              <label>Website archive<input id="provisionWebsiteArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" /><small>ZIP, TAR, TAR.GZ, or TGZ with one wp-config.php.</small></label>
-              <label>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>SQL, SQL.GZ, or TAR.GZ/TGZ containing one SQL dump. A new database user and password are generated.</small></label>
-              <div id="provisionImportProgress" class="status-box compact-status full">Imported WordPress users, content, plugins, and themes are preserved.</div>
+              <label>Website archive<input id="provisionWebsiteArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" /><small>ZIP, TAR, TAR.GZ, or TGZ. WordPress imports must contain one wp-config.php.</small></label>
+              <label data-provision-wordpress>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>SQL, SQL.GZ, or TAR.GZ/TGZ containing one SQL dump.</small></label>
+              <div id="provisionImportProgress" class="status-box compact-status full">Uploaded files are validated and extracted into the website directory.</div>
             </fieldset>
             <fieldset class="option-group full">
               <legend>Provisioning options</legend>
               <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
-              <label class="check"><input name="redis" type="checkbox" /> Enable Redis object cache</label>
+              <label class="check" data-provision-wordpress><input name="redis" type="checkbox" /> Enable Redis object cache</label>
               <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>
               <label class="check"><input name="opcache" type="checkbox" checked /> Enable PHP OPcache</label>
               <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>
+              <label class="check"><input name="scheduled_image_optimization" type="checkbox" /> Enable daily image optimization</label>
               <label class="check"><input name="create_npm_host" type="checkbox" checked /> Create NPM proxy host</label>
               <label class="check"><input name="issue_ssl" type="checkbox" checked /> Request SSL</label>
-              <label class="check" data-provision-fresh><input name="enable_comments" type="checkbox" /> Enable comments by default</label>
-              <label class="check" data-provision-fresh><input name="keep_default_plugins" type="checkbox" /> Keep bundled WordPress plugins</label>
-              <label class="check" data-provision-fresh><input name="keep_default_themes" type="checkbox" /> Keep bundled WordPress themes</label>
+              <label class="check" data-provision-wordpress data-provision-fresh><input name="enable_comments" type="checkbox" /> Enable comments by default</label>
+              <label class="check" data-provision-wordpress data-provision-fresh><input name="keep_default_plugins" type="checkbox" /> Keep bundled WordPress plugins</label>
+              <label class="check" data-provision-wordpress data-provision-fresh><input name="keep_default_themes" type="checkbox" /> Keep bundled WordPress themes</label>
             </fieldset>
             <fieldset class="option-group full provision-dns-options">
               <legend>Cloudflare DNS</legend>
@@ -170,7 +176,7 @@
               <label class="check"><input name="apply_dns_preset" type="checkbox" /> Add DNS preset records</label>
               <label>DNS preset<select name="dns_preset_id" id="provisionDnsPreset"><option value="">Select a preset</option></select></label>
             </fieldset>
-            <fieldset class="option-group full package-selection" data-provision-fresh>
+            <fieldset class="option-group full package-selection" data-provision-wordpress data-provision-fresh>
               <legend>Installation packages</legend>
               <div><strong>Plugins</strong><div id="provisionPluginPackages" class="package-checks muted">No uploaded plugins.</div></div>
               <div><strong>Themes</strong><div id="provisionThemePackages" class="package-checks muted">No uploaded themes.</div></div>
@@ -488,6 +494,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-13"></script>
+    <script src="/app.js?v=20260722-1"></script>
   </body>
 </html>

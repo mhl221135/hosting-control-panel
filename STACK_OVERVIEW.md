@@ -44,6 +44,7 @@ The panel provides:
 - Per-site Redis object cache, OPcache, and FastCGI page-cache controls
 - Global PHP, OPcache, FastCGI, Redis, and MySQL performance settings
 - Global gzip and on-demand WebP generation with original-image fallback
+- WordPress and database-free HTML/PHP websites on isolated PHP-FPM pools
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
