@@ -9,7 +9,8 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const UPLOAD_ID_PATTERN = /^[a-f0-9-]{36}$/;
 const WEBSITE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
-const DATABASE_EXTENSIONS = [".sql", ".sql.gz"];
+const DATABASE_EXTENSIONS = [".sql.gz", ".sql", ".tar.gz", ".tgz"];
+const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
 
 function uploadId(value) {
   const id = String(value || "").trim().toLowerCase();
@@ -36,8 +37,29 @@ function extensionFor(filename, extensions) {
   return extensions.find((extension) => lower.endsWith(extension)) || "";
 }
 
+function parseContentRange(value) {
+  if (!value) return null;
+  const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(String(value).trim());
+  if (!match) {
+    const error = new Error("Upload Content-Range is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const total = Number(match[3]);
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || !Number.isSafeInteger(total)
+      || start < 0 || end < start || end >= total) {
+    const error = new Error("Upload Content-Range is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+  return { start, end, total, size: end - start + 1 };
+}
+
 function validateArchiveEntry(raw) {
   const normalized = String(raw || "").replaceAll("\\", "/").replace(/^\.\//, "");
+  if (!normalized && [".", "./"].includes(String(raw || ""))) return "";
   if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) {
     throw new Error(`Archive contains an unsafe path: ${raw}`);
   }
@@ -126,6 +148,22 @@ class ProvisionImportStore {
       throw error;
     }
     const declaredSize = Number(request.headers["content-length"] || 0);
+    const range = parseContentRange(request.headers["content-range"]);
+    if (range) {
+      if (range.total > definition.limit) {
+        const error = new Error(`${kind} upload exceeds the size limit`);
+        error.statusCode = 413;
+        request.resume();
+        throw error;
+      }
+      if (range.size > MAX_CHUNK_SIZE || (declaredSize && declaredSize !== range.size)) {
+        const error = new Error("Upload chunk size is invalid");
+        error.statusCode = 400;
+        request.resume();
+        throw error;
+      }
+      return this.uploadChunk(request, id, kind, filename, extension, definition, range);
+    }
     if (declaredSize > definition.limit) {
       const error = new Error(`${kind} upload exceeds the size limit`);
       error.statusCode = 413;
@@ -154,32 +192,88 @@ class ProvisionImportStore {
     }
   }
 
-  async archiveEntries(archive) {
+  async uploadChunk(request, id, kind, filename, extension, definition, range) {
+    const directory = this.directory(id);
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const destination = path.join(directory, `${definition.stored}${extension}`);
+    const partial = `${destination}.partial`;
+    if (range.start === 0) {
+      fs.rmSync(partial, { force: true });
+      fs.rmSync(destination, { force: true });
+    }
+    const received = fs.existsSync(partial) ? fs.statSync(partial).size : 0;
+    if (received === range.end + 1) {
+      request.resume();
+      return { id, kind, filename, size: range.total, received, complete: false, duplicate: true };
+    }
+    if (received !== range.start) {
+      const error = new Error(`Upload offset mismatch; server has ${received} bytes`);
+      error.statusCode = 409;
+      request.resume();
+      throw error;
+    }
+
+    const limiter = new ByteLimit(range.size, `${kind} chunk`);
+    try {
+      await pipeline(request, limiter, fs.createWriteStream(partial, { flags: "a", mode: 0o600 }));
+      if (limiter.size !== range.size) throw new Error(`${kind} upload chunk is incomplete`);
+    } catch (error) {
+      if (fs.existsSync(partial)) fs.truncateSync(partial, range.start);
+      throw error;
+    }
+
+    const complete = range.end + 1 === range.total;
+    if (complete) {
+      fs.renameSync(partial, destination);
+      const metadata = this.read(id);
+      metadata.id = id;
+      metadata.updatedAt = new Date().toISOString();
+      metadata.files[kind] = { filename, path: path.basename(destination), size: range.total };
+      this.write(id, metadata);
+    }
+    return { id, kind, filename, size: range.total, received: range.end + 1, complete };
+  }
+
+  async archiveEntries(archive, label = "Website", options = {}) {
     const lower = archive.toLowerCase();
     const zipped = lower.endsWith(".zip");
     const command = zipped
       ? ["unzip", ["-Z1", archive]]
       : ["tar", [lower.endsWith(".tar") ? "-tf" : "-tzf", archive]];
     const { stdout } = await execFileAsync(command[0], command[1], { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+    const listedEntries = stdout.split(/\r?\n/).filter(Boolean);
+    const normalizedEntries = listedEntries.map(validateArchiveEntry);
+    const entries = normalizedEntries.filter(Boolean);
+    const symlinks = [];
     if (!zipped) {
       const verbose = await execFileAsync("tar", [lower.endsWith(".tar") ? "-tvf" : "-tzvf", archive], {
         timeout: 120_000,
         maxBuffer: 64 * 1024 * 1024,
       });
-      if (verbose.stdout.split(/\r?\n/).some((line) => line && !["-", "d"].includes(line[0]))) {
-        throw new Error("Website archive may contain only regular files and directories");
+      const lines = verbose.stdout.split(/\r?\n/).filter(Boolean);
+      if (lines.length !== listedEntries.length) throw new Error(`${label} archive listing is inconsistent`);
+      const unsupported = lines.find((line, index) => {
+        if (line[0] === "l" && normalizedEntries[index]) symlinks.push(normalizedEntries[index]);
+        return !["-", "d", "l"].includes(line[0]);
+      });
+      if (unsupported) {
+        throw new Error(`${label} archive may contain only regular files and directories`);
+      }
+      if (symlinks.length && !options.skipSymlinks) {
+        throw new Error(`${label} archive contains ${symlinks.length} symbolic link${symlinks.length === 1 ? "" : "s"}`);
       }
     }
-    return stdout.split(/\r?\n/).filter(Boolean).map(validateArchiveEntry);
+    return { entries, symlinks };
   }
 
-  async extractArchive(archive, destination) {
+  async extractArchive(archive, destination, excludedEntries = []) {
     const lower = archive.toLowerCase();
     if (lower.endsWith(".zip")) {
       await execFileAsync("unzip", ["-q", archive, "-d", destination], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 4 * 1024 * 1024 });
       return;
     }
-    await execFileAsync("tar", [lower.endsWith(".tar") ? "-xf" : "-xzf", archive, "-C", destination], {
+    const exclusions = excludedEntries.flatMap((entry) => ["--exclude", entry]);
+    await execFileAsync("tar", [lower.endsWith(".tar") ? "-xf" : "-xzf", archive, "-C", destination, ...exclusions], {
       timeout: 4 * 60 * 60 * 1000,
       maxBuffer: 4 * 1024 * 1024,
     });
@@ -198,14 +292,14 @@ class ProvisionImportStore {
     const archive = path.join(directory, metadata.files.website.path);
     const databaseDump = path.join(directory, metadata.files.database.path);
     if (!fs.existsSync(archive) || !fs.existsSync(databaseDump)) throw new Error("One or more staged import files are missing");
-    await this.archiveEntries(archive);
+    const websiteManifest = await this.archiveEntries(archive, "Website", { skipSymlinks: true });
 
     const workspace = path.join(directory, "prepared");
     const extracted = path.join(workspace, "extracted");
     const normalized = path.join(workspace, "normalized", websitePath);
     fs.rmSync(workspace, { recursive: true, force: true });
     fs.mkdirSync(extracted, { recursive: true, mode: 0o700 });
-    await this.extractArchive(archive, extracted);
+    await this.extractArchive(archive, extracted, websiteManifest.symlinks);
 
     const configs = [];
     walk(extracted, (target, entry) => {
@@ -223,11 +317,29 @@ class ProvisionImportStore {
       maxBuffer: 4 * 1024 * 1024,
     });
 
+    let databaseSource = databaseDump;
+    if (databaseDump.toLowerCase().endsWith(".tar.gz") || databaseDump.toLowerCase().endsWith(".tgz")) {
+      await this.archiveEntries(databaseDump, "Database");
+      const databaseExtracted = path.join(workspace, "database-extracted");
+      fs.mkdirSync(databaseExtracted, { recursive: true, mode: 0o700 });
+      await this.extractArchive(databaseDump, databaseExtracted);
+      const dumps = [];
+      walk(databaseExtracted, (target, entry) => {
+        if (entry.isFile() && (entry.name.toLowerCase().endsWith(".sql") || entry.name.toLowerCase().endsWith(".sql.gz"))) {
+          dumps.push(target);
+        }
+      });
+      if (dumps.length !== 1) {
+        throw new Error(`Database archive must contain exactly one .sql or .sql.gz file (found ${dumps.length})`);
+      }
+      databaseSource = dumps[0];
+    }
+
     const normalizedDatabase = path.join(workspace, "database.sql.gz");
-    if (databaseDump.toLowerCase().endsWith(".sql.gz")) {
-      fs.copyFileSync(databaseDump, normalizedDatabase);
+    if (databaseSource.toLowerCase().endsWith(".sql.gz")) {
+      fs.copyFileSync(databaseSource, normalizedDatabase);
     } else {
-      await pipeline(fs.createReadStream(databaseDump), zlib.createGzip({ level: 6 }), fs.createWriteStream(normalizedDatabase, { mode: 0o600 }));
+      await pipeline(fs.createReadStream(databaseSource), zlib.createGzip({ level: 6 }), fs.createWriteStream(normalizedDatabase, { mode: 0o600 }));
     }
     return {
       sourceDirectory: workspace,

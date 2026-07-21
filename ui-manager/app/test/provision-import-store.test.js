@@ -14,6 +14,45 @@ function requestFor(buffer) {
   return request;
 }
 
+function chunkRequest(buffer, start, end, total) {
+  const request = requestFor(buffer.subarray(start, end));
+  request.headers["content-range"] = `bytes ${start}-${end - 1}/${total}`;
+  return request;
+}
+
+test("assembles a resumable upload from ordered chunks", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "55555555-5555-4555-8555-555555555555";
+  const contents = Buffer.from("chunk-one|chunk-two|chunk-three");
+
+  const first = await store.upload(chunkRequest(contents, 0, 10, contents.length), id, "database", "site.sql");
+  const second = await store.upload(chunkRequest(contents, 10, 20, contents.length), id, "database", "site.sql");
+  const third = await store.upload(chunkRequest(contents, 20, contents.length, contents.length), id, "database", "site.sql");
+
+  assert.equal(first.complete, false);
+  assert.equal(second.received, 20);
+  assert.equal(third.complete, true);
+  assert.deepEqual(fs.readFileSync(path.join(store.directory(id), "database-upload.sql")), contents);
+  assert.equal(store.read(id).files.database.size, contents.length);
+});
+
+test("rejects an out-of-order resumable chunk without discarding prior chunks", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "66666666-6666-4666-8666-666666666666";
+  const contents = Buffer.from("0123456789abcdefghij");
+
+  await store.upload(chunkRequest(contents, 0, 10, contents.length), id, "database", "site.sql");
+  await assert.rejects(
+    store.upload(chunkRequest(contents, 15, contents.length, contents.length), id, "database", "site.sql"),
+    /offset mismatch/,
+  );
+  assert.equal(fs.statSync(path.join(store.directory(id), "database-upload.sql.partial")).size, 10);
+});
+
 test("streams and prepares a nested WordPress TAR archive with a plain SQL dump", async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -39,6 +78,7 @@ test("streams and prepares a nested WordPress TAR archive with a plain SQL dump"
 });
 
 test("rejects unsafe archive paths and unsupported upload names", async (context) => {
+  assert.equal(validateArchiveEntry("./"), "");
   assert.throws(() => validateArchiveEntry("../wp-config.php"), /unsafe path/);
   assert.throws(() => validateArchiveEntry("/etc/passwd"), /unsafe path/);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
@@ -50,7 +90,7 @@ test("rejects unsafe archive paths and unsupported upload names", async (context
   );
 });
 
-test("rejects TAR archives containing symbolic links", async (context) => {
+test("safely skips symbolic links in website TAR archives", async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = path.join(root, "source");
@@ -63,7 +103,10 @@ test("rejects TAR archives containing symbolic links", async (context) => {
   const id = "33333333-3333-4333-8333-333333333333";
   await store.upload(requestFor(fs.readFileSync(archive)), id, "website", "linked.tar.gz");
   await store.upload(requestFor(Buffer.from("SELECT 1;\n")), id, "database", "site.sql");
-  await assert.rejects(store.prepare(id, "example.com"), /regular files and directories/);
+  const prepared = await store.prepare(id, "example.com");
+  const entries = execFileSync("tar", ["-tzf", path.join(prepared.sourceDirectory, prepared.websiteArchive)], { encoding: "utf8" });
+  assert.match(entries, /example\.com\/wp-config\.php/);
+  assert.doesNotMatch(entries, /config-link\.php/);
 });
 
 test("prepares a ZIP archive and an already compressed SQL dump", async (context) => {
@@ -84,5 +127,32 @@ test("prepares a ZIP archive and an already compressed SQL dump", async (context
   assert.equal(
     zlib.gunzipSync(fs.readFileSync(path.join(prepared.sourceDirectory, prepared.databaseDump))).toString(),
     "CREATE TABLE zipped (id INT);\n",
+  );
+});
+
+test("extracts exactly one SQL dump from a database TAR.GZ archive", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-import-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const website = path.join(root, "public_html");
+  fs.mkdirSync(website);
+  fs.writeFileSync(path.join(website, "wp-config.php"), "<?php\n");
+  const websiteArchive = path.join(root, "website.tar.gz");
+  execFileSync("tar", ["-czf", websiteArchive, "public_html"], { cwd: root });
+
+  const dumps = path.join(root, "dumps");
+  fs.mkdirSync(dumps);
+  fs.writeFileSync(path.join(dumps, "example.sql"), "CREATE TABLE archived (id INT);\n");
+  const databaseArchive = path.join(root, "database.tar.gz");
+  execFileSync("tar", ["-czf", databaseArchive, "dumps"], { cwd: root });
+
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "77777777-7777-4777-8777-777777777777";
+  await store.upload(requestFor(fs.readFileSync(websiteArchive)), id, "website", "website.tar.gz");
+  await store.upload(requestFor(fs.readFileSync(databaseArchive)), id, "database", "database.tar.gz");
+  const prepared = await store.prepare(id, "archive.example.com");
+
+  assert.equal(
+    zlib.gunzipSync(fs.readFileSync(path.join(prepared.sourceDirectory, prepared.databaseDump))).toString(),
+    "CREATE TABLE archived (id INT);\n",
   );
 });
