@@ -45,6 +45,27 @@ else
 fi
 
 git -C "$project_dir" pull --ff-only origin main
+
+env_value() {
+  awk -v key="$1" '
+    index($0, key "=") == 1 {
+      value = substr($0, length(key) + 2)
+      if (value ~ /^".*"$/ || value ~ /^'\''.*'\''$/) {
+        value = substr(value, 2, length(value) - 2)
+      }
+      print value
+      exit
+    }
+  ' "$project_dir/.env"
+}
+
+hosting_root="$(env_value HOSTING_ROOT)"
+hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
+mkdir -p "$hosting_root/app-data/npm/data/nginx/custom"
+install -m 0644 \
+  "$project_dir/global-configs-new-upd/npm/http_top.conf" \
+  "$hosting_root/app-data/npm/data/nginx/custom/http_top.conf"
+
 cd "$project_dir"
 compose config --quiet
 compose pull hosting-npm
