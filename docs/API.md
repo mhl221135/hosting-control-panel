@@ -40,6 +40,7 @@ cache; avoid adding permanent polling.
 | `GET,PUT /api/backups/settings` | global schedule, pause, retention |
 | `GET /api/backups` | backup history/status |
 | `POST /api/backups/site` | backup one site |
+| `POST /api/backups/sites` | start enabled-site or all-site batch backup |
 | `POST /api/backups/app-data` | archive app data and dump all databases |
 | `POST /api/backups/restore` | restore a validated site set |
 | `DELETE /api/backups/...` | delete a complete backup set |

@@ -59,7 +59,7 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports:/srv/exports
+      - ${EXPORTS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports}:/srv/exports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/imports:/srv/imports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm

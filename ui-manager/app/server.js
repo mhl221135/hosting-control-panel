@@ -1013,6 +1013,25 @@ async function handleApi(req, res) {
     return true;
   }
 
+  if (req.method === "POST" && requestUrl.pathname === "/api/backups/sites") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const scope = String(body.scope || "enabled");
+    if (!new Set(["enabled", "all"]).has(scope)) {
+      sendJson(res, 400, { ok: false, message: "Backup scope must be enabled or all" });
+      return true;
+    }
+    const active = backupManager.status();
+    if (active.busy) {
+      sendJson(res, 409, { ok: false, message: `Another backup is already running: ${active.currentJob?.label || "backup"}` });
+      return true;
+    }
+    backupManager.ensureSiteBackupsEnabled();
+    const operation = backupManager.runSites(scope === "enabled");
+    operation.catch((error) => console.error(`${scope} website backup failed:`, error.message));
+    sendJson(res, 202, { ok: true, status: backupManager.status() });
+    return true;
+  }
+
   if (req.method === "POST" && requestUrl.pathname === "/api/backups/app-data") {
     sendJson(res, 201, await backupManager.runAppData());
     return true;

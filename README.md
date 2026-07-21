@@ -145,10 +145,10 @@ that access.
 |   |-- redis/
 |   `-- ui-manager/
 |-- websites/                # Website document roots
-|-- exports/                 # Portable migration exports
 |-- imports/                 # Staged migration input
 `-- backups/                 # Default; BACKUPS_DIR may place this on another disk
     |-- app-data/
+    |-- exports/             # Default EXPORTS_DIR for portable migrations
     `-- example.com/
 ```
 
@@ -176,8 +176,9 @@ sudo sh /tmp/websites-v2-bootstrap.sh
 ```
 
 It asks for the installation root (default
-`/media/ssdmount/websites-v2`), an independent absolute backup directory, and
-every initial login and password. It then
+`/media/ssdmount/websites-v2`), independent absolute backup and website-export
+directories, and every initial login and password. The export directory defaults
+to `<BACKUPS_DIR>/exports`. It then
 clones the project into `<root>/sources`, writes a mode-600 `.env`, creates the
 storage layout, copies only missing configuration templates, builds the custom
 images, and starts the stack.
@@ -453,7 +454,9 @@ The panel owns the new backup schedule. In **Backups**, set one daily start time
 and the number of complete sets to retain (1-90). A global switch can pause all
 manual and scheduled website backups without losing per-site choices. Each
 website also has an independent daily-backup switch and a manual **Back up**
-action.
+action. The Backups tab can immediately back up all daily-enabled websites or
+override the per-site switches and back up every configured primary website.
+Both batch actions respect the global website-backup pause.
 
 A website backup is stored as:
 
@@ -507,6 +510,10 @@ Create a portable export from the running stack:
 cd /media/ssdmount/websites-v2/sources
 sudo ./scripts/export-websites.sh
 ```
+
+The host output directory is configured by `EXPORTS_DIR` in `.env` and is
+mounted as `/srv/exports` in the panel container. Fresh installations default it
+to `<BACKUPS_DIR>/exports`.
 
 The script can export every configured primary site or a comma-separated
 selection. It writes a directory such as:

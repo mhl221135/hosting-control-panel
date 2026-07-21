@@ -268,7 +268,11 @@
         <section class="tab-panel hidden" data-tab-panel="backups">
           <div class="section-head">
             <div><h2>Backups</h2><p>Daily website archives, database dumps and application data protection.</p></div>
-            <button id="backupAppData">Back up app data now</button>
+            <div class="section-actions">
+              <button id="backupEnabledSites" class="secondary" type="button">Back up enabled sites</button>
+              <button id="backupAllSites" type="button">Back up all sites</button>
+              <button id="backupAppData" class="secondary" type="button">Back up app data</button>
+            </div>
           </div>
 
           <div class="two-column backup-layout">
@@ -477,6 +481,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-10"></script>
+    <script src="/app.js?v=20260721-11"></script>
   </body>
 </html>
