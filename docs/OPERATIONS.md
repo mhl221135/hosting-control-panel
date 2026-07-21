@@ -195,6 +195,11 @@ Check `/api/sites/images/status`, `image-optimization-status.json`, container
 CPU/I/O, and ImageMagick output. The bulk task is sequential and waits for the
 backup/restore lock. Existing smaller WebP sidecars are skipped.
 
+For daily incremental runs, enable the global image schedule in **Settings** and
+select **Images daily** on each intended primary website. The scheduler runs once
+per local calendar day after the configured time and defers while the shared
+operation lock is occupied.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

@@ -393,6 +393,11 @@ persisted background job. Progress remains visible in the Sites header, aliases
 are not processed twice, and the job shares the backup lock so image conversion
 cannot overlap a backup or restore.
 
+Settings also provides an optional daily image schedule. It is globally disabled
+by default, and each primary website must be selected with **Images daily** on its
+site row. Scheduled runs are incremental, so they convert only missing or stale
+WebP sidecars and defer while another storage operation is active.
+
 ## Security Notes
 
 - `.env`, runtime panel credentials, encryption keys, and NPM persistent data
