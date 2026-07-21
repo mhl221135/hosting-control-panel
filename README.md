@@ -309,6 +309,13 @@ client_max_body_size 8g;
 proxy_request_buffering off;
 ```
 
+After creating the panel's NPM host, apply those directives without changing
+other proxy hosts:
+
+```bash
+docker exec hosting-ui node /app/cli/configure-panel-upload.js ui.example.com
+```
+
 Provisioning:
 
 1. Creates the document root and PHP-FPM pool.
