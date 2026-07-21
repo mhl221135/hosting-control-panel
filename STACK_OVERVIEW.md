@@ -31,7 +31,7 @@ access for provisioning and reload operations, while website PHP does not.
 - `hosting-npm`: public proxy hosts and Let's Encrypt certificates
 - `hosting-db`: MySQL 8.4
 - `hosting-redis`: Redis 7
-- `hosting-phpmyadmin`, `hosting-files`, and `hosting-goaccess`: administration tools
+- `hosting-phpmyadmin` and `hosting-files`: administration tools
 
 ## Control panel
 

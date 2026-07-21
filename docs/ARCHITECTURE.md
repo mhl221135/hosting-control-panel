@@ -33,7 +33,6 @@ Administrator
 | `hosting-redis` | Optional WordPress object cache | none | `app-data/redis` |
 | `hosting-files` | File Browser over website roots | none | `app-data/filebrowser` |
 | `hosting-phpmyadmin` | Database administration | `8484` | none |
-| `hosting-goaccess` | Optional NPM log reporting | `7890` | reads NPM logs |
 
 All stack containers use the explicit Docker bridge network `hosting-net`.
 Database and Redis ports are intentionally not published.
