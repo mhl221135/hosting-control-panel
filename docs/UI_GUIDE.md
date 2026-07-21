@@ -71,16 +71,18 @@ for diagnosis, not long-term analytics or billing.
 
 ## Provision
 
-Provision creates a complete WordPress runtime: files, PHP-FPM pool, internal
-route, database, database user, optional Cloudflare DNS, NPM proxy host, and
-certificate.
+Provision creates either a WordPress runtime or an HTML/PHP runtime. Both receive
+files, an isolated PHP-FPM pool, internal route, optional Cloudflare DNS, NPM
+proxy host, and certificate. HTML/PHP sites do not create a database.
 
 ### Website source
 
 | Control | Function |
 | --- | --- |
-| **New WordPress** | Downloads and installs a clean WordPress site. |
-| **Import website** | Accepts a ZIP/TAR website archive and SQL/SQL.GZ dump, flattens a single wrapper directory, generates new database credentials, updates `wp-config.php`, and imports the database. |
+| **WordPress** | Enables fresh WordPress installation or archive-plus-database import. |
+| **Static / PHP** | Creates or imports HTML, CSS, JavaScript, assets, and optional PHP without MySQL. |
+| **New website** | Downloads WordPress or creates a minimal HTML/PHP starter according to website type. |
+| **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and requires SQL only for WordPress. |
 | **Domain** | Primary hostname used by nginx, NPM, WordPress, and optional DNS. |
 | **Website directory** | Overrides the directory name below the shared websites root; defaults to the domain. |
 | **Website title** | Sets the title during a fresh WordPress installation. |
@@ -97,6 +99,7 @@ certificate.
 | **Enable FastCGI page cache** | Enables anonymous HTML caching for the new route. |
 | **Enable PHP OPcache** | Enables PHP bytecode caching for the site. |
 | **Enable daily backup** | Includes the new site in scheduled backup runs. |
+| **Enable daily image optimization** | Includes the new site in the optional incremental WebP schedule. |
 | **Create NPM proxy host** | Creates the public NPM edge host targeting `hosting-nginx`. |
 | **Request SSL** | Requests or attaches a Let's Encrypt certificate after the NPM host exists. DNS must already resolve to the server. |
 | **Enable comments by default** | Leaves WordPress comments enabled; the default is off. |
@@ -113,7 +116,7 @@ certificate.
 | **Create website** | Validates the complete request and starts provisioning. |
 | **Upload plugins / Upload themes** | Adds ZIP packages to the persistent panel library for future installations. |
 
-The fresh installer removes the default `Hello world!` post. Failed
+The fresh WordPress installer removes the default `Hello world!` post. Failed
 provisioning reports the completed step and preserves enough state for repair;
 it does not silently overwrite an existing non-empty website or database.
 
@@ -159,9 +162,10 @@ to select the zone.
 
 ## Backups
 
-Website backup sets contain `website.tar.gz`, `database.sql.gz`, and
-`manifest.json`. Application-data sets contain an app-data archive and a
-consistent dump of all databases.
+WordPress backup sets contain `website.tar.gz`, `database.sql.gz`, and
+`manifest.json`. HTML/PHP sets contain the website archive and manifest only;
+restore performs the staged file swap without invoking MySQL. Application-data
+sets contain an app-data archive and a consistent dump of all databases.
 
 | Control | Function |
 | --- | --- |

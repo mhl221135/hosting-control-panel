@@ -91,9 +91,9 @@ Provisioning validates inputs before mutation, then:
 1. prepares the website directory;
 2. allocates or updates the PHP-FPM pool and nginx map row;
 3. validates and reloads runtime services;
-4. creates a database and same-named site user with a random password;
-5. installs WordPress and applies clean-install choices;
-6. installs selected packages and optional Redis configuration;
+4. for WordPress, creates a database and same-named site user with a random password;
+5. installs WordPress and applies clean-install choices, or installs validated HTML/PHP files;
+6. installs selected WordPress packages and optional Redis configuration;
 7. applies optional Cloudflare DNS and DNS presets;
 8. ensures the NPM proxy host and optional certificate;
 9. persists per-site state.
@@ -115,8 +115,9 @@ reported so an administrator can retry without deleting a valid site.
 ## Backup And Restore
 
 The backup manager serializes backups, restores, and bulk image work with a
-shared lock. Site backups pair a file archive, compressed logical database dump,
-and manifest in one timestamped directory. Retention deletes complete sets.
+shared lock. WordPress backups pair files, a logical database dump, and a
+manifest. HTML/PHP backups are file-only sets with an explicit null database.
+Retention deletes complete sets.
 
 Restore validates ownership, creates a safety backup, stages the file swap on
 the websites filesystem, imports the database, and attempts rollback on import

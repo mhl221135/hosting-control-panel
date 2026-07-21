@@ -18,6 +18,7 @@ into dedicated directories.
 - Automatic grouping of `www` and other aliases under their primary website
 - Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
+- First-class HTML/PHP sites with isolated pools and no required database
 - Provision-time website imports from ZIP/TAR archives and SQL/SQL.GZ dumps
 - Automatic MySQL database and user creation
 - Nginx Proxy Manager proxy-host creation and Let's Encrypt certificate actions
@@ -270,18 +271,25 @@ The Settings tab contains connection tests for:
 - Cloudflare
 - MySQL
 
-## Provision a WordPress Site
+## Provision a Website
 
 1. Open **Provision**.
-2. Enter the domain, website directory, title, administrator email, and user.
+2. Select **WordPress** or **Static / PHP**, then enter the domain and directory.
+   WordPress fresh installs also require a title, administrator email, and user.
 3. Choose the PHP pool tier.
 4. Choose whether to create/update Cloudflare host DNS and optionally apply a
    named multi-record DNS preset.
-5. Select uploaded plugin/theme ZIP packages and optional cache, NPM, SSL, and
-   daily backup settings.
+5. Select optional cache, NPM, SSL, daily backup, and daily image settings.
+   WordPress fresh installs can also use uploaded plugin/theme ZIP packages.
 6. Choose whether to keep bundled WordPress plugins/themes or enable comments.
    These options are off by default, and the initial Hello World post is removed.
 7. Submit the form and store the displayed one-time credentials.
+
+For HTML/PHP sites, a fresh operation creates a minimal `index.html`; import
+accepts only the website archive and creates no MySQL database. A single wrapper
+directory is flattened automatically. PHP files use the site's isolated pool,
+while direct access to dotfiles, configuration artifacts, and database dumps is
+blocked by internal nginx.
 
 To move an existing WordPress site, select **Import website** under Website
 source. Upload a ZIP, TAR, TAR.GZ, or TGZ containing exactly one

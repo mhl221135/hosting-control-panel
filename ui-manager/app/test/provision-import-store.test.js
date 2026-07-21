@@ -156,3 +156,27 @@ test("extracts exactly one SQL dump from a database TAR.GZ archive", async (cont
     "CREATE TABLE archived (id INT);\n",
   );
 });
+
+test("installs a static website archive without wp-config or a database", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-static-import-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = path.join(root, "site");
+  fs.mkdirSync(path.join(source, "assets"), { recursive: true });
+  fs.writeFileSync(path.join(source, "index.html"), "<h1>Static site</h1>\n");
+  fs.writeFileSync(path.join(source, "contact.php"), "<?php echo 'ok';\n");
+  fs.writeFileSync(path.join(source, "assets", "site.css"), "body {}\n");
+  const archive = path.join(root, "site.tar.gz");
+  execFileSync("tar", ["-czf", archive, "site"], { cwd: root });
+
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "88888888-8888-4888-8888-888888888888";
+  await store.upload(requestFor(fs.readFileSync(archive)), id, "website", "site.tar.gz");
+  const destination = path.join(root, "destination");
+  fs.mkdirSync(destination);
+  const result = await store.installWebsiteArchive(id, destination);
+
+  assert.equal(result.fileCount, 3);
+  assert.equal(fs.readFileSync(path.join(destination, "index.html"), "utf8"), "<h1>Static site</h1>\n");
+  assert.equal(fs.readFileSync(path.join(destination, "contact.php"), "utf8"), "<?php echo 'ok';\n");
+  assert.equal(fs.readFileSync(path.join(destination, "assets", "site.css"), "utf8"), "body {}\n");
+});

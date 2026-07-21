@@ -90,20 +90,25 @@ function syncProvisionDnsOptions() {
 function syncProvisionSourceMode() {
   const form = $("#provisionForm");
   const importing = form.elements.source_mode.value === "import";
-  $$('[data-provision-fresh]').forEach((element) => element.classList.toggle("hidden", importing));
+  const wordpress = form.elements.site_type.value === "wordpress";
+  $$('[data-provision-fresh]').forEach((element) => element.classList.toggle("hidden", importing || !wordpress));
   $$('[data-provision-import]').forEach((element) => element.classList.toggle("hidden", !importing));
+  $$('[data-provision-wordpress]:not([data-provision-fresh])').forEach((element) => element.classList.toggle("hidden", !wordpress));
   for (const name of ["admin_email", "admin_user"]) {
-    form.elements[name].required = !importing;
-    form.elements[name].disabled = importing;
+    form.elements[name].required = wordpress && !importing;
+    form.elements[name].disabled = importing || !wordpress;
   }
-  form.elements.admin_password.disabled = importing;
-  form.elements.title.disabled = importing;
-  form.elements.enable_comments.disabled = importing;
-  form.elements.keep_default_plugins.disabled = importing;
-  form.elements.keep_default_themes.disabled = importing;
+  form.elements.admin_password.disabled = importing || !wordpress;
+  form.elements.title.disabled = importing || !wordpress;
+  form.elements.enable_comments.disabled = importing || !wordpress;
+  form.elements.keep_default_plugins.disabled = importing || !wordpress;
+  form.elements.keep_default_themes.disabled = importing || !wordpress;
+  form.elements.redis.disabled = !wordpress;
+  if (!wordpress) form.elements.redis.checked = false;
   $("#provisionWebsiteArchive").required = importing;
-  $("#provisionDatabaseDump").required = importing;
-  $("#provisionSubmit").textContent = importing ? "Import website" : "Create website";
+  $("#provisionDatabaseDump").required = importing && wordpress;
+  $("#provisionDatabaseDump").disabled = !wordpress;
+  $("#provisionSubmit").textContent = importing ? "Import website" : wordpress ? "Create WordPress website" : "Create HTML/PHP website";
 }
 
 function provisionUploadId() {
@@ -372,6 +377,7 @@ function renderSites() {
         </label>
       </div>
       <div class="site-flags">
+        <span class="badge on">${site.state?.siteType === "static" ? "HTML/PHP" : "WordPress"}</span>
         <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
         <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
         <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
@@ -984,6 +990,7 @@ $("#loadSiteStats").addEventListener("click", async (event) => {
 $("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);
 $("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncProvisionDnsOptions);
 $$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
+$$('#provisionForm input[name="site_type"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 syncProvisionDnsOptions();
 syncProvisionSourceMode();
 $("#optimizeAllImages").addEventListener("click", async () => {
@@ -1205,13 +1212,15 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   if (provisionInFlight) return notice("An import or provisioning operation is already running.", "warning");
   const body = formObject(event.currentTarget);
   const importing = body.source_mode === "import";
+  const wordpress = body.site_type === "wordpress";
   body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
   body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
   if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
   if (body.apply_dns_preset && !body.dns_preset_id) return notice("Select the DNS preset to add.", "warning");
   const websiteArchive = $("#provisionWebsiteArchive").files[0];
   const databaseDump = $("#provisionDatabaseDump").files[0];
-  if (importing && (!websiteArchive || !databaseDump)) return notice("Select both the website archive and database dump.", "warning");
+  if (importing && !websiteArchive) return notice("Select the website archive.", "warning");
+  if (importing && wordpress && !databaseDump) return notice("Select the WordPress database dump.", "warning");
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
   const submitButton = event.submitter || $("#provisionSubmit");
@@ -1224,15 +1233,23 @@ $("#provisionForm").addEventListener("submit", async (event) => {
         await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (loaded, total) => {
           importProgress.textContent = uploadProgress("Uploading website archive", loaded, total);
         });
-        await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
-          importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
-        });
+        if (wordpress) {
+          await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
+            importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
+          });
+        }
         submitButton.textContent = "Extracting and importing...";
-        importProgress.textContent = "Uploads complete. Extracting files, importing the database, and configuring services.";
+        importProgress.textContent = wordpress
+          ? "Uploads complete. Extracting files, importing the database, and configuring services."
+          : "Upload complete. Extracting files and configuring services.";
       }
       return api("/api/provision", { method: "POST", body: JSON.stringify(body) });
     });
-    resultPanel.innerHTML = result.imported ? `
+    resultPanel.innerHTML = result.siteType === "static" ? `
+      <h3>${escapeHtml(result.domain)} ${result.imported ? "imported" : "created"}</h3>
+      <p>HTML/PHP files are served through the site's isolated PHP-FPM pool. No database was created.</p>
+      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
+    ` : result.imported ? `
       <h3>${escapeHtml(result.domain)} imported</h3>
       <p>Existing WordPress users and content were preserved. The new database credentials are shown once.</p>
       <pre>Database: ${escapeHtml(result.database.name)}

@@ -93,8 +93,8 @@ function buildSiteRemovalPlan(input) {
         items: (input.backups || []).map((backup) => backup.id),
       },
       finalBackup: {
-        available: Boolean(input.database && directory),
-        safe: Boolean(input.database && directory),
+        available: Boolean(directory && (site.state?.siteType === "static" || input.database)),
+        safe: Boolean(directory && (site.state?.siteType === "static" || input.database)),
         count: 1,
         items: [site.host],
       },

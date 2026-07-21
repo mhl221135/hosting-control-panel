@@ -10,6 +10,7 @@ const {
   dropDatabaseAndUser,
   installWordPress,
   mysqlIdentifier,
+  normalizeWordPressPermissions,
   optimizeImages,
   prepareSiteDirectory,
   randomPassword,
@@ -593,6 +594,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
         opcache: true,
         backupEnabled: false,
         imageOptimizationEnabled: false,
+        siteType: "wordpress",
         notes: "",
       },
     };
@@ -627,10 +629,12 @@ async function createSiteRemovalPlan(domain) {
   const warnings = [];
   const directory = siteDirectory(site);
   let database = null;
-  try {
-    database = await wordpressDatabaseConfig(directory);
-  } catch (error) {
-    warnings.push(`Database inspection failed for ${site.host}: ${error.message}`);
+  if (site.state?.siteType !== "static") {
+    try {
+      database = await wordpressDatabaseConfig(directory);
+    } catch (error) {
+      warnings.push(`Database inspection failed for ${site.host}: ${error.message}`);
+    }
   }
 
   const databaseReferences = [];
@@ -639,6 +643,7 @@ async function createSiteRemovalPlan(domain) {
   const referenceResults = [];
   for (let offset = 0; offset < otherSites.length; offset += 4) {
     const batch = await Promise.all(otherSites.slice(offset, offset + 4).map(async (otherSite) => {
+      if (otherSite.state?.siteType === "static") return { domain: otherSite.host, static: true };
       try {
         return { domain: otherSite.host, ...(await wordpressDatabaseConfig(siteDirectory(otherSite))) };
       } catch (error) {
@@ -648,7 +653,9 @@ async function createSiteRemovalPlan(domain) {
     referenceResults.push(...batch);
   }
   for (const reference of referenceResults) {
-    if (reference.error) {
+    if (reference.static) {
+      // Static/PHP sites intentionally have no database reference.
+    } else if (reference.error) {
       databaseInspectionComplete = false;
       warnings.push(`Could not verify database ownership for ${reference.domain}`);
     } else {
@@ -848,6 +855,8 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
           redis: Boolean(body.redis),
           opcache: body.opcache !== false,
           backupEnabled: Boolean(body.scheduled_backup),
+          imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
+          siteType: "wordpress",
         },
       }],
     };
@@ -885,11 +894,16 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
         steps.push({ name: "dns-preset", status: "warning", message: error.message });
       }
     }
-    siteState.update(domain, { notes: String(body.notes || "").slice(0, 2000) });
+    siteState.update(domain, {
+      imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
+      siteType: "wordpress",
+      notes: String(body.notes || "").slice(0, 2000),
+    });
     provisionImports.remove(uploadId);
     return {
       ok: true,
       imported: true,
+      siteType: "wordpress",
       domain,
       directory,
       port: result.port,
@@ -1468,18 +1482,19 @@ async function handleApi(req, res) {
     const domain = validateDomain(body.domain);
     const directory = safeRelative(String(body.directory || domain).trim(), "website directory");
     const sourceMode = body.source_mode === "import" ? "import" : "fresh";
+    const siteType = body.site_type === "static" ? "static" : "wordpress";
     const adminEmail = String(body.admin_email || "").trim().toLowerCase();
     const adminUser = String(body.admin_user || "admin").trim();
-    if (sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
+    if (siteType === "wordpress" && sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
       sendJson(res, 400, { ok: false, message: "Enter a valid WordPress administrator email" });
       return true;
     }
-    if (sourceMode === "fresh" && !/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
+    if (siteType === "wordpress" && sourceMode === "fresh" && !/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
       sendJson(res, 400, { ok: false, message: "WordPress administrator username is invalid" });
       return true;
     }
-    const pluginPackages = sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
-    const themePackages = sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
+    const pluginPackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
+    const themePackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
     const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
     const presetRecords = body.apply_dns_preset
       ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
@@ -1494,13 +1509,25 @@ async function handleApi(req, res) {
       return true;
     }
 
-    if (sourceMode === "import") {
+    if (siteType === "wordpress" && sourceMode === "import") {
       const result = await provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords });
       sendJson(res, 201, result);
       return true;
     }
 
-    prepareSiteDirectory(WEBSITES_ROOT, directory);
+    const sitePath = prepareSiteDirectory(WEBSITES_ROOT, directory);
+    if (siteType === "static") {
+      if (sourceMode === "import") {
+        await provisionImports.installWebsiteArchive(String(body.import_upload_id || ""), sitePath);
+      } else {
+        fs.writeFileSync(
+          path.join(sitePath, "index.html"),
+          `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body><main><h1>${domain}</h1></main></body></html>\n`,
+          { encoding: "utf8", mode: 0o664 },
+        );
+      }
+      await normalizeWordPressPermissions(directory);
+    }
     const usedPorts = Object.values(poolsParsed.sections)
       .map((pool) => Number(pool.listen))
       .filter(Number.isInteger);
@@ -1546,32 +1573,40 @@ async function handleApi(req, res) {
     try {
       await validateAndReload(mapBefore, poolsBefore);
       steps.push({ name: "runtime", status: "complete" });
-      const database = await createDatabase(domain, integrationSettings.resolved());
-      steps.push({ name: "database", status: "complete", database: database.name });
-      const adminPassword = String(body.admin_password || "") || randomPassword(24);
-      await installWordPress({
-        domain,
-        directory,
-        database,
-        title: String(body.title || domain),
-        adminEmail,
-        adminUser,
-        adminPassword,
-        redis: Boolean(body.redis),
-        useHttps: false,
-        commentsEnabled: Boolean(body.enable_comments),
-        keepDefaultPlugins: Boolean(body.keep_default_plugins),
-        keepDefaultThemes: Boolean(body.keep_default_themes),
-        pluginPackages,
-        themePackages,
-      });
-      steps.push({ name: "wordpress", status: "complete" });
+      let database = null;
+      let adminPassword = "";
+      if (siteType === "wordpress") {
+        database = await createDatabase(domain, integrationSettings.resolved());
+        steps.push({ name: "database", status: "complete", database: database.name });
+        adminPassword = String(body.admin_password || "") || randomPassword(24);
+        await installWordPress({
+          domain,
+          directory,
+          database,
+          title: String(body.title || domain),
+          adminEmail,
+          adminUser,
+          adminPassword,
+          redis: Boolean(body.redis),
+          useHttps: false,
+          commentsEnabled: Boolean(body.enable_comments),
+          keepDefaultPlugins: Boolean(body.keep_default_plugins),
+          keepDefaultThemes: Boolean(body.keep_default_themes),
+          pluginPackages,
+          themePackages,
+        });
+        steps.push({ name: "wordpress", status: "complete" });
+      } else {
+        steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
+      }
 
       siteState.update(domain, {
         fastcgiCache: Boolean(body.fastcgi_cache),
-        redis: Boolean(body.redis),
+        redis: siteType === "wordpress" && Boolean(body.redis),
         opcache: body.opcache !== false,
         backupEnabled: Boolean(body.scheduled_backup),
+        imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
+        siteType,
         cacheVersion: 1,
         notes: String(body.notes || "").slice(0, 2000),
       });
@@ -1600,7 +1635,7 @@ async function handleApi(req, res) {
           npmHost = await npm.ensureHost(domains, Boolean(body.issue_ssl));
           steps.push({ name: "npm", status: "complete", hostId: npmHost.id });
           if (npmHost.certificate_id) {
-            await updateWordPressUrl(directory, domain, true);
+            if (siteType === "wordpress") await updateWordPressUrl(directory, domain, true);
             steps.push({ name: "https", status: "complete" });
           }
         } catch (error) {
@@ -1608,13 +1643,19 @@ async function handleApi(req, res) {
         }
       }
 
+      if (siteType === "static" && sourceMode === "import") {
+        provisionImports.remove(String(body.import_upload_id || ""));
+      }
+
       sendJson(res, 201, {
         ok: true,
+        imported: sourceMode === "import",
+        siteType,
         domain,
         directory,
         port,
-        database: { name: database.name, user: database.user, password: database.password },
-        wordpress: { adminUser, adminPassword, adminEmail },
+        database: database ? { name: database.name, user: database.user, password: database.password } : null,
+        wordpress: siteType === "wordpress" ? { adminUser, adminPassword, adminEmail } : null,
         npmHost,
         steps,
       });

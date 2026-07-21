@@ -267,6 +267,7 @@ class BackupManager {
 
   async createSiteBackup(site, retention) {
     const relative = this.siteRelativePath(site);
+    const staticSite = site.state?.siteType === "static";
     const parent = this.safeBackupParent(site.host);
     const id = this.nextBackupId(parent);
     const partial = path.join(parent, `.partial-${id}`);
@@ -274,7 +275,7 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
-      const database = await this.databaseName(relative);
+      const database = staticSite ? null : await this.databaseName(relative);
       await execFileAsync("ionice", [
         "-c",
         "2",
@@ -294,7 +295,7 @@ class BackupManager {
         this.websitesRoot,
         relative,
       ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
-      await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
+      if (database) await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
       const manifest = {
         version: 1,
         type: "site",
@@ -468,7 +469,8 @@ class BackupManager {
     if (manifest.type !== "site" || manifest.domain !== site.host) {
       throw new Error("Backup does not belong to the selected website");
     }
-    for (const fileName of ["website.tar.gz", "database.sql.gz"]) {
+    const requiredFiles = ["website.tar.gz", ...(manifest.database ? ["database.sql.gz"] : [])];
+    for (const fileName of requiredFiles) {
       if (!fs.existsSync(path.join(directory, fileName))) throw new Error(`Backup is missing ${fileName}`);
     }
     return { directory, manifest };
@@ -476,7 +478,8 @@ class BackupManager {
 
   async restoreSiteBackup(site, id) {
     const relative = this.siteRelativePath(site);
-    const currentDatabase = await this.databaseName(relative);
+    const staticSite = site.state?.siteType === "static";
+    const currentDatabase = staticSite ? null : await this.databaseName(relative);
     const { directory, manifest } = this.readSiteManifest(site, id);
     if (manifest.websitePath !== relative || manifest.database !== currentDatabase) {
       throw new Error("Backup website path or database does not match the current site");
@@ -516,7 +519,7 @@ class BackupManager {
       oldMoved = true;
       fs.renameSync(restored, current);
       swapped = true;
-      await this.importDatabase(currentDatabase, path.join(directory, "database.sql.gz"));
+      if (currentDatabase) await this.importDatabase(currentDatabase, path.join(directory, "database.sql.gz"));
       fs.rmSync(rollback, { recursive: true, force: true });
       oldMoved = false;
       swapped = false;
@@ -533,13 +536,15 @@ class BackupManager {
         fs.rmSync(current, { recursive: true, force: true });
         fs.renameSync(rollback, current);
         oldMoved = false;
-        try {
-          await this.importDatabase(currentDatabase, path.join(
-            this.backupDirectory(site.host, safety.id),
-            "database.sql.gz",
-          ));
-        } catch (rollbackError) {
-          error.message += `; database rollback also failed: ${rollbackError.message}`;
+        if (currentDatabase) {
+          try {
+            await this.importDatabase(currentDatabase, path.join(
+              this.backupDirectory(site.host, safety.id),
+              "database.sql.gz",
+            ));
+          } catch (rollbackError) {
+            error.message += `; database rollback also failed: ${rollbackError.message}`;
+          }
         }
       } else if (oldMoved && fs.existsSync(rollback)) {
         fs.renameSync(rollback, current);

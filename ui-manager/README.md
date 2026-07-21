@@ -47,13 +47,18 @@ seconds. Website disk usage and the selected NPM access-log sample are cached
 for five minutes. No background metrics database or permanent polling service
 is required.
 
-## WordPress provisioning
+## Website provisioning
 
 Open **Provision** to create a site, PHP-FPM pool, database and database user,
 install WordPress, enable optional Redis/OPcache/FastCGI cache, and create the NPM
 proxy host and certificate. Provisioning can create/update Cloudflare host DNS,
 apply a named multi-record DNS preset, and install selected ZIP packages from the
 persistent plugin/theme library. Generated credentials are shown once.
+
+The same form provisions database-free **Static / PHP** sites. Fresh mode creates
+a minimal index, while import mode accepts only the validated website archive,
+flattens one wrapper directory, and keeps PHP execution isolated in the site's
+pool. Static/PHP backups and restores are file-only sets.
 
 Fresh installations remove the Hello World post and close comments by default.
 Bundled WordPress plugins and inactive bundled themes are removed unless their
