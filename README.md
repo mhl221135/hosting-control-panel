@@ -87,7 +87,8 @@ that access.
 |   |-- API.md
 |   |-- ARCHITECTURE.md
 |   |-- CONFIGURATION.md
-|   `-- OPERATIONS.md
+|   |-- OPERATIONS.md
+|   `-- UI_GUIDE.md
 |-- scripts/
 |   |-- configure.sh
 |   |-- export-websites.sh
@@ -622,6 +623,7 @@ not invoked or modified by this panel.
 
 ## Additional Documentation
 
+- [docs/UI_GUIDE.md](docs/UI_GUIDE.md): illustrated panel guide covering every workspace and control
 - [AGENTS.md](AGENTS.md): engineering handoff, safety rules, and change map
 - [STACK_OVERVIEW.md](STACK_OVERVIEW.md): runtime ownership and provisioning flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): service and module design
