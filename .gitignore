@@ -1,8 +1,22 @@
 .env
+.env.*
+!.env.example
+.security-deny-patterns
 .nonprod-configs/
 .DS_Store
 *.bak
 *.log
+*.db
+*.sqlite
+*.sqlite3
+*.pem
+*.key
+*.crt
+*.p12
+logs/
+letsencrypt/
+certificates/
+docs/images/
 
 # Persistent runtime state and encrypted local credentials
 ui-manager/data/admin-account.json

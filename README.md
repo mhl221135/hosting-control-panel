@@ -88,6 +88,7 @@ that access.
 |   |-- ARCHITECTURE.md
 |   |-- CONFIGURATION.md
 |   |-- OPERATIONS.md
+|   |-- SECURITY.md
 |   `-- UI_GUIDE.md
 |-- scripts/
 |   |-- configure.sh
@@ -623,7 +624,8 @@ not invoked or modified by this panel.
 
 ## Additional Documentation
 
-- [docs/UI_GUIDE.md](docs/UI_GUIDE.md): illustrated panel guide covering every workspace and control
+- [docs/UI_GUIDE.md](docs/UI_GUIDE.md): panel guide covering every workspace and control
+- [docs/SECURITY.md](docs/SECURITY.md): threat model, secret handling, audits, and credential rotation
 - [AGENTS.md](AGENTS.md): engineering handoff, safety rules, and change map
 - [STACK_OVERVIEW.md](STACK_OVERVIEW.md): runtime ownership and provisioning flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): service and module design
