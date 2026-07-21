@@ -2268,10 +2268,25 @@ server.listen(PORT, "0.0.0.0", () => {
   backupManager.start();
   imageOptimizationManager.startScheduler();
   if (fs.existsSync(performanceSettings.path)) {
-    setTimeout(() => {
-      applyDynamicPerformance(performanceSettings.read()).catch((error) => {
-        console.error(`Could not reapply dynamic performance settings: ${error.message}`);
-      });
+    setTimeout(async () => {
+      const settings = performanceSettings.read();
+      const snapshot = performanceSettings.snapshot();
+      try {
+        performanceSettings.applyFiles(settings);
+        const filesChanged = snapshot.phpContent !== fs.readFileSync(performanceSettings.phpIniPath, "utf8")
+          || snapshot.nginxContent !== fs.readFileSync(performanceSettings.nginxPath, "utf8")
+          || snapshot.nginxDefaultContent !== fs.readFileSync(performanceSettings.nginxDefaultPath, "utf8");
+        if (filesChanged) await validateAndReload();
+        await applyDynamicPerformance(settings);
+      } catch (error) {
+        performanceSettings.restore(snapshot);
+        try {
+          await validateAndReload();
+        } catch (rollbackError) {
+          console.error(`Could not reload restored startup settings: ${rollbackError.message}`);
+        }
+        console.error(`Could not reapply managed performance settings: ${error.message}`);
+      }
     }, 15_000);
   }
 });
