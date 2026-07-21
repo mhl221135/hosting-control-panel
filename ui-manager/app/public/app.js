@@ -164,6 +164,10 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
+  const activeNav = $(`[data-tab-link="${name}"]`);
+  if (activeNav && window.matchMedia("(max-width: 640px)").matches) {
+    activeNav.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }
   const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
@@ -309,8 +313,8 @@ function renderSites() {
   }
   container.innerHTML = sites.map((site) => `
     <article class="site-row">
-      <div><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
-      <div>
+      <div class="site-identity"><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
+      <div class="site-runtime">
         <strong>${escapeHtml(site.poolName || "No pool")}</strong>
         <p>Port ${escapeHtml(site.port || "—")}</p>
         <label class="site-tier">PHP profile
@@ -326,15 +330,15 @@ function renderSites() {
         <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
         <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
       </div>
-      <div class="button-row">
+      <div class="site-actions">
         <label class="check site-backup-check"><input type="checkbox" data-toggle-backup="${escapeHtml(site.host)}" ${site.state?.backupEnabled ? "checked" : ""} /> Daily</label>
-        <button class="secondary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
+        <button class="secondary site-action-primary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
         <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
         <button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>
         <button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>
-        <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge</button>
-        <button class="secondary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
+        <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge cache</button>
+        <button class="site-action-primary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
       </div>
     </article>
   `).join("");
