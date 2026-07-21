@@ -437,6 +437,13 @@
             <div class="form-actions full"><button type="submit">Apply performance settings</button></div>
           </form>
 
+          <form id="imageOptimizationSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>Automatic image optimization</h3><p>Daily incremental runs create WebP files only for new or changed JPEG and PNG images on enabled websites.</p></div>
+            <label>Daily start time<input name="schedule_time" type="time" required /></label>
+            <label class="check inline"><input name="enabled" type="checkbox" /> Enable automatic optimization globally</label>
+            <div class="form-actions full"><button type="submit">Save image schedule</button></div>
+          </form>
+
           <div class="two-column settings-tools">
             <article class="panel">
               <div class="card-head"><div><h3>Global DNS presets</h3><p class="muted">Build a named set containing one or more reusable records.</p></div></div>
@@ -481,6 +488,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-12"></script>
+    <script src="/app.js?v=20260721-13"></script>
   </body>
 </html>
