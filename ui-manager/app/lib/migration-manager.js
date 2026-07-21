@@ -328,6 +328,7 @@ class MigrationManager {
       }
     }
     if (!fs.existsSync(path.join(destination, "wp-config.php"))) throw new Error(`wp-config.php not found in ${site.websitePath}`);
+    await normalizeWordPressPermissions(site.websitePath);
     return { destination, extracted };
   }
 

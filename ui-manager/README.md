@@ -67,7 +67,8 @@ SQL/SQL.GZ dumps or a TAR.GZ/TGZ containing exactly one dump. It accepts a neste
 `wp-config.php`, migrates the WordPress URL, and preserves imported accounts and
 content. Chunk offsets are carried in validated URL parameters so restrictive
 edge proxies do not reject browser-controlled range headers. Failed chunks
-retry without restarting the archive. Staging expires
+retry without restarting the archive. Extracted WordPress ownership and modes
+are normalized before WP-CLI reads `wp-config.php`. Staging expires
 after 24 hours and is removed immediately after a successful import.
 
 ## Sites and image optimization
