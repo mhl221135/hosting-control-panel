@@ -14,6 +14,7 @@ const state = {
   dnsPresets: [],
   dnsPresetDraft: [],
   cloudflareIps: [],
+  securityRules: [],
   wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
@@ -111,9 +112,10 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
-  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
+  if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
@@ -133,6 +135,7 @@ function renderSummary() {
   const enabled = [];
   if (state.status?.integrations?.npm) enabled.push("NPM");
   if (state.status?.integrations?.cloudflare) enabled.push("Cloudflare");
+  if (state.status?.integrations?.cloudflareSecurity) enabled.push("WAF");
   enabled.push("MySQL");
   $("#integrationSummary").textContent = `${enabled.join(" · ")} ready`;
 }
@@ -318,6 +321,39 @@ function renderDomainOptions() {
   $("#integrationDomain").innerHTML = domains.map((domain) =>
     `<option value="${escapeHtml(domain)}" ${domain === state.selectedDomain ? "selected" : ""}>${escapeHtml(domain)}</option>`
   ).join("");
+  $("#securityDomain").innerHTML = domains.map((domain) =>
+    `<option value="${escapeHtml(domain)}" ${domain === state.selectedDomain ? "selected" : ""}>${escapeHtml(domain)}</option>`
+  ).join("");
+}
+
+function renderSecurityRules() {
+  const container = $("#securityRules");
+  const rules = state.securityRules || [];
+  container.className = rules.length ? "rows" : "rows empty";
+  container.innerHTML = rules.length ? rules.map((rule) => `
+    <div class="security-rule-row">
+      <div><strong>${escapeHtml(rule.description)}</strong><p>${escapeHtml(rule.action)} · ${escapeHtml(rule.phase === "http_ratelimit" ? "rate limit" : "WAF")}</p></div>
+      <label class="check"><input type="checkbox" data-security-toggle="${escapeHtml(rule.id)}" data-ruleset-id="${escapeHtml(rule.rulesetId)}" ${rule.enabled ? "checked" : ""} /> Enabled</label>
+      <button type="button" class="secondary danger-button" data-security-delete="${escapeHtml(rule.id)}" data-ruleset-id="${escapeHtml(rule.rulesetId)}">Remove</button>
+    </div>
+  `).join("") : "No Hosting Control security rules are applied to this website.";
+}
+
+async function loadSecurity() {
+  renderDomainOptions();
+  const configured = Boolean(state.status?.integrations?.cloudflareSecurity);
+  $("#securityUnavailable").classList.toggle("hidden", configured);
+  $$('[data-security-preset]').forEach((button) => { button.disabled = !configured; });
+  if (!configured || !state.selectedDomain) {
+    state.securityRules = [];
+    $("#securityZone").textContent = configured ? "No website selected." : "Security token is not configured.";
+    renderSecurityRules();
+    return;
+  }
+  const data = await api(`/api/cloudflare/security?domain=${encodeURIComponent(state.selectedDomain)}`);
+  state.securityRules = data.rules || [];
+  $("#securityZone").textContent = `Zone: ${data.zone.name} · website: ${data.domain}`;
+  renderSecurityRules();
 }
 
 function renderBackupOptions() {
@@ -668,11 +704,14 @@ async function loadIntegrationSettings() {
     form.elements.npmSecret.placeholder = settings.npmSecretConfigured ? "Saved password configured" : "Enter NPM password";
     form.elements.cloudflareToken.value = "";
     form.elements.cloudflareToken.placeholder = settings.cloudflareTokenConfigured ? "Saved token configured" : "Enter Cloudflare token";
+    form.elements.cloudflareSecurityToken.value = "";
+    form.elements.cloudflareSecurityToken.placeholder = settings.cloudflareSecurityTokenConfigured ? "Saved security token configured" : "Enter Cloudflare Security token";
     form.elements.cloudflareAccountId.value = settings.cloudflareAccountId || "";
     form.elements.mysqlContainer.value = settings.mysqlContainer || "hosting-db";
     form.elements.mysqlSitePrefix.value = settings.mysqlSitePrefix || "yogali00_";
     form.elements.clearNpmSecret.checked = false;
     form.elements.clearCloudflareToken.checked = false;
+    form.elements.clearCloudflareSecurityToken.checked = false;
     state.performance = performanceData.settings;
     const performance = $("#performanceSettingsForm");
     performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
@@ -821,6 +860,51 @@ $("#sitesList").addEventListener("click", (event) => {
 $("#integrationDomain").addEventListener("change", async (event) => {
   state.selectedDomain = event.target.value;
   await refreshIntegrationView();
+});
+$("#securityDomain").addEventListener("change", async (event) => {
+  state.selectedDomain = event.target.value;
+  await loadSecurity().catch((error) => notice(error.message, "warning"));
+});
+$("#refreshSecurity").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadSecurity); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$$('[data-security-preset]').forEach((button) => button.addEventListener("click", async (event) => {
+  try {
+    await withButton(event.currentTarget, "Applying...", () => api("/api/cloudflare/security/presets", {
+      method: "POST",
+      body: JSON.stringify({ domain: state.selectedDomain, preset: event.currentTarget.dataset.securityPreset }),
+    }));
+    notice("Cloudflare security preset applied.");
+    await loadSecurity();
+  } catch (error) { notice(error.message, "warning"); }
+}));
+$("#securityRules").addEventListener("change", async (event) => {
+  const input = event.target.closest("[data-security-toggle]");
+  if (!input) return;
+  try {
+    await api(`/api/cloudflare/security/rules/${encodeURIComponent(input.dataset.rulesetId)}/${encodeURIComponent(input.dataset.securityToggle)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ domain: state.selectedDomain, enabled: input.checked }),
+    });
+    notice(`Cloudflare rule ${input.checked ? "enabled" : "disabled"}.`);
+    await loadSecurity();
+  } catch (error) {
+    input.checked = !input.checked;
+    notice(error.message, "warning");
+  }
+});
+$("#securityRules").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-security-delete]");
+  if (!button || !confirm("Remove this panel-managed Cloudflare rule?")) return;
+  try {
+    await withButton(button, "Removing...", () => api(
+      `/api/cloudflare/security/rules/${encodeURIComponent(button.dataset.rulesetId)}/${encodeURIComponent(button.dataset.securityDelete)}?domain=${encodeURIComponent(state.selectedDomain)}`,
+      { method: "DELETE" },
+    ));
+    notice("Cloudflare security rule removed.");
+    await loadSecurity();
+  } catch (error) { notice(error.message, "warning"); }
 });
 $("#loadDns").addEventListener("click", () => loadDns().catch((error) => notice(error.message, "warning")));
 $("#refreshNpm").addEventListener("click", () => loadNpm().catch((error) => notice(error.message, "warning")));

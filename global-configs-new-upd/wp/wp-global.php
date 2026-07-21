@@ -20,11 +20,6 @@ if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PRO
     $_SERVER['REQUEST_SCHEME'] = 'https';
 }
 
-// Restore real visitor IP if behind Cloudflare
-if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
-    $_SERVER['REMOTE_ADDR'] = $_SERVER['HTTP_CF_CONNECTING_IP'];
-}
-
 /*
 define('XMLRPC_REQUEST', false);*/
 

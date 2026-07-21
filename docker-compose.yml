@@ -47,6 +47,7 @@ services:
       NPM_SECRET: ${NPM_SECRET:?Set NPM_SECRET in .env}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_SECURITY_API_TOKEN: ${CLOUDFLARE_SECURITY_API_TOKEN:-}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
       MYSQL_SITE_PREFIX: ${MYSQL_SITE_PREFIX:-yogali00_}
       RELOAD_NGINX_CMD: "docker exec hosting-nginx nginx -s reload"
@@ -130,6 +131,7 @@ services:
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/data:/data
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/letsencrypt:/etc/letsencrypt
+      - ./global-configs-new-upd/npm/http_top.conf:/data/nginx/custom/http_top.conf:ro
     depends_on:
       - hosting-db
     networks:

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260721-4" />
+    <link rel="stylesheet" href="/styles.css?v=20260721-5" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -27,6 +27,7 @@
           <button class="nav-item" data-tab-link="stats">Stats</button>
           <button class="nav-item" data-tab-link="provision">Provision</button>
           <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
+          <button class="nav-item" data-tab-link="security">Security</button>
           <button class="nav-item" data-tab-link="backups">Backups</button>
           <button class="nav-item" data-tab-link="runtime">Runtime</button>
           <button class="nav-item" data-tab-link="settings">Settings</button>
@@ -226,6 +227,32 @@
           </div>
         </section>
 
+        <section class="tab-panel hidden" data-tab-panel="security">
+          <div class="section-head">
+            <div><h2>Cloudflare security</h2><p>Per-site edge rules managed by this panel.</p></div>
+            <div class="section-actions">
+              <select id="securityDomain" class="domain-select"></select>
+              <button id="refreshSecurity" class="secondary" type="button">Refresh</button>
+            </div>
+          </div>
+
+          <div id="securityUnavailable" class="notice warning hidden">Configure a separate Cloudflare Security token in Settings.</div>
+          <div class="two-column security-layout">
+            <article class="panel">
+              <div class="card-head"><div><h3>Protection presets</h3><p id="securityZone" class="muted">Select a website.</p></div></div>
+              <div class="security-presets">
+                <div><strong>Sensitive probes</strong><p>Block requests for exposed configuration, repository and exploit paths.</p><button type="button" data-security-preset="suspicious-probes">Apply</button></div>
+                <div><strong>XML-RPC challenge</strong><p>Challenge requests to WordPress XML-RPC without disabling it at the origin.</p><button type="button" data-security-preset="xmlrpc-challenge">Apply</button></div>
+                <div><strong>Login rate limit</strong><p>Block an IP after 10 login POST requests in 60 seconds for 10 minutes.</p><button type="button" data-security-preset="login-rate-limit">Apply</button></div>
+              </div>
+            </article>
+            <article class="panel">
+              <div class="card-head"><div><h3>Managed rules</h3><p class="muted">Only rules created by Hosting Control are shown.</p></div></div>
+              <div id="securityRules" class="rows empty">No rules loaded.</div>
+            </article>
+          </div>
+        </section>
+
         <section class="tab-panel hidden" data-tab-panel="backups">
           <div class="section-head">
             <div><h2>Backups</h2><p>Daily website archives, database dumps and application data protection.</p></div>
@@ -311,6 +338,11 @@
             <label>Cloudflare Account ID<input name="cloudflareAccountId" placeholder="Required for cfat_ account tokens" maxlength="32" /></label>
             <label class="check inline"><input name="clearCloudflareToken" type="checkbox" /> Clear saved Cloudflare token</label>
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="cloudflare">Test Cloudflare</button></div>
+
+            <div class="group-title full"><h3>Cloudflare Security</h3><p>Use a separate token with Zone:Read and Zone WAF:Edit. It is used only for WAF and rate-limit rules.</p></div>
+            <label>Cloudflare Security token<input name="cloudflareSecurityToken" type="password" placeholder="Leave empty to keep saved token" /></label>
+            <label class="check inline"><input name="clearCloudflareSecurityToken" type="checkbox" /> Clear saved security token</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-integration="cloudflare-security">Test Cloudflare Security</button></div>
 
             <div class="group-title full"><h3>WordPress database installer</h3><p>The root password stays inside MySQL. The UI invokes MySQL using the container's existing environment.</p></div>
             <label>MySQL container<input name="mysqlContainer" placeholder="hosting-db" required /></label>
@@ -399,6 +431,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-4"></script>
+    <script src="/app.js?v=20260721-5"></script>
   </body>
 </html>

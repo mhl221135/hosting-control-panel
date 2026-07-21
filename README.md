@@ -146,7 +146,8 @@ The active, panel-managed copies live in `app-data/configs`.
 - Docker Engine
 - Docker Compose v1.29+ or Docker Compose v2
 - DNS records pointing to the host when public websites are enabled
-- Optional Cloudflare API token with `Zone:Read` and `DNS:Edit`
+- Optional Cloudflare DNS token with `Zone:Read` and `DNS:Edit`
+- Optional separate Cloudflare Security token with `Zone:Read` and `Zone WAF:Edit`
 
 ## Fresh Installation
 
@@ -177,7 +178,7 @@ The interactive setup requests:
 - `NPM_DB_USER`
 - `NPM_DB_PASSWORD`
 - `NPM_DB_NAME`
-- optional Cloudflare token and account ID
+- optional Cloudflare DNS token, Security token, and account ID
 
 The installer generates `UI_SETTINGS_KEY` automatically. On an empty data tree,
 NPM creates its first administrator from `NPM_IDENTITY` and `NPM_SECRET`. File
@@ -185,7 +186,7 @@ Browser creates its first administrator from `FILEBROWSER_ADMIN_USERNAME` and
 `FILEBROWSER_ADMIN_PASSWORD`. Existing persistent databases are never
 overwritten when `.env` changes.
 
-NPM API, ACME email, and Cloudflare credentials can also be maintained in the
+NPM API, ACME email, and both Cloudflare credentials can also be maintained in the
 panel's **Settings** tab. Secrets are encrypted with AES-256-GCM in the
 persistent panel data directory.
 
@@ -521,6 +522,22 @@ replacement tool changes only A records whose content exactly matches the
 selected old IP, across every active zone available to the configured
 Cloudflare token. It preserves proxy and TTL settings, requires confirmation,
 and reports each changed hostname.
+
+## Cloudflare Security
+
+The **Security** tab lists primary hosted websites and manages only rules
+created by Hosting Control. It can apply a sensitive-path block, an XML-RPC
+managed challenge, and a WordPress login rate limit. Existing user-created
+Cloudflare rules are not changed or displayed.
+
+Use a separate token with `Zone:Read` and `Zone WAF:Edit`. The fresh installer
+asks for this token independently from the DNS token, and it can be changed or
+cleared later in **Settings**.
+
+NPM restores `CF-Connecting-IP` only for connections received from published
+Cloudflare address ranges. Direct connections cannot supply a trusted visitor
+header. NPM access logs and the private internal nginx therefore use the
+restored visitor address instead of the Cloudflare edge address.
 
 The legacy host-specific `backup_websites.sh` remains excluded from Git and is
 not invoked or modified by this panel.

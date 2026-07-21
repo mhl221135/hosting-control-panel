@@ -15,6 +15,7 @@ Open **Settings** in the panel to configure:
 
 - Nginx Proxy Manager API URL, login identity, and password
 - Cloudflare API token
+- Separate Cloudflare Security API token
 - MySQL container name and database/user prefix
 - Global PHP, OPcache, FastCGI, Redis, and MySQL resource limits
 
@@ -24,6 +25,12 @@ panel create a restricted local key in its data directory.
 
 The MySQL root password stays in the MySQL container environment and is never
 stored by the panel.
+
+## Cloudflare security
+
+The **Security** tab applies narrowly scoped WAF and rate-limit presets to one
+hosted website at a time. It uses a separate `CLOUDFLARE_SECURITY_API_TOKEN`
+credential and never edits rules that were not created by Hosting Control.
 
 ## Statistics
 

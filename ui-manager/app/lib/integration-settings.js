@@ -59,6 +59,8 @@ class IntegrationSettings {
       npmSecret: this.decrypt(stored.npmSecret) || process.env.NPM_SECRET || "",
       acmeEmail: stored.acmeEmail || process.env.ACME_EMAIL || "",
       cloudflareToken: this.decrypt(stored.cloudflareToken) || process.env.CLOUDFLARE_API_TOKEN || "",
+      cloudflareSecurityToken: this.decrypt(stored.cloudflareSecurityToken)
+        || process.env.CLOUDFLARE_SECURITY_API_TOKEN || "",
       cloudflareAccountId: stored.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
       mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db",
       mysqlSitePrefix: stored.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_",
@@ -73,6 +75,7 @@ class IntegrationSettings {
       npmSecretConfigured: Boolean(settings.npmSecret),
       acmeEmail: settings.acmeEmail,
       cloudflareTokenConfigured: Boolean(settings.cloudflareToken),
+      cloudflareSecurityTokenConfigured: Boolean(settings.cloudflareSecurityToken),
       cloudflareAccountId: settings.cloudflareAccountId,
       mysqlContainer: settings.mysqlContainer,
       mysqlSitePrefix: settings.mysqlSitePrefix,
@@ -95,6 +98,11 @@ class IntegrationSettings {
         : payload.cloudflareToken
           ? this.encrypt(payload.cloudflareToken)
           : current.cloudflareToken || "",
+      cloudflareSecurityToken: payload.clearCloudflareSecurityToken
+        ? ""
+        : payload.cloudflareSecurityToken
+          ? this.encrypt(payload.cloudflareSecurityToken)
+          : current.cloudflareSecurityToken || "",
       cloudflareAccountId: String(
         payload.cloudflareAccountId || current.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
       ).trim().toLowerCase(),
