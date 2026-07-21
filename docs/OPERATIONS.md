@@ -121,6 +121,13 @@ client_max_body_size 8g;
 proxy_request_buffering off;
 ```
 
+The bundled helper applies this only to the named panel proxy host and is safe
+to rerun:
+
+```bash
+docker exec hosting-ui node /app/cli/configure-panel-upload.js ui.example.com
+```
+
 Uploaded files are staged under `imports/ui-provision`. Successful imports and
 staging older than 24 hours are removed automatically. Failed imports retain
 their staged inputs so the form can be retried until expiration.
