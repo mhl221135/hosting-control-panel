@@ -3,7 +3,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const test = require("node:test");
-const { DEFAULTS, PerformanceSettings, renderNginx, renderPhpIni, validate } = require("../lib/performance-settings");
+const { DEFAULTS, PerformanceSettings, ensureNginxSecurityLocations, renderNginx, renderPhpIni, validate } = require("../lib/performance-settings");
 
 test("validates the 16 GB performance defaults", () => {
   assert.deepEqual(validate(DEFAULTS), DEFAULTS);
@@ -11,6 +11,14 @@ test("validates the 16 GB performance defaults", () => {
   assert.throws(() => validate({ opcache: { memoryMb: 4097 } }), /OPcache memory/);
   assert.throws(() => validate({ mysql: { bufferPoolMb: 16000 } }), /MySQL buffer pool/);
   assert.throws(() => validate({ redis: { policy: "random" } }), /policy/);
+});
+
+test("adds sensitive-file protection to existing nginx configs once", () => {
+  const original = "    # Block PHP execution inside uploads directories\n";
+  const secured = ensureNginxSecurityLocations(original);
+  assert.match(secured, /Managed sensitive-file protection/);
+  assert.match(secured, /config\|credential\|secret\|setup/);
+  assert.equal(ensureNginxSecurityLocations(secured), secured);
 });
 
 test("renders PHP and nginx performance directives", () => {
