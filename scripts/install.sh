@@ -117,6 +117,11 @@ mkdir -p \
   "$hosting_root/imports" \
   "$hosting_root/websites/_default"
 
+mkdir -p "$hosting_root/app-data/npm/data/nginx/custom"
+install -m 0644 \
+  "$project_dir/global-configs-new-upd/npm/http_top.conf" \
+  "$hosting_root/app-data/npm/data/nginx/custom/http_top.conf"
+
 chown -R 33:33 \
   "$hosting_root/app-data/filebrowser" \
   "$hosting_root/websites"

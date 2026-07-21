@@ -537,7 +537,9 @@ cleared later in **Settings**.
 NPM restores `CF-Connecting-IP` only for connections received from published
 Cloudflare address ranges. Direct connections cannot supply a trusted visitor
 header. NPM access logs and the private internal nginx therefore use the
-restored visitor address instead of the Cloudflare edge address.
+restored visitor address instead of the Cloudflare edge address. Installation
+and upgrade scripts copy this managed configuration into NPM's writable data
+directory so its startup migration can update the file safely.
 
 The legacy host-specific `backup_websites.sh` remains excluded from Git and is
 not invoked or modified by this panel.

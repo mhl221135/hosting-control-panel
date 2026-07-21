@@ -131,7 +131,6 @@ services:
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/data:/data
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/letsencrypt:/etc/letsencrypt
-      - ./global-configs-new-upd/npm/http_top.conf:/data/nginx/custom/http_top.conf:ro
     depends_on:
       - hosting-db
     networks:
