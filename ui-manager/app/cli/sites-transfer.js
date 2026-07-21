@@ -161,7 +161,7 @@ async function importSites(sourceArgument) {
   const result = await manager.importSites({
     sourceDirectory,
     manifest,
-    useExistingFiles: !fromExport,
+    useExistingFiles: manifest.sites.every((site) => !site.websiteArchive),
     wanIp,
     updateDns,
     proxied,
@@ -169,7 +169,7 @@ async function importSites(sourceArgument) {
   });
   stdout.write(`\nImport completed${result.ok ? "" : " with warnings"}.\n`);
   for (const site of result.results) {
-    stdout.write(`  ${site.domain}: pool port ${site.port}, database ${site.database}\n`);
+    stdout.write(`  ${site.domain}: pool port ${site.port}${site.database ? `, database ${site.database}` : ", no database"}\n`);
     site.warnings.forEach((warning) => stdout.write(`    WARNING: ${warning}\n`));
   }
 }

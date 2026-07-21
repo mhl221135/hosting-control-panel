@@ -291,6 +291,9 @@ directory is flattened automatically. PHP files use the site's isolated pool,
 while direct access to dotfiles, configuration artifacts, and database dumps is
 blocked by internal nginx.
 
+Panel exports preserve the site type. HTML/PHP exports contain only the website
+archive and manifest, and can be imported without a database dump.
+
 To move an existing WordPress site, select **Import website** under Website
 source. Upload a ZIP, TAR, TAR.GZ, or TGZ containing exactly one
 `wp-config.php`, plus an SQL or SQL.GZ database dump. The importer accepts files
