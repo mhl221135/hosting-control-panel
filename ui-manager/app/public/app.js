@@ -512,8 +512,15 @@ function formatBytes(value) {
 function renderBackupStatus() {
   const status = state.backupStatus || {};
   const settings = state.backupSettings || {};
+  const siteActionsDisabled = settings.siteBackupsEnabled === false || status.busy;
+  $("#backupEnabledSites").disabled = siteActionsDisabled;
+  $("#backupAllSites").disabled = siteActionsDisabled;
+  $("#backupAppData").disabled = status.busy;
   if (status.busy) {
-    $("#backupStatus").textContent = `${status.currentJob?.label || "Backup"} is running.\nStarted: ${new Date(status.currentJob?.startedAt).toLocaleString()}`;
+    const progress = Number.isInteger(status.currentJob?.total)
+      ? `\nProgress: ${status.currentJob.completed || 0}/${status.currentJob.total}${status.currentJob.domain ? ` · ${status.currentJob.domain}` : ""}`
+      : "";
+    $("#backupStatus").textContent = `${status.currentJob?.label || "Backup"} is running.${progress}\nStarted: ${new Date(status.currentJob?.startedAt).toLocaleString()}`;
     return;
   }
   const last = status.lastResult;
@@ -524,6 +531,17 @@ function renderBackupStatus() {
     `Website backups: ${settings.siteBackupsEnabled === false ? "paused" : "enabled"}`,
     last ? `Last result: ${last.ok === false ? "failed" : "complete"} at ${new Date(last.finishedAt).toLocaleString()}${last.message ? `\n${last.message}` : ""}` : "No backup has run since the panel started.",
   ].join("\n");
+}
+
+async function monitorBackupJob() {
+  while (state.backupStatus?.busy) {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    const data = await api("/api/backups/settings");
+    state.backupSettings = data.settings;
+    state.backupStatus = data.status;
+    renderBackupStatus();
+  }
+  await loadBackupView();
 }
 
 function renderBackupHistory(backups) {
@@ -1312,6 +1330,29 @@ $("#backupAppData").addEventListener("click", async (event) => {
     await loadBackupView();
   } catch (error) { notice(error.message, "warning"); }
 });
+
+async function startWebsiteBatch(scope, button) {
+  const all = scope === "all";
+  if (all && !confirm("Back up every configured website now, including sites without the Daily checkbox?")) return;
+  try {
+    const result = await withButton(button, "Starting...", () => api("/api/backups/sites", {
+      method: "POST",
+      body: JSON.stringify({ scope }),
+    }));
+    state.backupStatus = result.status;
+    renderBackupStatus();
+    notice(all ? "All-website backup started." : "Enabled-website backup started.");
+    await monitorBackupJob();
+    const last = state.backupStatus?.lastResult;
+    if (last?.message) notice(`Website backup failed: ${last.message}`, "warning");
+    else notice(last?.ok === false
+      ? `Website backup completed with ${last.failed || 0} failure(s).`
+      : `Website backup completed for ${last?.succeeded || last?.total || 0} site(s).`, last?.ok === false ? "warning" : "success");
+  } catch (error) { notice(error.message, "warning"); }
+}
+
+$("#backupEnabledSites").addEventListener("click", (event) => startWebsiteBatch("enabled", event.currentTarget));
+$("#backupAllSites").addEventListener("click", (event) => startWebsiteBatch("all", event.currentTarget));
 
 $("#backupHistory").addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-restore-backup]");

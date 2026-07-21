@@ -149,13 +149,51 @@ class BackupManager {
   }
 
   async runSite(site) {
-    if (!this.readSettings().siteBackupsEnabled) {
-      const error = new Error("Website backups are temporarily disabled in backup settings");
-      error.statusCode = 409;
-      throw error;
-    }
+    this.ensureSiteBackupsEnabled();
     return this.withLock({ type: "site", domain: site.host, label: `Backup ${site.host}` }, () =>
       this.createSiteBackup(site, this.readSettings().retention));
+  }
+
+  ensureSiteBackupsEnabled() {
+    if (this.readSettings().siteBackupsEnabled) return;
+    const error = new Error("Website backups are temporarily disabled in backup settings");
+    error.statusCode = 409;
+    throw error;
+  }
+
+  async runSites(onlyEnabled = true) {
+    this.ensureSiteBackupsEnabled();
+    const label = onlyEnabled ? "Backup enabled websites" : "Backup all websites";
+    return this.withLock({ type: "sites", scope: onlyEnabled ? "enabled" : "all", label }, async () => {
+      const configured = (await this.siteProvider()).filter((site) => !site.isWwwAlias);
+      const sites = onlyEnabled ? configured.filter((site) => site.state?.backupEnabled) : configured;
+      if (!sites.length) {
+        const error = new Error(onlyEnabled ? "No websites have daily backup enabled" : "No configured websites were found");
+        error.statusCode = 409;
+        throw error;
+      }
+      const results = [];
+      this.currentJob.total = sites.length;
+      this.currentJob.completed = 0;
+      for (const site of sites) {
+        this.currentJob.domain = site.host;
+        try {
+          results.push(await this.createSiteBackup(site, this.readSettings().retention));
+        } catch (error) {
+          results.push({ type: "site", domain: site.host, ok: false, message: error.message });
+        }
+        this.currentJob.completed = results.length;
+      }
+      return {
+        ok: results.every((result) => result.ok !== false),
+        type: "sites",
+        scope: onlyEnabled ? "enabled" : "all",
+        total: sites.length,
+        succeeded: results.filter((result) => result.ok !== false).length,
+        failed: results.filter((result) => result.ok === false).length,
+        results,
+      };
+    });
   }
 
   async runAppData() {

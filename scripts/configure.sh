@@ -99,6 +99,13 @@ case "$backups_dir" in
   *) printf "Backups directory must be an absolute path.\n" >&4; exit 1 ;;
 esac
 
+prompt_required "Website exports directory" "$backups_dir/exports"
+exports_dir="$ANSWER"
+case "$exports_dir" in
+  /*) ;;
+  *) printf "Website exports directory must be an absolute path.\n" >&4; exit 1 ;;
+esac
+
 prompt_required "Panel administrator email"
 ui_admin_email="$ANSWER"
 prompt_password "Panel administrator password"
@@ -144,7 +151,8 @@ umask 077
 temporary="$env_file.tmp.$$"
 {
   printf "HOSTING_ROOT=%s\n" "$(dotenv_value "$hosting_root")"
-  printf "BACKUPS_DIR=%s\n\n" "$(dotenv_value "$backups_dir")"
+  printf "BACKUPS_DIR=%s\n" "$(dotenv_value "$backups_dir")"
+  printf "EXPORTS_DIR=%s\n\n" "$(dotenv_value "$exports_dir")"
   printf "UI_ADMIN_EMAIL=%s\n" "$(dotenv_value "$ui_admin_email")"
   printf "UI_ADMIN_PASSWORD=%s\n" "$(dotenv_value "$ui_admin_password")"
   printf "UI_SETTINGS_KEY=%s\n\n" "$(dotenv_value "$ui_settings_key")"

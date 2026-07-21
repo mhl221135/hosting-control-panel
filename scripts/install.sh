@@ -55,10 +55,16 @@ hosting_root="${requested_root:-${HOSTING_ROOT:-$(env_value HOSTING_ROOT)}}"
 hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
 backups_dir="${BACKUPS_DIR:-$(env_value BACKUPS_DIR)}"
 backups_dir="${backups_dir:-$hosting_root/backups}"
+exports_dir="${EXPORTS_DIR:-$(env_value EXPORTS_DIR)}"
+exports_dir="${exports_dir:-$hosting_root/exports}"
 
 case "$backups_dir" in
   /*) ;;
   *) echo "BACKUPS_DIR must be an absolute path." >&2; exit 1 ;;
+esac
+case "$exports_dir" in
+  /*) ;;
+  *) echo "EXPORTS_DIR must be an absolute path." >&2; exit 1 ;;
 esac
 
 required_variables="
@@ -120,7 +126,7 @@ mkdir -p \
   "$hosting_root/app-data/redis" \
   "$hosting_root/app-data/ui-manager" \
   "$backups_dir/app-data" \
-  "$hosting_root/exports" \
+  "$exports_dir" \
   "$hosting_root/imports" \
   "$hosting_root/websites/_default"
 

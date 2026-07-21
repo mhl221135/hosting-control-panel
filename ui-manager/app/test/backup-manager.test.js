@@ -52,6 +52,36 @@ test("global pause blocks manual website backups", async () => {
       fixture.manager.runSite({ host: "example.com", root: "/var/www/example.com" }),
       /temporarily disabled/,
     );
+    await assert.rejects(fixture.manager.runSites(false), /temporarily disabled/);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("backs up enabled sites or all primary sites sequentially", async () => {
+  const fixture = managerFixture();
+  try {
+    fixture.manager.siteProvider = async () => [
+      { host: "enabled.example", state: { backupEnabled: true } },
+      { host: "disabled.example", state: { backupEnabled: false } },
+      { host: "www.enabled.example", isWwwAlias: true, state: { backupEnabled: true } },
+    ];
+    const backedUp = [];
+    fixture.manager.createSiteBackup = async (site) => {
+      backedUp.push(site.host);
+      return { ok: true, type: "site", domain: site.host };
+    };
+
+    const enabled = await fixture.manager.runSites(true);
+    assert.deepEqual(backedUp, ["enabled.example"]);
+    assert.equal(enabled.total, 1);
+    assert.equal(enabled.succeeded, 1);
+
+    backedUp.length = 0;
+    const all = await fixture.manager.runSites(false);
+    assert.deepEqual(backedUp, ["enabled.example", "disabled.example"]);
+    assert.equal(all.total, 2);
+    assert.equal(all.failed, 0);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
