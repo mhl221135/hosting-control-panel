@@ -182,6 +182,20 @@ test("uses a separate token and creates only a panel-managed security rule", asy
   }
 });
 
+test("uses Free-plan-compatible WordPress login rate limits", () => {
+  const client = new CloudflareClient(() => ({ cloudflareToken: "test-token" }));
+  const preset = client.securityPreset("blog.example.com", "login-rate-limit");
+
+  assert.equal(preset.phase, "http_ratelimit");
+  assert.equal(preset.rule.expression, 'http.request.uri.path eq "/wp-login.php"');
+  assert.deepEqual(preset.rule.ratelimit, {
+    characteristics: ["cf.colo.id", "ip.src"],
+    period: 10,
+    requests_per_period: 5,
+    mitigation_timeout: 10,
+  });
+});
+
 test("normalizes an existing legacy website proxy target", async () => {
   const client = new NpmClient(() => ({
     npmApiUrl: "http://npm.test/api",

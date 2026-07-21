@@ -243,7 +243,7 @@
               <div class="security-presets">
                 <div><strong>Sensitive probes</strong><p>Block requests for exposed configuration, repository and exploit paths.</p><button type="button" data-security-preset="suspicious-probes">Apply</button></div>
                 <div><strong>XML-RPC challenge</strong><p>Challenge requests to WordPress XML-RPC without disabling it at the origin.</p><button type="button" data-security-preset="xmlrpc-challenge">Apply</button></div>
-                <div><strong>Login rate limit</strong><p>Block an IP after 10 login POST requests in 60 seconds for 10 minutes.</p><button type="button" data-security-preset="login-rate-limit">Apply</button></div>
+                <div><strong>Login rate limit</strong><p>Block an IP after 5 requests to /wp-login.php in 10 seconds for 10 seconds. Protects the selected Cloudflare zone and is Free-plan compatible.</p><button type="button" data-security-preset="login-rate-limit">Apply</button></div>
               </div>
             </article>
             <article class="panel">
