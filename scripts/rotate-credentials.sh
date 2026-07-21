@@ -338,6 +338,16 @@ wait_for_mysql() {
   return 1
 }
 
+wait_for_npm() {
+  local _
+  for _ in $(seq 1 60); do
+    if npm_token "$NPM_IDENTITY" "$NPM_SECRET" >/dev/null 2>&1; then return 0; fi
+    sleep 2
+  done
+  printf 'NPM did not become ready with the rotated administrator password.\n' >&2
+  return 1
+}
+
 prompt_current_password 'Current panel password'
 current_ui_password="$REPLY"
 prompt_password 'New panel password'
@@ -416,6 +426,13 @@ dotenv_set MYSQL_ROOT_PASSWORD "$new_mysql_root_password"
 dotenv_set NPM_DB_PASSWORD "$new_npm_db_password"
 chmod 600 "$env_file"
 
+# Compose gives exported shell variables precedence over .env. Reload the file
+# so recreated containers receive the rotated values instead of the old exports.
+set -a
+# shellcheck disable=SC1090
+. "$env_file"
+set +a
+
 printf 'Recreating services with rotated environment values...\n'
 compose config --quiet
 compose up -d --force-recreate hosting-db
@@ -423,8 +440,7 @@ wait_for_mysql
 compose up -d --force-recreate hosting-npm hosting-phpmyadmin hosting-ui hosting-files
 files_stopped=false
 compose up -d hosting-php-fpm
-docker start hosting-nginx >/dev/null
-nginx_stopped=false
+wait_for_npm
 
 printf 'Validating rotated credentials...\n'
 verify_panel_password "$new_ui_password"
@@ -437,6 +453,8 @@ if [ "$rotate_sites" = true ]; then
     docker exec hosting-php-fpm wp --allow-root db check --path="/var/www/$relative" --quiet >/dev/null
   done < <(find "$HOSTING_ROOT/websites" -mindepth 2 -maxdepth 2 -type f -name wp-config.php -print0)
 fi
+docker start hosting-nginx >/dev/null
+nginx_stopped=false
 
 printf '\nCredential rotation completed. Existing panel sessions were invalidated by restart.\n'
 printf 'Revoke and replace Cloudflare tokens separately, then update Settings in the panel.\n'
