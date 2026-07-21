@@ -82,8 +82,10 @@ generated and persistent files include:
 - `app-data/configs/nginx/conf.d/sites.map`: domain routing
 - `app-data/configs/nginx/conf.d/cache.map`: per-site FastCGI state
 - `app-data/configs/php-fpm/pools.conf`: per-site PHP-FPM pools
-- `app-data/ui-manager/auth.json`: hashed panel account
-- `app-data/ui-manager/integrations.json`: encrypted integration settings
+- `app-data/ui-manager/admin-account.json`: hashed panel account
+- `app-data/ui-manager/integration-settings.json`: encrypted integration settings
+- `app-data/ui-manager/integration-settings.key`: generated encryption key when
+  `UI_SETTINGS_KEY` is not supplied
 - `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/backup-settings.json`: schedule and retention

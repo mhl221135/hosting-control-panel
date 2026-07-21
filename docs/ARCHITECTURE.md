@@ -1,0 +1,151 @@
+# Architecture
+
+## System Boundary
+
+The stack is a control plane around shared WordPress runtime services. It is not
+a container-per-site platform. Isolation is provided by separate PHP-FPM pools,
+document roots, database users, nginx routing, and PHP `open_basedir` settings.
+
+```text
+Public client
+  -> hosting-npm :80/:443
+  -> hosting-nginx :80 (Docker network only)
+  -> per-site listener in hosting-php-fpm
+  -> hosting-db and optional hosting-redis
+
+Administrator
+  -> hosting-ui :8687
+     -> active config mounts
+     -> Docker socket
+     -> NPM HTTP API
+     -> Cloudflare HTTP API
+```
+
+## Service Ownership
+
+| Container | Responsibility | Host ports | Persistent data |
+|---|---|---|---|
+| `hosting-ui` | Panel, scheduler, provisioning, integrations | `8687` | `app-data/ui-manager` |
+| `hosting-npm` | Public reverse proxy and ACME | `80`, `81`, `443` | `app-data/npm` |
+| `hosting-nginx` | Internal site routing and FastCGI cache | none | config mounts, `app-data/nginx-cache` |
+| `hosting-php-fpm` | PHP 8.4 pools, WP-CLI, image conversion | none | website and config mounts |
+| `hosting-db` | MySQL 8.4 for NPM and websites | none | `app-data/mysql` |
+| `hosting-redis` | Optional WordPress object cache | none | `app-data/redis` |
+| `hosting-files` | File Browser over website roots | none | `app-data/filebrowser` |
+| `hosting-phpmyadmin` | Database administration | `8484` | none |
+| `hosting-goaccess` | Optional NPM log reporting | `7890` | reads NPM logs |
+
+All stack containers use the explicit Docker bridge network `hosting-net`.
+Database and Redis ports are intentionally not published.
+
+## Runtime Routing
+
+`sites.map` records one host, document root, upstream, and optional canonical
+target per row. `runtime-config.js` parses and renders this file. Internal nginx
+uses the host to choose both the root and PHP-FPM upstream. `pools.conf` defines
+the matching listener and process limits.
+
+A primary site and its aliases normally share the same document root and
+PHP-FPM listener. A canonical redirect from `www` to the primary host is added
+when configured. The panel groups rows with the same root and pool so aliases
+are not presented as independent websites.
+
+## Panel Process
+
+`server.js` uses Node's built-in HTTP server. It initializes long-lived stores
+and managers, serves `/app/public`, authenticates API calls, and dispatches API
+routes. There is no Express framework or external npm dependency.
+
+| Module | Owns |
+|---|---|
+| `auth.js` | scrypt account hash, sessions, throttling, cookies |
+| `integration-settings.js` | AES-256-GCM secrets and environment fallback |
+| `integrations.js` | NPM, ACME, Cloudflare DNS and Security clients |
+| `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
+| `provisioner.js` | WordPress files, database/user, WP-CLI operations |
+| `site-state.js` | Redis, OPcache, FastCGI, backup switches |
+| `backup-manager.js` | schedule, locks, archives, retention, restore |
+| `migration-manager.js` | portable export/import and runtime adoption |
+| `performance-settings.js` | validated managed configuration directives |
+| `dns-presets.js` | reusable Cloudflare record templates |
+| `wordpress-packages.js` | uploaded plugin/theme ZIP library |
+| `stats-collector.js` | on-demand runtime and traffic summaries |
+| `image-optimization-manager.js` | persistent sequential WebP job state |
+
+## Authentication And Secrets
+
+The first panel account is created from `UI_ADMIN_EMAIL` and
+`UI_ADMIN_PASSWORD`; its password is stored as an scrypt hash. Sessions are
+in-memory, expire, and use an HTTP-only cookie, so a panel restart signs users
+out. Mutating API calls require the session CSRF value.
+
+NPM and Cloudflare secrets are encrypted with AES-256-GCM. The key comes from
+`UI_SETTINGS_KEY`, or from a generated mode-600 key file. Losing both the
+external key and generated key makes stored integration secrets undecryptable.
+MySQL root credentials stay in the database container environment.
+
+## Provisioning Transaction
+
+Provisioning validates inputs before mutation, then:
+
+1. prepares the website directory;
+2. allocates or updates the PHP-FPM pool and nginx map row;
+3. validates and reloads runtime services;
+4. creates a database and same-named site user with a random password;
+5. installs WordPress and applies clean-install choices;
+6. installs selected packages and optional Redis configuration;
+7. applies optional Cloudflare DNS and DNS presets;
+8. ensures the NPM proxy host and optional certificate;
+9. persists per-site state.
+
+External DNS/ACME operations can fail after local resources exist. These are
+reported so an administrator can retry without deleting a valid site.
+
+## Cache Layers
+
+- **OPcache** is PHP bytecode memory shared by the PHP container. Per-site
+  enablement is a pool directive; global limits are managed settings.
+- **FastCGI cache** stores anonymous HTML at internal nginx. `cache.map` selects
+  sites and a version number performs logical purge.
+- **Redis** stores WordPress objects. Enabling it updates `wp-config.php` and
+  installs/activates the Redis Cache plugin.
+- **Image negotiation** serves smaller `.webp` sidecars when accepted.
+  Negotiated JPEG/PNG URLs avoid shared caching so edge caches cannot mix formats.
+
+## Backup And Restore
+
+The backup manager serializes backups, restores, and bulk image work with a
+shared lock. Site backups pair a file archive, compressed logical database dump,
+and manifest in one timestamped directory. Retention deletes complete sets.
+
+Restore validates ownership, creates a safety backup, stages the file swap on
+the websites filesystem, imports the database, and attempts rollback on import
+failure. Application-data restore remains manual because services must stop.
+
+## Migration
+
+Exports are password-free manifests plus website archives and database dumps.
+Imports support a full manifest, a lightweight `import-sites.json`, or discovery
+from existing `wp-config.php` files. Import generates new database credentials
+and rewrites `wp-config.php`; source credentials are never required.
+
+## External Integrations
+
+NPM hosts forward managed websites to `hosting-nginx:80` and own public ACME
+certificates. Cloudflare DNS discovers the longest matching active zone and can
+perform exact-match bulk A-record replacement.
+
+Cloudflare Security uses a separate token and only changes rules with a
+panel-owned reference. Sensitive-probe and XML-RPC rules are host-scoped. The
+login rule is path-only because Cloudflare Free restricts expression fields, so
+it protects `/wp-login.php` across the selected zone. Its values are five
+requests in 10 seconds and a 10-second block; Free permits one rate rule per zone.
+
+## Failure Boundaries
+
+- Config mutations restore snapshots after failed validation.
+- Backups use partial directories promoted only after completion.
+- Integration failures do not expose stored secrets.
+- Statistics are sampled on demand; there is no background metrics database.
+- Docker socket compromise of `hosting-ui` is host-level compromise. Restrict
+  panel access to administrators and publish it through HTTPS.

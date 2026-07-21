@@ -7,7 +7,8 @@ The panel is built into the main Compose project and runs as
 
 Initial credentials come from `UI_ADMIN_EMAIL` and `UI_ADMIN_PASSWORD` in the
 project `.env`. The default credentials force an account update after login.
-The stored password is scrypt-hashed in `ui-manager/data/auth.json`.
+The stored password is scrypt-hashed in the persistent
+`app-data/ui-manager/admin-account.json` file.
 
 ## Settings
 
@@ -31,6 +32,12 @@ stored by the panel.
 The **Security** tab applies narrowly scoped WAF and rate-limit presets to one
 hosted website at a time. It uses a separate `CLOUDFLARE_SECURITY_API_TOKEN`
 credential and never edits rules that were not created by Hosting Control.
+
+The sensitive-probe and XML-RPC rules are hostname-scoped. The login rate limit
+is Cloudflare Free-compatible at five requests in 10 seconds with a 10-second
+block. Because the Free rate-limit field set does not include hostname, that
+preset protects `/wp-login.php` across the selected Cloudflare zone. Free allows
+one rate-limit rule per zone.
 
 ## Statistics
 
@@ -97,3 +104,6 @@ The installer asks for every required account and password and writes `.env`.
 First-run NPM and File Browser accounts are initialized without replacing
 accounts in existing persistent databases. Use `sudo ./scripts/upgrade.sh` for
 non-destructive source and container upgrades.
+
+See the repository-level `AGENTS.md` and `docs/` directory for architecture,
+API, persistent-state, testing, deployment, and rollback details.
