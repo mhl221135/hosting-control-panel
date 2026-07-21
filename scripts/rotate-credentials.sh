@@ -222,6 +222,27 @@ random_site_password() {
   openssl rand -base64 36 | tr '+/' '-_' | tr -d '=\n' | cut -c1-40
 }
 
+resolve_filebrowser_username() {
+  local listing
+  local -a users=()
+  listing="$(compose run --rm --no-deps --entrypoint filebrowser hosting-files \
+    -d /database/filebrowser.db users ls)"
+  if printf '%s\n' "$listing" | awk -v user="$FILEBROWSER_ADMIN_USERNAME" \
+    '$1 ~ /^[0-9]+$/ && $2 == user { found=1 } END { exit !found }'; then
+    printf '%s\n' "$FILEBROWSER_ADMIN_USERNAME"
+    return
+  fi
+  mapfile -t users < <(printf '%s\n' "$listing" | awk '$1 ~ /^[0-9]+$/ { print $2 }')
+  if [ "${#users[@]}" -ne 1 ]; then
+    printf 'Configured File Browser user was not found and the database contains %d users.\n' \
+      "${#users[@]}" >&2
+    printf 'Set FILEBROWSER_ADMIN_USERNAME in .env to the existing administrator and retry.\n' >&2
+    return 1
+  fi
+  printf 'Configured File Browser user was stale; using the sole existing account.\n' >&2
+  printf '%s\n' "${users[0]}"
+}
+
 rotate_site_database_users() {
   local config relative site_path database user old_password new_password hosts host sql
   local -A password_by_user=()
@@ -378,9 +399,10 @@ printf 'Rotating panel and File Browser passwords...\n'
 update_panel_password
 docker stop hosting-files >/dev/null
 files_stopped=true
+filebrowser_username="$(resolve_filebrowser_username)"
 compose run --rm --no-deps --entrypoint filebrowser hosting-files \
   -d /database/filebrowser.db users update \
-  "$FILEBROWSER_ADMIN_USERNAME" --password "$new_filebrowser_password" >/dev/null
+  "$filebrowser_username" --password "$new_filebrowser_password" >/dev/null
 update_panel_npm_secret
 
 printf 'Rotating MySQL service credentials...\n'
@@ -388,6 +410,7 @@ rotate_mysql_service_users
 
 dotenv_set UI_ADMIN_PASSWORD "$new_ui_password"
 dotenv_set NPM_SECRET "$new_npm_password"
+dotenv_set FILEBROWSER_ADMIN_USERNAME "$filebrowser_username"
 dotenv_set FILEBROWSER_ADMIN_PASSWORD "$new_filebrowser_password"
 dotenv_set MYSQL_ROOT_PASSWORD "$new_mysql_root_password"
 dotenv_set NPM_DB_PASSWORD "$new_npm_db_password"
