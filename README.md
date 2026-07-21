@@ -313,7 +313,9 @@ Each website row has an **Optimize images** action. It scans WordPress uploads,
 creates quality-82 WebP alternatives for JPEG and PNG files, preserves every
 original, skips current outputs, and keeps a WebP only when it is smaller.
 Nginx serves the WebP alternative to browsers that advertise WebP support and
-falls back to the original file for other clients.
+falls back to the original file for other clients. Negotiated JPEG and PNG
+responses are private-cache responses so Cloudflare cannot reuse one browser's
+format for another browser. Explicit WebP URLs remain edge-cacheable.
 
 The **Optimize all images** action processes primary websites sequentially in a
 persisted background job. Progress remains visible in the Sites header, aliases

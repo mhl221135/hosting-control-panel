@@ -51,6 +51,7 @@ compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-files hosting-ui hosting-php-fpm hosting-npm
 compose up -d
+sh "$project_dir/scripts/migrate-webp-cache.sh"
 
 if [ "$include_production" = true ]; then
   compose --profile production pull hosting-goaccess || true
