@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260721-5" />
+    <link rel="stylesheet" href="/styles.css?v=20260721-6" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -22,17 +22,17 @@
     <div id="appView" class="app hidden">
       <aside class="sidebar">
         <a class="brand" href="#" data-tab-link="sites"><span class="brand-mark small">HC</span><span>Hosting Control</span></a>
-        <nav>
-          <button class="nav-item active" data-tab-link="sites">Sites</button>
-          <button class="nav-item" data-tab-link="stats">Stats</button>
-          <button class="nav-item" data-tab-link="provision">Provision</button>
-          <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
-          <button class="nav-item" data-tab-link="security">Security</button>
-          <button class="nav-item" data-tab-link="backups">Backups</button>
-          <button class="nav-item" data-tab-link="removal">Delete</button>
-          <button class="nav-item" data-tab-link="runtime">Runtime</button>
-          <button class="nav-item" data-tab-link="settings">Settings</button>
-          <button class="nav-item" data-tab-link="account">Account</button>
+        <nav aria-label="Primary navigation">
+          <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
+          <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
+          <button class="nav-item" data-tab-link="provision" data-short="PR" title="Provision">Provision</button>
+          <button class="nav-item" data-tab-link="integrations" data-short="DN" title="DNS and SSL">DNS &amp; SSL</button>
+          <button class="nav-item" data-tab-link="security" data-short="SE" title="Security">Security</button>
+          <button class="nav-item" data-tab-link="backups" data-short="BK" title="Backups">Backups</button>
+          <button class="nav-item" data-tab-link="removal" data-short="DE" title="Delete website">Delete</button>
+          <button class="nav-item" data-tab-link="runtime" data-short="RT" title="Runtime">Runtime</button>
+          <button class="nav-item" data-tab-link="settings" data-short="CF" title="Settings">Settings</button>
+          <button class="nav-item" data-tab-link="account" data-short="AC" title="Account">Account</button>
         </nav>
         <div class="sidebar-foot">
           <span id="integrationSummary" class="status-line">Checking services</span>
@@ -477,6 +477,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-8"></script>
+    <script src="/app.js?v=20260721-9"></script>
   </body>
 </html>
