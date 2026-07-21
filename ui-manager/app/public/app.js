@@ -1027,7 +1027,12 @@ WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
       <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
     `;
     resultPanel.classList.remove("hidden");
-    notice("Website provisioning completed.");
+    const warnings = result.steps.filter((step) => step.status === "warning");
+    if (warnings.length) {
+      notice(`Website created with warnings: ${warnings.map((step) => `${step.name}: ${step.message}`).join("; ")}`, "warning");
+    } else {
+      notice("Website provisioning completed.");
+    }
     await loadData();
   } catch (error) {
     resultPanel.innerHTML = `<h3>Provisioning stopped</h3><p>${escapeHtml(error.message)}</p><pre>${escapeHtml(error.details || "")}</pre>`;
