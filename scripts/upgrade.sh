@@ -47,7 +47,8 @@ fi
 git -C "$project_dir" pull --ff-only origin main
 cd "$project_dir"
 compose config --quiet
-compose pull hosting-nginx hosting-npm hosting-redis hosting-db hosting-phpmyadmin || true
+compose pull hosting-npm
+compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-files hosting-ui hosting-php-fpm
 compose up -d
 

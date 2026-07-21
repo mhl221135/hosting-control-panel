@@ -17,6 +17,8 @@ const state = {
   wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
+  stats: null,
+  siteStats: null,
 };
 
 let imageOptimizationPollTimer = null;
@@ -109,9 +111,10 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
-  const titles = { sites: "Sites", provision: "Provision", integrations: "DNS & SSL", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
+  if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
@@ -132,6 +135,110 @@ function renderSummary() {
   if (state.status?.integrations?.cloudflare) enabled.push("Cloudflare");
   enabled.push("MySQL");
   $("#integrationSummary").textContent = `${enabled.join(" · ")} ready`;
+}
+
+function formatBytes(value) {
+  let bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let unit = 0;
+  while (bytes >= 1024 && unit < units.length - 1) {
+    bytes /= 1024;
+    unit += 1;
+  }
+  return `${bytes >= 100 || unit === 0 ? bytes.toFixed(0) : bytes.toFixed(1)} ${units[unit]}`;
+}
+
+function renderRankList(target, rows, valueKey) {
+  const container = $(target);
+  container.className = rows.length ? "rank-list" : "rank-list empty";
+  container.innerHTML = rows.length ? rows.map((row) => `
+    <div><code>${escapeHtml(row[valueKey])}</code><strong>${escapeHtml(row.requests)}</strong></div>
+  `).join("") : "No matching requests in the current log sample.";
+}
+
+function renderStats() {
+  const stats = state.stats;
+  if (!stats) return;
+  const server = stats.server || {};
+  const memoryPercent = server.memoryTotalBytes
+    ? (server.memoryUsedBytes / server.memoryTotalBytes) * 100
+    : 0;
+  const diskPercent = server.disk?.totalBytes
+    ? (server.disk.usedBytes / server.disk.totalBytes) * 100
+    : 0;
+  const phpMemory = (stats.phpPools || []).reduce((total, pool) => total + Number(pool.rssBytes || 0), 0);
+  const phpWorkers = (stats.phpPools || []).reduce((total, pool) => total + Number(pool.workers || 0), 0);
+  $("#statsUpdated").textContent = `${stats.cached ? "Cached" : "Updated"} ${new Date(stats.generatedAt).toLocaleString()}`;
+  $("#statsLoad").textContent = Number(server.load1 || 0).toFixed(2);
+  $("#statsLoadDetail").textContent = `${Number(server.load1 || 0).toFixed(2)} / ${Number(server.load5 || 0).toFixed(2)} / ${Number(server.load15 || 0).toFixed(2)}`;
+  $("#statsMemory").textContent = `${memoryPercent.toFixed(1)}%`;
+  $("#statsMemoryDetail").textContent = `${formatBytes(server.memoryUsedBytes)} of ${formatBytes(server.memoryTotalBytes)}`;
+  $("#statsDisk").textContent = `${diskPercent.toFixed(1)}%`;
+  $("#statsDiskDetail").textContent = `${formatBytes(server.disk?.usedBytes)} of ${formatBytes(server.disk?.totalBytes)}`;
+  $("#statsPhpMemory").textContent = formatBytes(phpMemory);
+  $("#statsPhpDetail").textContent = `${phpWorkers} active worker${phpWorkers === 1 ? "" : "s"}`;
+
+  const redis = stats.redis;
+  $("#cacheStats").innerHTML = redis ? `
+    <div><dt>Redis memory</dt><dd>${escapeHtml(redis.usedMemoryHuman)} / ${escapeHtml(redis.maxMemoryHuman || "unlimited")}</dd></div>
+    <div><dt>Redis hit rate</dt><dd>${escapeHtml(redis.hitRate)}%</dd></div>
+    <div><dt>Redis operations</dt><dd>${escapeHtml(redis.operationsPerSecond)}/s</dd></div>
+    <div><dt>Redis keys</dt><dd>${escapeHtml(redis.keys)}</dd></div>
+    <div><dt>Redis evictions</dt><dd>${escapeHtml(redis.evictedKeys)}</dd></div>
+    <div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>
+  ` : `<div><dt>Redis</dt><dd>Unavailable</dd></div><div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>`;
+
+  $("#containerStats").innerHTML = (stats.containers || []).map((container) => `
+    <tr><td><strong>${escapeHtml(container.name)}</strong></td><td>${escapeHtml(container.cpuPercent.toFixed(1))}%</td><td>${escapeHtml(container.memoryUsage)}</td><td>${escapeHtml(container.pids)}</td></tr>
+  `).join("") || '<tr><td colspan="4" class="muted">Container statistics unavailable.</td></tr>';
+
+  const pools = new Map((stats.phpPools || []).map((pool) => [pool.name, pool]));
+  const sites = primarySites().map((site) => ({ site, pool: pools.get(site.poolName) || { workers: 0, cpuPercent: 0, rssBytes: 0 } }))
+    .sort((left, right) => right.pool.cpuPercent - left.pool.cpuPercent || right.pool.rssBytes - left.pool.rssBytes || left.site.host.localeCompare(right.site.host));
+  $("#websiteStats").innerHTML = sites.map(({ site, pool }) => `
+    <tr>
+      <td><strong>${escapeHtml(site.host)}</strong></td><td>${escapeHtml(pool.workers)}</td><td>${Number(pool.cpuPercent || 0).toFixed(1)}%</td>
+      <td>${formatBytes(pool.rssBytes)}</td><td><code>${escapeHtml(site.poolName || "-")}</code></td>
+      <td><button type="button" class="secondary" data-inspect-stats="${escapeHtml(site.host)}">Inspect</button></td>
+    </tr>
+  `).join("");
+  const current = $("#statsDomain").value;
+  $("#statsDomain").innerHTML = primarySites().map((site) => `<option value="${escapeHtml(site.host)}">${escapeHtml(site.host)}</option>`).join("");
+  if (current && primarySites().some((site) => site.host === current)) $("#statsDomain").value = current;
+  if (stats.warnings?.length) notice(stats.warnings.join(" · "), "warning");
+}
+
+function renderSiteStats() {
+  const stats = state.siteStats;
+  if (!stats) return;
+  $("#siteStatsDetail").classList.remove("hidden");
+  $("#siteStatsTitle").textContent = stats.domain;
+  $("#siteStatsUpdated").textContent = `${stats.cached ? "Cached" : "Updated"} ${new Date(stats.generatedAt).toLocaleString()} · ${stats.traffic.sampledLines} log lines sampled`;
+  $("#siteStatsDisk").textContent = formatBytes(stats.diskBytes);
+  $("#siteStatsRequests").textContent = stats.traffic.requests;
+  $("#siteStatsBytes").textContent = formatBytes(stats.traffic.bytes);
+  $("#siteStatsLatest").textContent = stats.traffic.latestAt || "No requests";
+  const total = Math.max(1, stats.traffic.requests);
+  $("#siteStatusStats").innerHTML = Object.entries(stats.traffic.statusGroups || {}).map(([label, count]) => `
+    <div><span>${escapeHtml(label)}</span><span class="bar-track"><i style="width:${Math.max(0, Math.min(100, (count / total) * 100))}%"></i></span><strong>${escapeHtml(count)}</strong></div>
+  `).join("");
+  renderRankList("#siteIpStats", stats.traffic.topIps || [], "ip");
+  renderRankList("#sitePathStats", stats.traffic.topPaths || [], "path");
+  if (stats.warnings?.length) notice(stats.warnings.join(" · "), "warning");
+}
+
+async function loadStats(force = false) {
+  state.stats = await api(`/api/stats/runtime${force ? "?refresh=1" : ""}`);
+  renderStats();
+}
+
+async function loadSiteStats(domain, force = false) {
+  const selected = domain || $("#statsDomain").value;
+  if (!selected) return;
+  $("#statsDomain").value = selected;
+  state.siteStats = await api(`/api/stats/site?domain=${encodeURIComponent(selected)}${force ? "&refresh=1" : ""}`);
+  renderSiteStats();
 }
 
 function renderSites() {
@@ -619,6 +726,24 @@ $$("[data-tab-link]").forEach((button) => button.addEventListener("click", (even
 }));
 
 $("#siteSearch").addEventListener("input", renderSites);
+$("#refreshStats").addEventListener("click", async (event) => {
+  try {
+    await withButton(event.currentTarget, "Refreshing...", () => loadStats(true));
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#websiteStats").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-inspect-stats]");
+  if (!button) return;
+  try {
+    await withButton(button, "Loading...", () => loadSiteStats(button.dataset.inspectStats));
+    $("#siteStatsDetail").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#loadSiteStats").addEventListener("click", async (event) => {
+  try {
+    await withButton(event.currentTarget, "Loading...", () => loadSiteStats("", true));
+  } catch (error) { notice(error.message, "warning"); }
+});
 $("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);
 $("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncProvisionDnsOptions);
 syncProvisionDnsOptions();

@@ -52,6 +52,8 @@ The panel provides:
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
 - Runtime reload, OPcache clear, and log views
+- Manual-refresh server/container statistics, per-pool PHP usage, cache health,
+  and selected-site NPM traffic summaries
 
 The MySQL root password is not copied into panel settings. Database operations
 read it from the MySQL container environment and execute inside that container.

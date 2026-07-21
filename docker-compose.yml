@@ -17,7 +17,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.3
+    image: hosting-ui:2.4
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -112,7 +112,7 @@ services:
       - hosting-net
 
   hosting-npm:
-    image: jc21/nginx-proxy-manager:latest
+    image: jc21/nginx-proxy-manager:2.15.0
     container_name: hosting-npm
     restart: always
     ports:

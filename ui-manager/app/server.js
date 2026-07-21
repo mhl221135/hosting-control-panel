@@ -24,6 +24,7 @@ const { annotateSiteAliases } = require("./lib/runtime-config");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
+const { StatsCollector } = require("./lib/stats-collector");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -109,6 +110,10 @@ const imageOptimizationManager = new ImageOptimizationManager({
   dataDir: DATA_DIR,
   backupManager,
   optimizer: optimizeImages,
+});
+const statsCollector = new StatsCollector({
+  websitesRoot: WEBSITES_ROOT,
+  npmLogsRoot: path.join(APP_DATA_ROOT, "npm/data/logs"),
 });
 
 function sendJson(res, code, obj, headers = {}) {
@@ -584,6 +589,43 @@ async function handleApi(req, res) {
         cloudflare: cloudflare.configured(),
         mysql: true,
       },
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/stats/runtime") {
+    sendJson(res, 200, {
+      ok: true,
+      ...(await statsCollector.runtime(requestUrl.searchParams.get("refresh") === "1")),
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/stats/site") {
+    const domain = validateDomain(requestUrl.searchParams.get("domain"));
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const site = getSitesWithPools(mapParsed, poolsParsed)
+      .find((item) => item.host === domain && !item.isAlias);
+    if (!site) {
+      sendJson(res, 404, { ok: false, message: "Primary site is not configured" });
+      return true;
+    }
+    let npmHostIds = [];
+    if (npm.configured()) {
+      try {
+        const names = new Set([site.host, ...(site.aliases || [])]);
+        npmHostIds = (await npm.listHosts())
+          .filter((host) => (host.domain_names || []).some((name) => names.has(name)))
+          .map((host) => host.id);
+      } catch (error) {
+        console.error(`Could not map NPM logs for ${domain}: ${error.message}`);
+      }
+    }
+    const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
+    sendJson(res, 200, {
+      ok: true,
+      ...(await statsCollector.site({ domain, directory, npmHostIds }, requestUrl.searchParams.get("refresh") === "1")),
     });
     return true;
   }
