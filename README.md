@@ -18,6 +18,7 @@ into dedicated directories.
 - Automatic grouping of `www` and other aliases under their primary website
 - Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
+- Provision-time website imports from ZIP/TAR archives and SQL/SQL.GZ dumps
 - Automatic MySQL database and user creation
 - Nginx Proxy Manager proxy-host creation and Let's Encrypt certificate actions
 - Cloudflare A, AAAA, CNAME, and TXT record management
@@ -284,6 +285,29 @@ The Settings tab contains connection tests for:
 6. Choose whether to keep bundled WordPress plugins/themes or enable comments.
    These options are off by default, and the initial Hello World post is removed.
 7. Submit the form and store the displayed one-time credentials.
+
+To move an existing WordPress site, select **Import website** under Website
+source. Upload a ZIP, TAR, TAR.GZ, or TGZ containing exactly one
+`wp-config.php`, plus an SQL or SQL.GZ database dump. The importer accepts files
+at the archive root or below a wrapper such as `public_html`, creates a new
+database/user/password, rewrites `wp-config.php`, performs a serialized-safe URL
+replacement, and preserves imported WordPress users, content, plugins, and
+themes. It then applies the selected pool, cache, backup, DNS, NPM, and SSL
+options.
+
+Uploads stream into `imports/ui-provision` instead of being held in UI memory.
+Website archives are limited to 8 GB, database dumps to 4 GB, and abandoned
+staging directories expire after 24 hours. Archive paths are checked before
+extraction and symlinks are rejected. The import itself shares the storage lock
+with backups, image optimization, and deletion.
+
+When the panel is behind NPM, its proxy host needs these Advanced directives for
+large streamed uploads:
+
+```nginx
+client_max_body_size 8g;
+proxy_request_buffering off;
+```
 
 Provisioning:
 

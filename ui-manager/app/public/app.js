@@ -68,6 +68,7 @@ function formObject(form) {
   const output = {};
   for (const element of form.elements) {
     if (!element.name) continue;
+    if (element.type === "radio" && !element.checked) continue;
     output[element.name] = element.type === "checkbox" ? element.checked : element.value;
   }
   return output;
@@ -81,6 +82,56 @@ function syncProvisionDnsOptions() {
   form.elements.dns_ip.required = manageDns;
   form.elements.dns_preset_id.disabled = !usePreset;
   form.elements.dns_preset_id.required = usePreset;
+}
+
+function syncProvisionSourceMode() {
+  const form = $("#provisionForm");
+  const importing = form.elements.source_mode.value === "import";
+  $$('[data-provision-fresh]').forEach((element) => element.classList.toggle("hidden", importing));
+  $$('[data-provision-import]').forEach((element) => element.classList.toggle("hidden", !importing));
+  for (const name of ["admin_email", "admin_user"]) {
+    form.elements[name].required = !importing;
+    form.elements[name].disabled = importing;
+  }
+  form.elements.admin_password.disabled = importing;
+  form.elements.title.disabled = importing;
+  form.elements.enable_comments.disabled = importing;
+  form.elements.keep_default_plugins.disabled = importing;
+  form.elements.keep_default_themes.disabled = importing;
+  $("#provisionWebsiteArchive").required = importing;
+  $("#provisionDatabaseDump").required = importing;
+  $("#provisionSubmit").textContent = importing ? "Import website" : "Create website";
+}
+
+function provisionUploadId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === "x" ? random : (random & 3) | 8).toString(16);
+  });
+}
+
+function uploadProvisionImport(file, uploadId, kind, progress) {
+  return new Promise((resolve, reject) => {
+    const query = new URLSearchParams({ upload_id: uploadId, kind, filename: file.name });
+    const request = new XMLHttpRequest();
+    request.open("POST", `/api/provision/import-upload?${query}`);
+    request.withCredentials = true;
+    request.setRequestHeader("Content-Type", "application/octet-stream");
+    if (state.csrf) request.setRequestHeader("X-CSRF-Token", state.csrf);
+    request.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable) progress(Math.round((event.loaded / event.total) * 100));
+    });
+    request.addEventListener("load", () => {
+      let response = {};
+      try { response = request.responseText ? JSON.parse(request.responseText) : {}; } catch { response = {}; }
+      if (request.status >= 200 && request.status < 300) resolve(response);
+      else reject(new Error(response.message || `Upload failed (${request.status})`));
+    });
+    request.addEventListener("error", () => reject(new Error("Upload connection failed")));
+    request.addEventListener("abort", () => reject(new Error("Upload was cancelled")));
+    request.send(file);
+  });
 }
 
 async function withButton(button, pendingText, work) {
@@ -856,7 +907,9 @@ $("#loadSiteStats").addEventListener("click", async (event) => {
 });
 $("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);
 $("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncProvisionDnsOptions);
+$$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 syncProvisionDnsOptions();
+syncProvisionSourceMode();
 $("#optimizeAllImages").addEventListener("click", async () => {
   try {
     state.imageOptimization = await api("/api/sites/images/optimize-all", { method: "POST" });
@@ -1074,18 +1127,40 @@ $("#renewNpmSsl").addEventListener("click", async (event) => {
 $("#provisionForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = formObject(event.currentTarget);
+  const importing = body.source_mode === "import";
   body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
   body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
   if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
   if (body.apply_dns_preset && !body.dns_preset_id) return notice("Select the DNS preset to add.", "warning");
+  const websiteArchive = $("#provisionWebsiteArchive").files[0];
+  const databaseDump = $("#provisionDatabaseDump").files[0];
+  if (importing && (!websiteArchive || !databaseDump)) return notice("Select both the website archive and database dump.", "warning");
   const resultPanel = $("#provisionResult");
+  const importProgress = $("#provisionImportProgress");
   resultPanel.classList.add("hidden");
   try {
-    const result = await withButton(event.submitter, "Creating website...", () => api("/api/provision", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }));
-    resultPanel.innerHTML = `
+    const result = await withButton(event.submitter, importing ? "Uploading files..." : "Creating website...", async () => {
+      if (importing) {
+        body.import_upload_id = provisionUploadId();
+        await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (percent) => {
+          importProgress.textContent = `Uploading website archive: ${percent}%`;
+        });
+        await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (percent) => {
+          importProgress.textContent = `Website archive uploaded. Uploading database: ${percent}%`;
+        });
+        event.submitter.textContent = "Extracting and importing...";
+        importProgress.textContent = "Uploads complete. Extracting files, importing the database, and configuring services.";
+      }
+      return api("/api/provision", { method: "POST", body: JSON.stringify(body) });
+    });
+    resultPanel.innerHTML = result.imported ? `
+      <h3>${escapeHtml(result.domain)} imported</h3>
+      <p>Existing WordPress users and content were preserved. The new database credentials are shown once.</p>
+      <pre>Database: ${escapeHtml(result.database.name)}
+Database user: ${escapeHtml(result.database.user)}
+Database password: ${escapeHtml(result.database.password)}</pre>
+      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
+    ` : `
       <h3>${escapeHtml(result.domain)} created</h3>
       <p>Database and WordPress credentials are shown once. Store them securely.</p>
       <pre>Database: ${escapeHtml(result.database.name)}
@@ -1097,12 +1172,13 @@ WordPress password: ${escapeHtml(result.wordpress.adminPassword)}
 WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
       <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
     `;
+    if (result.imported) importProgress.textContent = "Import completed. Temporary uploaded files were removed.";
     resultPanel.classList.remove("hidden");
     const warnings = result.steps.filter((step) => step.status === "warning");
     if (warnings.length) {
-      notice(`Website created with warnings: ${warnings.map((step) => `${step.name}: ${step.message}`).join("; ")}`, "warning");
+      notice(`Website ${result.imported ? "imported" : "created"} with warnings: ${warnings.map((step) => `${step.name}: ${step.message}`).join("; ")}`, "warning");
     } else {
-      notice("Website provisioning completed.");
+      notice(result.imported ? "Website import completed." : "Website provisioning completed.");
     }
     await loadData();
   } catch (error) {

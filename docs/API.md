@@ -106,12 +106,18 @@ plan before mutation. Shared or unverified resources return `409`.
 | Method/path | Purpose |
 |---|---|
 | `POST /api/provision` | provision a complete WordPress site |
+| `POST /api/provision/import-upload` | stream one staged website archive or database dump |
 | `GET /api/wordpress-packages` | list stored plugin/theme packages |
 | `POST /api/wordpress-packages/:kind` | upload a ZIP package |
 | `DELETE /api/wordpress-packages/:kind/:id` | remove a package |
 | `POST /api/sites/images/optimize` | optimize one site's uploads |
 | `GET /api/sites/images/status` | persisted bulk-job status |
 | `POST /api/sites/images/optimize-all` | start sequential optimization |
+
+`POST /api/provision/import-upload` requires `upload_id`, `kind` (`website` or
+`database`), and `filename` query parameters. Its body is the raw file. A later
+`POST /api/provision` with `source_mode: "import"` and the same
+`import_upload_id` validates, normalizes, and consumes both staged files.
 
 ### Runtime administration
 

@@ -5,7 +5,7 @@ const zlib = require("zlib");
 const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
-const { normalizeWordPressPermissions, updateWordPressUrl, validateDomain } = require("./provisioner");
+const { migrateWordPressUrl, normalizeWordPressPermissions, validateDomain } = require("./provisioner");
 const { parsePools, parseSitesMap, renderPools, renderSitesMap, sanitizeSectionName } = require("./runtime-config");
 
 const execFileAsync = promisify(execFile);
@@ -457,7 +457,7 @@ class MigrationManager {
   async importSites(options) {
     const sourceDirectory = path.resolve(options.sourceDirectory);
     const manifest = options.manifest ? validateManifest(options.manifest) : this.readManifest(sourceDirectory);
-    const wanIp = validateIpv4(options.wanIp);
+    const wanIp = options.updateDns === false ? "" : validateIpv4(options.wanIp);
     const prepared = [];
     const createdDatabases = [];
     const preparedFiles = [];
@@ -522,13 +522,15 @@ class MigrationManager {
         }
       }
       let npmHost = null;
-      try {
-        npmHost = await this.npm.ensureHost(domains, options.issueSsl !== false);
-      } catch (error) {
-        warnings.push(`NPM/SSL: ${error.message}`);
+      if (options.createNpmHost !== false) {
+        try {
+          npmHost = await this.npm.ensureHost(domains, options.issueSsl !== false);
+        } catch (error) {
+          warnings.push(`NPM/SSL: ${error.message}`);
+        }
       }
       try {
-        await updateWordPressUrl(site.websitePath, site.domain, Boolean(npmHost?.certificate_id));
+        await migrateWordPressUrl(site.websitePath, site.domain, Boolean(npmHost?.certificate_id));
       } catch (error) {
         warnings.push(`WordPress URL: ${error.message}`);
       }
@@ -536,7 +538,15 @@ class MigrationManager {
         fastcgiCache: Boolean(site.state.fastcgiCache), redis: Boolean(site.state.redis),
         opcache: site.state.opcache !== false, backupEnabled: Boolean(site.state.backupEnabled), cacheVersion: 1,
       });
-      results.push({ domain: site.domain, aliases: site.aliases, websitePath: site.websitePath, database: site.database, port: site.port, warnings });
+      results.push({
+        domain: site.domain,
+        aliases: site.aliases,
+        websitePath: site.websitePath,
+        database: site.database,
+        databasePassword: options.includeCredentials ? site.password : undefined,
+        port: site.port,
+        warnings,
+      });
     }
     await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-s", "reload"], { timeout: 30_000 });
     return { ok: results.every((result) => result.warnings.length === 0), results };

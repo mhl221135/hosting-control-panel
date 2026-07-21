@@ -110,6 +110,21 @@ alias hosts are absent from NPM and `sites.map`, the pool is absent from
 
 ## Common Diagnostics
 
+### Provision import upload returns 413
+
+The panel streams uploads and does not need PHP limits, but its NPM proxy host
+must allow the request body. Add the following to that proxy host's Advanced
+configuration and save it:
+
+```nginx
+client_max_body_size 8g;
+proxy_request_buffering off;
+```
+
+Uploaded files are staged under `imports/ui-provision`. Successful imports and
+staging older than 24 hours are removed automatically. Failed imports retain
+their staged inputs so the form can be retried until expiration.
+
 ### Website returns 502
 
 1. Check the NPM host forwards to `hosting-nginx:80` over HTTP.

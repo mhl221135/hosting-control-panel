@@ -69,6 +69,7 @@ routes. There is no Express framework or external npm dependency.
 | `performance-settings.js` | validated managed configuration directives |
 | `dns-presets.js` | reusable Cloudflare record templates |
 | `wordpress-packages.js` | uploaded plugin/theme ZIP library |
+| `provision-import-store.js` | streamed import staging and archive normalization |
 | `stats-collector.js` | on-demand runtime and traffic summaries |
 | `image-optimization-manager.js` | persistent sequential WebP job state |
 
@@ -142,6 +143,14 @@ Exports are password-free manifests plus website archives and database dumps.
 Imports support a full manifest, a lightweight `import-sites.json`, or discovery
 from existing `wp-config.php` files. Import generates new database credentials
 and rewrites `wp-config.php`; source credentials are never required.
+
+The Provision tab's single-site adapter stages raw uploads below
+`imports/ui-provision`, validates archive member paths, rejects symlinks, finds
+the sole WordPress document root, and produces the same normalized archive and
+manifest consumed by `MigrationManager`. This keeps browser imports on the same
+database/runtime rollback path as host-level imports. Core import work runs
+under the shared storage-operation lock; external integration failures are
+reported as warnings after the site is usable.
 
 ## External Integrations
 

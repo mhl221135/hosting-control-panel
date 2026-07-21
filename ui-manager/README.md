@@ -60,6 +60,14 @@ Bundled WordPress plugins and inactive bundled themes are removed unless their
 retention controls are selected. If no custom theme is selected, the active
 bundled theme remains so the new website has a functioning frontend.
 
+Provision also has an **Import website** source mode. It streams a ZIP/TAR
+website archive and SQL/SQL.GZ dump into temporary staging, accepts a nested
+`public_html`-style document root, generates new database credentials, updates
+`wp-config.php`, migrates the WordPress URL, and preserves imported accounts and
+content. Staging expires after 24 hours and is removed immediately after a
+successful import. NPM proxy hosts in front of the panel need
+`client_max_body_size 8g;` and `proxy_request_buffering off;` for large files.
+
 ## Sites and image optimization
 
 Hosts that share the same document root and PHP-FPM pool are presented as one
