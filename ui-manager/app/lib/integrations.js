@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 class IntegrationError extends Error {
   constructor(message, statusCode = 502, details = "") {
     super(message);
@@ -202,14 +204,17 @@ class NpmClient {
 }
 
 class CloudflareClient {
-  constructor(settingsProvider = null) {
+  constructor(settingsProvider = null, options = {}) {
     this.settingsProvider = settingsProvider;
     this.baseUrl = "https://api.cloudflare.com/client/v4";
+    this.tokenSetting = options.tokenSetting || "cloudflareToken";
+    this.tokenEnvironment = options.tokenEnvironment || "CLOUDFLARE_API_TOKEN";
+    this.integrationName = options.integrationName || "Cloudflare";
   }
 
   token() {
-    if (this.settingsProvider) return String(this.settingsProvider().cloudflareToken || "");
-    return String(process.env.CLOUDFLARE_API_TOKEN || "");
+    if (this.settingsProvider) return String(this.settingsProvider()[this.tokenSetting] || "");
+    return String(process.env[this.tokenEnvironment] || "");
   }
 
   accountId() {
@@ -222,7 +227,7 @@ class CloudflareClient {
   }
 
   async request(path, options = {}) {
-    if (!this.configured()) throw new IntegrationError("Cloudflare API token is not configured", 503);
+    if (!this.configured()) throw new IntegrationError(`${this.integrationName} API token is not configured`, 503);
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
@@ -415,6 +420,139 @@ class CloudflareClient {
       }
     }
     return { zonesChecked: zones.length, changed: changes.length, records: changes };
+  }
+
+  securityRuleReference(domain, preset) {
+    const hostId = crypto.createHash("sha256").update(String(domain)).digest("hex").slice(0, 12);
+    return `hosting-control-${preset}-${hostId}`;
+  }
+
+  securityPreset(domain, preset) {
+    const host = `(http.host eq "${domain}" or http.host eq "www.${domain}")`;
+    const common = {
+      enabled: true,
+      ref: this.securityRuleReference(domain, preset),
+    };
+    if (preset === "suspicious-probes") {
+      return {
+        phase: "http_request_firewall_custom",
+        rule: {
+          ...common,
+          action: "block",
+          description: `[Hosting Control] Block sensitive-file probes for ${domain}`,
+          expression: `${host} and http.request.uri.path in {"/.env" "/.git/config" "/wp-config.php" "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php" "/_ignition/execute-solution"}`,
+        },
+      };
+    }
+    if (preset === "xmlrpc-challenge") {
+      return {
+        phase: "http_request_firewall_custom",
+        rule: {
+          ...common,
+          action: "managed_challenge",
+          description: `[Hosting Control] Challenge XML-RPC requests for ${domain}`,
+          expression: `${host} and http.request.uri.path eq "/xmlrpc.php"`,
+        },
+      };
+    }
+    if (preset === "login-rate-limit") {
+      return {
+        phase: "http_ratelimit",
+        rule: {
+          ...common,
+          action: "block",
+          description: `[Hosting Control] Rate limit WordPress login for ${domain}`,
+          expression: `${host} and http.request.uri.path eq "/wp-login.php" and http.request.method eq "POST"`,
+          ratelimit: {
+            characteristics: ["cf.colo.id", "ip.src"],
+            period: 60,
+            requests_per_period: 10,
+            mitigation_timeout: 600,
+          },
+        },
+      };
+    }
+    throw new IntegrationError("Unknown Cloudflare security preset", 400);
+  }
+
+  async phaseRuleset(zoneId, phase, allowMissing = false) {
+    try {
+      const data = await this.request(`/zones/${zoneId}/rulesets/phases/${phase}/entrypoint`);
+      return data.result || null;
+    } catch (error) {
+      if (allowMissing && error.statusCode === 404) return null;
+      throw error;
+    }
+  }
+
+  async securityRules(domain) {
+    const zone = await this.zoneForDomain(domain);
+    const phases = ["http_request_firewall_custom", "http_ratelimit"];
+    const rules = [];
+    for (const phase of phases) {
+      const ruleset = await this.phaseRuleset(zone.id, phase, true);
+      for (const rule of ruleset?.rules || []) {
+        if (!String(rule.ref || "").startsWith("hosting-control-")) continue;
+        if (!String(rule.description || "").includes(domain)) continue;
+        rules.push({
+          id: rule.id,
+          rulesetId: ruleset.id,
+          phase,
+          ref: rule.ref,
+          description: rule.description,
+          action: rule.action,
+          enabled: rule.enabled !== false,
+          ratelimit: rule.ratelimit || null,
+        });
+      }
+    }
+    return { zone: { id: zone.id, name: zone.name }, domain, rules };
+  }
+
+  async applySecurityPreset(domain, preset) {
+    const zone = await this.zoneForDomain(domain);
+    const definition = this.securityPreset(domain, preset);
+    let ruleset = await this.phaseRuleset(zone.id, definition.phase, true);
+    const existing = (ruleset?.rules || []).find((rule) => rule.ref === definition.rule.ref);
+    if (existing) return { created: false, rule: existing, zone: { id: zone.id, name: zone.name } };
+    if (!ruleset) {
+      const result = await this.request(`/zones/${zone.id}/rulesets`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: `Hosting Control ${definition.phase}`,
+          description: "Rules managed by Hosting Control",
+          kind: "zone",
+          phase: definition.phase,
+          rules: [definition.rule],
+        }),
+      });
+      return { created: true, rule: result.result?.rules?.[0], zone: { id: zone.id, name: zone.name } };
+    }
+    const result = await this.request(`/zones/${zone.id}/rulesets/${ruleset.id}/rules`, {
+      method: "POST",
+      body: JSON.stringify(definition.rule),
+    });
+    return { created: true, rule: result.result, zone: { id: zone.id, name: zone.name } };
+  }
+
+  async updateSecurityRule(domain, rulesetId, ruleId, enabled) {
+    const zone = await this.zoneForDomain(domain);
+    const rules = await this.securityRules(domain);
+    const rule = rules.rules.find((item) => item.rulesetId === rulesetId && item.id === ruleId);
+    if (!rule) throw new IntegrationError("Panel-managed Cloudflare rule was not found", 404);
+    const result = await this.request(`/zones/${zone.id}/rulesets/${rulesetId}/rules/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled: Boolean(enabled) }),
+    });
+    return result.result;
+  }
+
+  async deleteSecurityRule(domain, rulesetId, ruleId) {
+    const zone = await this.zoneForDomain(domain);
+    const rules = await this.securityRules(domain);
+    const rule = rules.rules.find((item) => item.rulesetId === rulesetId && item.id === ruleId);
+    if (!rule) throw new IntegrationError("Panel-managed Cloudflare rule was not found", 404);
+    await this.request(`/zones/${zone.id}/rulesets/${rulesetId}/rules/${ruleId}`, { method: "DELETE" });
   }
 }
 

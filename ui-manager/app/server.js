@@ -82,6 +82,11 @@ const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const npm = new NpmClient(() => integrationSettings.resolved());
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
+const cloudflareSecurity = new CloudflareClient(() => integrationSettings.resolved(), {
+  tokenSetting: "cloudflareSecurityToken",
+  tokenEnvironment: "CLOUDFLARE_SECURITY_API_TOKEN",
+  integrationName: "Cloudflare Security",
+});
 const dnsPresets = new DnsPresetStore(DATA_DIR);
 const wordpressPackages = new WordPressPackageStore(DATA_DIR);
 const ipAddresses = new IpAddressStore(DATA_DIR);
@@ -587,6 +592,7 @@ async function handleApi(req, res) {
       integrations: {
         npm: npm.configured(),
         cloudflare: cloudflare.configured(),
+        cloudflareSecurity: cloudflareSecurity.configured(),
         mysql: true,
       },
     });
@@ -765,6 +771,11 @@ async function handleApi(req, res) {
       sendJson(res, 200, { ok: true, message: `Cloudflare token status: ${token.status || "active"}.` });
       return true;
     }
+    if (body.target === "cloudflare-security") {
+      const token = await cloudflareSecurity.verify();
+      sendJson(res, 200, { ok: true, message: `Cloudflare Security token status: ${token.status || "active"}.` });
+      return true;
+    }
     if (body.target === "mysql") {
       const settings = integrationSettings.resolved();
       const output = await execCommand(
@@ -808,6 +819,46 @@ async function handleApi(req, res) {
   if (req.method === "GET" && requestUrl.pathname === "/api/cloudflare/records") {
     const domain = validateDomain(requestUrl.searchParams.get("domain"));
     sendJson(res, 200, await cloudflare.records(domain));
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/cloudflare/security") {
+    const domain = validateDomain(requestUrl.searchParams.get("domain"));
+    sendJson(res, 200, await cloudflareSecurity.securityRules(domain));
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/security/presets") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const preset = String(body.preset || "");
+    if (!["suspicious-probes", "xmlrpc-challenge", "login-rate-limit"].includes(preset)) {
+      sendJson(res, 400, { ok: false, message: "Unknown Cloudflare security preset" });
+      return true;
+    }
+    sendJson(res, 201, { ok: true, ...(await cloudflareSecurity.applySecurityPreset(domain, preset)) });
+    return true;
+  }
+
+  if (["PATCH", "DELETE"].includes(req.method)
+      && /^\/api\/cloudflare\/security\/rules\/[^/]+\/[^/]+$/.test(requestUrl.pathname)) {
+    const parts = requestUrl.pathname.split("/").map(decodeURIComponent);
+    const rulesetId = parts[5];
+    const ruleId = parts[6];
+    if (!/^[a-zA-Z0-9_-]+$/.test(rulesetId) || !/^[a-zA-Z0-9_-]+$/.test(ruleId)) {
+      sendJson(res, 400, { ok: false, message: "Cloudflare rule identifier is invalid" });
+      return true;
+    }
+    if (req.method === "PATCH") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      const domain = validateDomain(body.domain);
+      const rule = await cloudflareSecurity.updateSecurityRule(domain, rulesetId, ruleId, body.enabled);
+      sendJson(res, 200, { ok: true, rule });
+    } else {
+      const domain = validateDomain(requestUrl.searchParams.get("domain"));
+      await cloudflareSecurity.deleteSecurityRule(domain, rulesetId, ruleId);
+      sendJson(res, 200, { ok: true });
+    }
     return true;
   }
 

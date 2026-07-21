@@ -146,6 +146,42 @@ test("verifies account-owned tokens with the account endpoint", async () => {
   }
 });
 
+test("uses a separate token and creates only a panel-managed security rule", async () => {
+  const originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    assert.equal(options.headers.Authorization, "Bearer security-token");
+    if (url.includes("/zones?name=example.com")) {
+      return response({ success: true, result: [{ id: "zone-1", name: "example.com" }] });
+    }
+    if (url.endsWith("/rulesets/phases/http_request_firewall_custom/entrypoint")) {
+      return response({ success: true, result: { id: "ruleset-1", rules: [] } });
+    }
+    if (url.endsWith("/rulesets/ruleset-1/rules") && options.method === "POST") {
+      return response({ success: true, result: { id: "rule-1", ...JSON.parse(options.body) } });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  try {
+    const client = new CloudflareClient(() => ({
+      cloudflareToken: "dns-token",
+      cloudflareSecurityToken: "security-token",
+    }), {
+      tokenSetting: "cloudflareSecurityToken",
+      tokenEnvironment: "CLOUDFLARE_SECURITY_API_TOKEN",
+      integrationName: "Cloudflare Security",
+    });
+    const result = await client.applySecurityPreset("example.com", "suspicious-probes");
+    assert.equal(result.created, true);
+    const created = JSON.parse(calls.at(-1).options.body);
+    assert.match(created.ref, /^hosting-control-suspicious-probes-/);
+    assert.equal(created.action, "block");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("normalizes an existing legacy website proxy target", async () => {
   const client = new NpmClient(() => ({
     npmApiUrl: "http://npm.test/api",
