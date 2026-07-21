@@ -461,13 +461,13 @@ class CloudflareClient {
         rule: {
           ...common,
           action: "block",
-          description: `[Hosting Control] Rate limit WordPress login for ${domain}`,
-          expression: `${host} and http.request.uri.path eq "/wp-login.php" and http.request.method eq "POST"`,
+          description: `[Hosting Control] Rate limit WordPress login zone for ${domain}`,
+          expression: `http.request.uri.path eq "/wp-login.php"`,
           ratelimit: {
             characteristics: ["cf.colo.id", "ip.src"],
-            period: 60,
-            requests_per_period: 10,
-            mitigation_timeout: 600,
+            period: 10,
+            requests_per_period: 5,
+            mitigation_timeout: 10,
           },
         },
       };
