@@ -32,6 +32,7 @@ into dedicated directories.
 - Backup history and complete-set deletion from the panel
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
+- On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Encrypted NPM and Cloudflare credentials at rest
 - ARM64 PHP image with WP-CLI, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
 
@@ -212,6 +213,8 @@ sudo ./scripts/upgrade.sh
 The upgrade requires a clean source checkout, pulls `main` with fast-forward
 only, refreshes upstream images, rebuilds custom images, validates Compose, and
 recreates changed containers. Add `--production` to refresh GoAccess too.
+Nginx Proxy Manager is pinned to the tested `2.15.0` release; the upgrade script
+pulls that image as a required step instead of silently retaining an older local image.
 
 Normal startup excludes GoAccess. Start production-only services with:
 

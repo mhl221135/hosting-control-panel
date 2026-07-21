@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260721-3" />
+    <link rel="stylesheet" href="/styles.css?v=20260721-4" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -24,6 +24,7 @@
         <a class="brand" href="#" data-tab-link="sites"><span class="brand-mark small">HC</span><span>Hosting Control</span></a>
         <nav>
           <button class="nav-item active" data-tab-link="sites">Sites</button>
+          <button class="nav-item" data-tab-link="stats">Stats</button>
           <button class="nav-item" data-tab-link="provision">Provision</button>
           <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
           <button class="nav-item" data-tab-link="backups">Backups</button>
@@ -67,6 +68,57 @@
             </div>
           </div>
           <div id="sitesList" class="site-list"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="stats">
+          <div class="section-head">
+            <div><h2>Server statistics</h2><p id="statsUpdated">Not collected.</p></div>
+            <button id="refreshStats" class="secondary" type="button">Refresh</button>
+          </div>
+
+          <div class="metrics stats-metrics">
+            <article><span>Server load</span><strong id="statsLoad">-</strong><small id="statsLoadDetail">1 / 5 / 15 min</small></article>
+            <article><span>Memory used</span><strong id="statsMemory">-</strong><small id="statsMemoryDetail">-</small></article>
+            <article><span>Hosting disk</span><strong id="statsDisk">-</strong><small id="statsDiskDetail">-</small></article>
+            <article><span>PHP worker memory</span><strong id="statsPhpMemory">-</strong><small id="statsPhpDetail">-</small></article>
+          </div>
+
+          <div class="two-column stats-overview">
+            <article class="panel">
+              <div class="card-head"><div><h3>Cache health</h3><p class="muted">Current Redis and FastCGI state.</p></div></div>
+              <dl id="cacheStats" class="stat-list"></dl>
+            </article>
+            <article class="panel">
+              <div class="card-head"><div><h3>Container resources</h3><p class="muted">One Docker snapshot.</p></div></div>
+              <div class="table-wrap"><table><thead><tr><th>Container</th><th>CPU</th><th>Memory</th><th>PIDs</th></tr></thead><tbody id="containerStats"></tbody></table></div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>Website PHP load</h3><p class="muted">Attributed by the dedicated PHP-FPM pool for each website.</p></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Website</th><th>Workers</th><th>CPU</th><th>RAM</th><th>Pool</th><th></th></tr></thead><tbody id="websiteStats"></tbody></table></div>
+          </article>
+
+          <section id="siteStatsDetail" class="stats-detail hidden">
+            <div class="section-head">
+              <div><h2 id="siteStatsTitle">Website activity</h2><p id="siteStatsUpdated">Select a website above.</p></div>
+              <div class="section-actions">
+                <select id="statsDomain" class="domain-select"></select>
+                <button id="loadSiteStats" class="secondary" type="button">Inspect</button>
+              </div>
+            </div>
+            <div class="stats-detail-grid">
+              <div><span>Website files</span><strong id="siteStatsDisk">-</strong></div>
+              <div><span>Recent requests</span><strong id="siteStatsRequests">-</strong></div>
+              <div><span>Transferred</span><strong id="siteStatsBytes">-</strong></div>
+              <div><span>Latest request</span><strong id="siteStatsLatest">-</strong></div>
+            </div>
+            <div class="two-column">
+              <article class="panel"><h3>Response status</h3><div id="siteStatusStats" class="bar-list"></div></article>
+              <article class="panel"><h3>Top client / proxy IPs</h3><div id="siteIpStats" class="rank-list"></div></article>
+            </div>
+            <article class="panel"><h3>Top requested paths</h3><div id="sitePathStats" class="rank-list"></div></article>
+          </section>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="provision">
@@ -347,6 +399,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-3"></script>
+    <script src="/app.js?v=20260721-4"></script>
   </body>
 </html>

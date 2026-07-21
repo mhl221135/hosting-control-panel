@@ -25,6 +25,14 @@ panel create a restricted local key in its data directory.
 The MySQL root password stays in the MySQL container environment and is never
 stored by the panel.
 
+## Statistics
+
+The **Stats** tab collects runtime data only when opened or manually refreshed.
+Server, container, PHP-FPM pool, Redis, and FastCGI snapshots are cached for 30
+seconds. Website disk usage and the selected NPM access-log sample are cached
+for five minutes. No background metrics database or permanent polling service
+is required.
+
 ## WordPress provisioning
 
 Open **Provision** to create a site, PHP-FPM pool, database and database user,
