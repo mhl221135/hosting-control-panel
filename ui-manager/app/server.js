@@ -7,13 +7,16 @@ const { IntegrationSettings } = require("./lib/integration-settings");
 const { CloudflareClient, NpmClient } = require("./lib/integrations");
 const {
   createDatabase,
+  dropDatabaseAndUser,
   installWordPress,
   optimizeImages,
   prepareSiteDirectory,
   randomPassword,
+  removeSiteDirectory,
   setRedis,
   updateWordPressUrl,
   validateDomain,
+  wordpressDatabaseConfig,
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
 const { BackupManager } = require("./lib/backup-manager");
@@ -25,6 +28,7 @@ const { ImageOptimizationManager } = require("./lib/image-optimization-manager")
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
 const { StatsCollector } = require("./lib/stats-collector");
+const { buildSiteRemovalPlan } = require("./lib/site-removal-plan");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -568,6 +572,226 @@ function getSitesWithPools(mapParsed, poolsParsed) {
   return annotateSiteAliases(sites);
 }
 
+function currentSites() {
+  const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+  const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  return { mapParsed, poolsParsed, sites: getSitesWithPools(mapParsed, poolsParsed) };
+}
+
+function siteDirectory(site) {
+  const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
+  if (!directory || directory.includes("/") || directory.includes("\\")) {
+    const error = new Error(`Unsupported document root for ${site.host}`);
+    error.statusCode = 409;
+    throw error;
+  }
+  return directory;
+}
+
+async function createSiteRemovalPlan(domain) {
+  const runtime = currentSites();
+  const site = runtime.sites.find((item) => item.host === domain && !item.isAlias);
+  if (!site) {
+    const error = new Error("Primary website is not configured");
+    error.statusCode = 404;
+    throw error;
+  }
+  const warnings = [];
+  const directory = siteDirectory(site);
+  let database = null;
+  try {
+    database = await wordpressDatabaseConfig(directory);
+  } catch (error) {
+    warnings.push(`Database inspection failed for ${site.host}: ${error.message}`);
+  }
+
+  const databaseReferences = [];
+  let databaseInspectionComplete = true;
+  const otherSites = runtime.sites.filter((item) => !item.isAlias && item.host !== site.host);
+  const referenceResults = [];
+  for (let offset = 0; offset < otherSites.length; offset += 4) {
+    const batch = await Promise.all(otherSites.slice(offset, offset + 4).map(async (otherSite) => {
+      try {
+        return { domain: otherSite.host, ...(await wordpressDatabaseConfig(siteDirectory(otherSite))) };
+      } catch (error) {
+        return { domain: otherSite.host, error: error.message };
+      }
+    }));
+    referenceResults.push(...batch);
+  }
+  for (const reference of referenceResults) {
+    if (reference.error) {
+      databaseInspectionComplete = false;
+      warnings.push(`Could not verify database ownership for ${reference.domain}`);
+    } else {
+      databaseReferences.push(reference);
+    }
+  }
+  if (database) databaseReferences.push({ domain: site.host, ...database });
+
+  let npmHosts = [];
+  let certificates = [];
+  if (npm.configured()) {
+    try {
+      [npmHosts, certificates] = await Promise.all([npm.listHosts(), npm.listCertificates()]);
+    } catch (error) {
+      warnings.push(`NPM inspection failed: ${error.message}`);
+    }
+  }
+
+  let dnsRecords = [];
+  const targetDomains = new Set([site.host, ...(site.aliases || [])]);
+  if (cloudflare.configured()) {
+    try {
+      const result = await cloudflare.records(site.host);
+      dnsRecords = result.records.filter((record) =>
+        targetDomains.has(record.name) && ["A", "AAAA", "CNAME"].includes(record.type));
+    } catch (error) {
+      warnings.push(`Cloudflare inspection failed: ${error.message}`);
+    }
+  }
+
+  let backups = [];
+  try {
+    backups = backupManager.history(site.host);
+  } catch (error) {
+    warnings.push(`Backup inspection failed: ${error.message}`);
+  }
+
+  return buildSiteRemovalPlan({
+    site,
+    allSites: runtime.sites,
+    database,
+    databaseReferences,
+    databaseInspectionComplete,
+    npmHosts,
+    certificates,
+    dnsRecords,
+    backups,
+    warnings,
+  });
+}
+
+async function executeSiteRemoval(domain, body) {
+  if (String(body.confirm_domain || "").trim().toLowerCase() !== domain) {
+    const error = new Error(`Type ${domain} exactly to confirm deletion`);
+    error.statusCode = 400;
+    throw error;
+  }
+  const selected = {
+    finalBackup: Boolean(body.final_backup),
+    cloudflareDns: Boolean(body.cloudflare_dns),
+    npmHost: Boolean(body.npm_host),
+    npmCertificate: Boolean(body.npm_certificate),
+    runtime: Boolean(body.runtime),
+    pool: Boolean(body.pool),
+    panelState: Boolean(body.panel_state),
+    database: Boolean(body.database),
+    files: Boolean(body.files),
+    backups: Boolean(body.backups),
+  };
+  if (!Object.values(selected).some(Boolean)) {
+    const error = new Error("Select at least one resource to delete");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (selected.finalBackup && selected.backups) {
+    const error = new Error("A final backup cannot be created and deleted in the same operation");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (selected.pool && !selected.runtime) {
+    const error = new Error("Remove runtime host records before removing their PHP pool");
+    error.statusCode = 400;
+    throw error;
+  }
+  const operationStatus = backupManager.status();
+  if (operationStatus.busy) {
+    const error = new Error(`Cannot delete while another storage operation is running: ${operationStatus.currentJob?.label || "busy"}`);
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const plan = await createSiteRemovalPlan(domain);
+  if (selected.npmCertificate && plan.resources.npmHost.available && !selected.npmHost) {
+    const error = new Error("Remove the NPM proxy host before removing its certificate");
+    error.statusCode = 400;
+    throw error;
+  }
+  for (const [resource, enabled] of Object.entries(selected)) {
+    if (!enabled) continue;
+    const assessment = plan.resources[resource];
+    if (!assessment?.available) {
+      const error = new Error(`${resource} is not available for ${domain}`);
+      error.statusCode = 409;
+      throw error;
+    }
+    if (!assessment.safe) {
+      const shared = assessment.sharedBy?.length ? ` Shared by: ${assessment.sharedBy.join(", ")}.` : "";
+      const error = new Error(`${resource} is not safe to remove.${shared}`);
+      error.statusCode = 409;
+      throw error;
+    }
+  }
+
+  return backupManager.withLock({ type: "site-removal", domain, label: `Delete ${domain}` }, async () => {
+    const runtime = currentSites();
+    const site = runtime.sites.find((item) => item.host === domain && !item.isAlias);
+    const steps = [];
+    if (selected.finalBackup) {
+      const backup = await backupManager.createSiteBackup(site, backupManager.readSettings().retention + 1);
+      steps.push({ name: "final-backup", status: "complete", id: backup.id });
+    }
+    if (selected.cloudflareDns) {
+      for (const recordId of plan.resources.cloudflareDns.ids) await cloudflare.deleteRecord(domain, recordId);
+      steps.push({ name: "cloudflare-dns", status: "complete", count: plan.resources.cloudflareDns.count });
+    }
+    if (selected.npmHost) {
+      for (const hostId of plan.resources.npmHost.ids) await npm.deleteHost(hostId);
+      steps.push({ name: "npm-host", status: "complete", count: plan.resources.npmHost.count });
+    }
+    if (selected.npmCertificate) {
+      for (const certificateId of plan.resources.npmCertificate.ids) await npm.deleteCertificate(certificateId);
+      steps.push({ name: "npm-certificate", status: "complete", count: plan.resources.npmCertificate.count });
+    }
+    if (selected.runtime) {
+      const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
+      const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
+      const mapParsed = parseSitesMap(mapBefore);
+      const poolsParsed = parsePools(poolsBefore);
+      for (const host of plan.targetDomains) delete mapParsed.hosts[host];
+      for (const host of Object.keys(mapParsed.hosts)) {
+        if (plan.targetDomains.includes(mapParsed.hosts[host].canonicalTo)) mapParsed.hosts[host].canonicalTo = "";
+      }
+      if (selected.pool && plan.pool.name) {
+        delete poolsParsed.sections[plan.pool.name];
+        poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((name) => name !== plan.pool.name);
+      }
+      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+      await validateAndReload(mapBefore, poolsBefore);
+      steps.push({ name: "runtime", status: "complete", count: plan.targetDomains.length });
+      if (selected.pool) steps.push({ name: "pool", status: "complete", count: 1 });
+    }
+    if (selected.panelState) {
+      siteState.remove(plan.targetDomains);
+      steps.push({ name: "panel-state", status: "complete" });
+    }
+    if (selected.database) {
+      await dropDatabaseAndUser(plan.database.name, plan.database.user, integrationSettings.resolved());
+      steps.push({ name: "database", status: "complete", database: plan.database.name });
+    }
+    if (selected.files) {
+      removeSiteDirectory(WEBSITES_ROOT, plan.directory);
+      steps.push({ name: "files", status: "complete", directory: plan.directory });
+    }
+    if (selected.backups) {
+      backupManager.deleteSiteBackups(domain);
+      steps.push({ name: "backups", status: "complete" });
+    }
+    return { ok: true, domain, steps };
+  });
+}
+
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
   backupFile(SITES_MAP_PATH, mapBefore);
   backupFile(POOLS_PATH, poolsBefore);
@@ -604,6 +828,19 @@ async function handleApi(req, res) {
       ok: true,
       ...(await statsCollector.runtime(requestUrl.searchParams.get("refresh") === "1")),
     });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/site-removal") {
+    const domain = validateDomain(requestUrl.searchParams.get("domain"));
+    sendJson(res, 200, { ok: true, plan: await createSiteRemovalPlan(domain) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/site-removal") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    sendJson(res, 200, await executeSiteRemoval(domain, body));
     return true;
   }
 

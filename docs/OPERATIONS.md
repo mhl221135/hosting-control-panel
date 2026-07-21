@@ -95,6 +95,19 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
+## Website Deletion
+
+Use the panel's **Delete** tab instead of manually removing files or database
+rows. Refresh the preview, inspect disabled/shared resources, retain the default
+final backup, and type the domain exactly. Historical backups remain unless
+**Stored website backups** is explicitly selected.
+
+Deletion may stop after an external NPM or Cloudflare error while local files
+remain intact. Refresh the preview before retrying; already removed external
+resources will no longer be selected. After success, verify that primary and
+alias hosts are absent from NPM and `sites.map`, the pool is absent from
+`pools.conf`, and retained backup archives remain readable.
+
 ## Common Diagnostics
 
 ### Website returns 502

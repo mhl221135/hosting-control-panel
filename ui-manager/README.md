@@ -71,6 +71,15 @@ Nginx performs delivery without changing website content: the original JPG or
 PNG URL serves its WebP sidecar to compatible browsers. These negotiated URLs
 bypass shared caches to prevent Cloudflare from mixing response formats.
 
+## Website deletion
+
+The **Delete** tab previews resource ownership and provides separate controls
+for routes, aliases, pool, files, database/user, NPM host and certificate,
+Cloudflare web DNS, panel state, and backups. It requires typed domain
+confirmation, recalculates safety on submit, blocks shared resources, and uses
+the backup operation lock. A final backup is selected by default and existing
+backups are retained unless explicitly selected for deletion.
+
 ## Portable website migration
 
 The host-level `scripts/export-websites.sh` and `scripts/import-websites.sh`

@@ -31,6 +31,8 @@ into dedicated directories.
 - Per-site manual and scheduled backups with retention
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel
+- Ownership-aware website removal with selectable routes, pool, files, database,
+  NPM, certificate, Cloudflare DNS, panel state, and backups
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
@@ -318,6 +320,26 @@ OPcache, FastCGI cache, and Redis solve different problems:
 FastCGI cache bypasses logged-in users, WordPress administration, API and login
 paths, query strings, non-GET requests, and common WooCommerce cart/session
 cookies. Purging increments a per-site cache version and reloads nginx.
+
+## Website Removal
+
+The dedicated **Delete** tab builds a fresh ownership preview before allowing a
+destructive action. Select the primary website, choose individual resources,
+and type the domain exactly. By default it creates a final safety backup and
+retains older backup sets.
+
+The preview covers internal host routes and aliases, the PHP-FPM pool, website
+files, WordPress database and user, NPM proxy host and certificate, exact
+Cloudflare A/AAAA/CNAME records, panel state, and stored backups. Shared pools,
+document roots, databases, NPM hosts, and certificates are disabled rather than
+deleted. Database ownership is checked against every configured primary site's
+`wp-config.php` before deletion.
+
+All selected work runs under the same storage-operation lock as backups and
+image optimization. The backend rebuilds the preview after confirmation, so a
+stale browser cannot bypass ownership checks. Existing backups are deleted only
+when their separate checkbox is selected; a final backup and backup deletion
+cannot be selected together.
 
 ## Compression and Images
 

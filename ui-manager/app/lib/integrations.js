@@ -111,6 +111,14 @@ class NpmClient {
     return this.request("/nginx/certificates?expand=owner");
   }
 
+  async deleteHost(hostId) {
+    return this.request(`/nginx/proxy-hosts/${Number(hostId)}`, { method: "DELETE" });
+  }
+
+  async deleteCertificate(certificateId) {
+    return this.request(`/nginx/certificates/${Number(certificateId)}`, { method: "DELETE" });
+  }
+
   async findHost(domain) {
     const hosts = await this.listHosts();
     return hosts.find((host) => Array.isArray(host.domain_names) && host.domain_names.includes(domain)) || null;
