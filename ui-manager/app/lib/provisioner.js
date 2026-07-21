@@ -311,7 +311,7 @@ async function migrateWordPressUrl(directory, domain, useHttps) {
   const previous = new Set();
   for (const option of ["home", "siteurl"]) {
     try {
-      const result = await runWp(["option", "get", option, `--path=${containerPath}`]);
+      const result = await runWp(["option", "get", option, "--skip-plugins", "--skip-themes", `--path=${containerPath}`]);
       const value = String(result.stdout || "").trim().replace(/\/$/, "");
       if (/^https?:\/\//i.test(value) && value !== url) previous.add(value);
     } catch {
