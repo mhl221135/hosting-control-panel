@@ -3,20 +3,11 @@
 set -eu
 
 project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-include_production=false
 
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    --production)
-      include_production=true
-      ;;
-    *)
-      echo "Unknown upgrade option: $1" >&2
-      exit 1
-      ;;
-  esac
-  shift
-done
+if [ "$#" -gt 0 ]; then
+  echo "Unknown upgrade option: $1" >&2
+  exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this upgrade as root." >&2
@@ -52,10 +43,5 @@ compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-files hosting-ui hosting-php-fpm hosting-npm
 compose up -d
 sh "$project_dir/scripts/migrate-webp-cache.sh"
-
-if [ "$include_production" = true ]; then
-  compose --profile production pull hosting-goaccess || true
-  compose --profile production up -d hosting-goaccess
-fi
 
 echo "Upgrade complete. Persistent data, websites, backups, and active configuration were not replaced."

@@ -19,7 +19,7 @@ sudo ./scripts/upgrade.sh
 
 The script refuses tracked local edits, fast-forwards `main`, validates Compose,
 pulls upstream images, rebuilds custom images, recreates changed services, and
-runs explicit config migrations. Add `--production` to update/start GoAccess.
+runs explicit config migrations.
 
 Upgrades do not replace `app-data`, `websites`, `backups`, or active copied
 configuration.

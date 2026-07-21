@@ -231,15 +231,9 @@ sudo ./scripts/upgrade.sh
 
 The upgrade requires a clean source checkout, pulls `main` with fast-forward
 only, refreshes upstream images, rebuilds custom images, validates Compose, and
-recreates changed containers. Add `--production` to refresh GoAccess too.
+recreates changed containers.
 Nginx Proxy Manager is pinned to the tested `2.15.0` release; the upgrade script
 pulls that image as a required step instead of silently retaining an older local image.
-
-Normal startup excludes GoAccess. Start production-only services with:
-
-```bash
-docker-compose --profile production up -d
-```
 
 The published port mappings retain the existing stack layout:
 
@@ -249,7 +243,6 @@ The published port mappings retain the existing stack layout:
 | Nginx Proxy Manager HTTP | 80 |
 | Nginx Proxy Manager UI | 81 |
 | Nginx Proxy Manager HTTPS | 443 |
-| GoAccess | 7890 |
 | phpMyAdmin | 8484 |
 
 MySQL (`hosting-db:3306`) and Redis (`hosting-redis:6379`) are available only
@@ -421,13 +414,6 @@ docker logs --tail 100 hosting-nginx
 docker logs --tail 100 hosting-php-fpm
 docker logs --tail 100 hosting-db
 docker logs --tail 100 hosting-npm
-```
-
-GoAccess is production-only:
-
-```bash
-docker-compose --profile production up -d hosting-goaccess
-docker-compose stop hosting-goaccess
 ```
 
 ## Resource Sizing

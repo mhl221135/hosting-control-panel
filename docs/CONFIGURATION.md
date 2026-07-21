@@ -100,10 +100,9 @@ Measure host memory before increasing limits.
 
 ## Ports And Network
 
-Published by default: `80`, `81`, `443`, `8687`, and `8484`. GoAccess publishes
-`7890` only with its production profile. File Browser, internal nginx, PHP-FPM,
-MySQL, and Redis are reachable by container name on `hosting-net` and need no
-host ports.
+Published by default: `80`, `81`, `443`, `8687`, and `8484`. File Browser,
+internal nginx, PHP-FPM, MySQL, and Redis are reachable by container name on
+`hosting-net` and need no host ports.
 
 NPM hosts for internal stack services should use container name and container
 port. Unrelated containers on other networks must use a host/LAN route or a

@@ -98,21 +98,6 @@ services:
     networks:
       - hosting-net
 
-  hosting-goaccess:
-    profiles:
-      - production
-    image: justsky/goaccess-for-nginxproxymanager:latest
-    container_name: hosting-goaccess
-    restart: unless-stopped
-    environment:
-      TZ: Europe/Kyiv
-    ports:
-      - "7890:7880"
-    volumes:
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/npm/data/logs:/opt/log
-    networks:
-      - hosting-net
-
   hosting-npm:
     image: hosting-npm:2.15.0
     build:
