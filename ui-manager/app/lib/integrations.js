@@ -44,6 +44,7 @@ class NpmClient {
     this.sleep = options.sleep || sleep;
     this.dnsAttempts = Number(options.dnsAttempts || 24);
     this.dnsDelayMs = Number(options.dnsDelayMs || 5000);
+    this.certificateDns = options.certificateDns || null;
   }
 
   settings() {
@@ -180,13 +181,17 @@ class NpmClient {
     });
   }
 
-  async waitForDns(domains) {
+  async waitForDns(domains, expectedAddresses = new Map()) {
     let pending = [...new Set(domains)];
     for (let attempt = 1; attempt <= this.dnsAttempts; attempt += 1) {
       const results = await Promise.all(pending.map(async (domain) => {
         try {
           const addresses = await this.resolveDns(domain);
-          return Array.isArray(addresses) && addresses.length > 0 ? null : domain;
+          const expected = expectedAddresses.get(domain) || [];
+          const ready = Array.isArray(addresses)
+            && addresses.length > 0
+            && (expected.length === 0 || expected.some((address) => addresses.includes(address)));
+          return ready ? null : domain;
         } catch {
           return domain;
         }
@@ -205,7 +210,10 @@ class NpmClient {
     const domains = host.domain_names || [];
     const settings = this.settings();
     if (!settings.acmeEmail) throw new IntegrationError("ACME email is not configured", 400);
-    await this.waitForDns(domains);
+    const dnsChallenge = this.certificateDns?.configured()
+      ? this.certificateDns.acmeDnsChallenge()
+      : null;
+    if (!dnsChallenge) await this.waitForDns(domains);
     const certificate = await this.request("/nginx/certificates", {
       method: "POST",
       body: JSON.stringify({
@@ -213,8 +221,9 @@ class NpmClient {
         nice_name: domains[0],
         domain_names: domains,
         meta: {
-          dns_challenge: false,
+          dns_challenge: Boolean(dnsChallenge),
           key_type: "ecdsa",
+          ...(dnsChallenge || {}),
         },
       }),
       timeout: 180_000,
@@ -433,6 +442,14 @@ class CloudflareClient {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  }
+
+  acmeDnsChallenge() {
+    return {
+      dns_provider: "cloudflare",
+      dns_provider_credentials: `dns_cloudflare_api_token=${this.token()}`,
+      propagation_seconds: 30,
+    };
   }
 
   async deleteRecord(domain, recordId) {

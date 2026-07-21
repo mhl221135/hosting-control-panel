@@ -155,10 +155,12 @@ reported as warnings after the site is usable.
 ## External Integrations
 
 NPM hosts forward managed websites to `hosting-nginx:80` and own public ACME
-certificates. Before requesting ACME, the NPM client waits up to two minutes for
-every requested hostname to resolve, preventing a newly created alias from
-causing an immediate `NXDOMAIN` failure. Cloudflare DNS discovers the longest
-matching active zone and can perform exact-match bulk A-record replacement.
+certificates. When the Cloudflare DNS token is configured, certificate requests
+use NPM's Cloudflare DNS-01 provider, so proxied records and Cloudflare security
+rules cannot intercept validation. Other domains use HTTP-01 after the NPM client
+waits up to two minutes for every requested hostname to resolve. Cloudflare DNS
+discovers the longest matching active zone and can perform exact-match bulk
+A-record replacement.
 
 Cloudflare Security uses a separate token and only changes rules with a
 panel-owned reference. Sensitive-probe and XML-RPC rules are host-scoped. The

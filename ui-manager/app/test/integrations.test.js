@@ -287,3 +287,25 @@ test("reports unresolved certificate hostnames after DNS timeout", async () => {
     (error) => error.statusCode === 409 && error.message.includes("www.example.com"),
   );
 });
+
+test("uses Cloudflare DNS-01 without waiting for public host DNS", async () => {
+  const events = [];
+  const certificateDns = new CloudflareClient(() => ({ cloudflareToken: "test-token" }));
+  const client = new NpmClient(() => ({ acmeEmail: "acme@example.com" }), { certificateDns });
+  client.waitForDns = async () => { throw new Error("DNS wait should be skipped"); };
+  client.request = async (path, options) => {
+    events.push({ path, body: JSON.parse(options.body) });
+    return { id: 14 };
+  };
+  client.updateHost = async (host, overrides) => ({ ...host, ...overrides });
+
+  const result = await client.issueCertificate({ id: 3, domain_names: ["example.com"] });
+  assert.equal(result.certificate_id, 14);
+  assert.deepEqual(events[0].body.meta, {
+    dns_challenge: true,
+    key_type: "ecdsa",
+    dns_provider: "cloudflare",
+    dns_provider_credentials: "dns_cloudflare_api_token=test-token",
+    propagation_seconds: 30,
+  });
+});

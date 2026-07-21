@@ -176,6 +176,9 @@ The panel waits up to two minutes for every requested certificate name to
 resolve before contacting ACME. If DNS remains unavailable, provisioning keeps
 the valid local site and NPM host but reports the unresolved names as an NPM
 warning. Correct DNS and use **DNS & SSL -> Issue SSL** to retry.
+For zones managed by the configured Cloudflare DNS token, the panel uses DNS-01
+validation and leaves proxied website records unchanged. The token requires DNS
+edit permission so NPM can create and remove the temporary ACME TXT record.
 
 ### Cloudflare Security authentication fails
 
