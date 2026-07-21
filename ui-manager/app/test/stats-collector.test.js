@@ -9,9 +9,10 @@ const {
   parseDockerStats,
   parsePhpPools,
   parseRedisInfo,
+  parseOpcacheStatus,
 } = require("../lib/stats-collector");
 
-test("parses Docker, PHP-FPM, and Redis snapshots", () => {
+test("parses Docker, PHP-FPM, Redis, and OPcache snapshots", () => {
   const containers = parseDockerStats(JSON.stringify({
     Name: "hosting-ui",
     CPUPerc: "1.25%",
@@ -53,6 +54,11 @@ test("parses Docker, PHP-FPM, and Redis snapshots", () => {
   assert.equal(redis.hitRate, 90);
   assert.equal(redis.keys, 14);
   assert.equal(redis.evictedKeys, 2);
+
+  const opcache = parseOpcacheStatus('Content-Type: application/json\r\n\r\n{"enabled":true,"memory":{"usedBytes":1024},"statistics":{"hitRate":99.5}}');
+  assert.equal(opcache.enabled, true);
+  assert.equal(opcache.memory.usedBytes, 1024);
+  assert.equal(opcache.statistics.hitRate, 99.5);
 });
 
 test("parses the NPM access log format into recent traffic rankings", () => {
@@ -91,6 +97,7 @@ test("caches runtime snapshots briefly and website disk scans longer", async () 
     if (command.startsWith("top ")) return "PID %CPU %MEM RSS ELAPSED COMMAND\n1 1.0 0.1 1024 00:01 php-fpm: pool example_com\n";
     if (command.includes("redis-cli")) return "used_memory:100\nused_memory_human:100B\nkeyspace_hits:1\nkeyspace_misses:0\n";
     if (command.includes("du -sk")) return "512\t/var/cache/nginx/fastcgi\n";
+    if (command.includes("cgi-fcgi")) return 'Content-Type: application/json\r\n\r\n{"enabled":true,"memory":{"usedBytes":1024},"statistics":{"hitRate":98}}';
     throw new Error(`Unexpected command: ${file} ${command}`);
   };
   const collector = new StatsCollector({ websitesRoot, npmLogsRoot: logsRoot, exec, now: () => now });
@@ -99,6 +106,7 @@ test("caches runtime snapshots briefly and website disk scans longer", async () 
     const callCount = calls.length;
     const second = await collector.runtime();
     assert.equal(first.cached, false);
+    assert.equal(first.opcache.statistics.hitRate, 98);
     assert.equal(second.cached, true);
     assert.equal(calls.length, callCount);
 

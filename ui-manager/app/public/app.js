@@ -240,14 +240,21 @@ function renderStats() {
   $("#statsPhpDetail").textContent = `${phpWorkers} active worker${phpWorkers === 1 ? "" : "s"}`;
 
   const redis = stats.redis;
-  $("#cacheStats").innerHTML = redis ? `
+  const opcache = stats.opcache;
+  const opcacheRows = opcache?.enabled ? `
+    <div><dt>OPcache memory</dt><dd>${formatBytes(opcache.memory?.usedBytes)} / ${formatBytes(Number(opcache.memory?.usedBytes || 0) + Number(opcache.memory?.freeBytes || 0))}</dd></div>
+    <div><dt>OPcache hit rate</dt><dd>${Number(opcache.statistics?.hitRate || 0).toFixed(1)}%</dd></div>
+    <div><dt>Cached PHP scripts</dt><dd>${escapeHtml(opcache.statistics?.cachedScripts || 0)}</dd></div>
+    <div><dt>OPcache state</dt><dd>${opcache.cacheFull ? "Full" : opcache.restartPending ? "Restart pending" : "Healthy"}</dd></div>
+  ` : `<div><dt>OPcache</dt><dd>${opcache ? "Disabled" : "Unavailable"}</dd></div>`;
+  $("#cacheStats").innerHTML = opcacheRows + (redis ? `
     <div><dt>Redis memory</dt><dd>${escapeHtml(redis.usedMemoryHuman)} / ${escapeHtml(redis.maxMemoryHuman || "unlimited")}</dd></div>
     <div><dt>Redis hit rate</dt><dd>${escapeHtml(redis.hitRate)}%</dd></div>
     <div><dt>Redis operations</dt><dd>${escapeHtml(redis.operationsPerSecond)}/s</dd></div>
     <div><dt>Redis keys</dt><dd>${escapeHtml(redis.keys)}</dd></div>
     <div><dt>Redis evictions</dt><dd>${escapeHtml(redis.evictedKeys)}</dd></div>
     <div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>
-  ` : `<div><dt>Redis</dt><dd>Unavailable</dd></div><div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>`;
+  ` : `<div><dt>Redis</dt><dd>Unavailable</dd></div><div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>`);
 
   $("#containerStats").innerHTML = (stats.containers || []).map((container) => `
     <tr><td><strong>${escapeHtml(container.name)}</strong></td><td>${escapeHtml(container.cpuPercent.toFixed(1))}%</td><td>${escapeHtml(container.memoryUsage)}</td><td>${escapeHtml(container.pids)}</td></tr>

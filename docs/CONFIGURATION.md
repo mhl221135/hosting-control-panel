@@ -8,6 +8,7 @@ the supported keys.
 | Variable | Purpose | Persistence behavior |
 |---|---|---|
 | `HOSTING_ROOT` | Absolute installation/data root | Compose mount source |
+| `BACKUPS_DIR` | Absolute backup storage directory | Mounted at `/srv/backups` in the panel |
 | `UI_ADMIN_EMAIL` | First panel account email | Used only if account state is absent |
 | `UI_ADMIN_PASSWORD` | First panel password | Hashed when account state is created |
 | `UI_SETTINGS_KEY` | Stable secret-encryption material | Overrides generated key file |

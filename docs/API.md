@@ -27,7 +27,7 @@ Do not expose secrets in public settings responses or error details.
 | Method/path | Purpose |
 |---|---|
 | `GET /api/status` | config/action/integration readiness |
-| `GET /api/stats/runtime` | host, container, PHP, Redis, FastCGI snapshot |
+| `GET /api/stats/runtime` | host, container, PHP, OPcache, Redis, FastCGI snapshot |
 | `GET /api/stats/site?domain=` | disk and NPM traffic for one primary site |
 
 Statistics are on-demand and cached. `refresh=1` bypasses the short runtime
