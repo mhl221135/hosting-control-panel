@@ -113,7 +113,9 @@ services:
       - hosting-net
 
   hosting-npm:
-    image: jc21/nginx-proxy-manager:2.15.0
+    image: hosting-npm:2.15.0
+    build:
+      context: ./npm-custom
     container_name: hosting-npm
     restart: always
     ports:
