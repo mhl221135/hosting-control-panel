@@ -122,7 +122,7 @@ mysql_site_prefix="$ANSWER"
 
 prompt "Cloudflare API token (optional)"
 cloudflare_token="$ANSWER"
-prompt "Cloudflare Security API token (optional, Zone WAF Edit)"
+prompt "Cloudflare Security API token (optional, Rulesets/WAF write)"
 cloudflare_security_token="$ANSWER"
 prompt "Cloudflare account ID (optional)"
 cloudflare_account_id="$ANSWER"

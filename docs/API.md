@@ -1,0 +1,119 @@
+# Panel API
+
+The panel serves JSON APIs and static frontend assets from one Node.js process
+on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
+
+## Authentication Contract
+
+- `POST /api/auth/login` accepts email/password and sets an HTTP-only cookie.
+- `GET /api/auth/status` returns authentication state and the CSRF value.
+- `POST /api/auth/logout` requires the session and `X-CSRF-Token`.
+- `PUT /api/auth/account` changes email/password using the current password.
+- Every other `/api/*` route requires an authenticated session.
+- `POST`, `PUT`, `PATCH`, and `DELETE` requests require `X-CSRF-Token`.
+
+Errors use HTTP status codes and this shape:
+
+```json
+{ "ok": false, "message": "Human-readable error", "details": "Optional detail" }
+```
+
+Do not expose secrets in public settings responses or error details.
+
+## Route Groups
+
+### Status and statistics
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/status` | config/action/integration readiness |
+| `GET /api/stats/runtime` | host, container, PHP, Redis, FastCGI snapshot |
+| `GET /api/stats/site?domain=` | disk and NPM traffic for one primary site |
+
+Statistics are on-demand and cached. `refresh=1` bypasses the short runtime
+cache; avoid adding permanent polling.
+
+### Backups
+
+| Method/path | Purpose |
+|---|---|
+| `GET,PUT /api/backups/settings` | global schedule, pause, retention |
+| `GET /api/backups` | backup history/status |
+| `POST /api/backups/site` | backup one site |
+| `POST /api/backups/app-data` | archive app data and dump all databases |
+| `POST /api/backups/restore` | restore a validated site set |
+| `DELETE /api/backups/...` | delete a complete backup set |
+
+### Integrations and performance
+
+| Method/path | Purpose |
+|---|---|
+| `GET,PUT /api/settings/integrations` | public view/update encrypted settings |
+| `GET,PUT /api/settings/performance` | validate and apply resource settings |
+| `POST /api/settings/test` | test NPM, Cloudflare, Security, or MySQL |
+
+### NPM and certificates
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/npm/hosts` | list proxy hosts |
+| `GET /api/npm/certificates` | list certificates |
+| `POST /api/npm/hosts/ensure` | create/link host and optionally issue SSL |
+| `POST /api/npm/certificates/renew` | renew a host certificate |
+
+### Cloudflare
+
+| Method/path | Purpose |
+|---|---|
+| `GET,POST /api/cloudflare/records` | list/create DNS records |
+| `PUT,DELETE /api/cloudflare/records/:id` | update/delete one record |
+| `GET /api/cloudflare/security` | panel-owned rules for a site/zone |
+| `POST /api/cloudflare/security/presets` | apply a known preset |
+| `PATCH,DELETE /api/cloudflare/security/...` | toggle/delete owned rule |
+| `GET,POST,DELETE /api/dns-presets...` | manage/apply record templates |
+| `GET,PUT /api/cloudflare/ip-addresses` | reusable IPv4 values |
+| `POST /api/cloudflare/replace-a-records` | exact-match bulk A migration |
+
+### Sites, pools, and caches
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/sites` | parsed primary sites and aliases |
+| `POST /api/hosts/upsert` | create/update one runtime host |
+| `POST /api/hosts/bulk-upsert` | update multiple runtime hosts |
+| `DELETE /api/hosts/:host` | remove host and unused pool |
+| `GET /api/pools` | pool definitions and host use |
+| `POST /api/pools/upsert` | create/update one pool |
+| `POST /api/pools/bulk-upsert` | update multiple pools |
+| `DELETE /api/pools/:name` | remove an unused pool |
+| `GET,PUT /api/site-state` | Redis/OPcache/FastCGI/backup state |
+| `POST /api/site-state/purge` | increment FastCGI version |
+
+### WordPress and media
+
+| Method/path | Purpose |
+|---|---|
+| `POST /api/provision` | provision a complete WordPress site |
+| `GET /api/wordpress-packages` | list stored plugin/theme packages |
+| `POST /api/wordpress-packages/:kind` | upload a ZIP package |
+| `DELETE /api/wordpress-packages/:kind/:id` | remove a package |
+| `POST /api/sites/images/optimize` | optimize one site's uploads |
+| `GET /api/sites/images/status` | persisted bulk-job status |
+| `POST /api/sites/images/optimize-all` | start sequential optimization |
+
+### Runtime administration
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/logs` | recent PHP-FPM container logs |
+| `POST /api/validate` | nginx and PHP-FPM configuration tests |
+| `POST /api/actions/:action` | allowlisted reload/OPcache actions |
+
+## Adding Or Changing Routes
+
+1. Validate and normalize input at the boundary.
+2. Put reusable business logic in `lib/`, not browser JavaScript.
+3. Preserve the authentication and CSRF contract.
+4. Use a specific HTTP status and a non-secret error response.
+5. Add a Node test and a browser workflow check when the UI changes.
+6. Update this route index when public behavior changes.

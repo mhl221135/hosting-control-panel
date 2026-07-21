@@ -21,6 +21,7 @@ into dedicated directories.
 - Automatic MySQL database and user creation
 - Nginx Proxy Manager proxy-host creation and Let's Encrypt certificate actions
 - Cloudflare A, AAAA, CNAME, and TXT record management
+- Cloudflare sensitive-path, XML-RPC, and login rate-limit security presets
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
 - Per-site PHP OPcache enablement
@@ -78,15 +79,24 @@ that access.
 |-- bootstrap.sh
 |-- README.md
 |-- STACK_OVERVIEW.md
+|-- AGENTS.md
+|-- docs/
+|   |-- API.md
+|   |-- ARCHITECTURE.md
+|   |-- CONFIGURATION.md
+|   `-- OPERATIONS.md
 |-- scripts/
 |   |-- configure.sh
 |   |-- export-websites.sh
 |   |-- import-websites.sh
 |   |-- install.sh
+|   |-- migrate-webp-cache.sh
 |   `-- upgrade.sh
 |-- filebrowser-custom/
 |   |-- Dockerfile
 |   `-- entrypoint.sh
+|-- npm-custom/
+|   `-- Dockerfile
 |-- global-configs-new-upd/
 |   |-- nginx/
 |   |   |-- nginx.conf
@@ -101,6 +111,8 @@ that access.
 |   `-- wp/wp-global.php
 |-- php-fpm-custom-upd/
 |   `-- Dockerfile
+|-- examples/
+|   `-- import-sites.sample.json
 `-- ui-manager/
     |-- Dockerfile
     |-- README.md
@@ -147,7 +159,8 @@ The active, panel-managed copies live in `app-data/configs`.
 - Docker Compose v1.29+ or Docker Compose v2
 - DNS records pointing to the host when public websites are enabled
 - Optional Cloudflare DNS token with `Zone:Read` and `DNS:Edit`
-- Optional separate Cloudflare Security token with `Zone:Read` and `Zone WAF:Edit`
+- Optional separate Cloudflare Security token with zone read and Rulesets/WAF
+  write permissions available for the token type and account
 
 ## Fresh Installation
 
@@ -532,9 +545,16 @@ created by Hosting Control. It can apply a sensitive-path block, an XML-RPC
 managed challenge, and a WordPress login rate limit. Existing user-created
 Cloudflare rules are not changed or displayed.
 
-Use a separate token with `Zone:Read` and `Zone WAF:Edit`. The fresh installer
-asks for this token independently from the DNS token, and it can be changed or
-cleared later in **Settings**.
+The WordPress login preset is compatible with Cloudflare Free: it blocks an IP
+after five requests to `/wp-login.php` in 10 seconds for 10 seconds. Cloudflare
+Free restricts the available expression fields, so this rule applies across the
+selected Cloudflare zone rather than to only one hostname. Free accounts permit
+one rate-limiting rule per zone.
+
+Use a separate token with zone read and Rulesets/WAF write access available for
+the token type and account. Cloudflare permission labels differ for user-owned
+and account-owned tokens. The fresh installer asks for this token independently
+from the DNS token, and it can be changed or cleared later in **Settings**.
 
 NPM restores `CF-Connecting-IP` only for connections received from published
 Cloudflare address ranges. Direct connections cannot supply a trusted visitor
@@ -548,5 +568,10 @@ not invoked or modified by this panel.
 
 ## Additional Documentation
 
+- [AGENTS.md](AGENTS.md): engineering handoff, safety rules, and change map
 - [STACK_OVERVIEW.md](STACK_OVERVIEW.md): runtime ownership and provisioning flow
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): service and module design
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md): environment and persistent state
+- [docs/API.md](docs/API.md): authenticated panel API route index
+- [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics
 - [ui-manager/README.md](ui-manager/README.md): panel-specific configuration
