@@ -107,6 +107,13 @@ function renderPools(parsed) {
   return output.join("\n");
 }
 
+function setPoolOpcache(settings, enabled) {
+  const key = "php_admin_value[opcache.enable]";
+  if (enabled) delete settings[key];
+  else settings[key] = "0";
+  return settings;
+}
+
 function annotateSiteAliases(sites) {
   const groups = new Map();
   for (const site of sites) {
@@ -151,4 +158,5 @@ module.exports = {
   renderPools,
   renderSitesMap,
   sanitizeSectionName,
+  setPoolOpcache,
 };

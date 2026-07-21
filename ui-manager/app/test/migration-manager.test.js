@@ -11,7 +11,14 @@ const {
   validateImportPlan,
   validateManifest,
 } = require("../lib/migration-manager");
-const { annotateSiteAliases, parsePools, parseSitesMap, renderPools, renderSitesMap } = require("../lib/runtime-config");
+const {
+  annotateSiteAliases,
+  parsePools,
+  parseSitesMap,
+  renderPools,
+  renderSitesMap,
+  setPoolOpcache,
+} = require("../lib/runtime-config");
 
 test("validates portable manifests and rejects paths outside the transfer directory", () => {
   const manifest = validateManifest({
@@ -113,6 +120,14 @@ test("round trips runtime maps and pools", () => {
   const pools = parsePools("[www]\nlisten = 9000\npm = ondemand\n");
   assert.deepEqual(parsePools(renderPools(pools)).sections, pools.sections);
   assert.equal(transferId(new Date("2026-07-19T02:00:00Z")), "export-2026-07-19_02-00");
+});
+
+test("enabled pools inherit global OPcache while disabled pools override it", () => {
+  const settings = { listen: "9001", "php_admin_value[opcache.enable]": "1" };
+  setPoolOpcache(settings, true);
+  assert.equal(settings["php_admin_value[opcache.enable]"], undefined);
+  setPoolOpcache(settings, false);
+  assert.equal(settings["php_admin_value[opcache.enable]"], "0");
 });
 
 test("groups aliases by shared document root and PHP pool without requiring redirects", () => {
