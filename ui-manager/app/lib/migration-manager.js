@@ -81,6 +81,7 @@ function validateManifest(payload) {
   const domains = new Set();
   const sites = payload.sites.map((raw) => {
     const domain = validateDomain(raw.domain);
+    const siteType = raw.siteType === "static" || raw.state?.siteType === "static" ? "static" : "wordpress";
     if (domains.has(domain)) throw new Error(`Duplicate domain in manifest: ${domain}`);
     domains.add(domain);
     const aliases = [...new Set((raw.aliases || []).map(validateDomain))].filter((alias) => alias !== domain);
@@ -94,11 +95,12 @@ function validateManifest(payload) {
       canonicalAliases: [...new Set((raw.canonicalAliases || []).map(validateDomain))]
         .filter((alias) => aliases.includes(alias)),
       websitePath: safeRelative(raw.websitePath, "website path"),
-      database: validateDatabaseName(raw.database),
+      siteType,
+      database: siteType === "static" ? "" : validateDatabaseName(raw.database),
       websiteArchive: raw.websiteArchive ? safeRelative(raw.websiteArchive, "website archive") : "",
-      databaseDump: safeRelative(raw.databaseDump, "database dump"),
+      databaseDump: siteType === "static" ? "" : safeRelative(raw.databaseDump, "database dump"),
       poolTier: ["low", "medium", "high"].includes(raw.poolTier) ? raw.poolTier : "medium",
-      state: raw.state && typeof raw.state === "object" ? raw.state : {},
+      state: { ...(raw.state && typeof raw.state === "object" ? raw.state : {}), siteType },
     };
   });
   return { ...payload, sites };
@@ -216,15 +218,19 @@ class MigrationManager {
       for (const site of sites) {
         const websitePath = this.websiteRelative(site);
         const source = resolveInside(this.websitesRoot, websitePath, "website path");
-        if (!fs.existsSync(path.join(source, "wp-config.php"))) throw new Error(`wp-config.php not found for ${site.host}`);
-        const database = await this.wordpressDatabase(websitePath);
+        const siteType = site.state?.siteType === "static" ? "static" : "wordpress";
+        if (siteType === "wordpress" && !fs.existsSync(path.join(source, "wp-config.php"))) {
+          throw new Error(`wp-config.php not found for ${site.host}`);
+        }
+        const database = siteType === "static" ? "" : await this.wordpressDatabase(websitePath);
         const slug = sanitizeSectionName(site.host);
         const websiteArchive = `sites/${slug}.tar.gz`;
-        const databaseDump = `databases/${database}_${dumpTimestamp()}.sql.gz`;
+        const databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
         await execFileAsync("tar", ["--ignore-failed-read", "--warning=no-file-changed", "-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
-        await this.dumpDatabase(database, path.join(partial, databaseDump));
+        if (database) await this.dumpDatabase(database, path.join(partial, databaseDump));
         manifestSites.push({
           domain: site.host,
+          siteType,
           aliases: site.aliases,
           canonicalAliases: site.canonicalAliases,
           websitePath,
@@ -237,6 +243,8 @@ class MigrationManager {
             redis: Boolean(site.state.redis),
             opcache: site.state.opcache !== false,
             backupEnabled: Boolean(site.state.backupEnabled),
+            imageOptimizationEnabled: Boolean(site.state.imageOptimizationEnabled),
+            siteType,
           },
         });
       }
@@ -327,7 +335,12 @@ class MigrationManager {
         extracted = true;
       }
     }
-    if (!fs.existsSync(path.join(destination, "wp-config.php"))) throw new Error(`wp-config.php not found in ${site.websitePath}`);
+    if (site.siteType !== "static" && !fs.existsSync(path.join(destination, "wp-config.php"))) {
+      throw new Error(`wp-config.php not found in ${site.websitePath}`);
+    }
+    if (!fs.existsSync(destination) || !fs.readdirSync(destination).length) {
+      throw new Error(`Website directory is empty: ${site.websitePath}`);
+    }
     await normalizeWordPressPermissions(site.websitePath);
     return { destination, extracted };
   }
@@ -472,12 +485,17 @@ class MigrationManager {
     try {
       for (const site of manifest.sites) {
         const website = await this.prepareWebsite(site, sourceDirectory, Boolean(options.useExistingFiles));
+        if (website.extracted) {
+          preparedFiles.push({ configPath: "", configContent: null, extractedDirectory: website.destination });
+        }
+        if (site.siteType === "static") {
+          prepared.push({ ...site, database: "", password: "" });
+          continue;
+        }
         const configPath = path.join(website.destination, "wp-config.php");
-        preparedFiles.push({
-          configPath,
-          configContent: website.extracted ? null : fs.readFileSync(configPath),
-          extractedDirectory: website.extracted ? website.destination : "",
-        });
+        if (!website.extracted) {
+          preparedFiles.push({ configPath, configContent: fs.readFileSync(configPath), extractedDirectory: "" });
+        }
         const configuredDatabase = await this.wordpressDatabase(site.websitePath);
         const database = validateDatabaseName(site.database || configuredDatabase);
         if (await this.databaseExists(database)) throw new Error(`Database already exists: ${database}`);
@@ -536,14 +554,17 @@ class MigrationManager {
           warnings.push(`NPM/SSL: ${error.message}`);
         }
       }
-      try {
-        await migrateWordPressUrl(site.websitePath, site.domain, Boolean(npmHost?.certificate_id));
-      } catch (error) {
-        warnings.push(`WordPress URL: ${error.message}`);
+      if (site.siteType !== "static") {
+        try {
+          await migrateWordPressUrl(site.websitePath, site.domain, Boolean(npmHost?.certificate_id));
+        } catch (error) {
+          warnings.push(`WordPress URL: ${error.message}`);
+        }
       }
       this.siteState.update(site.domain, {
         fastcgiCache: Boolean(site.state.fastcgiCache), redis: Boolean(site.state.redis),
-        opcache: site.state.opcache !== false, backupEnabled: Boolean(site.state.backupEnabled), cacheVersion: 1,
+        opcache: site.state.opcache !== false, backupEnabled: Boolean(site.state.backupEnabled),
+        imageOptimizationEnabled: Boolean(site.state.imageOptimizationEnabled), siteType: site.siteType, cacheVersion: 1,
       });
       results.push({
         domain: site.domain,

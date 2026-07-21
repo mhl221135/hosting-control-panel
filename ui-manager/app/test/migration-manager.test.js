@@ -35,6 +35,19 @@ test("validates portable manifests and rejects paths outside the transfer direct
     }],
   });
   assert.equal(manifest.sites[0].poolTier, "medium");
+  const staticManifest = validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "static.example.com",
+      siteType: "static",
+      websitePath: "static.example.com",
+      websiteArchive: "sites/static_example_com.tar.gz",
+    }],
+  });
+  assert.equal(staticManifest.sites[0].siteType, "static");
+  assert.equal(staticManifest.sites[0].database, "");
+  assert.equal(staticManifest.sites[0].databaseDump, "");
   assert.throws(() => resolveInside("/tmp/import", "../private.sql.gz"), /Invalid path/);
   assert.throws(() => validateManifest({
     version: 1,
