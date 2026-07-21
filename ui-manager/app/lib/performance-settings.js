@@ -113,13 +113,35 @@ function renderPhpIni(content, settings) {
   return Object.entries(values).reduce((result, [key, value]) => setIni(result, key, value), content);
 }
 
+function ensureNginxSecurityLocations(content) {
+  if (content.includes("# Managed sensitive-file protection.")) return content;
+  const marker = "    # Block PHP execution inside uploads directories";
+  if (!content.includes(marker)) return content;
+  const managed = [
+    "    # Managed sensitive-file protection.",
+    "    location ~ /\\.(?!well-known(?:/|$)) {",
+    "        deny all;",
+    "    }",
+    "",
+    "    location ~* /[^/]*(?:config|credential|secret|setup)[^/]*\\.(?:php|txt|ini|log|bak|old)$ {",
+    "        deny all;",
+    "    }",
+    "",
+    "    location ~* \\.(?:sql|sqlite|env|ini|log|bak|old|orig|dist)$ {",
+    "        deny all;",
+    "    }",
+    "",
+  ].join("\n");
+  return content.replace(marker, `${managed}${marker}`);
+}
+
 function renderNginx(nginxContent, defaultContent, settings) {
   let nginx = nginxContent
     .replace(/fastcgi_read_timeout\s+\d+s;/, `fastcgi_read_timeout ${settings.fastcgi.readTimeoutSeconds}s;`)
     .replace(/keys_zone=WORDPRESS:\d+m/, `keys_zone=WORDPRESS:${settings.fastcgi.keysZoneMb}m`)
     .replace(/inactive=\d+m/, `inactive=${settings.fastcgi.inactiveMinutes}m`)
     .replace(/max_size=\d+g/, `max_size=${settings.fastcgi.maxSizeGb}g`);
-  let server = defaultContent
+  let server = ensureNginxSecurityLocations(defaultContent)
     .replace(
       /fastcgi_cache_valid 200 301 302 \d+m;/,
       `fastcgi_cache_valid 200 301 302 ${settings.fastcgi.validMinutes}m;`,
@@ -188,4 +210,4 @@ class PerformanceSettings {
   }
 }
 
-module.exports = { DEFAULTS, PerformanceSettings, renderNginx, renderPhpIni, validate };
+module.exports = { DEFAULTS, PerformanceSettings, ensureNginxSecurityLocations, renderNginx, renderPhpIni, validate };
