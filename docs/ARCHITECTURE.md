@@ -122,6 +122,20 @@ Restore validates ownership, creates a safety backup, stages the file swap on
 the websites filesystem, imports the database, and attempts rollback on import
 failure. Application-data restore remains manual because services must stop.
 
+## Website Removal
+
+Removal is an ownership-checked workflow, not a recursive delete shortcut. The
+preview groups the primary host and aliases, verifies exclusive root and pool
+use from runtime configuration, reads the selected WordPress database/user, and
+checks those identifiers against every other primary site. It also checks NPM
+host and certificate references and lists only exact Cloudflare A, AAAA, and
+CNAME records for the site's hostnames.
+
+The execute request requires typed domain confirmation and recalculates the
+plan. Unsafe resources cannot be forced through request flags. The complete
+operation holds the backup manager's storage lock. A final backup is enabled by
+default, while historical backup deletion is a separate, incompatible choice.
+
 ## Migration
 
 Exports are password-free manifests plus website archives and database dumps.

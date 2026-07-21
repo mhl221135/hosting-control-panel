@@ -43,6 +43,12 @@ class SiteState {
     return data.sites[domain];
   }
 
+  remove(domains) {
+    const data = this.read();
+    for (const domain of domains) delete data.sites[domain];
+    this.write(data);
+  }
+
   purge(domain) {
     const current = this.get(domain);
     return this.update(domain, { cacheVersion: Number(current.cacheVersion || 1) + 1 });

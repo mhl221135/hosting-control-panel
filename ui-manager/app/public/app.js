@@ -20,6 +20,7 @@ const state = {
   imageOptimization: null,
   stats: null,
   siteStats: null,
+  removalPlan: null,
 };
 
 let imageOptimizationPollTimer = null;
@@ -112,12 +113,13 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
-  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
+  if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
 }
@@ -326,6 +328,74 @@ function renderDomainOptions() {
   ).join("");
 }
 
+function renderRemovalOptions() {
+  const domains = primarySites().map((site) => site.host);
+  const select = $("#removalDomain");
+  const current = select.value;
+  select.innerHTML = domains.map((domain) => `<option value="${escapeHtml(domain)}">${escapeHtml(domain)}</option>`).join("");
+  if (current && domains.includes(current)) select.value = current;
+}
+
+function renderRemovalPlan() {
+  const plan = state.removalPlan;
+  const summary = $("#removalPlanSummary");
+  const form = $("#siteRemovalForm");
+  if (!plan) {
+    summary.textContent = "No website selected.";
+    return;
+  }
+  summary.textContent = [
+    `Website: ${plan.domain}`,
+    `Aliases: ${plan.targetDomains.filter((domain) => domain !== plan.domain).join(", ") || "none"}`,
+    `Directory: ${plan.directory}`,
+    `Pool: ${plan.pool.name || "not detected"}`,
+    `Database: ${plan.database?.name || "not detected"}`,
+    ...(plan.warnings || []).map((warning) => `Warning: ${warning}`),
+  ].join("\n");
+  const fields = {
+    final_backup: "finalBackup",
+    runtime: "runtime",
+    pool: "pool",
+    files: "files",
+    database: "database",
+    npm_host: "npmHost",
+    npm_certificate: "npmCertificate",
+    cloudflare_dns: "cloudflareDns",
+    panel_state: "panelState",
+    backups: "backups",
+  };
+  for (const [fieldName, resourceName] of Object.entries(fields)) {
+    const resource = plan.resources[resourceName];
+    const input = form.elements[fieldName];
+    const detail = $(`[data-removal-detail="${resourceName}"]`);
+    const unavailable = !resource?.available;
+    const unsafe = resource?.available && !resource.safe;
+    input.disabled = unavailable || unsafe;
+    input.checked = !input.disabled && fieldName !== "backups";
+    const items = (resource?.items || []).join(", ");
+    const shared = (resource?.sharedBy || []).join(", ");
+    detail.textContent = unavailable
+      ? "Not detected or integration unavailable."
+      : unsafe
+        ? `Protected because it is shared or could not be verified${shared ? `: ${shared}` : ""}.`
+        : `${resource.count} item${resource.count === 1 ? "" : "s"}${items ? `: ${items}` : ""}`;
+  }
+  form.elements.confirm_domain.value = "";
+}
+
+async function loadRemovalPlan() {
+  renderRemovalOptions();
+  const domain = $("#removalDomain").value;
+  if (!domain) {
+    state.removalPlan = null;
+    renderRemovalPlan();
+    return;
+  }
+  const result = await api(`/api/site-removal?domain=${encodeURIComponent(domain)}`);
+  state.removalPlan = result.plan;
+  renderRemovalPlan();
+}
+
 function renderSecurityRules() {
   const container = $("#securityRules");
   const rules = state.securityRules || [];
@@ -416,6 +486,7 @@ function renderBackupHistory(backups) {
 
 async function loadBackupView() {
   renderBackupOptions();
+  renderRemovalOptions();
   const [data, history] = await Promise.all([
     api("/api/backups/settings"),
     api(`/api/backups?name=${encodeURIComponent(state.backupName)}`),
@@ -1091,6 +1162,42 @@ $("#sitesList").addEventListener("change", async (event) => {
 $("#backupDomain").addEventListener("change", async (event) => {
   state.backupName = event.target.value;
   try { await loadBackupView(); } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#removalDomain").addEventListener("change", async () => {
+  try { await loadRemovalPlan(); } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#refreshRemovalPlan").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Inspecting...", loadRemovalPlan); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#siteRemovalForm").addEventListener("change", (event) => {
+  if (event.target.name === "final_backup" && event.target.checked) event.currentTarget.elements.backups.checked = false;
+  if (event.target.name === "backups" && event.target.checked) event.currentTarget.elements.final_backup.checked = false;
+  if (event.target.name === "runtime" && !event.target.checked) event.currentTarget.elements.pool.checked = false;
+  if (event.target.name === "npm_host" && !event.target.checked) event.currentTarget.elements.npm_certificate.checked = false;
+});
+
+$("#siteRemovalForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const domain = $("#removalDomain").value;
+  const body = formObject(event.currentTarget);
+  if (body.confirm_domain.trim().toLowerCase() !== domain) return notice(`Type ${domain} exactly to confirm deletion.`, "warning");
+  if (!confirm(`Permanently delete the selected resources for ${domain}?`)) return;
+  try {
+    const result = await withButton(event.submitter, "Deleting...", () => api("/api/site-removal", {
+      method: "POST",
+      body: JSON.stringify({ domain, ...body }),
+    }));
+    $("#removalResult").innerHTML = `<h3>${escapeHtml(domain)} removal completed</h3><p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}`).join(" · ")}</p>`;
+    $("#removalResult").classList.remove("hidden");
+    notice(`Selected resources for ${domain} were deleted.`);
+    state.removalPlan = null;
+    await loadData();
+    switchTab("sites");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#refreshBackups").addEventListener("click", async (event) => {

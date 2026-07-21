@@ -89,6 +89,18 @@ cache; avoid adding permanent polling.
 | `GET,PUT /api/site-state` | Redis/OPcache/FastCGI/backup state |
 | `POST /api/site-state/purge` | increment FastCGI version |
 
+### Website removal
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/site-removal?domain=` | recalculate resource ownership and safety |
+| `POST /api/site-removal` | delete selected safe resources after typed confirmation |
+
+Removal accepts separate booleans for final backup, runtime routes, pool, files,
+database/user, NPM host, NPM certificate, Cloudflare web DNS, panel state, and
+stored backups. POST ignores browser assumptions and rebuilds the ownership
+plan before mutation. Shared or unverified resources return `409`.
+
 ### WordPress and media
 
 | Method/path | Purpose |

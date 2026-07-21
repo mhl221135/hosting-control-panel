@@ -29,6 +29,7 @@
           <button class="nav-item" data-tab-link="integrations">DNS &amp; SSL</button>
           <button class="nav-item" data-tab-link="security">Security</button>
           <button class="nav-item" data-tab-link="backups">Backups</button>
+          <button class="nav-item" data-tab-link="removal">Delete</button>
           <button class="nav-item" data-tab-link="runtime">Runtime</button>
           <button class="nav-item" data-tab-link="settings">Settings</button>
           <button class="nav-item" data-tab-link="account">Account</button>
@@ -284,6 +285,40 @@
           </article>
         </section>
 
+        <section class="tab-panel hidden" data-tab-panel="removal">
+          <div class="section-head">
+            <div><h2>Delete website</h2><p>Preview ownership, select resources, and confirm permanent removal.</p></div>
+            <div class="section-actions">
+              <select id="removalDomain" class="domain-select"></select>
+              <button id="refreshRemovalPlan" class="secondary" type="button">Refresh preview</button>
+            </div>
+          </div>
+
+          <form id="siteRemovalForm" class="panel form-stack removal-panel">
+            <div class="removal-warning">
+              <strong>Destructive operation</strong>
+              <p>Unchecked resources are retained. Existing backups are retained by default.</p>
+            </div>
+            <div id="removalPlanSummary" class="status-box compact-status">Select a website to inspect its resources.</div>
+            <fieldset class="removal-resources">
+              <legend>Resources</legend>
+              <label class="removal-resource"><input name="final_backup" type="checkbox" checked /><span><strong>Create final safety backup</strong><small data-removal-detail="finalBackup"></small></span></label>
+              <label class="removal-resource"><input name="runtime" type="checkbox" checked /><span><strong>Internal host routes and aliases</strong><small data-removal-detail="runtime"></small></span></label>
+              <label class="removal-resource"><input name="pool" type="checkbox" checked /><span><strong>PHP-FPM pool</strong><small data-removal-detail="pool"></small></span></label>
+              <label class="removal-resource"><input name="files" type="checkbox" checked /><span><strong>Website files</strong><small data-removal-detail="files"></small></span></label>
+              <label class="removal-resource"><input name="database" type="checkbox" checked /><span><strong>MySQL database and website user</strong><small data-removal-detail="database"></small></span></label>
+              <label class="removal-resource"><input name="npm_host" type="checkbox" checked /><span><strong>NPM proxy host</strong><small data-removal-detail="npmHost"></small></span></label>
+              <label class="removal-resource"><input name="npm_certificate" type="checkbox" checked /><span><strong>NPM certificate</strong><small data-removal-detail="npmCertificate"></small></span></label>
+              <label class="removal-resource"><input name="cloudflare_dns" type="checkbox" checked /><span><strong>Cloudflare A, AAAA, and CNAME records</strong><small data-removal-detail="cloudflareDns"></small></span></label>
+              <label class="removal-resource"><input name="panel_state" type="checkbox" checked /><span><strong>Panel cache and backup settings</strong><small data-removal-detail="panelState"></small></span></label>
+              <label class="removal-resource"><input name="backups" type="checkbox" /><span><strong>Stored website backups</strong><small data-removal-detail="backups"></small></span></label>
+            </fieldset>
+            <label>Type the selected domain to confirm<input name="confirm_domain" autocomplete="off" spellcheck="false" required /></label>
+            <div class="form-actions"><button type="submit" class="danger-action">Delete selected resources</button></div>
+          </form>
+          <div id="removalResult" class="panel result hidden"></div>
+        </section>
+
         <section class="tab-panel hidden" data-tab-panel="runtime">
           <div class="section-head">
             <div><h2>Runtime configuration</h2><p>Validate services, manage pools and edit internal host routing.</p></div>
@@ -431,6 +466,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260721-6"></script>
+    <script src="/app.js?v=20260721-7"></script>
   </body>
 </html>

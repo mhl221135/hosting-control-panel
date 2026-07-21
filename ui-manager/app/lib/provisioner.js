@@ -84,6 +84,56 @@ async function createDatabase(domain, config = {}) {
   return { name, user: name, password };
 }
 
+function validMysqlIdentifier(value, label) {
+  const identifier = String(value || "").trim();
+  if (!/^[A-Za-z0-9_$-]{1,64}$/.test(identifier)) {
+    const error = new Error(`${label} is invalid`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return identifier;
+}
+
+async function wordpressDatabaseConfig(directory) {
+  const containerPath = wordpressContainerPath(directory);
+  const result = await execFileAsync("docker", [
+    "exec", "-u", "33:33", "hosting-php-fpm", "sh", "-c",
+    'set -eu; wp --allow-root config get DB_NAME --path="$1" --quiet; wp --allow-root config get DB_USER --path="$1" --quiet',
+    "database-inspection", containerPath,
+  ], { timeout: 30_000 });
+  const [database, user] = String(result.stdout || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  return {
+    name: validMysqlIdentifier(database, "WordPress database name"),
+    user: validMysqlIdentifier(user, "WordPress database user"),
+  };
+}
+
+async function dropDatabaseAndUser(database, user, config = {}) {
+  const container = String(config.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db");
+  if (!/^[a-zA-Z0-9_.-]+$/.test(container)) {
+    const error = new Error("MySQL container name is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+  const databaseName = validMysqlIdentifier(database, "Database name");
+  const userName = validMysqlIdentifier(user, "Database user");
+  const sql = `DROP DATABASE IF EXISTS \`${databaseName}\`; DROP USER IF EXISTS '${userName}'@'%'; FLUSH PRIVILEGES`;
+  await execFileAsync("docker", [
+    "exec",
+    "-e",
+    `SITE_REMOVAL_SQL=${sql}`,
+    container,
+    "sh",
+    "-c",
+    'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "$SITE_REMOVAL_SQL"',
+  ]);
+}
+
+function removeSiteDirectory(websitesRoot, directory) {
+  const target = safeSiteDirectory(websitesRoot, directory);
+  fs.rmSync(target, { recursive: true, force: true });
+}
+
 async function runWp(args, timeout = 180_000) {
   return execFileAsync(
     "docker",
@@ -325,14 +375,17 @@ function prepareSiteDirectory(websitesRoot, directory) {
 
 module.exports = {
   createDatabase,
+  dropDatabaseAndUser,
   installWordPress,
   mysqlIdentifier,
   normalizeWordPressPermissions,
   optimizeImages,
   prepareSiteDirectory,
   randomPassword,
+  removeSiteDirectory,
   safeSiteDirectory,
   setRedis,
   updateWordPressUrl,
   validateDomain,
+  wordpressDatabaseConfig,
 };

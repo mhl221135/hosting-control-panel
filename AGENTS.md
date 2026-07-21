@@ -48,8 +48,9 @@ the active copies under `app-data/configs`.
   that control-plane privilege.
 - Preserve unrelated working-tree changes. `import-sites.json` is local
   production input and must not be committed.
-- Backups and image optimization share an operation lock by design. Do not
-  remove it or introduce parallel disk-heavy work without measuring impact.
+- Backups, image optimization, and website deletion share an operation lock by
+  design. Do not remove it or introduce parallel disk-heavy work without
+  measuring impact.
 
 ## Source Of Truth
 
@@ -81,6 +82,7 @@ when the corresponding active configuration does not exist.
 - WordPress/database provisioning: `ui-manager/app/lib/provisioner.js`
 - Cache/backup switches: `ui-manager/app/lib/site-state.js`
 - Backup and restore: `ui-manager/app/lib/backup-manager.js`
+- Removal ownership rules: `ui-manager/app/lib/site-removal-plan.js`
 - Export/import: `ui-manager/app/lib/migration-manager.js` and
   `ui-manager/app/cli/sites-transfer.js`
 - Performance config rendering: `ui-manager/app/lib/performance-settings.js`

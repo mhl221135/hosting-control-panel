@@ -553,6 +553,13 @@ class BackupManager {
     fs.rmSync(target, { recursive: true, force: true });
   }
 
+  deleteSiteBackups(name) {
+    if (name === "app-data") throw new Error("Application-data backups cannot be removed as website backups");
+    const parent = this.safeBackupParent(name);
+    fs.rmSync(parent, { recursive: true, force: true });
+    fs.mkdirSync(parent, { recursive: true });
+  }
+
   applyRetention(name, retention) {
     const entries = this.history(name);
     for (const backup of entries.slice(Number(retention))) this.deleteBackup(name, backup.id);
