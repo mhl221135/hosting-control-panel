@@ -7,6 +7,7 @@ project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 env_file="$project_dir/.env"
 apply=false
 nginx_stopped=false
+files_stopped=false
 rotation_started=false
 env_backup=""
 temporary_files=()
@@ -38,6 +39,9 @@ cleanup() {
   for file in "${temporary_files[@]:-}"; do
     [ -n "$file" ] && rm -f -- "$file"
   done
+  if [ "$files_stopped" = true ]; then
+    docker start hosting-files >/dev/null 2>&1 || true
+  fi
   if [ "$status" -eq 0 ] && [ "$nginx_stopped" = true ]; then
     docker start hosting-nginx >/dev/null 2>&1 || true
   fi
@@ -346,8 +350,6 @@ printf 'Validating current credentials...\n'
 verify_panel_password "$current_ui_password"
 npm_token "$NPM_IDENTITY" "$current_npm_password" >/dev/null
 mysql_current -e 'SELECT 1' >/dev/null
-docker exec hosting-files filebrowser -d /database/filebrowser.db users ls \
-  | awk -v user="$FILEBROWSER_ADMIN_USERNAME" '$0 ~ user { found=1 } END { exit !found }'
 
 env_backup="$(mktemp /tmp/hosting-env-before-rotation.XXXXXX)"
 temporary_files+=("$env_backup")
@@ -374,7 +376,10 @@ unset old_npm_token
 
 printf 'Rotating panel and File Browser passwords...\n'
 update_panel_password
-docker exec hosting-files filebrowser -d /database/filebrowser.db users update \
+docker stop hosting-files >/dev/null
+files_stopped=true
+compose run --rm --no-deps --entrypoint filebrowser hosting-files \
+  -d /database/filebrowser.db users update \
   "$FILEBROWSER_ADMIN_USERNAME" --password "$new_filebrowser_password" >/dev/null
 update_panel_npm_secret
 
@@ -393,6 +398,7 @@ compose config --quiet
 compose up -d --force-recreate hosting-db
 wait_for_mysql
 compose up -d --force-recreate hosting-npm hosting-phpmyadmin hosting-ui hosting-files
+files_stopped=false
 compose up -d hosting-php-fpm
 docker start hosting-nginx >/dev/null
 nginx_stopped=false
