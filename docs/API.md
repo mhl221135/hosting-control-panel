@@ -87,7 +87,7 @@ cache; avoid adding permanent polling.
 | `POST /api/pools/upsert` | create/update one pool |
 | `POST /api/pools/bulk-upsert` | update multiple pools |
 | `DELETE /api/pools/:name` | remove an unused pool |
-| `GET,PUT /api/site-state` | Redis/OPcache/FastCGI/backup state |
+| `GET,PUT /api/site-state` | Redis/OPcache/FastCGI/backup/image/maintenance state |
 | `POST /api/site-state/purge` | increment FastCGI version |
 
 ### Website removal
@@ -114,6 +114,9 @@ plan before mutation. Shared or unverified resources return `409`.
 | `POST /api/sites/images/optimize` | optimize one site's uploads |
 | `GET /api/sites/images/status` | persisted bulk-job status |
 | `POST /api/sites/images/optimize-all` | start sequential optimization |
+| `GET /api/maintenance/status` | persisted maintenance status and weekly settings |
+| `PUT /api/maintenance/settings` | update weekly schedule and operations |
+| `POST /api/maintenance/run` | start maintenance for selected WordPress sites |
 
 `POST /api/provision/import-upload` requires `upload_id`, `kind` (`website` or
 `database`), and `filename` query parameters. Its body is the raw file. A later

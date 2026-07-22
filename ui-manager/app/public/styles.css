@@ -170,6 +170,20 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .stats-detail-grid > div:last-child { border-right: 0; }
 .stats-detail-grid span { display: block; color: var(--muted); font-size: 11px; }
 .stats-detail-grid strong { display: block; margin-top: 5px; overflow-wrap: anywhere; font-size: 16px; }
+.maintenance-layout { align-items: start; }
+.maintenance-schedule { border-top: 0; padding-top: 0; grid-template-columns: minmax(150px, 1fr) minmax(130px, .65fr); }
+.maintenance-operations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; border: 1px solid var(--line); border-radius: 6px; padding: 13px; }
+.maintenance-operations legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
+.manual-operations { margin-bottom: 14px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.maintenance-sites { display: grid; border-top: 1px solid var(--line); margin-bottom: 16px; }
+.maintenance-site-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; min-height: 54px; border-bottom: 1px solid var(--line); padding: 8px 2px; }
+.maintenance-site-row .check span { display: grid; gap: 2px; min-width: 0; }
+.maintenance-site-row small { color: var(--muted); font-weight: 450; }
+.weekly-check { min-width: 92px; }
+.maintenance-result { display: grid; gap: 4px; border-bottom: 1px solid var(--line); padding: 9px 0; }
+.maintenance-result strong { overflow-wrap: anywhere; }
+.maintenance-result span { color: var(--muted); font-size: 12px; }
+.maintenance-result.has-error strong { color: var(--danger); }
 .rank-list, .bar-list { display: grid; gap: 0; }
 .rank-list.empty { color: var(--muted); font-size: 12px; }
 .rank-list > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
@@ -210,6 +224,7 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .stats-detail-grid > div:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .site-row { grid-template-columns: 1fr 1fr; }
   .site-actions { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+  .manual-operations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .provision-dns-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .data-row { grid-template-columns: 60px minmax(120px, 1fr) minmax(160px, 1fr); }
   .record-actions { justify-content: flex-start; }
@@ -235,7 +250,7 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .section-actions .search { order: -1; width: 100%; flex-basis: 100%; }
   .section-actions .muted { flex: 1 1 100%; }
   button, input, select, textarea { min-height: 44px; }
-  .metrics, .form-grid, .site-row, .source-mode, .import-source, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .site-row, .source-mode, .import-source, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid, .maintenance-schedule, .maintenance-operations { grid-template-columns: 1fr; }
   .option-group.import-source { grid-template-columns: 1fr; }
   .metrics { gap: 8px; margin-bottom: 20px; }
   .metrics article { padding: 12px 13px; }
@@ -251,6 +266,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .site-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 13px; border-top: 1px solid #edf0f2; }
   .site-actions button, .site-backup-check { min-height: 44px; font-size: 12px; }
   .site-actions button { white-space: normal; overflow-wrap: anywhere; }
+  .maintenance-site-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .maintenance-sites-panel .card-head .button-row { display: grid; grid-template-columns: 1fr 1fr; }
   .option-group { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .option-group .check { min-height: 42px; padding: 7px 0; }
   .form-actions button { width: 100%; }

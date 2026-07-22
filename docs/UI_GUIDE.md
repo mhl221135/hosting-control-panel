@@ -7,7 +7,7 @@ resource data are sensitive even when passwords and API tokens are masked.
 
 ## Navigation and conventions
 
-The left navigation contains the ten panel workspaces described below. The
+The left navigation contains the panel workspaces described below. The
 header shows the signed-in account and provides **Sign out**. Green buttons are
 primary actions, outlined buttons are secondary actions, and red buttons are
 destructive actions.
@@ -72,6 +72,27 @@ high-frequency background collector.
 
 Traffic details are based on a bounded recent access-log sample. They are useful
 for diagnosis, not long-term analytics or billing.
+
+## Maintenance
+
+The Maintenance workspace runs low-priority WP-CLI cleanup sequentially and
+shares the same server job lock as backups and image optimization. It lists only
+primary WordPress websites; HTML/PHP sites are excluded.
+
+| Control | Function |
+| --- | --- |
+| **Enable weekly maintenance** | Enables the global weekly scheduler. It is off by default. |
+| **Weekday / Start time** | Chooses one server-local weekly execution window. A missed start runs on the next scheduler check that day. |
+| **Scheduled operations** | Selects expired transient cleanup, trash/spam removal, due WP-Cron execution, and optional database optimization. |
+| **Weekly** | Includes that WordPress website in scheduled runs without changing manual selection. |
+| **Manual operations** | Selects the operations for the next manual batch. |
+| **Select all / Clear** | Changes the current manual website selection. |
+| **Run selected websites** | Starts a persisted sequential job and reports each website and operation independently. |
+
+After a processed site, the panel invalidates its FastCGI cache generation. If
+Redis is enabled for that site, its WordPress object cache is flushed as well.
+An operation failure does not prevent the remaining operations or websites from
+running.
 
 ## Provision
 
