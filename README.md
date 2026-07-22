@@ -552,7 +552,8 @@ are disabled by default to avoid noise.
 The **Health** workspace performs low-frequency checks for required container
 state, MySQL availability, the NPM API, certificates attached to enabled proxy
 hosts, OPcache capacity, and website/backup filesystem usage. Thresholds,
-container names, schedule, and the global switch are configured under
+container names, selected public website hostnames, request timeout, schedule,
+and the global switch are configured under
 **Settings → Operational health monitoring**. Manual checks work even when the
 schedule is disabled.
 
@@ -561,6 +562,10 @@ every check. Opening, severity/message changes, and recovery create durable
 events with Telegram/SMTP delivery state. Settings and state are stored in
 `health-settings.json` and `health-state.json`; retained history is capped by
 `HEALTH_HISTORY_LIMIT` (default 250).
+
+Public website checks are opt-in and use HTTPS through the public proxy. They
+follow redirects, retain no response body, run at most five requests at once,
+and create incidents for connection failures, timeouts, or non-2xx/3xx status.
 
 ## Website Migration
 

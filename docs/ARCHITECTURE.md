@@ -151,6 +151,11 @@ are reconciled by stable keys, so notifications are created only when an issue
 opens, changes, or resolves. `/app/data/health-state.json` preserves active
 state and bounded transition history across panel restarts.
 
+Selected public hosts can also be checked through HTTPS with bounded concurrency
+and timeout. Redirects are followed, bodies are cancelled immediately, and no
+request/response content is persisted. Public checks are disabled until an
+operator adds hostnames to health settings.
+
 ## Backup And Restore
 
 The job scheduler serializes backups, restores, maintenance, and image work

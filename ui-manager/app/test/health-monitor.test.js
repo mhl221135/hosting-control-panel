@@ -5,7 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const { HealthMonitor } = require("../lib/health-monitor");
 
-function configured() {
+function configured(overrides = {}) {
   return {
     enabled: true,
     intervalMinutes: 5,
@@ -15,6 +15,9 @@ function configured() {
     certificateCriticalDays: 7,
     opcacheWarningPercent: 95,
     requiredContainers: ["hosting-ui"],
+    publicCheckTimeoutSeconds: 10,
+    publicHosts: [],
+    ...overrides,
   };
 }
 
@@ -66,6 +69,34 @@ test("notifies only on health transitions and records recovery", async () => {
     assert.equal(notifications[1].status, "resolved");
     assert.equal(notifications[1].severity, "success");
     assert.equal(result.history[0].delivery.status, "delivered");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("checks selected public hosts without retaining response bodies", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-health-public-"));
+  let cancelled = 0;
+  const monitor = new HealthMonitor({
+    dataDir: directory,
+    websitesRoot: directory,
+    backupsRoot: directory,
+    settings: { read: () => configured({ publicHosts: ["ok.example.com", "down.example.com"] }) },
+    notificationManager: { enqueueEvent: () => null, publicDelivery: () => null },
+    statsCollector: { runtime: async () => ({ opcache: { enabled: true, memory: { usedBytes: 1, freeBytes: 99 } } }) },
+    npm: { listHosts: async () => [], listCertificates: async () => [] },
+    exec: async (_file, args) => args[0] === "inspect" ? JSON.stringify({ Running: true }) : "alive\n",
+    fetch: async (url) => ({
+      status: url.includes("down") ? 503 : 200,
+      body: { cancel: async () => { cancelled += 1; } },
+    }),
+  });
+  try {
+    const findings = await monitor.checkPublicHosts(monitor.settings.read());
+    assert.equal(cancelled, 2);
+    assert.equal(findings.length, 1);
+    assert.equal(findings[0].key, "public:down.example.com");
+    assert.match(findings[0].message, /503/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

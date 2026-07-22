@@ -51,7 +51,7 @@ The panel provides:
 - Encrypted integration settings for NPM and Cloudflare
 - Encrypted Telegram and external SMTP job notifications with retries and severity filters
 - Transition-based operational health checks and recovery alerts for containers,
-  MySQL, NPM certificates, OPcache, and storage
+  MySQL, NPM certificates, selected public websites, OPcache, and storage
 - MySQL installer container and database-prefix settings
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history

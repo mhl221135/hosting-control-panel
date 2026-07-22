@@ -71,7 +71,8 @@ operating a local mail server or using Telegram as backup storage.
 
 - Lightweight scheduled checks now cover required Docker containers, MySQL,
   the NPM API, certificates attached to enabled proxy hosts, website/backup
-  storage thresholds, and OPcache capacity/restart state.
+  storage thresholds, OPcache capacity/restart state, and opt-in end-to-end HTTPS
+  checks for selected public websites.
 - The **Health** workspace shows active incidents, transition history, and
   Telegram/SMTP delivery state. Alerts occur only on open, changed, and resolved
   transitions; recovery alerts bypass successful-job filtering.
@@ -80,7 +81,6 @@ operating a local mail server or using Telegram as backup storage.
 
 - Capture direct certificate issuance/renewal job failures, not only expiry and
   NPM API state.
-- Add bounded end-to-end HTTP checks through the public proxy for selected hosts.
 - Provisioning, import/export, and WordPress-update failures become covered when
   those operations adopt the shared background-job service.
 - Hosting/domain renewal reminders after the billing service exists.

@@ -49,6 +49,7 @@ class HealthMonitor {
     this.statsCollector = options.statsCollector;
     this.npm = options.npm;
     this.exec = options.exec || execFileResult;
+    this.fetch = options.fetch || global.fetch;
     this.now = options.now || (() => new Date());
     this.maxHistory = Number(options.maxHistory || 250);
     this.path = path.join(this.dataDir, "health-state.json");
@@ -206,12 +207,39 @@ class HealthMonitor {
     }
   }
 
+  async checkPublicHosts(settings) {
+    const hosts = settings.publicHosts || [];
+    const findings = [];
+    for (let offset = 0; offset < hosts.length; offset += 5) {
+      await Promise.all(hosts.slice(offset, offset + 5).map(async (host) => {
+        try {
+          const response = await this.fetch(`https://${host}/`, {
+            method: "GET",
+            redirect: "follow",
+            headers: { "User-Agent": "Hosting-Control-Health/1.0", Accept: "text/html,*/*;q=0.1" },
+            signal: AbortSignal.timeout(settings.publicCheckTimeoutSeconds * 1000),
+          });
+          await Promise.resolve(response.body?.cancel?.()).catch(() => {});
+          if (response.status < 200 || response.status >= 400) {
+            findings.push(issue(`public:${host}`, "website", host, "critical", `${host} public check failed`,
+              `HTTPS returned status ${response.status}.`));
+          }
+        } catch (error) {
+          findings.push(issue(`public:${host}`, "website", host, "critical", `${host} is unavailable`,
+            error.name === "TimeoutError" ? `HTTPS timed out after ${settings.publicCheckTimeoutSeconds} seconds.` : error.message));
+        }
+      }));
+    }
+    return findings;
+  }
+
   async collect(settings) {
     const groups = await Promise.all([
       this.checkContainers(settings),
       this.checkMySql(),
       this.checkOpcache(settings),
       this.checkNpm(settings),
+      this.checkPublicHosts(settings),
       Promise.resolve(this.checkFilesystem("Websites", this.websitesRoot, settings)),
       Promise.resolve(this.checkFilesystem("Backups", this.backupsRoot, settings)),
     ]);
