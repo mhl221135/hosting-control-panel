@@ -549,7 +549,8 @@ The panel can send terminal background-job results through a Telegram bot, an
 external SMTP relay, or both. Configure the installation/server labels, public
 panel URL, recipients, chat IDs, channel switches, and severity filters in
 **Settings → Notifications**. Test messages are sent only after settings have
-been saved.
+been saved. Telegram and SMTP inherit global severities by default and can be
+overridden independently.
 
 Tokens and SMTP passwords are AES-256-GCM encrypted in
 `app-data/ui-manager/notification-settings.json`; plaintext secrets are never

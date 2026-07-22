@@ -347,13 +347,18 @@ current configuration before large edits.
 | **Public panel URL** | Adds a direct operator link; leave it empty when the panel has no safe public route. |
 | **Telegram token / Chat IDs** | Sends alerts through a BotFather-created bot only to the listed chats. Empty token fields retain the encrypted value. |
 | **SMTP settings / Recipients** | Sends plain-text alerts through an external STARTTLS or implicit-TLS relay. |
-| **Job severities** | Selects failures, partial/cancelled outcomes, and optional successes. Successes are off by default. |
+| **Global job severities** | Selects default delivery for failures, partial/cancelled outcomes, and optional successes. Successes are off by default. |
+| **Telegram / SMTP severities** | Inherit the global defaults or independently select failures, warnings, and successes for that channel. |
 | **Send ... test** | Sends one test using saved settings without changing enablement or severity filters. |
 | **Save notification settings** | Validates and encrypts notification configuration. |
 
 Tests use the last saved credentials. Save changed values before sending a test.
 Provider errors are bounded and do not expose tokens or passwords in the Jobs
 workspace.
+
+Existing installations inherit global severities for both channels. Disabling
+inheritance affects only that channel. Health recovery notifications continue
+to bypass job-success filters so service recovery is not hidden.
 
 ### DNS tools
 

@@ -61,6 +61,9 @@ class NotificationSettings {
 
   resolved() {
     const stored = this.readStored();
+    const severityFailure = stored.severityFailure !== false;
+    const severityWarning = stored.severityWarning !== false;
+    const severitySuccess = Boolean(stored.severitySuccess);
     return {
       installationName: stored.installationName || process.env.NOTIFICATION_INSTALLATION_NAME || "Hosting control panel",
       serverName: stored.serverName || process.env.NOTIFICATION_SERVER_NAME || "hosting-server",
@@ -76,9 +79,17 @@ class NotificationSettings {
       smtpPassword: this.decrypt(stored.smtpPassword) || process.env.NOTIFICATION_SMTP_PASSWORD || "",
       smtpFrom: stored.smtpFrom || process.env.NOTIFICATION_SMTP_FROM || "",
       smtpRecipients: stringList(stored.smtpRecipients || process.env.NOTIFICATION_SMTP_RECIPIENTS),
-      severityFailure: stored.severityFailure !== false,
-      severityWarning: stored.severityWarning !== false,
-      severitySuccess: Boolean(stored.severitySuccess),
+      severityFailure,
+      severityWarning,
+      severitySuccess,
+      telegramUseGlobalSeverity: stored.telegramUseGlobalSeverity !== false,
+      telegramSeverityFailure: stored.telegramSeverityFailure ?? severityFailure,
+      telegramSeverityWarning: stored.telegramSeverityWarning ?? severityWarning,
+      telegramSeveritySuccess: stored.telegramSeveritySuccess ?? severitySuccess,
+      smtpUseGlobalSeverity: stored.smtpUseGlobalSeverity !== false,
+      smtpSeverityFailure: stored.smtpSeverityFailure ?? severityFailure,
+      smtpSeverityWarning: stored.smtpSeverityWarning ?? severityWarning,
+      smtpSeveritySuccess: stored.smtpSeveritySuccess ?? severitySuccess,
     };
   }
 
@@ -102,6 +113,14 @@ class NotificationSettings {
       severityFailure: settings.severityFailure,
       severityWarning: settings.severityWarning,
       severitySuccess: settings.severitySuccess,
+      telegramUseGlobalSeverity: settings.telegramUseGlobalSeverity,
+      telegramSeverityFailure: settings.telegramSeverityFailure,
+      telegramSeverityWarning: settings.telegramSeverityWarning,
+      telegramSeveritySuccess: settings.telegramSeveritySuccess,
+      smtpUseGlobalSeverity: settings.smtpUseGlobalSeverity,
+      smtpSeverityFailure: settings.smtpSeverityFailure,
+      smtpSeverityWarning: settings.smtpSeverityWarning,
+      smtpSeveritySuccess: settings.smtpSeveritySuccess,
     };
   }
 
@@ -133,6 +152,22 @@ class NotificationSettings {
       severityFailure: Boolean(payload.severityFailure),
       severityWarning: Boolean(payload.severityWarning),
       severitySuccess: Boolean(payload.severitySuccess),
+      telegramUseGlobalSeverity: payload.telegramUseGlobalSeverity === undefined
+        ? current.telegramUseGlobalSeverity !== false : Boolean(payload.telegramUseGlobalSeverity),
+      telegramSeverityFailure: payload.telegramSeverityFailure === undefined
+        ? current.telegramSeverityFailure ?? Boolean(payload.severityFailure) : Boolean(payload.telegramSeverityFailure),
+      telegramSeverityWarning: payload.telegramSeverityWarning === undefined
+        ? current.telegramSeverityWarning ?? Boolean(payload.severityWarning) : Boolean(payload.telegramSeverityWarning),
+      telegramSeveritySuccess: payload.telegramSeveritySuccess === undefined
+        ? current.telegramSeveritySuccess ?? Boolean(payload.severitySuccess) : Boolean(payload.telegramSeveritySuccess),
+      smtpUseGlobalSeverity: payload.smtpUseGlobalSeverity === undefined
+        ? current.smtpUseGlobalSeverity !== false : Boolean(payload.smtpUseGlobalSeverity),
+      smtpSeverityFailure: payload.smtpSeverityFailure === undefined
+        ? current.smtpSeverityFailure ?? Boolean(payload.severityFailure) : Boolean(payload.smtpSeverityFailure),
+      smtpSeverityWarning: payload.smtpSeverityWarning === undefined
+        ? current.smtpSeverityWarning ?? Boolean(payload.severityWarning) : Boolean(payload.smtpSeverityWarning),
+      smtpSeveritySuccess: payload.smtpSeveritySuccess === undefined
+        ? current.smtpSeveritySuccess ?? Boolean(payload.severitySuccess) : Boolean(payload.smtpSeveritySuccess),
       updatedAt: new Date().toISOString(),
     };
 

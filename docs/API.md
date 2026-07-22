@@ -74,6 +74,10 @@ authorization, cookie, SQL, or dump fields are rejected before persistence.
 | `GET,PUT /api/settings/performance` | validate and apply resource settings |
 | `POST /api/settings/test` | test NPM, Cloudflare, Security, or MySQL |
 
+Notification settings retain global failure/warning/success defaults and allow
+Telegram and SMTP to either inherit them or store independent channel filters.
+Omitted channel fields preserve inherited behavior for older API clients.
+
 ### NPM and certificates
 
 | Method/path | Purpose |

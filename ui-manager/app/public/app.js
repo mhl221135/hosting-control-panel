@@ -94,6 +94,15 @@ function syncProvisionDnsOptions() {
   form.elements.dns_preset_id.required = usePreset;
 }
 
+function syncNotificationSeverityControls(form = $("#notificationSettingsForm")) {
+  for (const channel of ["telegram", "smtp"]) {
+    const inherit = form.elements[`${channel}UseGlobalSeverity`].checked;
+    for (const severity of ["Failure", "Warning", "Success"]) {
+      form.elements[`${channel}Severity${severity}`].disabled = inherit;
+    }
+  }
+}
+
 function syncProvisionSourceMode() {
   const form = $("#provisionForm");
   const importing = form.elements.source_mode.value === "import";
@@ -1159,6 +1168,13 @@ async function loadIntegrationSettings() {
     notificationForm.elements.severityFailure.checked = notifications.severityFailure;
     notificationForm.elements.severityWarning.checked = notifications.severityWarning;
     notificationForm.elements.severitySuccess.checked = notifications.severitySuccess;
+    for (const channel of ["telegram", "smtp"]) {
+      notificationForm.elements[`${channel}UseGlobalSeverity`].checked = notifications[`${channel}UseGlobalSeverity`];
+      for (const severity of ["Failure", "Warning", "Success"]) {
+        notificationForm.elements[`${channel}Severity${severity}`].checked = notifications[`${channel}Severity${severity}`];
+      }
+    }
+    syncNotificationSeverityControls(notificationForm);
     state.health = healthData.health;
     const health = state.health.settings;
     const healthForm = $("#healthSettingsForm");
@@ -2068,6 +2084,10 @@ $("#notificationSettingsForm").addEventListener("submit", async (event) => {
   } catch (error) {
     notice(error.message, "warning");
   }
+});
+
+$("#notificationSettingsForm").addEventListener("change", (event) => {
+  if (event.target.name?.endsWith("UseGlobalSeverity")) syncNotificationSeverityControls(event.currentTarget);
 });
 
 $("#healthSettingsForm").addEventListener("submit", async (event) => {

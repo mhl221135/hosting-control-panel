@@ -84,10 +84,18 @@ class NotificationManager {
     return Boolean(settings[`severity${severity[0].toUpperCase()}${severity.slice(1)}`]);
   }
 
-  enabledChannels(settings) {
+  channelSeverityEnabled(settings, channel, severity) {
+    const suffix = `${severity[0].toUpperCase()}${severity.slice(1)}`;
+    if (settings[`${channel}UseGlobalSeverity`] !== false) return this.severityEnabled(settings, severity);
+    return Boolean(settings[`${channel}Severity${suffix}`]);
+  }
+
+  enabledChannels(settings, severity = "warning", respectSeverityFilter = true) {
     const channels = [];
-    if (settings.telegramEnabled && settings.telegramBotToken && settings.telegramChatIds.length) channels.push("telegram");
-    if (settings.smtpEnabled && settings.smtpHost && settings.smtpFrom && settings.smtpRecipients.length) channels.push("smtp");
+    if (settings.telegramEnabled && settings.telegramBotToken && settings.telegramChatIds.length
+      && (!respectSeverityFilter || this.channelSeverityEnabled(settings, "telegram", severity))) channels.push("telegram");
+    if (settings.smtpEnabled && settings.smtpHost && settings.smtpFrom && settings.smtpRecipients.length
+      && (!respectSeverityFilter || this.channelSeverityEnabled(settings, "smtp", severity))) channels.push("smtp");
     return channels;
   }
 
@@ -96,8 +104,8 @@ class NotificationManager {
     if (!job || !TERMINAL.has(job.status)) return;
     const severity = SEVERITY[job.status];
     const settings = this.settings.resolved();
-    const channels = this.enabledChannels(settings);
-    if (!channels.length || !this.severityEnabled(settings, severity)) return;
+    const channels = this.enabledChannels(settings, severity);
+    if (!channels.length) return;
     const dedupeKey = `job:${job.id}:${job.status}`;
     if (this.deliveries.some((item) => item.dedupeKey === dedupeKey)) return;
     const timestamp = this.now().toISOString();
@@ -138,8 +146,8 @@ class NotificationManager {
       ? input.severity
       : "warning";
     const settings = this.settings.resolved();
-    const channels = this.enabledChannels(settings);
-    if (!channels.length || (input.respectSeverityFilter !== false && !this.severityEnabled(settings, severity))) return null;
+    const channels = this.enabledChannels(settings, severity, input.respectSeverityFilter !== false);
+    if (!channels.length) return null;
     const dedupeKey = bounded(input.dedupeKey || `${input.eventType}:${input.eventId}`, 240);
     const existing = this.deliveries.find((item) => item.dedupeKey === dedupeKey);
     if (existing) return this.publicDelivery(existing.id);

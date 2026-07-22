@@ -145,6 +145,10 @@ state is copied onto the originating job for the UI. Notification credentials
 are AES-256-GCM encrypted separately from delivery history, and provider
 responses are not retained.
 
+Each delivery channel inherits global severity filters by default or applies
+its own failure, warning, and success selection. Channel eligibility is fixed
+when the event is queued so retries preserve the original delivery targets.
+
 Direct certificate issuance and renewal are durable jobs, so provider failures
 reach the same terminal notification path as backups and provisioning. Renewal
 revalidates the selected hostname/certificate relationship immediately before

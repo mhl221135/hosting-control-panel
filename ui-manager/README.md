@@ -29,7 +29,8 @@ panel create a restricted local key in its data directory.
 Telegram bot tokens and SMTP passwords use the same encryption design in a
 separate notification settings file. Failed, partial, and cancelled jobs notify
 enabled channels by default; successful-job alerts are opt-in. Delivery retry
-state is durable and visible in **Jobs**.
+state is durable and visible in **Jobs**. Telegram and SMTP can independently
+override the global severity defaults.
 
 Direct NPM certificate issuance and renewal run as durable, serialized jobs.
 Failures are retained in **Jobs** and delivered through configured notification
