@@ -96,6 +96,9 @@ MySQL and Redis have no host port mappings and are reachable only on
   authentication and an identity-aware access layer; do not expose port 8687.
 - NPM terminates public traffic and owns TLS private keys. Protect its data and
   administration endpoint separately from WordPress.
+- NPM accepts `CF-Connecting-IP` only from its trusted CDN/LAN ranges. IPinfo
+  lookup additionally rejects internal, reserved, Cloudflare edge, and saved
+  server addresses and never transmits request paths or headers.
 - Website PHP shares one container but uses per-site pools and `open_basedir`.
   This reduces accidental cross-site access but is not equivalent to a separate
   container or VM per untrusted customer.

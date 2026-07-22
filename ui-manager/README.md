@@ -61,6 +61,12 @@ seconds. Website disk usage and the selected NPM access-log sample are cached
 for five minutes. No background metrics database or permanent polling service
 is required.
 
+An optional IPinfo token enables explicit **Look up** actions beside current
+public traffic addresses. Only the selected IP is sent; paths and request
+metadata are not. Results are normalized into a 500-entry, 24-hour cache with a
+manual clear action. Internal, reserved, trusted Cloudflare edge, and configured
+server addresses are rejected before contacting IPinfo.
+
 ## Background jobs
 
 Backups, restores, maintenance, and image optimization run through a durable

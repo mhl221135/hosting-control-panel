@@ -216,6 +216,8 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .rank-list > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
 .rank-list > div:last-child { border-bottom: 0; }
 .rank-list code { overflow-wrap: anywhere; }
+.ip-rank-list .ip-rank-row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.ip-rank-row p { grid-column: 1 / -1; margin: 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
 .bar-list > div { display: grid; grid-template-columns: 42px minmax(80px, 1fr) 38px; align-items: center; gap: 10px; padding: 7px 0; font-size: 12px; }
 .bar-track { height: 7px; overflow: hidden; background: #e7ebee; border-radius: 3px; }
 .bar-track i { display: block; height: 100%; background: var(--accent); }
@@ -303,6 +305,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .search, .domain-select { width: 100%; }
   .stats-detail-grid > div { border-right: 0; border-bottom: 1px solid var(--line); }
   .stats-detail-grid > div:last-child { border-bottom: 0; }
+  .ip-rank-list .ip-rank-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .ip-rank-row button { grid-column: 1 / -1; width: 100%; }
   .backup-layout, .backup-row, .data-row, .preset-apply, .security-rule-row { grid-template-columns: 1fr; }
   .security-presets > div { grid-template-columns: 1fr; }
   .security-presets button { grid-column: auto; grid-row: auto; justify-self: start; }

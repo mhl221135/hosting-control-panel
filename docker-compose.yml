@@ -17,7 +17,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.9
+    image: hosting-ui:2.10
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -53,6 +53,7 @@ services:
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
       CLOUDFLARE_SECURITY_API_TOKEN: ${CLOUDFLARE_SECURITY_API_TOKEN:-}
       CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      IPINFO_TOKEN: ${IPINFO_TOKEN:-}
       MYSQL_SITE_PREFIX: ${MYSQL_SITE_PREFIX:-yogali00_}
       RELOAD_NGINX_CMD: "docker exec hosting-nginx nginx -s reload"
       RELOAD_PHP_CMD: "docker exec hosting-php-fpm sh -c 'kill -USR2 1'"

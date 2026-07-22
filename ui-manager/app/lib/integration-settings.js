@@ -62,6 +62,7 @@ class IntegrationSettings {
       cloudflareSecurityToken: this.decrypt(stored.cloudflareSecurityToken)
         || process.env.CLOUDFLARE_SECURITY_API_TOKEN || "",
       cloudflareAccountId: stored.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
+      ipinfoToken: this.decrypt(stored.ipinfoToken) || process.env.IPINFO_TOKEN || "",
       mysqlContainer: stored.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db",
       mysqlSitePrefix: stored.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_",
     };
@@ -77,6 +78,7 @@ class IntegrationSettings {
       cloudflareTokenConfigured: Boolean(settings.cloudflareToken),
       cloudflareSecurityTokenConfigured: Boolean(settings.cloudflareSecurityToken),
       cloudflareAccountId: settings.cloudflareAccountId,
+      ipinfoTokenConfigured: Boolean(settings.ipinfoToken),
       mysqlContainer: settings.mysqlContainer,
       mysqlSitePrefix: settings.mysqlSitePrefix,
     };
@@ -106,6 +108,11 @@ class IntegrationSettings {
       cloudflareAccountId: String(
         payload.cloudflareAccountId || current.cloudflareAccountId || process.env.CLOUDFLARE_ACCOUNT_ID || "",
       ).trim().toLowerCase(),
+      ipinfoToken: payload.clearIpinfoToken
+        ? ""
+        : payload.ipinfoToken
+          ? this.encrypt(payload.ipinfoToken)
+          : current.ipinfoToken || "",
       mysqlContainer: String(payload.mysqlContainer || current.mysqlContainer || "hosting-db").trim(),
       mysqlSitePrefix: String(payload.mysqlSitePrefix || current.mysqlSitePrefix || "yogali00_")
         .trim()

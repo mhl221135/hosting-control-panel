@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260722-8" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-9" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -138,7 +138,10 @@
             </div>
             <div class="two-column">
               <article class="panel"><h3>Response status</h3><div id="siteStatusStats" class="bar-list"></div></article>
-              <article class="panel"><h3>Top client / proxy IPs</h3><div id="siteIpStats" class="rank-list"></div></article>
+              <article class="panel">
+                <div class="card-head"><div><h3>Top client / proxy IPs</h3><p class="muted">Lookup sends only the selected public IP address to IPinfo.</p></div><button id="clearIpinfoCache" type="button" class="secondary">Clear cache</button></div>
+                <div id="siteIpStats" class="rank-list"></div>
+              </article>
             </div>
             <article class="panel"><h3>Top requested paths</h3><div id="sitePathStats" class="rank-list"></div></article>
           </section>
@@ -514,6 +517,11 @@
             <label class="check inline"><input name="clearCloudflareSecurityToken" type="checkbox" /> Clear saved security token</label>
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="cloudflare-security">Test Cloudflare Security</button></div>
 
+            <div class="group-title full"><h3>IPinfo</h3><p>Optional on-demand enrichment for selected public addresses in website traffic statistics.</p></div>
+            <label>IPinfo token<input name="ipinfoToken" type="password" placeholder="Leave empty to keep saved token" /></label>
+            <label class="check inline"><input name="clearIpinfoToken" type="checkbox" /> Clear saved IPinfo token</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-integration="ipinfo">Test IPinfo</button></div>
+
             <div class="group-title full"><h3>WordPress database installer</h3><p>The root password stays inside MySQL. The UI invokes MySQL using the container's existing environment.</p></div>
             <label>MySQL container<input name="mysqlContainer" placeholder="hosting-db" required /></label>
             <label>Database/user prefix<input name="mysqlSitePrefix" placeholder="yogali00_" maxlength="16" required /></label>
@@ -657,6 +665,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260722-10"></script>
+    <script src="/app.js?v=20260722-11"></script>
   </body>
 </html>

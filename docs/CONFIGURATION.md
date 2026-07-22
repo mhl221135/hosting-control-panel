@@ -24,6 +24,7 @@ the supported keys.
 | `CLOUDFLARE_API_TOKEN` | DNS API token | Environment fallback; editable in panel |
 | `CLOUDFLARE_SECURITY_API_TOKEN` | WAF/rulesets token | Environment fallback; editable in panel |
 | `CLOUDFLARE_ACCOUNT_ID` | Account-owned token account | Environment fallback; editable in panel |
+| `IPINFO_TOKEN` | Optional IPinfo API token | Environment fallback; encrypted when saved in panel |
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |
@@ -54,6 +55,7 @@ Paths below are relative to `app-data/ui-manager`.
 | `jobs.json` | durable queue, progress, results, and bounded history | no; secret fields are rejected |
 | `provisioning-credentials.json` | encrypted, expiring one-time provisioning records | yes |
 | `provisioning-credentials.key` | generated AES-256-GCM key for those records | yes |
+| `ipinfo-cache.json` | bounded normalized IP enrichment results, expiring after 24 hours | no |
 | `wordpress-packages/` | ZIPs and package metadata | user content |
 
 These files are operational data, not source. Back them up, but never commit

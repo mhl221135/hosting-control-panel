@@ -45,6 +45,7 @@ const { HealthSettings } = require("./lib/health-settings");
 const { HealthMonitor } = require("./lib/health-monitor");
 const { OneTimeVault } = require("./lib/one-time-vault");
 const { jobInput: provisioningJobInput, safeProvisionPayload } = require("./lib/provisioning-job");
+const { IpinfoClient } = require("./lib/ipinfo-client");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -112,6 +113,7 @@ const cloudflareSecurity = new CloudflareClient(() => integrationSettings.resolv
 const dnsPresets = new DnsPresetStore(DATA_DIR);
 const wordpressPackages = new WordPressPackageStore(DATA_DIR);
 const ipAddresses = new IpAddressStore(DATA_DIR);
+const ipinfo = new IpinfoClient({ dataDir: DATA_DIR, settings: () => integrationSettings.resolved() });
 const performanceSettings = new PerformanceSettings({
   dataDir: DATA_DIR,
   phpIniPath: PHP_INI_PATH,
@@ -213,6 +215,26 @@ const migrationManager = new MigrationManager({
 
 function decorateJob(job, operator) {
   return job ? { ...job, oneTimeAccessAvailable: provisioningVault.has(job.id, operator) } : null;
+}
+
+async function collectSiteStats(domain, force = false) {
+  const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+  const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  const site = getSitesWithPools(mapParsed, poolsParsed).find((item) => item.host === domain && !item.isAlias);
+  if (!site) throw Object.assign(new Error("Primary site is not configured"), { statusCode: 404 });
+  let npmHostIds = [];
+  if (npm.configured()) {
+    try {
+      const names = new Set([site.host, ...(site.aliases || [])]);
+      npmHostIds = (await npm.listHosts())
+        .filter((host) => (host.domain_names || []).some((name) => names.has(name)))
+        .map((host) => host.id);
+    } catch (error) {
+      console.error(`Could not map NPM logs for ${domain}: ${error.message}`);
+    }
+  }
+  const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
+  return statsCollector.site({ domain, directory, npmHostIds }, force);
 }
 
 function sendJson(res, code, obj, headers = {}) {
@@ -1200,6 +1222,7 @@ async function handleApi(req, res) {
         npm: npm.configured(),
         cloudflare: cloudflare.configured(),
         cloudflareSecurity: cloudflareSecurity.configured(),
+        ipinfo: ipinfo.configured(),
         mysql: true,
       },
     });
@@ -1230,30 +1253,26 @@ async function handleApi(req, res) {
 
   if (req.method === "GET" && requestUrl.pathname === "/api/stats/site") {
     const domain = validateDomain(requestUrl.searchParams.get("domain"));
-    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
-    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
-    const site = getSitesWithPools(mapParsed, poolsParsed)
-      .find((item) => item.host === domain && !item.isAlias);
-    if (!site) {
-      sendJson(res, 404, { ok: false, message: "Primary site is not configured" });
+    sendJson(res, 200, { ok: true, ...(await collectSiteStats(domain, requestUrl.searchParams.get("refresh") === "1")) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/stats/ipinfo/lookup") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const ip = String(body.ip || "").trim();
+    const stats = await collectSiteStats(domain);
+    if (!(stats.traffic?.topIps || []).some((row) => row.ip === ip)) {
+      sendJson(res, 409, { ok: false, message: "Refresh website traffic and select an address from the current sample" });
       return true;
     }
-    let npmHostIds = [];
-    if (npm.configured()) {
-      try {
-        const names = new Set([site.host, ...(site.aliases || [])]);
-        npmHostIds = (await npm.listHosts())
-          .filter((host) => (host.domain_names || []).some((name) => names.has(name)))
-          .map((host) => host.id);
-      } catch (error) {
-        console.error(`Could not map NPM logs for ${domain}: ${error.message}`);
-      }
-    }
-    const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
-    sendJson(res, 200, {
-      ok: true,
-      ...(await statsCollector.site({ domain, directory, npmHostIds }, requestUrl.searchParams.get("refresh") === "1")),
-    });
+    sendJson(res, 200, { ok: true, result: await ipinfo.lookup(ip, ipAddresses.read()) });
+    return true;
+  }
+
+  if (req.method === "DELETE" && requestUrl.pathname === "/api/stats/ipinfo/cache") {
+    ipinfo.clear();
+    sendJson(res, 200, { ok: true, message: "IPinfo cache cleared" });
     return true;
   }
 
@@ -1448,6 +1467,11 @@ async function handleApi(req, res) {
     if (body.target === "cloudflare-security") {
       const token = await cloudflareSecurity.verify();
       sendJson(res, 200, { ok: true, message: `Cloudflare Security token status: ${token.status || "active"}.` });
+      return true;
+    }
+    if (body.target === "ipinfo") {
+      const result = await ipinfo.lookup("8.8.8.8", [], { force: true });
+      sendJson(res, 200, { ok: true, message: `Connected to IPinfo${result.country ? ` (${result.country})` : ""}.` });
       return true;
     }
     if (body.target === "mysql") {
