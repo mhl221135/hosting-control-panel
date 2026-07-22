@@ -152,6 +152,12 @@ database/runtime rollback path as host-level imports. Core import work runs
 under the shared storage-operation lock; external integration failures are
 reported as warnings after the site is usable.
 
+The panel treats Redis management as a WordPress capability. Non-WordPress
+website rows omit the Redis state and action, and the API rejects attempts to
+enable the WordPress Redis integration for those sites. FastCGI and OPcache
+remain available to the current combined HTML/PHP site type because it may
+contain executable PHP.
+
 ## External Integrations
 
 NPM hosts forward managed websites to `hosting-nginx:80` and own public ACME

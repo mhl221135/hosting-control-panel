@@ -35,7 +35,7 @@ profile, cache state, and backup state.
 | **Back up** | Creates a complete website set containing files, a compressed database dump, and a manifest. |
 | **Optimize images** | Scans WordPress uploads and creates missing WebP derivatives. Existing WebP files are skipped. |
 | **Enable/Disable FastCGI** | Adds or removes the site from the anonymous-page cache map and reloads internal nginx. |
-| **Enable/Disable Redis** | Installs/configures the WordPress Redis Cache integration and changes the site's Redis state. |
+| **Enable/Disable Redis** | Installs/configures the WordPress Redis Cache integration and changes the site's Redis state. This control is shown only for WordPress websites. |
 | **Enable/Disable OPcache** | Changes the per-site OPcache directive. OPcache itself remains a shared PHP service. |
 | **Purge cache** | Increments the site's FastCGI cache version so previous cached responses are no longer used. |
 | **DNS & SSL** | Opens the DNS & SSL workspace with this website selected. |
@@ -48,6 +48,10 @@ job without clearing individual **Images daily** selections.
 FastCGI, Redis, and OPcache are separate layers. FastCGI stores complete
 anonymous HTML responses, Redis stores WordPress objects, and OPcache stores
 compiled PHP bytecode.
+
+On phone-sized screens, the header's section selector replaces the desktop
+sidebar navigation. Statistics tables become labeled vertical records and site
+actions wrap within the website row without horizontal page scrolling.
 
 ## Stats
 
