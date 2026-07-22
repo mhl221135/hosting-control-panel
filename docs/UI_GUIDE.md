@@ -189,9 +189,10 @@ the first reveal. Provisioning does not silently overwrite an existing non-empty
 website or configured domain.
 
 When local provisioning succeeds but optional DNS, NPM, or SSL work fails, the
-job is marked **partially succeeded**. Jobs retains the exact warning and the
+job is marked **partially succeeded**. The job retains the exact warning and the
 notification system treats it as warning severity instead of reporting a false
-success.
+success. Generated credentials remain available through the same one-time
+reveal action because the local WordPress/database operation completed.
 
 ## DNS & SSL
 

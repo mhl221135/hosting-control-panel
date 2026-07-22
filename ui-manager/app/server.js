@@ -1844,7 +1844,7 @@ async function handleApi(req, res) {
       return true;
     }
     const job = jobManager.get(id);
-    if (!job || job.type !== "site.provision" || job.status !== "succeeded") {
+    if (!job || job.type !== "site.provision" || !["succeeded", "partially_succeeded"].includes(job.status)) {
       sendJson(res, 409, { ok: false, message: "Provisioning credentials are not available for this job" });
       return true;
     }

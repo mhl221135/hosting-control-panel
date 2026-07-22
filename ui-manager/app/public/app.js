@@ -609,7 +609,7 @@ function renderJobs() {
       : "";
     const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
     const canRetry = terminal && job.retryable && job.status !== "succeeded";
-    const canReveal = job.status === "succeeded" && job.oneTimeAccessAvailable;
+    const canReveal = ["succeeded", "partially_succeeded"].includes(job.status) && job.oneTimeAccessAvailable;
     return `<div class="job-row">
       <div><span class="job-status ${escapeHtml(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span><h3>${escapeHtml(job.label)}</h3><p>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(job.operator || "system")}</p></div>
       <div class="job-progress"><div class="job-progress-track"><i style="width:${percent}%"></i></div><p>${total ? `${completed} of ${total}` : jobStatusLabel(job.status)}${job.currentStep ? ` · ${escapeHtml(job.currentStep)}` : ""}</p></div>
