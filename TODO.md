@@ -218,25 +218,6 @@ duplicating the tested shell-script logic.
   traffic.
 - Never create permanent automatic bans from one traffic sample.
 
-#### IPinfo Enrichment
-
-- Add optional IPinfo credentials and a connection test to integration settings.
-- Enrich entries in **Top client / proxy IPs** only when the operator requests a
-  lookup, either for one address or a bounded selection. Do not call IPinfo on
-  every statistics refresh.
-- Cache successful lookups locally for 24 hours with a bounded cache size and a
-  manual clear action so the feature does not create continuous load or consume
-  the API quota unnecessarily.
-- Show the country/region, ASN and organization, network, hostname, and available
-  hosting/proxy/privacy indicators. Clearly mark fields unavailable under the
-  configured IPinfo plan instead of treating them as negative results.
-- Never send private, reserved, loopback, trusted Cloudflare edge, or known
-  operator addresses to IPinfo. Only enrich a restored client address after the
-  proxy source has been validated against trusted Cloudflare ranges.
-- Disclose that an address is sent to IPinfo for lookup. Never send request paths,
-  cookies, user agents, or account data, and never write the token or full raw
-  provider response to application logs.
-
 #### Cloudflare IP Actions
 
 - Add actions beside an enriched traffic row for managed challenge, temporary

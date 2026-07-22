@@ -39,6 +39,7 @@ into dedicated directories.
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
+- Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest
 - ARM64 PHP image with WP-CLI, MySQL client tools, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
 

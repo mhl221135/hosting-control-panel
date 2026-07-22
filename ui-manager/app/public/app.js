@@ -24,6 +24,7 @@ const state = {
   stats: null,
   health: null,
   siteStats: null,
+  ipinfo: {},
   removalPlan: null,
 };
 
@@ -252,6 +253,7 @@ function renderSummary() {
   if (state.status?.integrations?.npm) enabled.push("NPM");
   if (state.status?.integrations?.cloudflare) enabled.push("Cloudflare");
   if (state.status?.integrations?.cloudflareSecurity) enabled.push("WAF");
+  if (state.status?.integrations?.ipinfo) enabled.push("IPinfo");
   enabled.push("MySQL");
   $("#integrationSummary").textContent = `${enabled.join(" · ")} ready`;
 }
@@ -349,7 +351,16 @@ function renderSiteStats() {
   $("#siteStatusStats").innerHTML = Object.entries(stats.traffic.statusGroups || {}).map(([label, count]) => `
     <div><span>${escapeHtml(label)}</span><span class="bar-track"><i style="width:${Math.max(0, Math.min(100, (count / total) * 100))}%"></i></span><strong>${escapeHtml(count)}</strong></div>
   `).join("");
-  renderRankList("#siteIpStats", stats.traffic.topIps || [], "ip");
+  const ipRows = stats.traffic.topIps || [];
+  const ipContainer = $("#siteIpStats");
+  ipContainer.className = ipRows.length ? "rank-list ip-rank-list" : "rank-list empty";
+  ipContainer.innerHTML = ipRows.length ? ipRows.map((row) => {
+    const info = state.ipinfo[row.ip];
+    const location = info ? [info.city, info.region, info.country].filter(Boolean).join(", ") || "Location unavailable" : "";
+    const organization = info ? [info.asn, info.organization, info.network].filter(Boolean).join(" · ") || "Network details unavailable" : "";
+    const signals = info ? Object.entries(info.indicators || {}).map(([name, value]) => `${name}: ${value === null ? "unavailable" : value ? "yes" : "no"}`).join(" · ") : "";
+    return `<div class="ip-rank-row"><code>${escapeHtml(row.ip)}</code><strong>${escapeHtml(row.requests)}</strong><button type="button" class="secondary" data-ipinfo-lookup="${escapeHtml(row.ip)}">Look up</button>${info ? `<p>${escapeHtml(location)}<br>${escapeHtml(organization)}${info.hostname ? `<br>${escapeHtml(info.hostname)}` : ""}<br>${escapeHtml(signals)} · ${info.cached ? "cached" : "live"}</p>` : ""}</div>`;
+  }).join("") : "No matching requests in the current log sample.";
   renderRankList("#sitePathStats", stats.traffic.topPaths || [], "path");
   if (stats.warnings?.length) notice(stats.warnings.join(" · "), "warning");
 }
@@ -1110,12 +1121,15 @@ async function loadIntegrationSettings() {
     form.elements.cloudflareToken.placeholder = settings.cloudflareTokenConfigured ? "Saved token configured" : "Enter Cloudflare token";
     form.elements.cloudflareSecurityToken.value = "";
     form.elements.cloudflareSecurityToken.placeholder = settings.cloudflareSecurityTokenConfigured ? "Saved security token configured" : "Enter Cloudflare Security token";
+    form.elements.ipinfoToken.value = "";
+    form.elements.ipinfoToken.placeholder = settings.ipinfoTokenConfigured ? "Saved token configured" : "Enter IPinfo token";
     form.elements.cloudflareAccountId.value = settings.cloudflareAccountId || "";
     form.elements.mysqlContainer.value = settings.mysqlContainer || "hosting-db";
     form.elements.mysqlSitePrefix.value = settings.mysqlSitePrefix || "yogali00_";
     form.elements.clearNpmSecret.checked = false;
     form.elements.clearCloudflareToken.checked = false;
     form.elements.clearCloudflareSecurityToken.checked = false;
+    form.elements.clearIpinfoToken.checked = false;
     const notifications = notificationData.settings;
     const notificationForm = $("#notificationSettingsForm");
     notificationForm.elements.installationName.value = notifications.installationName || "Hosting control panel";
@@ -1271,6 +1285,27 @@ $("#websiteStats").addEventListener("click", async (event) => {
 $("#loadSiteStats").addEventListener("click", async (event) => {
   try {
     await withButton(event.currentTarget, "Loading...", () => loadSiteStats("", true));
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#siteIpStats").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-ipinfo-lookup]");
+  if (!button || !state.siteStats?.domain) return;
+  try {
+    const response = await withButton(button, "Looking up...", () => api("/api/stats/ipinfo/lookup", {
+      method: "POST",
+      body: JSON.stringify({ domain: state.siteStats.domain, ip: button.dataset.ipinfoLookup }),
+    }));
+    state.ipinfo[response.result.ip] = response.result;
+    renderSiteStats();
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#clearIpinfoCache").addEventListener("click", async (event) => {
+  if (!confirm("Clear all cached IPinfo lookup results?")) return;
+  try {
+    await withButton(event.currentTarget, "Clearing...", () => api("/api/stats/ipinfo/cache", { method: "DELETE" }));
+    state.ipinfo = {};
+    renderSiteStats();
+    notice("IPinfo cache cleared.");
   } catch (error) { notice(error.message, "warning"); }
 });
 $("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);

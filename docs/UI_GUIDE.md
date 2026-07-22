@@ -71,9 +71,13 @@ high-frequency background collector.
 | **Container resources** | Shows a one-time Docker CPU, memory, and PID sample. |
 | **Website PHP load** | Attributes active worker CPU and RAM to dedicated website pools. |
 | **Inspect** | Opens recent per-site activity: file size, request count, transfer volume, status codes, source IPs, and requested paths. |
+| **Look up** | Sends only that current public traffic IP to IPinfo and shows available location, ASN/network, hostname, and privacy/hosting indicators. |
+| **Clear cache** | Removes normalized IPinfo results retained locally for up to 24 hours. |
 
 Traffic details are based on a bounded recent access-log sample. They are useful
-for diagnosis, not long-term analytics or billing.
+for diagnosis, not long-term analytics or billing. IPinfo is never called during
+normal refreshes. Private, reserved, Cloudflare edge, and configured server
+addresses are refused, and unavailable plan fields are labeled unavailable.
 
 ## Health
 

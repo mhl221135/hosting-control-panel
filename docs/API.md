@@ -29,6 +29,8 @@ Do not expose secrets in public settings responses or error details.
 | `GET /api/status` | config/action/integration readiness |
 | `GET /api/stats/runtime` | host, container, PHP, OPcache, Redis, FastCGI snapshot |
 | `GET /api/stats/site?domain=` | disk and NPM traffic for one primary site |
+| `POST /api/stats/ipinfo/lookup` | enrich one current public traffic address on demand |
+| `DELETE /api/stats/ipinfo/cache` | clear normalized cached IPinfo results |
 
 Statistics are on-demand and cached. `refresh=1` bypasses the short runtime
 cache; avoid adding permanent polling.

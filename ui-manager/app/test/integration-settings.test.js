@@ -17,6 +17,7 @@ test("stores NPM, ACME, and Cloudflare settings without exposing secrets", () =>
       cloudflareToken: "cloudflare-token",
       cloudflareSecurityToken: "cloudflare-security-token",
       cloudflareAccountId: "0123456789abcdef0123456789abcdef",
+      ipinfoToken: "ipinfo-token",
       mysqlContainer: "hosting-db",
       mysqlSitePrefix: "site_",
     });
@@ -27,8 +28,10 @@ test("stores NPM, ACME, and Cloudflare settings without exposing secrets", () =>
     assert.equal(settings.resolved().npmSecret, "npm-password");
     assert.equal(settings.resolved().cloudflareToken, "cloudflare-token");
     assert.equal(settings.resolved().cloudflareSecurityToken, "cloudflare-security-token");
+    assert.equal(settings.resolved().ipinfoToken, "ipinfo-token");
+    assert.equal(publicView.ipinfoTokenConfigured, true);
     assert.equal(publicView.cloudflareSecurityTokenConfigured, true);
-    assert.doesNotMatch(fs.readFileSync(settings.settingsPath, "utf8"), /npm-password|cloudflare-token|cloudflare-security-token/);
+    assert.doesNotMatch(fs.readFileSync(settings.settingsPath, "utf8"), /npm-password|cloudflare-token|cloudflare-security-token|ipinfo-token/);
     assert.throws(() => settings.update({ acmeEmail: "invalid" }), /valid ACME email/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });

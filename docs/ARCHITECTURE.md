@@ -228,6 +228,8 @@ requests in 10 seconds and a 10-second block; Free permits one rate rule per zon
 - Backups use partial directories promoted only after completion.
 - Integration failures do not expose stored secrets.
 - Statistics are sampled on demand; there is no background metrics database.
+- IPinfo enrichment is operator-triggered, accepts only an address in the current
+  selected-site sample, and stores only bounded normalized fields for 24 hours.
 - Docker socket compromise of `hosting-ui` is host-level compromise. Restrict
   panel access to administrators and publish it through HTTPS.
 
