@@ -17,7 +17,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.5
+    image: hosting-ui:2.6
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -37,6 +37,8 @@ services:
       EXPORTS_ROOT: /srv/exports
       IMPORTS_ROOT: /srv/imports
       JOB_HISTORY_LIMIT: ${JOB_HISTORY_LIMIT:-250}
+      NOTIFICATION_HISTORY_LIMIT: ${NOTIFICATION_HISTORY_LIMIT:-500}
+      HEALTH_HISTORY_LIMIT: ${HEALTH_HISTORY_LIMIT:-250}
       MYSQL_CONTAINER: hosting-db
       PHP_CONTAINER: hosting-php-fpm
       TZ: Europe/Kyiv

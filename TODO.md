@@ -61,12 +61,20 @@ delivery retries are durable and deduplicated, and channel results are attached
 to the originating job. Extend that event-driven system to service risks without
 operating a local mail server or using Telegram as backup storage.
 
+### Implemented Health Events
+
+- Lightweight scheduled checks now cover required Docker containers, MySQL,
+  the NPM API, certificates attached to enabled proxy hosts, website/backup
+  storage thresholds, and OPcache capacity/restart state.
+- The **Health** workspace shows active incidents, transition history, and
+  Telegram/SMTP delivery state. Alerts occur only on open, changed, and resolved
+  transitions; recovery alerts bypass successful-job filtering.
+
 ### Remaining Events
 
-- Certificate issuance/renewal failure and certificates approaching expiry.
-- Low backup or website disk space.
-- MySQL unavailable, public proxy unavailable, unhealthy hosting container, and
-  OPcache full/restart-pending.
+- Capture direct certificate issuance/renewal job failures, not only expiry and
+  NPM API state.
+- Add bounded end-to-end HTTP checks through the public proxy for selected hosts.
 - Provisioning, import/export, and WordPress-update failures become covered when
   those operations adopt the shared background-job service.
 - Hosting/domain renewal reminders after the billing service exists.
@@ -75,7 +83,6 @@ operating a local mail server or using Telegram as backup storage.
 
 - Add quiet hours with an explicit bypass only for future critical events.
 - Allow channel-specific severity filters if global filters prove insufficient.
-- Add a bounded notification-history view for non-job health events.
 - Keep health sampling lightweight and event-driven where possible; do not add
   a continuous high-cardinality metrics database.
 

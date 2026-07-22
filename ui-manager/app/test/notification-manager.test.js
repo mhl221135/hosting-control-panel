@@ -116,3 +116,38 @@ test("retries a transient provider failure and filters successful jobs", async (
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("delivers and deduplicates generic health events despite job success filtering", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-notifications-health-"));
+  const messages = [];
+  const manager = new NotificationManager({
+    dataDir: directory,
+    settings: settings({ smtpEnabled: false, severitySuccess: false }),
+    fetch: async (_url, options) => {
+      messages.push(JSON.parse(options.body).text);
+      return { ok: true, status: 200 };
+    },
+  });
+  try {
+    const event = {
+      eventType: "health",
+      eventId: "event-1",
+      dedupeKey: "health:event-1",
+      severity: "success",
+      label: "Recovered: hosting-db",
+      status: "resolved",
+      targets: ["hosting-db"],
+      message: "Database is available again.",
+      respectSeverityFilter: false,
+    };
+    const first = manager.enqueueEvent(event);
+    const duplicate = manager.enqueueEvent(event);
+    assert.equal(first.id, duplicate.id);
+    await until(() => manager.deliveries[0]?.status === "delivered");
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /SUCCESS: Recovered: hosting-db/);
+  } finally {
+    manager.stop();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -39,6 +39,8 @@ const { WordPressMaintenanceRunner } = require("./lib/wordpress-maintenance");
 const { JobManager } = require("./lib/job-manager");
 const { NotificationSettings } = require("./lib/notification-settings");
 const { NotificationManager } = require("./lib/notification-manager");
+const { HealthSettings } = require("./lib/health-settings");
+const { HealthMonitor } = require("./lib/health-monitor");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -124,6 +126,7 @@ const notificationManager = new NotificationManager({
   settings: notificationSettings,
   maxHistory: Number(process.env.NOTIFICATION_HISTORY_LIMIT || 500),
 });
+const healthSettings = new HealthSettings(DATA_DIR);
 const backupManager = new BackupManager({
   dataDir: DATA_DIR,
   backupsRoot: BACKUPS_ROOT,
@@ -175,6 +178,16 @@ const maintenanceManager = new MaintenanceManager({
 const statsCollector = new StatsCollector({
   websitesRoot: WEBSITES_ROOT,
   npmLogsRoot: path.join(APP_DATA_ROOT, "npm/data/logs"),
+});
+const healthMonitor = new HealthMonitor({
+  dataDir: DATA_DIR,
+  websitesRoot: WEBSITES_ROOT,
+  backupsRoot: BACKUPS_ROOT,
+  settings: healthSettings,
+  notificationManager,
+  statsCollector,
+  npm,
+  maxHistory: Number(process.env.HEALTH_HISTORY_LIMIT || 250),
 });
 const provisionImports = new ProvisionImportStore({ importsRoot: IMPORTS_ROOT });
 const migrationManager = new MigrationManager({
@@ -1179,6 +1192,23 @@ async function handleApi(req, res) {
       error.statusCode ||= 502;
       throw error;
     }
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/health") {
+    sendJson(res, 200, { ok: true, health: healthMonitor.publicState() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/health/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    healthSettings.save(body);
+    sendJson(res, 200, { ok: true, health: healthMonitor.publicState() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/health/run") {
+    sendJson(res, 200, { ok: true, health: await healthMonitor.run() });
     return true;
   }
 
@@ -2392,6 +2422,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
   notificationManager.start(jobManager);
+  healthMonitor.start();
   jobManager.start();
   backupManager.start();
   imageOptimizationManager.startScheduler();

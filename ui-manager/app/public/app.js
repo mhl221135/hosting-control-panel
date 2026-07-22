@@ -22,6 +22,7 @@ const state = {
   jobs: [],
   activeTab: "sites",
   stats: null,
+  health: null,
   siteStats: null,
   removalPlan: null,
 };
@@ -216,11 +217,12 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
+  if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
@@ -355,6 +357,45 @@ function renderSiteStats() {
 async function loadStats(force = false) {
   state.stats = await api(`/api/stats/runtime${force ? "?refresh=1" : ""}`);
   renderStats();
+}
+
+function deliveryLabel(delivery) {
+  if (!delivery) return "Notifications disabled";
+  const channels = Object.entries(delivery.channels || {}).map(([name, result]) => `${name}: ${result.status}`);
+  return channels.length ? channels.join(" · ") : delivery.status;
+}
+
+function renderHealth() {
+  const health = state.health;
+  if (!health) return;
+  const summary = health.summary || {};
+  $("#healthOverall").textContent = !health.lastCheckAt ? "Not checked" : summary.critical ? "Critical" : summary.warning ? "Warning" : "Healthy";
+  $("#healthCritical").textContent = summary.critical || 0;
+  $("#healthWarnings").textContent = summary.warning || 0;
+  $("#healthDuration").textContent = health.lastCheckAt ? `${health.lastCheckDurationMs || 0} ms` : "-";
+  $("#healthUpdated").textContent = health.lastCheckAt
+    ? `Last checked ${new Date(health.lastCheckAt).toLocaleString()}${health.settings?.enabled ? ` · every ${health.settings.intervalMinutes} minutes` : " · scheduled checks disabled"}`
+    : "No health check has run.";
+  const active = health.active || [];
+  $("#healthActive").className = active.length ? "health-list" : "health-list empty";
+  $("#healthActive").innerHTML = active.length ? active.map((item) => `
+    <div class="health-row">
+      <span class="health-severity ${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span>
+      <div><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.message)}</p><small>${escapeHtml(item.target)} · since ${new Date(item.openedAt).toLocaleString()}</small></div>
+    </div>`).join("") : "No active incidents.";
+  const history = health.history || [];
+  $("#healthHistory").className = history.length ? "health-list" : "health-list empty";
+  $("#healthHistory").innerHTML = history.length ? history.map((event) => `
+    <div class="health-row">
+      <span class="health-severity ${escapeHtml(event.severity)}">${escapeHtml(event.transition)}</span>
+      <div><strong>${escapeHtml(event.label)}</strong><p>${escapeHtml(event.message)}</p><small>${new Date(event.at).toLocaleString()} · ${escapeHtml(deliveryLabel(event.delivery))}</small></div>
+    </div>`).join("") : "No health events recorded.";
+}
+
+async function loadHealth() {
+  const data = await api("/api/health");
+  state.health = data.health;
+  renderHealth();
 }
 
 async function loadSiteStats(domain, force = false) {
@@ -1042,11 +1083,12 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData, imageData, notificationData] = await Promise.all([
+    const [settings, performanceData, imageData, notificationData, healthData] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
       api("/api/sites/images/status"),
       api("/api/settings/notifications"),
+      api("/api/health"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -1089,6 +1131,17 @@ async function loadIntegrationSettings() {
     notificationForm.elements.severityFailure.checked = notifications.severityFailure;
     notificationForm.elements.severityWarning.checked = notifications.severityWarning;
     notificationForm.elements.severitySuccess.checked = notifications.severitySuccess;
+    state.health = healthData.health;
+    const health = state.health.settings;
+    const healthForm = $("#healthSettingsForm");
+    healthForm.elements.enabled.checked = health.enabled;
+    healthForm.elements.intervalMinutes.value = health.intervalMinutes;
+    healthForm.elements.diskWarningPercent.value = health.diskWarningPercent;
+    healthForm.elements.diskCriticalPercent.value = health.diskCriticalPercent;
+    healthForm.elements.certificateWarningDays.value = health.certificateWarningDays;
+    healthForm.elements.certificateCriticalDays.value = health.certificateCriticalDays;
+    healthForm.elements.opcacheWarningPercent.value = health.opcacheWarningPercent;
+    healthForm.elements.requiredContainers.value = (health.requiredContainers || []).join("\n");
     state.performance = performanceData.settings;
     const performance = $("#performanceSettingsForm");
     performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
@@ -1936,6 +1989,35 @@ $("#notificationSettingsForm").addEventListener("submit", async (event) => {
   } catch (error) {
     notice(error.message, "warning");
   }
+});
+
+$("#healthSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const body = {
+    enabled: form.elements.enabled.checked,
+    intervalMinutes: Number(form.elements.intervalMinutes.value),
+    diskWarningPercent: Number(form.elements.diskWarningPercent.value),
+    diskCriticalPercent: Number(form.elements.diskCriticalPercent.value),
+    certificateWarningDays: Number(form.elements.certificateWarningDays.value),
+    certificateCriticalDays: Number(form.elements.certificateCriticalDays.value),
+    opcacheWarningPercent: Number(form.elements.opcacheWarningPercent.value),
+    requiredContainers: form.elements.requiredContainers.value,
+  };
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/health/settings", { method: "PUT", body: JSON.stringify(body) }));
+    state.health = data.health;
+    notice("Health settings saved.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#runHealthCheck").addEventListener("click", async (event) => {
+  try {
+    const data = await withButton(event.currentTarget, "Checking...", () => api("/api/health/run", { method: "POST" }));
+    state.health = data.health;
+    renderHealth();
+    notice(state.health.summary.healthy ? "Health check completed with no incidents." : "Health check completed. Review active incidents.", state.health.summary.healthy ? "success" : "warning");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $$('[data-test-notification]').forEach((button) => button.addEventListener("click", async () => {

@@ -547,6 +547,21 @@ failures, deduplicated per job outcome, and capped by
 latest delivery state for each originating job. Successful-job notifications
 are disabled by default to avoid noise.
 
+## Operational Health
+
+The **Health** workspace performs low-frequency checks for required container
+state, MySQL availability, the NPM API, certificates attached to enabled proxy
+hosts, OPcache capacity, and website/backup filesystem usage. Thresholds,
+container names, schedule, and the global switch are configured under
+**Settings → Operational health monitoring**. Manual checks work even when the
+schedule is disabled.
+
+Health alerts are transition-based: an unchanged incident does not notify on
+every check. Opening, severity/message changes, and recovery create durable
+events with Telegram/SMTP delivery state. Settings and state are stored in
+`health-settings.json` and `health-state.json`; retained history is capped by
+`HEALTH_HISTORY_LIMIT` (default 250).
+
 ## Website Migration
 
 Create a portable export from the running stack:
