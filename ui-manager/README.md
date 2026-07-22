@@ -94,6 +94,10 @@ proxy host and certificate. Provisioning can create/update Cloudflare host DNS,
 apply a named multi-record DNS preset, and install selected ZIP packages from the
 persistent plugin/theme library. Generated credentials are shown once.
 
+Provisioning can also opt into one existing Cloudflare security preset after
+DNS/NPM setup. The local website remains available when the external rule fails;
+the durable job reports a warning for correction in the Security workspace.
+
 The same form provisions database-free **Static / PHP** sites. Fresh mode creates
 a minimal index, while import mode accepts only the validated website archive,
 flattens one wrapper directory, and keeps PHP execution isolated in the site's

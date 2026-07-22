@@ -184,13 +184,10 @@ duplicating the tested shell-script logic.
   Cloudflare API supports it.
 - Change only panel-owned rules or exact confirmed DNS records.
 
-### Provisioning Defaults
+### Provisioning Default Still Needed
 
-- Add a provisioning checkbox and preset selector for automatic security
-  hardening after DNS/NPM setup.
-- Allow a global default while preserving a per-site opt-out.
-- Treat external integration failure as a warning after local site creation;
-  provide a clear retry action.
+- Allow a global security-preset default while preserving the implemented
+  per-site opt-out. Keep external failures as provisioning warnings.
 
 ### Incident Actions
 

@@ -47,6 +47,7 @@ const { OneTimeVault } = require("./lib/one-time-vault");
 const { jobInput: provisioningJobInput, jobResult: provisioningJobResult, safeProvisionPayload } = require("./lib/provisioning-job");
 const { IpinfoClient } = require("./lib/ipinfo-client");
 const { CertificateJobManager } = require("./lib/certificate-job-manager");
+const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/provision-security");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -975,6 +976,12 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
         steps.push({ name: "dns-preset", status: "warning", message: error.message });
       }
     }
+    const securityStep = await provisionSecurityStep(
+      cloudflareSecurity,
+      domain,
+      selectedProvisionSecurity(body, "wordpress"),
+    );
+    if (securityStep) steps.push(securityStep);
     siteState.update(domain, {
       imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
       siteType: "wordpress",
@@ -1023,6 +1030,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   const presetRecords = body.apply_dns_preset
     ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
     : [];
+  const securityPreset = selectedProvisionSecurity(body, siteType);
   const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
   const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
   const mapParsed = parseSitesMap(mapBefore);
@@ -1118,7 +1126,6 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       steps.push({ name: "dns-preset", status: "warning", message: error.message });
     }
   }
-
   let npmHost = null;
   if (body.create_npm_host) {
     try {
@@ -1132,6 +1139,8 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       steps.push({ name: "npm", status: "warning", message: error.message });
     }
   }
+  const securityStep = await provisionSecurityStep(cloudflareSecurity, domain, securityPreset);
+  if (securityStep) steps.push(securityStep);
   if (siteType === "static" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
   jobContext?.update({ completed: 8, currentStep: "Finalizing website" });
   return {

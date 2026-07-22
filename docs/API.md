@@ -166,6 +166,11 @@ normalizes and consumes staged files, and removes staging only after success.
 Generated credentials are encrypted outside job state, expire after 24 hours,
 and are deleted by the first successful reveal request.
 
+Provisioning accepts optional `apply_security_preset` and `security_preset`
+fields. Allowed presets are `suspicious-probes`, `xmlrpc-challenge`, and
+`login-rate-limit`; the latter two require a WordPress site. Cloudflare failure
+is returned as a partial job warning after local creation rather than rollback.
+
 ### Runtime administration
 
 | Method/path | Purpose |

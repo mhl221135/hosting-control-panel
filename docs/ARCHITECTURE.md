@@ -64,6 +64,7 @@ routes. There is no Express framework or external npm dependency.
 | `certificate-job-manager.js` | durable NPM certificate issuance/renewal with ownership revalidation |
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
+| `provision-security.js` | capability validation and warning-safe Cloudflare hardening step |
 | `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations and bounded revision retention/preview |
 | `maintenance-manager.js` | persisted manual/weekly maintenance scheduling and progress |
 | `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
