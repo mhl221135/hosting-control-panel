@@ -7,8 +7,8 @@ const { DEFAULTS, PerformanceSettings, ensureNginxSecurityLocations, renderNginx
 
 test("validates the 16 GB performance defaults", () => {
   assert.deepEqual(validate(DEFAULTS), DEFAULTS);
-  assert.equal(validate({ opcache: { memoryMb: 4096 } }).opcache.memoryMb, 4096);
-  assert.throws(() => validate({ opcache: { memoryMb: 4097 } }), /OPcache memory/);
+  assert.equal(validate({ opcache: { memoryMb: 8192 } }).opcache.memoryMb, 8192);
+  assert.throws(() => validate({ opcache: { memoryMb: 8193 } }), /OPcache memory/);
   assert.throws(() => validate({ mysql: { bufferPoolMb: 16000 } }), /MySQL buffer pool/);
   assert.throws(() => validate({ redis: { policy: "random" } }), /policy/);
 });
