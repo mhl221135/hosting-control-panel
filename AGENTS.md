@@ -27,9 +27,10 @@ the active copies under `app-data/configs`.
 1. `README.md`: features, installation, and administrator workflows.
 2. `docs/ARCHITECTURE.md`: service boundaries, module ownership, and flows.
 3. `docs/CONFIGURATION.md`: environment variables and persistent state.
-4. `docs/API.md`: panel HTTP API groups and authentication contract.
-5. `docs/OPERATIONS.md`: testing, deployment, rollback, and diagnostics.
-6. `STACK_OVERVIEW.md`: short runtime overview.
+4. `docs/HIGH_AVAILABILITY.md`: recovery boundaries and failover design.
+5. `docs/API.md`: panel HTTP API groups and authentication contract.
+6. `docs/OPERATIONS.md`: testing, deployment, rollback, and diagnostics.
+7. `STACK_OVERVIEW.md`: short runtime overview.
 
 ## Non-Negotiable Safety Rules
 

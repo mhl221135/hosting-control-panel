@@ -82,6 +82,14 @@ Source rollback and data rollback are different operations.
 - Application-data restore requires a maintenance window and explicit service
   shutdown. It is intentionally not a panel button.
 
+## Host Failover
+
+Do not start a second writable stack for the same websites without first
+fencing the old primary. The supported baseline is manual recovery from
+replicated, verified backup sets. See
+[HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md) for state ownership, RPO/RTO
+levels, promotion order, public traffic switching, validation, and failback.
+
 ## Backup Verification
 
 Do not treat file existence as proof of a backup. Periodically verify:
