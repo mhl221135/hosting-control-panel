@@ -188,6 +188,11 @@ the encrypted credentials expire after 24 hours and disappear immediately after
 the first reveal. Provisioning does not silently overwrite an existing non-empty
 website or configured domain.
 
+When local provisioning succeeds but optional DNS, NPM, or SSL work fails, the
+job is marked **partially succeeded**. Jobs retains the exact warning and the
+notification system treats it as warning severity instead of reporting a false
+success.
+
 ## DNS & SSL
 
 This workspace combines Cloudflare zone records with Nginx Proxy Manager edge

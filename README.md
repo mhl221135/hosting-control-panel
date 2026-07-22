@@ -322,6 +322,10 @@ encrypted vault for at most 24 hours. A successful job exposes a **Reveal
 credentials** action in **Jobs**. Retrieval is one-time: the panel deletes the
 record before returning it, and credentials never enter `jobs.json`.
 
+If optional DNS, NPM, or certificate integration fails after the local website
+is usable, the provisioning job is **partially succeeded**, preserves the
+per-step warning, and uses the existing warning notification channel filters.
+
 When the panel is behind NPM, its proxy host needs these Advanced directives for
 large streamed uploads:
 

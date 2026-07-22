@@ -44,7 +44,7 @@ const { NotificationManager } = require("./lib/notification-manager");
 const { HealthSettings } = require("./lib/health-settings");
 const { HealthMonitor } = require("./lib/health-monitor");
 const { OneTimeVault } = require("./lib/one-time-vault");
-const { jobInput: provisioningJobInput, safeProvisionPayload } = require("./lib/provisioning-job");
+const { jobInput: provisioningJobInput, jobResult: provisioningJobResult, safeProvisionPayload } = require("./lib/provisioning-job");
 const { IpinfoClient } = require("./lib/ipinfo-client");
 
 const PORT = Number(process.env.PORT || 8687);
@@ -1153,13 +1153,7 @@ jobManager.register("site.provision", async (context, payload) => {
       wordpress: result.wordpress,
     });
   }
-  return {
-    ok: true,
-    completed: 8,
-    total: 8,
-    message: `${result.domain} ${result.imported ? "imported" : "provisioned"}`,
-    results: result.steps.map((step) => ({ ...step, ok: step.status !== "failed" })),
-  };
+  return provisioningJobResult(result);
 });
 
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
