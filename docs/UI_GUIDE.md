@@ -75,6 +75,25 @@ high-frequency background collector.
 Traffic details are based on a bounded recent access-log sample. They are useful
 for diagnosis, not long-term analytics or billing.
 
+## Jobs
+
+The Jobs workspace is the durable activity view for backups, restores,
+maintenance, and image optimization. Starting one of these operations returns
+immediately; closing the page does not stop the server-side job.
+
+| Control or section | Function |
+| --- | --- |
+| **Running / Queued** | Counts active work and work waiting for a conflict to clear. |
+| **Needs attention** | Counts failed and partially successful records in retained history. |
+| **Status / Type** | Filters the local view without deleting history. |
+| **Cancel** | Cancels queued work immediately or requests running work to stop at its next safe checkpoint. |
+| **Retry** | Creates a new linked attempt using the original non-secret operation payload. |
+| **Refresh** | Reloads job state; active views also refresh every three seconds. |
+
+Queued rows identify the active job blocking them. A panel restart preserves
+queued work and history but marks interrupted running work failed, because an
+external command cannot be assumed complete after the process disappears.
+
 ## Maintenance
 
 The Maintenance workspace runs low-priority WP-CLI cleanup sequentially and

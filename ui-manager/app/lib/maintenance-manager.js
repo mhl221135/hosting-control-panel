@@ -14,6 +14,7 @@ class MaintenanceManager {
   constructor(options) {
     this.dataDir = options.dataDir;
     this.backupManager = options.backupManager;
+    this.jobManager = options.jobManager || null;
     this.siteProvider = options.siteProvider;
     this.runner = options.runner;
     this.afterRun = options.afterRun || (async () => {});
@@ -24,6 +25,20 @@ class MaintenanceManager {
     fs.mkdirSync(this.dataDir, { recursive: true });
     this.status = this.loadStatus();
     this.saveStatus();
+    if (this.jobManager) {
+      this.jobManager.register("wordpress.maintenance", async (context, payload) => {
+        this.start(payload.sites, payload.operations, payload.trigger || "manual", context);
+        const status = await this.wait();
+        return {
+          ...status,
+          ok: status.completed === status.total && status.results.every((result) => result.ok !== false),
+          total: status.total,
+          completed: status.completed,
+          results: status.results,
+          message: status.message,
+        };
+      });
+    }
   }
 
   emptyStatus() {
@@ -92,29 +107,70 @@ class MaintenanceManager {
       this.updateSettings({ lastScheduledDate: localDate });
       return this.getStatus();
     }
+    if (this.jobManager) {
+      const job = this.enqueue(sites, settings.operations, "scheduler", "scheduled", `maintenance.schedule:${localDate}`);
+      const finished = await this.jobManager.wait(job.id);
+      if (finished.completed === sites.length) this.updateSettings({ lastScheduledDate: localDate });
+      return finished;
+    }
     this.start(sites, settings.operations, "scheduled");
     const status = await this.wait();
     if (status.completed === sites.length) this.updateSettings({ lastScheduledDate: localDate });
     return status;
   }
 
-  start(sites, operations, trigger = "manual") {
+  enqueue(sites, operations, operator = "system", trigger = "manual", idempotencyKey = "") {
+    if (!this.jobManager) throw new Error("Shared job manager is not configured");
+    if (!Array.isArray(sites) || !sites.length) {
+      throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
+    }
+    const selectedOperations = validateOperations(operations);
+    const targets = sites.map((site) => site.host);
+    return this.jobManager.create({
+      type: "wordpress.maintenance",
+      label: `${trigger === "scheduled" ? "Scheduled" : "Manual"} maintenance for ${sites.length} website(s)`,
+      operator,
+      trigger,
+      targets,
+      conflicts: ["server-heavy", ...targets.map((domain) => `site:${domain}`)],
+      idempotencyKey: idempotencyKey || `maintenance:${[...targets].sort().join(",")}:${[...selectedOperations].sort().join(",")}`,
+      payload: {
+        trigger,
+        operations: selectedOperations,
+        sites: sites.map((site) => ({
+          host: site.host,
+          directory: site.directory,
+          redis: Boolean(site.redis),
+        })),
+      },
+      total: sites.length,
+    });
+  }
+
+  start(sites, operations, trigger = "manual", jobContext = null) {
     if (this.status.running) throw Object.assign(new Error(`Maintenance is already running for ${this.status.currentDomain || "a website"}`), { statusCode: 409 });
     if (!Array.isArray(sites) || !sites.length) throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
     const selectedOperations = validateOperations(operations);
     this.status = { ...this.emptyStatus(), running: true, total: sites.length, startedAt: new Date().toISOString(), message: `${trigger === "scheduled" ? "Scheduled" : "Manual"} maintenance is running` };
     this.saveStatus();
-    this.currentPromise = this.run(sites, selectedOperations);
+    this.currentPromise = this.run(sites, selectedOperations, jobContext);
     return this.getStatus();
   }
 
-  async run(sites, operations) {
+  async run(sites, operations, jobContext = null) {
     const touched = [];
     try {
       await this.backupManager.withLock({ type: "maintenance", label: "WordPress maintenance" }, async () => {
         for (const site of sites) {
+          jobContext?.checkpoint();
           this.status.currentDomain = site.host;
           this.saveStatus();
+          jobContext?.update({
+            total: sites.length,
+            completed: this.status.completed,
+            currentStep: `Maintaining ${site.host}`,
+            results: this.status.results,
+          });
           try {
             const result = await this.runner.run(site, operations);
             this.status.results.push({ domain: site.host, ...result });
@@ -124,6 +180,7 @@ class MaintenanceManager {
           }
           this.status.completed += 1;
           this.saveStatus();
+          jobContext?.update({ completed: this.status.completed, results: this.status.results });
         }
         if (touched.length) await this.afterRun(touched);
       });

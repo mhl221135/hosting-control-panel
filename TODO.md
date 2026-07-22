@@ -6,56 +6,50 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Shared background jobs and notifications.
-2. Import/export controls in the authenticated panel.
+1. Adopt the shared background system for remaining long operations.
+2. Notifications and import/export controls in the authenticated panel.
 3. Controlled WordPress updates and remaining maintenance options.
 4. Cloudflare bulk presets and provisioning defaults.
 5. Application adapters for generic PHP/MySQL and OpenCart.
 6. Separate billing and hosting-entitlement service.
-7. Encrypted off-site backups.
-8. Warm-standby replication and controlled failover.
+7. Separate mail platform with panel API integration.
+8. Encrypted off-site backups.
+9. Warm-standby replication and controlled failover.
 
-The job system is first because imports, exports, updates, off-site copies, and
-bulk Cloudflare operations all need the same durable progress, conflict, audit,
-and notification behavior.
+The durable job system now handles backups, restores, maintenance, and image
+optimization. Remaining long operations should adopt it instead of creating
+another status file, lock, or browser-bound request.
 
-## 1. Shared Background Jobs
+## 1. Remaining Background-Job Adoption
 
 ### Objective
 
-Replace separate task-status implementations with one durable job service used
-by backups, restores, imports, exports, image optimization, maintenance,
-WordPress updates, and future bulk operations.
+Finish adopting the implemented durable job service for imports, exports,
+provisioning imports, deletion, WordPress updates, off-site copies, and future
+bulk operations.
 
 ### Requirements
 
-- Persist a job ID, type, target sites, operator, status, timestamps, progress,
-  current step, per-site results, warnings, and a bounded error/log summary.
-- Support `queued`, `running`, `succeeded`, `failed`, `partially_succeeded`,
-  `cancelling`, and `cancelled` states.
-- Retain useful history across panel/container restarts with configurable
-  retention and safe pruning.
-- Define conflict classes so disk/database-heavy operations cannot overlap
-  unsafely. Show why a job is queued and which job holds the conflicting lock.
-- Allow cancellation only at explicit safe boundaries. Never interrupt a
+- Move website import/provisioning and deletion off browser-bound requests.
+- Design one-time credential delivery for fresh provisioning without storing
+  generated database or WordPress passwords in `jobs.json`.
+- Register import/export, WordPress update, off-site copy, Cloudflare bulk, and
+  billing/mail migration handlers as those features are implemented.
+- Add explicit safe cancellation checkpoints to each handler. Never interrupt a
   database import, file swap, credential update, or configuration write midway.
-- Prevent duplicate submissions and make retries create a new job linked to the
-  failed attempt.
-- Add a **Jobs** panel workspace with active work, queue, history, filters,
-  progress, result details, retry, and safe cancellation.
-- Keep existing shell scripts usable for recovery and automation. They should
-  call the same managers and produce compatible job/result records where
-  practical.
+- Make panel-triggered shell migration operations use the same managers and
+  compatible job/result records while retaining standalone recovery scripts.
+- Remove legacy per-manager status files only after every existing screen reads
+  shared job state and an upgrade has migrated any useful history.
 
 ### Acceptance Criteria
 
-- A panel restart does not lose completed history or misreport an interrupted
-  job as still running.
-- Conflicting jobs queue or fail clearly; they never mutate the same website or
-  database concurrently.
-- Long operations return immediately with a job ID and remain observable
-  without keeping the original browser request open.
-- Job records never contain passwords, API tokens, SQL content, or private keys.
+- Every remaining long panel operation returns immediately with a job ID and is
+  observable without keeping the original request open.
+- New handlers use existing conflict classes and cannot mutate the same website,
+  database, runtime configuration, or external integration concurrently.
+- Provisioning credentials have an explicit short-lived one-time retrieval path
+  and never enter job payloads, results, errors, notifications, or Git.
 
 ## 2. Telegram And SMTP Notifications
 
@@ -103,8 +97,9 @@ After notifications are stable, add only allowlisted commands such as
 
 - Do not send website archives to Telegram; bot file limits and restore
   semantics make it unsuitable as backup storage.
-- Do not add a local mail server. Deliverability, reverse DNS, SPF, DKIM,
-  reputation, and abuse handling are a separate infrastructure product.
+- Do not make panel notifications depend on the future local mail platform.
+  Notifications must continue to support an independent external SMTP relay;
+  mailbox hosting is a separate infrastructure product and failure domain.
 
 ## 3. Import And Export In The Panel
 
@@ -301,7 +296,179 @@ remain a later optional adapter.
   notification-only mode. Local nginx cannot suspend externally hosted sites.
 - Never delete website data because payment expired.
 
-## 8. Encrypted Off-Site Backups
+## 8. Separate Mail Platform
+
+### Objective
+
+Add production mailbox hosting as a separately owned module with dedicated
+containers, storage, network, API, upgrades, migration, and backup lifecycle.
+It may live in the same repository and deployment, but it must not be coupled
+to the hosting database or implemented directly inside `hosting-ui`.
+
+### Service Boundary
+
+- Run a dedicated Stalwart mail server for SMTP receiving, authenticated
+  submission, IMAP/JMAP mailboxes, domains, aliases, quotas, filtering, and
+  account management.
+- Run Roundcube as the initial webmail client with its own configuration
+  database. Roundcube preferences are separate from mailbox contents.
+- Add `mail-control`, an authenticated internal API responsible for domain and
+  account provisioning, Cloudflare and Amazon SES reconciliation, migration,
+  exports, backups, restores, progress, and audit records.
+- Use a separate worker for long-running migration and backup jobs when the
+  shared job service cannot safely execute them directly.
+- Keep mail containers on a dedicated `mail-net`. Give only `hosting-ui` and
+  `mail-control` access to a narrowly scoped internal API network.
+- Do not give the mail control service arbitrary Docker, shell, filesystem, or
+  hosting-database access.
+
+Initial logical services are `mail-stalwart`, `mail-webmail`,
+`mail-webmail-db`, `mail-control`, and, if required, `mail-worker`. Pin tested
+multi-architecture image versions rather than using `latest`.
+
+### Mail Flow And Public Ports
+
+- Receive Internet SMTP directly on TCP 25 at Stalwart.
+- Offer authenticated submission on TCP 587 with STARTTLS; optionally support
+  TCP 465 after testing.
+- Offer IMAPS on TCP 993. Do not expose plaintext IMAP/POP by default.
+- Relay outbound mail from Stalwart through the region-specific Amazon SES SMTP
+  endpoint in `us-east-1`.
+- Publish webmail through the existing reverse proxy. Keep mail administration
+  behind Cloudflare Access, a trusted network, or both.
+- Do not route SMTP or IMAP through the HTTP reverse proxy.
+- Confirm ISP reachability, host firewall rules, static WAN addressing, TLS,
+  DNS resolution, and abuse controls before accepting production mail.
+
+### Domain Provisioning
+
+Treat mail-domain onboarding and mailbox creation as different operations.
+Adding another mailbox must not recreate domain-wide DNS or SES resources.
+
+For **Add mail domain**:
+
+- Preview and idempotently reconcile the Stalwart domain, Cloudflare DNS, SES
+  identity, DKIM, custom MAIL FROM, configuration set, and health checks.
+- Create a DNS-only `mail` A/AAAA record and MX record.
+- Merge SPF safely so a domain never receives multiple SPF records.
+- Create SES Easy DKIM CNAME records and custom MAIL FROM MX/TXT records.
+- Create a conservative DMARC record and support later policy tightening based
+  on observed reports.
+- Create appropriate `webmail`, `autoconfig`, and `autodiscover` records or
+  endpoints without overwriting unrelated records.
+- Mark every managed record/resource with exact ownership metadata where the
+  provider supports it, show a dry-run diff, and require confirmation before
+  changing existing external state.
+- Test inbound SMTP, authenticated outbound delivery, IMAP TLS, SPF, DKIM,
+  DMARC, reverse DNS expectations, and webmail before reporting success.
+
+For **Add mailbox**:
+
+- Create an account with quota, aliases, forwarding rules, status, and optional
+  catch-all behavior.
+- Generate a one-time password or accept an operator-provided password without
+  writing it to jobs, logs, exports, or audit records.
+- Return tested client settings and webmail URL.
+- Support suspend, resume, password reset, quota change, aliases, forwarding,
+  and safe deletion with explicit data-retention choices.
+
+### Amazon SES Integration
+
+- Use SES only as the outbound relay; Stalwart remains responsible for incoming
+  mail and mailbox storage.
+- Verify each sending domain in `us-east-1`, configure Easy DKIM and custom MAIL
+  FROM, and ensure the SES account has production access before client rollout.
+- Use a configuration set plus bounce, complaint, rejection, and delivery
+  events for domain/account health and operator notifications.
+- Store region-specific SES SMTP credentials as secrets. Never expose AWS root
+  credentials or broad administrator credentials to runtime containers.
+- Define a dedicated least-privilege AWS identity for control-plane operations;
+  evaluate temporary credentials such as IAM Roles Anywhere before storing a
+  long-lived AWS API key on the host.
+- Rate-limit sending per account/domain and expose queue, rejection, bounce,
+  complaint, and SES quota health in the panel.
+
+### Migration, Import, And Export
+
+- Inventory source domains, accounts, aliases, forwarders, catch-alls, quotas,
+  status, and approximate mailbox sizes before migration.
+- Accept a password-free JSON/CSV manifest. Never include source or destination
+  mailbox passwords in a portable export.
+- Support IMAP pre-sync, validation, MX cutover, and final delta sync so large
+  mailboxes do not require one long outage.
+- Use Stalwart/Vandelay-compatible account archives for portable export and
+  restore where practical; handle contacts, calendars, and Sieve filters as
+  separate capabilities rather than assuming IMAP includes them.
+- Generate new passwords when the source provider cannot export reusable
+  password hashes.
+- Show durable per-domain and per-account progress, retries, skipped items,
+  byte/message counts, and bounded errors through the shared job system.
+- Preserve rollback instructions and the old provider configuration until the
+  migration and delivery verification window has passed.
+
+### Backup And Restore
+
+- Back up Stalwart metadata, message/blob storage, configuration, signing keys,
+  Roundcube configuration/database, and password-free recovery manifests.
+- Take a consistent embedded-database snapshot using a controlled quiesce or a
+  documented backend-specific backup mechanism; never copy a live data store
+  and assume it is consistent without validation.
+- Support manual and scheduled backups, configurable destination and retention,
+  checksums, encryption, bounded local retention, and an encrypted off-host
+  copy independent of the server and attached backup disk.
+- Keep migration exports as an additional portability mechanism, not the only
+  routine disaster-recovery backup.
+- Restore into an isolated test deployment on a schedule and record mailbox,
+  message-count, attachment, authentication, and send/receive verification.
+- Allow account-level export/restore and whole-platform disaster recovery with
+  documented RPO, RTO, key recovery, and DNS rollback procedures.
+
+### Panel Integration
+
+- Add a dedicated **Mail** workspace for domains, mailboxes, aliases,
+  forwarding, quotas, migrations, backups, delivery health, DNS/SES status, and
+  audit history.
+- `hosting-ui` calls only the authenticated `mail-control` API; it does not call
+  Stalwart, Cloudflare, or SES directly for mail operations.
+- Initially keep website provisioning and mail provisioning independent. After
+  the mail platform completes a production burn-in, add an optional
+  **Configure email domain** step that invokes the same idempotent mail API.
+- A mail failure must not roll back an otherwise successful website unless the
+  operator explicitly selected an atomic combined workflow.
+
+### Rollout
+
+1. Measure account count, total mailbox storage, growth, aliases, and source
+   migration capabilities; confirm public port 25/587/993 reachability.
+2. Build the isolated containers, secrets, API contract, DNS preview, backup,
+   and restore workflow without migrating client mail.
+3. Provision a dedicated test domain and internal mailboxes.
+4. Test delivery, spam handling, TLS, SES events, rate limits, migration,
+   backup, full restore, DNS rollback, and host restart behavior.
+5. Run a limited pilot for several weeks and monitor queues, bounces,
+   complaints, disk growth, resource usage, and backup restoration.
+6. Integrate the stable API into the hosting panel and optional website
+   provisioning step.
+7. Migrate client domains in small batches with pre-sync, cutover, validation,
+   final sync, and documented rollback.
+
+### Acceptance Criteria
+
+- Compromise or failure of webmail cannot grant control over the hosting stack,
+  Cloudflare account, AWS account, or Docker host.
+- Domain and mailbox operations are idempotent, previewable, auditable, and
+  recoverable after panel or worker restart.
+- A test message passes inbound and outbound TLS, SPF, DKIM, and DMARC checks;
+  SES bounces and complaints reach the panel and notification system.
+- A representative source mailbox migrates without missing folders/messages,
+  and a final delta sync completes after DNS cutover.
+- A full mail platform and an individual account can be restored from encrypted
+  backups into an isolated environment using documented procedures.
+- No credentials, private keys, mailbox contents, customer addresses, or
+  production domains appear in Git, screenshots, logs, job summaries, or
+  portable manifests.
+
+## 9. Encrypted Off-Site Backups
 
 ### Objective
 
@@ -331,7 +498,7 @@ with client-side encryption and tested restoration.
 - Credentials and encryption material are absent from Git, logs, manifests, and
   notification messages.
 
-## 9. Warm Standby And Controlled Failover
+## 10. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

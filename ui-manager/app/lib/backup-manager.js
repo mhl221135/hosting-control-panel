@@ -38,6 +38,7 @@ class BackupManager {
     this.mysqlContainer = options.mysqlContainer || "hosting-db";
     this.phpContainer = options.phpContainer || "hosting-php-fpm";
     this.siteProvider = options.siteProvider;
+    this.jobManager = options.jobManager || null;
     this.settingsPath = path.join(this.dataDir, "backup-settings.json");
     this.busy = false;
     this.currentJob = null;
@@ -45,6 +46,83 @@ class BackupManager {
     this.lastScheduleAttemptAt = 0;
     this.timer = null;
     fs.mkdirSync(this.backupsRoot, { recursive: true });
+    if (this.jobManager) this.registerJobs();
+  }
+
+  registerJobs() {
+    this.jobManager.register("backup.site", async (context, payload) => {
+      const site = await this.findSite(payload.domain);
+      return this.runSite(site, context);
+    });
+    this.jobManager.register("backup.sites", (context, payload) =>
+      this.runSites(payload.scope !== "all", context));
+    this.jobManager.register("backup.app-data", (context) => this.runAppData(context));
+    this.jobManager.register("backup.restore", async (context, payload) => {
+      const site = await this.findSite(payload.domain);
+      return this.runSiteRestore(site, payload.backupId, context);
+    });
+    this.jobManager.register("backup.schedule", (context) => this.runScheduledWork(context));
+  }
+
+  async findSite(domain) {
+    const site = (await this.siteProvider()).find((item) => item.host === domain && !item.isWwwAlias && !item.isAlias);
+    if (!site) throw Object.assign(new Error(`Site is not configured: ${domain}`), { statusCode: 404 });
+    return site;
+  }
+
+  enqueueSite(site, operator = "system") {
+    this.ensureSiteBackupsEnabled();
+    return this.jobManager.create({
+      type: "backup.site",
+      label: `Backup ${site.host}`,
+      operator,
+      targets: [site.host],
+      conflicts: ["server-heavy", `site:${site.host}`],
+      idempotencyKey: `backup.site:${site.host}`,
+      cancellable: false,
+      payload: { domain: site.host },
+      total: 1,
+    });
+  }
+
+  enqueueSites(scope = "enabled", operator = "system") {
+    this.ensureSiteBackupsEnabled();
+    return this.jobManager.create({
+      type: "backup.sites",
+      label: scope === "all" ? "Backup all websites" : "Backup enabled websites",
+      operator,
+      conflicts: ["server-heavy", "all-sites"],
+      idempotencyKey: `backup.sites:${scope}`,
+      payload: { scope },
+    });
+  }
+
+  enqueueAppData(operator = "system") {
+    return this.jobManager.create({
+      type: "backup.app-data",
+      label: "Backup app data",
+      operator,
+      targets: ["app-data"],
+      conflicts: ["server-heavy", "app-data"],
+      idempotencyKey: "backup.app-data",
+      cancellable: false,
+      payload: {},
+      total: 1,
+    });
+  }
+
+  enqueueRestore(site, backupIdValue, operator = "system") {
+    return this.jobManager.create({
+      type: "backup.restore",
+      label: `Restore ${site.host}`,
+      operator,
+      targets: [site.host],
+      conflicts: ["server-heavy", `site:${site.host}`],
+      idempotencyKey: `backup.restore:${site.host}:${backupIdValue}`,
+      cancellable: false,
+      payload: { domain: site.host, backupId: String(backupIdValue) },
+      total: 1,
+    });
   }
 
   readSettings() {
@@ -123,35 +201,75 @@ class BackupManager {
     if (Date.now() - this.lastScheduleAttemptAt < 15 * 60 * 1000) return null;
 
     this.lastScheduleAttemptAt = Date.now();
-    const result = await this.withLock({ type: "schedule", label: `Daily backup ${localDate}` }, async () => {
+    if (this.jobManager) {
+      const job = this.jobManager.create({
+        type: "backup.schedule",
+        label: `Daily backup ${localDate}`,
+        operator: "scheduler",
+        trigger: "scheduled",
+        conflicts: ["server-heavy", "all-sites", "app-data"],
+        idempotencyKey: `backup.schedule:${localDate}`,
+        payload: {},
+      });
+      const finished = await this.jobManager.wait(job.id);
+      if (finished.status === "succeeded") this.updateSettings({ lastScheduledDate: localDate });
+      return finished;
+    }
+    const result = await this.runScheduledWork();
+    if (result.ok) this.updateSettings({ lastScheduledDate: localDate });
+    return result;
+  }
+
+  async runScheduledWork(jobContext = null) {
+    const settings = this.readSettings();
+    const result = await this.withLock({ type: "schedule", label: "Daily backup" }, async () => {
       const results = [];
       if (settings.siteBackupsEnabled) {
         const sites = await this.siteProvider();
-        for (const site of sites.filter((item) => !item.isWwwAlias && item.state?.backupEnabled)) {
+        const selected = sites.filter((item) => !item.isWwwAlias && !item.isAlias && item.state?.backupEnabled);
+        jobContext?.update({ total: selected.length + (settings.appDataEnabled ? 1 : 0), currentStep: "Preparing website backups" });
+        for (const site of selected) {
+          jobContext?.checkpoint();
+          jobContext?.update({ currentStep: `Backing up ${site.host}` });
           try {
             results.push(await this.createSiteBackup(site, settings.retention));
           } catch (error) {
             results.push({ type: "site", domain: site.host, ok: false, message: error.message });
           }
+          jobContext?.update({ completed: results.length, results });
         }
       }
       if (settings.appDataEnabled) {
+        jobContext?.checkpoint();
+        jobContext?.update({ currentStep: "Backing up application data" });
         try {
           results.push(await this.createAppDataBackup(settings.retention));
         } catch (error) {
           results.push({ type: "app-data", ok: false, message: error.message });
         }
+        jobContext?.update({ completed: results.length, results });
       }
-      return { ok: results.every((result) => result.ok !== false), results };
+      return {
+        ok: results.every((item) => item.ok !== false),
+        total: results.length,
+        completed: results.length,
+        results,
+        message: results.every((item) => item.ok !== false)
+          ? "Daily backup completed"
+          : "Daily backup completed with failures",
+      };
     });
-    if (result.ok) this.updateSettings({ lastScheduledDate: localDate });
     return result;
   }
 
-  async runSite(site) {
+  async runSite(site, jobContext = null) {
     this.ensureSiteBackupsEnabled();
-    return this.withLock({ type: "site", domain: site.host, label: `Backup ${site.host}` }, () =>
-      this.createSiteBackup(site, this.readSettings().retention));
+    return this.withLock({ type: "site", domain: site.host, label: `Backup ${site.host}` }, async () => {
+      jobContext?.update({ total: 1, currentStep: `Backing up ${site.host}` });
+      const result = await this.createSiteBackup(site, this.readSettings().retention);
+      jobContext?.update({ completed: 1, results: [result] });
+      return { ...result, total: 1, completed: 1, results: [result], message: `Backup completed for ${site.host}` };
+    });
   }
 
   ensureSiteBackupsEnabled() {
@@ -161,7 +279,7 @@ class BackupManager {
     throw error;
   }
 
-  async runSites(onlyEnabled = true) {
+  async runSites(onlyEnabled = true, jobContext = null) {
     this.ensureSiteBackupsEnabled();
     const label = onlyEnabled ? "Backup enabled websites" : "Backup all websites";
     return this.withLock({ type: "sites", scope: onlyEnabled ? "enabled" : "all", label }, async () => {
@@ -175,14 +293,18 @@ class BackupManager {
       const results = [];
       this.currentJob.total = sites.length;
       this.currentJob.completed = 0;
+      jobContext?.update({ total: sites.length, completed: 0, currentStep: "Preparing website backups" });
       for (const site of sites) {
+        jobContext?.checkpoint();
         this.currentJob.domain = site.host;
+        jobContext?.update({ currentStep: `Backing up ${site.host}` });
         try {
           results.push(await this.createSiteBackup(site, this.readSettings().retention));
         } catch (error) {
           results.push({ type: "site", domain: site.host, ok: false, message: error.message });
         }
         this.currentJob.completed = results.length;
+        jobContext?.update({ completed: results.length, results });
       }
       return {
         ok: results.every((result) => result.ok !== false),
@@ -192,18 +314,29 @@ class BackupManager {
         succeeded: results.filter((result) => result.ok !== false).length,
         failed: results.filter((result) => result.ok === false).length,
         results,
+        message: results.some((result) => result.ok === false)
+          ? "Website backups completed with failures"
+          : "Website backups completed",
       };
     });
   }
 
-  async runAppData() {
-    return this.withLock({ type: "app-data", label: "Backup app data" }, () =>
-      this.createAppDataBackup(this.readSettings().retention));
+  async runAppData(jobContext = null) {
+    return this.withLock({ type: "app-data", label: "Backup app data" }, async () => {
+      jobContext?.update({ total: 1, currentStep: "Backing up application data" });
+      const result = await this.createAppDataBackup(this.readSettings().retention);
+      jobContext?.update({ completed: 1, results: [result] });
+      return { ...result, total: 1, completed: 1, results: [result], message: "Application data backup completed" };
+    });
   }
 
-  async runSiteRestore(site, id) {
-    return this.withLock({ type: "restore", domain: site.host, label: `Restore ${site.host}` }, () =>
-      this.restoreSiteBackup(site, id));
+  async runSiteRestore(site, id, jobContext = null) {
+    return this.withLock({ type: "restore", domain: site.host, label: `Restore ${site.host}` }, async () => {
+      jobContext?.update({ total: 1, currentStep: `Restoring ${site.host}` });
+      const result = await this.restoreSiteBackup(site, id);
+      jobContext?.update({ completed: 1, results: [result] });
+      return { ...result, total: 1, completed: 1, results: [result], message: `Restore completed for ${site.host}` };
+    });
   }
 
   async withLock(job, work) {

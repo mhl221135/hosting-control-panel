@@ -403,9 +403,9 @@ responses are private-cache responses so Cloudflare cannot reuse one browser's
 format for another browser. Explicit WebP URLs remain edge-cacheable.
 
 The **Optimize all images** action processes primary websites sequentially in a
-persisted background job. Progress remains visible in the Sites header, aliases
-are not processed twice, and the job shares the backup lock so image conversion
-cannot overlap a backup or restore.
+persisted background job. Progress remains visible in **Jobs**, aliases are not
+processed twice, and the `server-heavy` conflict class prevents image conversion
+from overlapping a backup, restore, or maintenance run.
 
 Settings also provides an optional daily image schedule. It is globally disabled
 by default, and each primary website must be selected with **Images daily** on its
@@ -507,13 +507,28 @@ regenerable nginx cache. `databases.sql.gz` is a consistent logical dump of all
 MySQL databases.
 
 The scheduler uses the container timezone (`Europe/Kyiv`) and runs enabled
-website backups sequentially, followed by application data. Only one manual or
-scheduled backup can run at a time.
+website backups sequentially, followed by application data. Manual and
+scheduled work is queued, recorded, and serialized by conflict class.
 
-Image optimization uses the same operation lock as backups, so archive
-compression and ImageMagick cannot saturate storage and CPU at the same time.
+Image optimization uses the same `server-heavy` job conflict as backups, so
+archive compression and ImageMagick cannot saturate storage and CPU at the same time.
 Backup archives run with reduced CPU and I/O priority and omit transient WebP
 optimizer files.
+
+## Background Jobs
+
+The authenticated **Jobs** workspace is the durable activity view for backups,
+restores, WordPress maintenance, and image optimization. Operations return a job
+ID immediately and continue after navigation or browser disconnect. Jobs record
+operator, trigger, targets, progress, current step, bounded results, retry
+linkage, and the conflicting active job that keeps queued work waiting.
+
+Queued work survives `hosting-ui` restarts. Work interrupted while running is
+marked failed instead of being reported as complete. Queued jobs can be
+cancelled immediately; running jobs stop only at explicit safe boundaries.
+Failed, partial, or cancelled jobs can be retried as linked attempts. History is
+stored at `app-data/ui-manager/jobs.json` and bounded by `JOB_HISTORY_LIMIT`
+(default 250); active jobs are never pruned.
 
 ## Website Migration
 

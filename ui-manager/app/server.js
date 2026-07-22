@@ -36,6 +36,7 @@ const { MigrationManager, safeRelative } = require("./lib/migration-manager");
 const { ProvisionImportStore } = require("./lib/provision-import-store");
 const { MaintenanceManager } = require("./lib/maintenance-manager");
 const { WordPressMaintenanceRunner } = require("./lib/wordpress-maintenance");
+const { JobManager } = require("./lib/job-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -111,6 +112,10 @@ const performanceSettings = new PerformanceSettings({
 });
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 siteState.renderCacheMap();
+const jobManager = new JobManager({
+  dataDir: DATA_DIR,
+  historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
+});
 const backupManager = new BackupManager({
   dataDir: DATA_DIR,
   backupsRoot: BACKUPS_ROOT,
@@ -118,6 +123,7 @@ const backupManager = new BackupManager({
   appDataRoot: APP_DATA_ROOT,
   mysqlContainer: process.env.MYSQL_CONTAINER || "hosting-db",
   phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
+  jobManager,
   siteProvider: async () => {
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
@@ -127,6 +133,7 @@ const backupManager = new BackupManager({
 const imageOptimizationManager = new ImageOptimizationManager({
   dataDir: DATA_DIR,
   backupManager,
+  jobManager,
   optimizer: optimizeImages,
   siteProvider: async () => {
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
@@ -140,6 +147,7 @@ const imageOptimizationManager = new ImageOptimizationManager({
 const maintenanceManager = new MaintenanceManager({
   dataDir: DATA_DIR,
   backupManager,
+  jobManager,
   runner: new WordPressMaintenanceRunner({ phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm" }),
   siteProvider: async () => {
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
@@ -937,6 +945,41 @@ function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
 async function handleApi(req, res) {
   const requestUrl = new URL(req.url, "http://ui-manager.local");
 
+  if (req.method === "GET" && requestUrl.pathname === "/api/jobs") {
+    sendJson(res, 200, {
+      ok: true,
+      jobs: jobManager.list({
+        status: requestUrl.searchParams.get("status"),
+        type: requestUrl.searchParams.get("type"),
+        limit: requestUrl.searchParams.get("limit"),
+      }),
+    });
+    return true;
+  }
+
+  if (requestUrl.pathname.startsWith("/api/jobs/")) {
+    const parts = requestUrl.pathname.slice("/api/jobs/".length).split("/").filter(Boolean);
+    const id = parts[0] || "";
+    if (!/^[0-9a-f-]{36}$/.test(id)) {
+      sendJson(res, 400, { ok: false, message: "Invalid job identifier" });
+      return true;
+    }
+    if (req.method === "GET" && parts.length === 1) {
+      const job = jobManager.publicJob(jobManager.get(id));
+      if (!job) sendJson(res, 404, { ok: false, message: "Job not found" });
+      else sendJson(res, 200, { ok: true, job });
+      return true;
+    }
+    if (req.method === "POST" && parts.length === 2 && parts[1] === "cancel") {
+      sendJson(res, 200, { ok: true, job: jobManager.cancel(id) });
+      return true;
+    }
+    if (req.method === "POST" && parts.length === 2 && parts[1] === "retry") {
+      sendJson(res, 202, { ok: true, job: jobManager.retry(id, req.auth.email) });
+      return true;
+    }
+  }
+
   if (req.method === "GET" && req.url === "/api/status") {
     sendJson(res, 200, {
       sitesMapPath: SITES_MAP_PATH,
@@ -1046,7 +1089,7 @@ async function handleApi(req, res) {
       sendJson(res, 404, { ok: false, message: "Site is not configured" });
       return true;
     }
-    sendJson(res, 201, await backupManager.runSite(site));
+    sendJson(res, 202, { ok: true, job: backupManager.enqueueSite(site, req.auth.email) });
     return true;
   }
 
@@ -1057,20 +1100,13 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "Backup scope must be enabled or all" });
       return true;
     }
-    const active = backupManager.status();
-    if (active.busy) {
-      sendJson(res, 409, { ok: false, message: `Another backup is already running: ${active.currentJob?.label || "backup"}` });
-      return true;
-    }
     backupManager.ensureSiteBackupsEnabled();
-    const operation = backupManager.runSites(scope === "enabled");
-    operation.catch((error) => console.error(`${scope} website backup failed:`, error.message));
-    sendJson(res, 202, { ok: true, status: backupManager.status() });
+    sendJson(res, 202, { ok: true, job: backupManager.enqueueSites(scope, req.auth.email) });
     return true;
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/backups/app-data") {
-    sendJson(res, 201, await backupManager.runAppData());
+    sendJson(res, 202, { ok: true, job: backupManager.enqueueAppData(req.auth.email) });
     return true;
   }
 
@@ -1085,7 +1121,9 @@ async function handleApi(req, res) {
       sendJson(res, 404, { ok: false, message: "Site is not configured" });
       return true;
     }
-    sendJson(res, 200, await backupManager.runSiteRestore(site, String(body.backup_id || "")));
+    const backupIdValue = String(body.backup_id || "");
+    backupManager.readSiteManifest(site, backupIdValue);
+    sendJson(res, 202, { ok: true, job: backupManager.enqueueRestore(site, backupIdValue, req.auth.email) });
     return true;
   }
 
@@ -1430,11 +1468,8 @@ async function handleApi(req, res) {
       return true;
     }
     const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
-    const result = await backupManager.withLock(
-      { type: "images", domain, label: `Optimize images ${domain}` },
-      () => optimizeImages(directory),
-    );
-    sendJson(res, 200, { ok: true, domain, ...result });
+    const job = imageOptimizationManager.enqueue([{ host: domain, directory }], req.auth.email);
+    sendJson(res, 202, { ok: true, job });
     return true;
   }
 
@@ -1466,8 +1501,8 @@ async function handleApi(req, res) {
         host: site.host,
         directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
       }));
-    const status = imageOptimizationManager.start(sites);
-    sendJson(res, 202, { ok: true, ...status });
+    const job = imageOptimizationManager.enqueue(sites, req.auth.email);
+    sendJson(res, 202, { ok: true, job, ...imageOptimizationManager.getStatus() });
     return true;
   }
 
@@ -1508,8 +1543,8 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "Every selected domain must be a configured WordPress website" });
       return true;
     }
-    const status = maintenanceManager.start(sites, body.operations, "manual");
-    sendJson(res, 202, { ok: true, status });
+    const job = maintenanceManager.enqueue(sites, body.operations, req.auth.email, "manual");
+    sendJson(res, 202, { ok: true, job, status: maintenanceManager.getStatus() });
     return true;
   }
 
@@ -2326,6 +2361,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
+  jobManager.start();
   backupManager.start();
   imageOptimizationManager.startScheduler();
   maintenanceManager.startScheduler();

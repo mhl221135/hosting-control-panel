@@ -47,6 +47,15 @@ seconds. Website disk usage and the selected NPM access-log sample are cached
 for five minutes. No background metrics database or permanent polling service
 is required.
 
+## Background jobs
+
+Backups, restores, maintenance, and image optimization run through a durable
+queue stored in `/app/data/jobs.json`. The **Jobs** workspace shows queued and
+running work, progress, conflict blockers, bounded failures, history, retries,
+and cancellation at safe operation boundaries. Queued jobs survive a panel
+restart; interrupted running jobs are marked failed. `JOB_HISTORY_LIMIT`
+controls retained records and defaults to 250.
+
 ## Website provisioning
 
 Open **Provision** to create a site, PHP-FPM pool, database and database user,
@@ -110,8 +119,8 @@ never writes those secrets to an export.
 
 ## Persistent and mounted paths
 
-- `/app/data`: panel account, encrypted settings, site state, config backups,
-  DNS presets, and uploaded WordPress package ZIPs
+- `/app/data`: panel account, encrypted settings, durable jobs, site state,
+  config backups, DNS presets, and uploaded WordPress package ZIPs
 - `/srv/websites`: website files
 - `/srv/exports`: portable export output
 - `/srv/imports`: staged import input
