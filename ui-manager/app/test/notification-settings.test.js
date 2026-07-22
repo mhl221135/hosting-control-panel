@@ -27,6 +27,11 @@ test("encrypts notification credentials and exposes only configuration state", (
       severityFailure: true,
       severityWarning: true,
       severitySuccess: false,
+      telegramUseGlobalSeverity: false,
+      telegramSeverityFailure: true,
+      telegramSeverityWarning: false,
+      telegramSeveritySuccess: true,
+      smtpUseGlobalSeverity: true,
     });
     assert.equal(view.panelUrl, "https://panel.example.com");
     assert.equal(view.serverName, "opi5");
@@ -35,8 +40,26 @@ test("encrypts notification credentials and exposes only configuration state", (
     assert.equal(view.telegramChatIds, "12345\n-67890");
     assert.equal(settings.resolved().telegramBotToken, "telegram-secret");
     assert.equal(settings.resolved().smtpPassword, "smtp-secret");
+    assert.equal(view.telegramUseGlobalSeverity, false);
+    assert.equal(view.telegramSeverityWarning, false);
+    assert.equal(view.telegramSeveritySuccess, true);
+    assert.equal(view.smtpUseGlobalSeverity, true);
     const stored = fs.readFileSync(settings.settingsPath, "utf8");
     assert.doesNotMatch(stored, /telegram-secret|smtp-secret/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("old clients retain inherited channel severity defaults", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-notifications-compatibility-"));
+  try {
+    const settings = new NotificationSettings(directory);
+    const view = settings.update({ severityFailure: true, severityWarning: false, severitySuccess: true });
+    assert.equal(view.telegramUseGlobalSeverity, true);
+    assert.equal(view.smtpUseGlobalSeverity, true);
+    assert.equal(view.telegramSeverityWarning, false);
+    assert.equal(view.smtpSeveritySuccess, true);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

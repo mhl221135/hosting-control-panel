@@ -117,6 +117,38 @@ test("retries a transient provider failure and filters successful jobs", async (
   }
 });
 
+test("applies independent channel severity overrides", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-notifications-channel-filter-"));
+  const telegram = [];
+  const email = [];
+  const jobs = new JobManager({ dataDir: directory });
+  const manager = new NotificationManager({
+    dataDir: directory,
+    settings: settings({
+      telegramUseGlobalSeverity: false,
+      telegramSeverityWarning: false,
+      smtpUseGlobalSeverity: false,
+      smtpSeverityWarning: true,
+    }),
+    fetch: async (...args) => { telegram.push(args); return { ok: true, status: 200 }; },
+    createTransport: () => ({ sendMail: async (message) => email.push(message), close() {} }),
+  });
+  try {
+    manager.start(jobs);
+    jobs.register("test.warning", async () => ({ ok: false, results: [{ ok: true }, { ok: false }] }));
+    jobs.start();
+    const created = jobs.create({ type: "test.warning", label: "Partial operation" });
+    await jobs.wait(created.id);
+    await until(() => manager.deliveries[0]?.status === "delivered");
+    assert.deepEqual(Object.keys(manager.deliveries[0].channels), ["smtp"]);
+    assert.equal(telegram.length, 0);
+    assert.equal(email.length, 1);
+  } finally {
+    manager.stop();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("delivers and deduplicates generic health events despite job success filtering", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-notifications-health-"));
   const messages = [];
