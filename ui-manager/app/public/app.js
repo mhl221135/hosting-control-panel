@@ -209,10 +209,7 @@ function showApp(session) {
 function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
-  const activeNav = $(`[data-tab-link="${name}"]`);
-  if (activeNav && window.matchMedia("(max-width: 640px)").matches) {
-    activeNav.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  }
+  $("#mobileNavigation").value = name;
   const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
@@ -302,17 +299,17 @@ function renderStats() {
   ` : `<div><dt>Redis</dt><dd>Unavailable</dd></div><div><dt>FastCGI cache</dt><dd>${formatBytes(stats.fastcgi?.cacheBytes)}</dd></div>`);
 
   $("#containerStats").innerHTML = (stats.containers || []).map((container) => `
-    <tr><td><strong>${escapeHtml(container.name)}</strong></td><td>${escapeHtml(container.cpuPercent.toFixed(1))}%</td><td>${escapeHtml(container.memoryUsage)}</td><td>${escapeHtml(container.pids)}</td></tr>
-  `).join("") || '<tr><td colspan="4" class="muted">Container statistics unavailable.</td></tr>';
+    <tr><td data-label="Container"><strong>${escapeHtml(container.name)}</strong></td><td data-label="CPU">${escapeHtml(container.cpuPercent.toFixed(1))}%</td><td data-label="Memory">${escapeHtml(container.memoryUsage)}</td><td data-label="PIDs">${escapeHtml(container.pids)}</td></tr>
+  `).join("") || '<tr class="empty-row"><td colspan="4" class="muted">Container statistics unavailable.</td></tr>';
 
   const pools = new Map((stats.phpPools || []).map((pool) => [pool.name, pool]));
   const sites = primarySites().map((site) => ({ site, pool: pools.get(site.poolName) || { workers: 0, cpuPercent: 0, rssBytes: 0 } }))
     .sort((left, right) => right.pool.cpuPercent - left.pool.cpuPercent || right.pool.rssBytes - left.pool.rssBytes || left.site.host.localeCompare(right.site.host));
   $("#websiteStats").innerHTML = sites.map(({ site, pool }) => `
     <tr>
-      <td><strong>${escapeHtml(site.host)}</strong></td><td>${escapeHtml(pool.workers)}</td><td>${Number(pool.cpuPercent || 0).toFixed(1)}%</td>
-      <td>${formatBytes(pool.rssBytes)}</td><td><code>${escapeHtml(site.poolName || "-")}</code></td>
-      <td><button type="button" class="secondary" data-inspect-stats="${escapeHtml(site.host)}">Inspect</button></td>
+      <td data-label="Website"><strong>${escapeHtml(site.host)}</strong></td><td data-label="Workers">${escapeHtml(pool.workers)}</td><td data-label="CPU">${Number(pool.cpuPercent || 0).toFixed(1)}%</td>
+      <td data-label="RAM">${formatBytes(pool.rssBytes)}</td><td data-label="Pool"><code>${escapeHtml(site.poolName || "-")}</code></td>
+      <td data-label="Actions"><button type="button" class="secondary" data-inspect-stats="${escapeHtml(site.host)}">Inspect</button></td>
     </tr>
   `).join("");
   const current = $("#statsDomain").value;
@@ -363,7 +360,9 @@ function renderSites() {
     container.innerHTML = '<div class="panel muted">No matching websites.</div>';
     return;
   }
-  container.innerHTML = sites.map((site) => `
+  container.innerHTML = sites.map((site) => {
+    const wordpress = site.state?.siteType !== "static";
+    return `
     <article class="site-row">
       <div class="site-identity"><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
       <div class="site-runtime">
@@ -379,7 +378,7 @@ function renderSites() {
       <div class="site-flags">
         <span class="badge on">${site.state?.siteType === "static" ? "HTML/PHP" : "WordPress"}</span>
         <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
-        <span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>
+        ${wordpress ? `<span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>` : ""}
         <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
         <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
         <span class="badge ${state.imageOptimization?.settings?.enabled && site.state?.imageOptimizationEnabled ? "on" : ""}">Images ${state.imageOptimization?.settings?.enabled === false ? "paused" : site.state?.imageOptimizationEnabled ? "daily" : "manual"}</span>
@@ -390,13 +389,13 @@ function renderSites() {
         <button class="secondary site-action-primary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
         <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
-        <button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>
+        ${wordpress ? `<button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>` : ""}
         <button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>
         <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge cache</button>
         <button class="site-action-primary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
       </div>
-    </article>
-  `).join("");
+    </article>`;
+  }).join("");
 }
 
 function renderImageOptimization() {
@@ -967,6 +966,7 @@ $$("[data-tab-link]").forEach((button) => button.addEventListener("click", (even
   event.preventDefault();
   switchTab(button.dataset.tabLink);
 }));
+$("#mobileNavigation").addEventListener("change", (event) => switchTab(event.target.value));
 
 $("#siteSearch").addEventListener("input", renderSites);
 $("#refreshStats").addEventListener("click", async (event) => {

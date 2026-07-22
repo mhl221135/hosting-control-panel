@@ -21,6 +21,7 @@ const {
   wordpressDatabaseConfig,
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
+const { supportsWordPressRedis } = require("./lib/site-capabilities");
 const { BackupManager } = require("./lib/backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
@@ -1353,14 +1354,19 @@ async function handleApi(req, res) {
       sendJson(res, 404, { ok: false, message: "Site is not configured" });
       return true;
     }
-    if (typeof body.redis === "boolean" && body.redis !== Boolean(siteState.get(domain).redis)) {
+    const currentState = siteState.get(domain);
+    if (body.redis === true && !supportsWordPressRedis(currentState.siteType)) {
+      sendJson(res, 400, { ok: false, message: "Redis object cache is available only for WordPress websites" });
+      return true;
+    }
+    if (typeof body.redis === "boolean" && body.redis !== Boolean(currentState.redis)) {
       const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
       await setRedis(directory, domain, body.redis);
     }
     let opcacheChanged = false;
     let mapBefore = null;
     let poolsBefore = null;
-    if (typeof body.opcache === "boolean" && body.opcache !== Boolean(siteState.get(domain).opcache)) {
+    if (typeof body.opcache === "boolean" && body.opcache !== Boolean(currentState.opcache)) {
       mapBefore = mapContent;
       poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
       const poolsParsed = parsePools(poolsBefore);

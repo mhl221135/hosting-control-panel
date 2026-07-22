@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260721-6" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-2" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -22,6 +22,21 @@
     <div id="appView" class="app hidden">
       <aside class="sidebar">
         <a class="brand" href="#" data-tab-link="sites"><span class="brand-mark small">HC</span><span>Hosting Control</span></a>
+        <label class="mobile-navigation">
+          <span class="sr-only">Panel section</span>
+          <select id="mobileNavigation" aria-label="Panel section">
+            <option value="sites">Sites</option>
+            <option value="stats">Stats</option>
+            <option value="provision">Provision</option>
+            <option value="integrations">DNS &amp; SSL</option>
+            <option value="security">Security</option>
+            <option value="backups">Backups</option>
+            <option value="removal">Delete website</option>
+            <option value="runtime">Runtime</option>
+            <option value="settings">Settings</option>
+            <option value="account">Account</option>
+          </select>
+        </label>
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
@@ -92,13 +107,13 @@
             </article>
             <article class="panel">
               <div class="card-head"><div><h3>Container resources</h3><p class="muted">One Docker snapshot.</p></div></div>
-              <div class="table-wrap"><table><thead><tr><th>Container</th><th>CPU</th><th>Memory</th><th>PIDs</th></tr></thead><tbody id="containerStats"></tbody></table></div>
+              <div class="table-wrap mobile-card-table"><table><thead><tr><th>Container</th><th>CPU</th><th>Memory</th><th>PIDs</th></tr></thead><tbody id="containerStats"></tbody></table></div>
             </article>
           </div>
 
           <article class="panel">
             <div class="card-head"><div><h3>Website PHP load</h3><p class="muted">Attributed by the dedicated PHP-FPM pool for each website.</p></div></div>
-            <div class="table-wrap"><table><thead><tr><th>Website</th><th>Workers</th><th>CPU</th><th>RAM</th><th>Pool</th><th></th></tr></thead><tbody id="websiteStats"></tbody></table></div>
+            <div class="table-wrap mobile-card-table"><table><thead><tr><th>Website</th><th>Workers</th><th>CPU</th><th>RAM</th><th>Pool</th><th></th></tr></thead><tbody id="websiteStats"></tbody></table></div>
           </article>
 
           <section id="siteStatsDetail" class="stats-detail hidden">
@@ -494,6 +509,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260722-1"></script>
+    <script src="/app.js?v=20260722-2"></script>
   </body>
 </html>
