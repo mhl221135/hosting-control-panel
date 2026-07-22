@@ -49,9 +49,11 @@ FastCGI, Redis, and OPcache are separate layers. FastCGI stores complete
 anonymous HTML responses, Redis stores WordPress objects, and OPcache stores
 compiled PHP bytecode.
 
-On phone-sized screens, the header's section selector replaces the desktop
-sidebar navigation. Statistics tables become labeled vertical records and site
-actions wrap within the website row without horizontal page scrolling.
+On phone-sized screens, backup scheduling, image scheduling, cache, backup,
+image, and DNS commands move into one accessible site-action selector. The
+header's section selector replaces the desktop
+sidebar navigation, and statistics tables become labeled vertical records.
+These layouts avoid horizontal page scrolling.
 
 ## Stats
 
