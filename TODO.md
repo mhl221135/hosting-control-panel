@@ -7,7 +7,7 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Adopt the shared background system for remaining long operations.
-2. Notifications and import/export controls in the authenticated panel.
+2. Operational health notifications and import/export controls in the authenticated panel.
 3. Controlled WordPress updates and remaining maintenance options.
 4. Cloudflare bulk presets and provisioning defaults.
 5. Application adapters for generic PHP/MySQL and OpenCart.
@@ -51,33 +51,31 @@ bulk operations.
 - Provisioning credentials have an explicit short-lived one-time retrieval path
   and never enter job payloads, results, errors, notifications, or Git.
 
-## 2. Telegram And SMTP Notifications
+## 2. Notification Expansion
 
 ### Objective
 
-Notify the operator about actionable failures and service risks without
+The panel now sends filtered terminal background-job results through Telegram
+and external SMTP. Credentials are encrypted, tests are operator-triggered,
+delivery retries are durable and deduplicated, and channel results are attached
+to the originating job. Extend that event-driven system to service risks without
 operating a local mail server or using Telegram as backup storage.
 
-### Initial Events
+### Remaining Events
 
-- Backup, restore, provisioning, import/export, image, maintenance, and
-  WordPress-update failures.
 - Certificate issuance/renewal failure and certificates approaching expiry.
 - Low backup or website disk space.
 - MySQL unavailable, public proxy unavailable, unhealthy hosting container, and
   OPcache full/restart-pending.
+- Provisioning, import/export, and WordPress-update failures become covered when
+  those operations adopt the shared background-job service.
 - Hosting/domain renewal reminders after the billing service exists.
 
-### Delivery Requirements
+### Remaining Delivery Controls
 
-- Support Telegram Bot API messages and email through an external SMTP relay.
-- Store bot tokens and SMTP credentials with the panel's encrypted integration
-  settings; never write them to logs or job results.
-- Provide channel enable/disable controls, recipient/chat allowlists, a test
-  action, severity filters, quiet hours, retry with backoff, and deduplication.
-- Include installation, server, event, affected site, timestamp, short error,
-  and a link to the relevant panel result. Do not include secrets or raw dumps.
-- Record notification delivery status in the originating job/event.
+- Add quiet hours with an explicit bypass only for future critical events.
+- Allow channel-specific severity filters if global filters prove insufficient.
+- Add a bounded notification-history view for non-job health events.
 - Keep health sampling lightweight and event-driven where possible; do not add
   a continuous high-cardinality metrics database.
 
@@ -204,6 +202,58 @@ duplicating the tested shell-script logic.
 - Restore the real visitor IP from trusted Cloudflare ranges before attributing
   traffic.
 - Never create permanent automatic bans from one traffic sample.
+
+#### IPinfo Enrichment
+
+- Add optional IPinfo credentials and a connection test to integration settings.
+- Enrich entries in **Top client / proxy IPs** only when the operator requests a
+  lookup, either for one address or a bounded selection. Do not call IPinfo on
+  every statistics refresh.
+- Cache successful lookups locally for 24 hours with a bounded cache size and a
+  manual clear action so the feature does not create continuous load or consume
+  the API quota unnecessarily.
+- Show the country/region, ASN and organization, network, hostname, and available
+  hosting/proxy/privacy indicators. Clearly mark fields unavailable under the
+  configured IPinfo plan instead of treating them as negative results.
+- Never send private, reserved, loopback, trusted Cloudflare edge, or known
+  operator addresses to IPinfo. Only enrich a restored client address after the
+  proxy source has been validated against trusted Cloudflare ranges.
+- Disclose that an address is sent to IPinfo for lookup. Never send request paths,
+  cookies, user agents, or account data, and never write the token or full raw
+  provider response to application logs.
+
+#### Cloudflare IP Actions
+
+- Add actions beside an enriched traffic row for managed challenge, temporary
+  block, and removal of an active panel-owned mitigation. Managed challenge is
+  the recommended default; permanent blocking is not a default action.
+- Scope each rule to the selected zone and hostname plus the exact IPv4 or IPv6
+  address. CIDR input requires separate validation and explicit confirmation.
+  Do not use account-wide IP Access Rules for a normal per-site action.
+- Offer bounded expiry choices such as 10 minutes, 1 hour, 24 hours, and 7 days.
+  Store the Cloudflare rule ID and automatically remove expired panel-owned rules.
+- Preview the zone, hostname, address/CIDR, rule expression, action, and expiry
+  before applying. Show the resulting active state and provide an immediate undo
+  action.
+- Refuse actions against operator allowlists, server LAN/WAN addresses, private or
+  reserved ranges, trusted Cloudflare proxy ranges, and configured monitoring
+  services.
+- Make rule creation idempotent and modify only tagged panel-owned rules. Record
+  the operator, source statistics timestamp, scope, action, expiry, Cloudflare
+  rule ID, and API result in the audit log.
+- Treat IPinfo metadata as context only. Never automatically challenge or block
+  an address based solely on geolocation, ASN, hosting, VPN, or proxy indicators.
+- Detect missing Cloudflare token permissions and plan entitlement failures and
+  report an actionable per-zone error without changing unrelated rules.
+
+Acceptance criteria:
+
+- Statistics remain lightweight when no enrichment is requested.
+- A mitigation affects only the confirmed hostname and expires as selected.
+- Protected/internal/proxy addresses cannot be blocked through the panel.
+- Repeating the same action does not create duplicate Cloudflare rules.
+- Tokens, raw provider responses, and production addresses are absent from Git
+  and routine application logs.
 
 ### Always Online Warning
 

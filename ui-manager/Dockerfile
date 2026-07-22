@@ -5,6 +5,9 @@ WORKDIR /app
 RUN apk add --no-cache docker-cli tar tzdata unzip zip \
     && mkdir -p /srv/websites /srv/configs/nginx/conf.d /srv/configs/php-fpm /app/data
 
+COPY package.json package-lock.json /app/
+RUN npm ci --omit=dev && npm cache clean --force
+
 COPY app/server.js /app/server.js
 COPY app/lib /app/lib
 COPY app/cli /app/cli

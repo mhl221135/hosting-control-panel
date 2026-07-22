@@ -37,6 +37,8 @@ const { ProvisionImportStore } = require("./lib/provision-import-store");
 const { MaintenanceManager } = require("./lib/maintenance-manager");
 const { WordPressMaintenanceRunner } = require("./lib/wordpress-maintenance");
 const { JobManager } = require("./lib/job-manager");
+const { NotificationSettings } = require("./lib/notification-settings");
+const { NotificationManager } = require("./lib/notification-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -115,6 +117,12 @@ siteState.renderCacheMap();
 const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
+});
+const notificationSettings = new NotificationSettings(DATA_DIR);
+const notificationManager = new NotificationManager({
+  dataDir: DATA_DIR,
+  settings: notificationSettings,
+  maxHistory: Number(process.env.NOTIFICATION_HISTORY_LIMIT || 500),
 });
 const backupManager = new BackupManager({
   dataDir: DATA_DIR,
@@ -1149,6 +1157,28 @@ async function handleApi(req, res) {
     const updated = integrationSettings.update(body);
     npm.cachedToken = null;
     sendJson(res, 200, { ok: true, settings: updated });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/settings/notifications") {
+    sendJson(res, 200, { ok: true, settings: notificationSettings.publicView() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/settings/notifications") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, { ok: true, settings: notificationSettings.update(body) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/settings/notifications/test") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    try {
+      sendJson(res, 200, await notificationManager.test(String(body.channel || "")));
+    } catch (error) {
+      error.statusCode ||= 502;
+      throw error;
+    }
     return true;
   }
 
@@ -2361,6 +2391,7 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
+  notificationManager.start(jobManager);
   jobManager.start();
   backupManager.start();
   imageOptimizationManager.startScheduler();

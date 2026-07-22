@@ -530,6 +530,23 @@ Failed, partial, or cancelled jobs can be retried as linked attempts. History is
 stored at `app-data/ui-manager/jobs.json` and bounded by `JOB_HISTORY_LIMIT`
 (default 250); active jobs are never pruned.
 
+## Operator Notifications
+
+The panel can send terminal background-job results through a Telegram bot, an
+external SMTP relay, or both. Configure the installation/server labels, public
+panel URL, recipients, chat IDs, channel switches, and severity filters in
+**Settings → Notifications**. Test messages are sent only after settings have
+been saved.
+
+Tokens and SMTP passwords are AES-256-GCM encrypted in
+`app-data/ui-manager/notification-settings.json`; plaintext secrets are never
+returned by the API. Delivery attempts are stored in
+`notification-deliveries.json`, retried with bounded backoff after transient
+failures, deduplicated per job outcome, and capped by
+`NOTIFICATION_HISTORY_LIMIT` (default 500). The **Jobs** workspace shows the
+latest delivery state for each originating job. Successful-job notifications
+are disabled by default to avoid noise.
+
 ## Website Migration
 
 Create a portable export from the running stack:

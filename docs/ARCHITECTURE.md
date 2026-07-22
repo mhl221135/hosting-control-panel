@@ -130,6 +130,14 @@ terminal history is pruned to `JOB_HISTORY_LIMIT` without removing active work.
 Backups, restores, WordPress maintenance, and image optimization use this queue;
 their legacy status files remain compatibility views for their existing tabs.
 
+`notification-manager.js` subscribes to terminal job events and creates one
+deduplicated delivery record per job outcome. Telegram uses the Bot API and SMTP
+uses a pinned Nodemailer transport. Failed channel attempts use bounded backoff
+and survive panel restarts in `/app/data/notification-deliveries.json`; channel
+state is copied onto the originating job for the UI. Notification credentials
+are AES-256-GCM encrypted separately from delivery history, and provider
+responses are not retained.
+
 ## Backup And Restore
 
 The job scheduler serializes backups, restores, maintenance, and image work
