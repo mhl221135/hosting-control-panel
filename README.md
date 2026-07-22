@@ -21,7 +21,7 @@ into dedicated directories.
 - First-class HTML/PHP sites with isolated pools and no required database
 - Provision-time website imports from ZIP/TAR archives and SQL/SQL.GZ dumps
 - Automatic MySQL database and user creation
-- Nginx Proxy Manager proxy-host creation and Let's Encrypt certificate actions
+- Nginx Proxy Manager proxy-host creation and durable, alertable Let's Encrypt certificate actions
 - Cloudflare A, AAAA, CNAME, and TXT record management
 - Cloudflare sensitive-path, XML-RPC, and login rate-limit security presets
 - Per-site Redis object-cache enablement

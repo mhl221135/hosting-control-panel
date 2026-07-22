@@ -46,6 +46,7 @@ const { HealthMonitor } = require("./lib/health-monitor");
 const { OneTimeVault } = require("./lib/one-time-vault");
 const { jobInput: provisioningJobInput, jobResult: provisioningJobResult, safeProvisionPayload } = require("./lib/provisioning-job");
 const { IpinfoClient } = require("./lib/ipinfo-client");
+const { CertificateJobManager } = require("./lib/certificate-job-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -126,6 +127,7 @@ const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
 });
+const certificateJobManager = new CertificateJobManager({ jobManager, npm });
 const notificationSettings = new NotificationSettings(DATA_DIR);
 const notificationManager = new NotificationManager({
   dataDir: DATA_DIR,
@@ -1496,15 +1498,21 @@ async function handleApi(req, res) {
     const domain = validateDomain(body.domain);
     const domains = [domain];
     if (body.add_www && !domain.startsWith("www.")) domains.push(`www.${domain}`);
-    const host = await npm.ensureHost(domains, Boolean(body.issue_ssl));
+    if (body.issue_ssl) {
+      const job = certificateJobManager.enqueueIssue(domains, req.auth.email);
+      sendJson(res, 202, { ok: true, job });
+      return true;
+    }
+    const host = await npm.ensureHost(domains, false);
     sendJson(res, 200, { ok: true, host });
     return true;
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/npm/certificates/renew") {
     const body = JSON.parse((await readBody(req)) || "{}");
-    const certificate = await npm.renewCertificate(body.certificate_id);
-    sendJson(res, 200, { ok: true, certificate });
+    const domain = validateDomain(body.domain);
+    const job = certificateJobManager.enqueueRenew(domain, body.certificate_id, req.auth.email);
+    sendJson(res, 202, { ok: true, job });
     return true;
   }
 

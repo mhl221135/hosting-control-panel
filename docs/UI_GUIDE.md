@@ -215,12 +215,17 @@ state for one selected website.
 | **Delete** | Deletes the selected Cloudflare record after confirmation. |
 | **NPM Refresh** | Loads the proxy host, target, enabled state, and certificate relationship. |
 | **Create or link host** | Creates the NPM proxy host when absent or links an existing matching host to panel state. |
-| **Issue SSL** | Requests a Let's Encrypt certificate and enables HTTPS for the host. |
-| **Renew SSL** | Requests renewal for the currently attached certificate. |
+| **Issue SSL** | Queues a durable Let's Encrypt request and HTTPS attachment job. |
+| **Renew SSL** | Queues renewal after revalidating that the certificate is still attached to the selected host. |
 
 Issuing SSL requires public DNS to resolve to the server and inbound ports 80
 and 443 to reach NPM. Cloudflare proxying can remain enabled when the account and
 challenge path support certificate issuance.
+
+Follow issuance and renewal in **Jobs**. Failures retain a bounded actionable
+error and trigger configured Telegram/SMTP failure notifications. Certificate
+jobs do not retry automatically because provider state may have changed even
+when a request reports failure.
 
 ## Security
 

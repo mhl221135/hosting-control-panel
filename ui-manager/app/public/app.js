@@ -578,6 +578,8 @@ function jobTypeLabel(type) {
     "wordpress.maintenance": "WordPress maintenance",
     "site.provision": "Website provisioning",
     "site.remove": "Website deletion",
+    "npm.certificate.issue": "SSL certificate issuance",
+    "npm.certificate.renew": "SSL certificate renewal",
   }[type] || type;
 }
 
@@ -1515,11 +1517,16 @@ $("#applyDnsPreset").addEventListener("click", async (event) => {
 async function ensureNpm(issueSsl) {
   const domain = state.selectedDomain;
   if (!domain) return;
-  await api("/api/npm/hosts/ensure", {
+  const result = await api("/api/npm/hosts/ensure", {
     method: "POST",
     body: JSON.stringify({ domain, add_www: true, issue_ssl: issueSsl }),
   });
+  if (issueSsl) {
+    rememberJob(result.job, `SSL certificate issuance queued for ${domain}`);
+    return result;
+  }
   await loadNpm();
+  return result;
 }
 
 $("#ensureNpmHost").addEventListener("click", async (event) => {
@@ -1527,19 +1534,18 @@ $("#ensureNpmHost").addEventListener("click", async (event) => {
   catch (error) { notice(error.message, "warning"); }
 });
 $("#issueNpmSsl").addEventListener("click", async (event) => {
-  try { await withButton(event.currentTarget, "Issuing...", () => ensureNpm(true)); notice("SSL certificate issued."); }
+  try { await withButton(event.currentTarget, "Queueing...", () => ensureNpm(true)); }
   catch (error) { notice(error.message, "warning"); }
 });
 $("#renewNpmSsl").addEventListener("click", async (event) => {
   const host = selectedNpmHost();
   if (!host?.certificate_id) return notice("This host has no certificate to renew.", "warning");
   try {
-    await withButton(event.currentTarget, "Renewing...", () => api("/api/npm/certificates/renew", {
+    const result = await withButton(event.currentTarget, "Queueing...", () => api("/api/npm/certificates/renew", {
       method: "POST",
-      body: JSON.stringify({ certificate_id: host.certificate_id }),
+      body: JSON.stringify({ domain: state.selectedDomain, certificate_id: host.certificate_id }),
     }));
-    notice("Certificate renewed.");
-    await loadNpm();
+    rememberJob(result.job, `SSL certificate renewal queued for ${state.selectedDomain}`);
   } catch (error) { notice(error.message, "warning"); }
 });
 

@@ -31,6 +31,10 @@ separate notification settings file. Failed, partial, and cancelled jobs notify
 enabled channels by default; successful-job alerts are opt-in. Delivery retry
 state is durable and visible in **Jobs**.
 
+Direct NPM certificate issuance and renewal run as durable, serialized jobs.
+Failures are retained in **Jobs** and delivered through configured notification
+channels; renewal revalidates host ownership before changing provider state.
+
 The **Health** workspace checks core containers, MySQL, the NPM API and attached
 certificate expiry, opt-in public website HTTPS availability, OPcache pressure,
 and website/backup storage. It records
