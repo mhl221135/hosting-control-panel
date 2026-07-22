@@ -19,8 +19,11 @@ test("persists validated health thresholds and container names", () => {
       certificateCriticalDays: 10,
       opcacheWarningPercent: 92,
       requiredContainers: "hosting-ui\nhosting-db hosting-ui",
+      publicCheckTimeoutSeconds: 8,
+      publicHosts: "Example.com\nshop.example.com example.com.",
     });
     assert.deepEqual(saved.requiredContainers, ["hosting-ui", "hosting-db"]);
+    assert.deepEqual(saved.publicHosts, ["example.com", "shop.example.com"]);
     assert.deepEqual(settings.read(), saved);
     assert.equal(fs.statSync(settings.path).mode & 0o777, 0o600);
   } finally {
@@ -32,4 +35,5 @@ test("rejects unsafe or contradictory health settings", () => {
   assert.throws(() => validate({ diskWarningPercent: 90, diskCriticalPercent: 80 }), /lower than the critical/);
   assert.throws(() => validate({ certificateWarningDays: 7, certificateCriticalDays: 7 }), /lower than warning/);
   assert.throws(() => validate({ requiredContainers: "hosting-ui;bad/name" }), /unsupported characters/);
+  assert.throws(() => validate({ publicHosts: "https://example.com/path" }), /valid hostnames/);
 });

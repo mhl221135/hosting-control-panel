@@ -79,11 +79,12 @@ for diagnosis, not long-term analytics or billing.
 
 | Control or section | Function |
 | --- | --- |
-| **Run health check** | Immediately checks configured containers, MySQL, NPM, attached certificates, OPcache, and storage. |
+| **Run health check** | Immediately checks configured containers, MySQL, NPM, attached certificates, selected public websites, OPcache, and storage. |
 | **Overall state** | Summarizes the latest check as healthy, warning, or critical. |
 | **Active incidents** | Shows unresolved issues and when each one opened. |
 | **Event history** | Shows opened, updated, and recovered transitions plus notification delivery state. |
 | **Operational health monitoring** | In Settings, enables scheduled checks and controls interval, thresholds, and required containers. |
+| **Public websites to check** | Opts selected hostnames into HTTPS checks through their public proxy path. Empty means no public requests. |
 
 Checks do not generate repeated alerts while an incident remains unchanged.
 Recovery creates a separate success notification.

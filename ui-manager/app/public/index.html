@@ -557,7 +557,7 @@
           </form>
 
           <form id="healthSettingsForm" class="panel form-grid">
-            <div class="group-title full"><h3>Operational health monitoring</h3><p>Check core containers, MySQL, proxy certificates, OPcache, and storage without continuous metrics collection.</p></div>
+            <div class="group-title full"><h3>Operational health monitoring</h3><p>Check core containers, MySQL, proxy certificates, selected public websites, OPcache, and storage without continuous metrics collection.</p></div>
             <label>Check interval (minutes)<input name="intervalMinutes" type="number" min="1" max="60" required /></label>
             <label>OPcache warning (%)<input name="opcacheWarningPercent" type="number" min="50" max="99" required /></label>
             <label>Disk warning (%)<input name="diskWarningPercent" type="number" min="50" max="98" required /></label>
@@ -565,6 +565,8 @@
             <label>Certificate warning (days)<input name="certificateWarningDays" type="number" min="7" max="90" required /></label>
             <label>Certificate critical (days)<input name="certificateCriticalDays" type="number" min="1" max="30" required /></label>
             <label class="full">Required containers<textarea name="requiredContainers" rows="4" placeholder="One container name per line" required></textarea></label>
+            <label>Public check timeout (seconds)<input name="publicCheckTimeoutSeconds" type="number" min="3" max="30" required /></label>
+            <label class="full">Public websites to check<textarea name="publicHosts" rows="5" placeholder="example.com&#10;shop.example.com"></textarea><small>Optional hostnames only. HTTPS is checked through the public proxy.</small></label>
             <label class="check inline"><input name="enabled" type="checkbox" /> Enable scheduled health checks</label>
             <div class="form-actions full"><button type="submit">Save health settings</button></div>
           </form>
@@ -655,6 +657,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260722-9"></script>
+    <script src="/app.js?v=20260722-10"></script>
   </body>
 </html>

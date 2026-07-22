@@ -1142,6 +1142,8 @@ async function loadIntegrationSettings() {
     healthForm.elements.certificateCriticalDays.value = health.certificateCriticalDays;
     healthForm.elements.opcacheWarningPercent.value = health.opcacheWarningPercent;
     healthForm.elements.requiredContainers.value = (health.requiredContainers || []).join("\n");
+    healthForm.elements.publicCheckTimeoutSeconds.value = health.publicCheckTimeoutSeconds;
+    healthForm.elements.publicHosts.value = (health.publicHosts || []).join("\n");
     state.performance = performanceData.settings;
     const performance = $("#performanceSettingsForm");
     performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
@@ -2002,6 +2004,8 @@ $("#healthSettingsForm").addEventListener("submit", async (event) => {
     certificateCriticalDays: Number(form.elements.certificateCriticalDays.value),
     opcacheWarningPercent: Number(form.elements.opcacheWarningPercent.value),
     requiredContainers: form.elements.requiredContainers.value,
+    publicCheckTimeoutSeconds: Number(form.elements.publicCheckTimeoutSeconds.value),
+    publicHosts: form.elements.publicHosts.value,
   };
   try {
     const data = await withButton(event.submitter, "Saving...", () => api("/api/health/settings", { method: "PUT", body: JSON.stringify(body) }));

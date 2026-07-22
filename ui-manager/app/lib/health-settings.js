@@ -9,6 +9,8 @@ const DEFAULTS = {
   certificateWarningDays: 30,
   certificateCriticalDays: 7,
   opcacheWarningPercent: 95,
+  publicCheckTimeoutSeconds: 10,
+  publicHosts: [],
   requiredContainers: [
     "hosting-ui",
     "hosting-nginx",
@@ -28,6 +30,11 @@ function containerList(value) {
   return [...new Set(values.map((item) => String(item).trim()).filter(Boolean))];
 }
 
+function publicHostList(value) {
+  const values = Array.isArray(value) ? value : String(value || "").split(/[\s,;]+/);
+  return [...new Set(values.map((item) => String(item).trim().toLowerCase().replace(/\.$/, "")).filter(Boolean))];
+}
+
 function validate(payload = {}) {
   const settings = {
     enabled: Boolean(payload.enabled),
@@ -37,6 +44,8 @@ function validate(payload = {}) {
     certificateWarningDays: Number(payload.certificateWarningDays ?? DEFAULTS.certificateWarningDays),
     certificateCriticalDays: Number(payload.certificateCriticalDays ?? DEFAULTS.certificateCriticalDays),
     opcacheWarningPercent: Number(payload.opcacheWarningPercent ?? DEFAULTS.opcacheWarningPercent),
+    publicCheckTimeoutSeconds: Number(payload.publicCheckTimeoutSeconds ?? DEFAULTS.publicCheckTimeoutSeconds),
+    publicHosts: publicHostList(payload.publicHosts ?? DEFAULTS.publicHosts),
     requiredContainers: containerList(payload.requiredContainers ?? DEFAULTS.requiredContainers),
   };
   const integer = (name, minimum, maximum) => {
@@ -50,6 +59,7 @@ function validate(payload = {}) {
   integer("certificateWarningDays", 7, 90);
   integer("certificateCriticalDays", 1, 30);
   integer("opcacheWarningPercent", 50, 99);
+  integer("publicCheckTimeoutSeconds", 3, 30);
   if (settings.diskWarningPercent >= settings.diskCriticalPercent) {
     throw validationError("Disk warning threshold must be lower than the critical threshold");
   }
@@ -61,6 +71,11 @@ function validate(payload = {}) {
   }
   if (settings.requiredContainers.some((name) => !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(name))) {
     throw validationError("Required container names contain unsupported characters");
+  }
+  if (settings.publicHosts.length > 50) throw validationError("Configure no more than 50 public website checks");
+  const hostname = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+  if (settings.publicHosts.some((name) => !hostname.test(name))) {
+    throw validationError("Public website checks must contain valid hostnames without paths");
   }
   return settings;
 }
@@ -76,7 +91,7 @@ class HealthSettings {
       return validate({ ...DEFAULTS, ...JSON.parse(fs.readFileSync(this.path, "utf8")) });
     } catch (error) {
       if (error.statusCode) throw error;
-      return { ...DEFAULTS, requiredContainers: [...DEFAULTS.requiredContainers] };
+      return { ...DEFAULTS, requiredContainers: [...DEFAULTS.requiredContainers], publicHosts: [] };
     }
   }
 

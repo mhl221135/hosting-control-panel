@@ -32,7 +32,8 @@ enabled channels by default; successful-job alerts are opt-in. Delivery retry
 state is durable and visible in **Jobs**.
 
 The **Health** workspace checks core containers, MySQL, the NPM API and attached
-certificate expiry, OPcache pressure, and website/backup storage. It records
+certificate expiry, opt-in public website HTTPS availability, OPcache pressure,
+and website/backup storage. It records
 only incident transitions, sends recovery alerts, and keeps bounded state in
 `/app/data/health-state.json`. Configure it in **Settings**; scheduled checks are
 disabled by default.
