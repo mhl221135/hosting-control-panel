@@ -19,6 +19,8 @@ const state = {
   performance: null,
   imageOptimization: null,
   maintenance: null,
+  jobs: [],
+  activeTab: "sites",
   stats: null,
   siteStats: null,
   removalPlan: null,
@@ -26,6 +28,7 @@ const state = {
 
 let imageOptimizationPollTimer = null;
 let maintenancePollTimer = null;
+let jobsPollTimer = null;
 let provisionInFlight = false;
 const PROVISION_UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
 const PROVISION_UPLOAD_RETRIES = 3;
@@ -209,19 +212,28 @@ function showApp(session) {
 }
 
 function switchTab(name) {
+  state.activeTab = name;
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
+  if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
+}
+
+function rememberJob(job, message = "Job queued") {
+  if (!job) return;
+  state.jobs = [job, ...state.jobs.filter((item) => item.id !== job.id)];
+  notice(`${message}. Job ${job.id.slice(0, 8)}.`);
+  if (state.activeTab === "jobs") renderJobs();
 }
 
 function primarySites() {
@@ -493,6 +505,70 @@ function renderMaintenance() {
 async function loadMaintenance() {
   state.maintenance = await api("/api/maintenance/status");
   renderMaintenance();
+}
+
+function jobStatusLabel(status) {
+  return String(status || "unknown").replaceAll("_", " ");
+}
+
+function jobTypeLabel(type) {
+  return {
+    "backup.site": "Website backup",
+    "backup.sites": "Website backups",
+    "backup.app-data": "Application-data backup",
+    "backup.restore": "Website restore",
+    "backup.schedule": "Scheduled backup",
+    "images.optimize": "Image optimization",
+    "wordpress.maintenance": "WordPress maintenance",
+  }[type] || type;
+}
+
+function renderJobs() {
+  const allJobs = state.jobs || [];
+  const statusFilter = $("#jobStatusFilter").value;
+  const typeFilter = $("#jobTypeFilter").value;
+  const types = [...new Set(allJobs.map((job) => job.type))].sort();
+  $("#jobTypeFilter").innerHTML = ["<option value=\"\">All types</option>", ...types.map((type) =>
+    `<option value="${escapeHtml(type)}" ${type === typeFilter ? "selected" : ""}>${escapeHtml(jobTypeLabel(type))}</option>`
+  )].join("");
+
+  $("#jobsRunning").textContent = allJobs.filter((job) => ["running", "cancelling"].includes(job.status)).length;
+  $("#jobsQueued").textContent = allJobs.filter((job) => job.status === "queued").length;
+  $("#jobsFailed").textContent = allJobs.filter((job) => ["failed", "partially_succeeded"].includes(job.status)).length;
+  $("#jobsCompleted").textContent = allJobs.filter((job) => job.status === "succeeded").length;
+
+  const jobs = allJobs
+    .filter((job) => !statusFilter || job.status === statusFilter)
+    .filter((job) => !typeFilter || job.type === typeFilter);
+  const list = $("#jobsList");
+  list.className = jobs.length ? "job-list" : "job-list empty";
+  list.innerHTML = jobs.length ? jobs.map((job) => {
+    const total = Number(job.total || 0);
+    const completed = Number(job.completed || 0);
+    const terminal = ["succeeded", "failed", "partially_succeeded", "cancelled"].includes(job.status);
+    const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : job.status === "succeeded" ? 100 : 0;
+    const blocker = job.waitingFor?.length ? `Waiting for ${job.waitingFor.map((item) => item.label).join(", ")}` : "";
+    const detail = job.error || blocker || job.currentStep || job.message || "";
+    const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
+    const canRetry = terminal && job.retryable && job.status !== "succeeded";
+    return `<div class="job-row">
+      <div><span class="job-status ${escapeHtml(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span><h3>${escapeHtml(job.label)}</h3><p>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(job.operator || "system")}</p></div>
+      <div class="job-progress"><div class="job-progress-track"><i style="width:${percent}%"></i></div><p>${total ? `${completed} of ${total}` : jobStatusLabel(job.status)}${job.currentStep ? ` · ${escapeHtml(job.currentStep)}` : ""}</p></div>
+      <div><p>${escapeHtml(detail)}</p><p>${escapeHtml(new Date(job.startedAt || job.createdAt).toLocaleString())}${job.finishedAt ? ` · finished ${escapeHtml(new Date(job.finishedAt).toLocaleString())}` : ""}</p></div>
+      <div class="job-actions">${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
+    </div>`;
+  }).join("") : "No jobs match the selected filters.";
+
+  window.clearTimeout(jobsPollTimer);
+  if (state.activeTab === "jobs" && allJobs.some((job) => ["queued", "running", "cancelling"].includes(job.status))) {
+    jobsPollTimer = window.setTimeout(() => loadJobs().catch((error) => notice(error.message, "warning")), 3000);
+  }
+}
+
+async function loadJobs() {
+  const response = await api("/api/jobs?limit=100");
+  state.jobs = response.jobs || [];
+  renderJobs();
 }
 
 function renderDomainOptions() {
@@ -1040,6 +1116,29 @@ $$("[data-tab-link]").forEach((button) => button.addEventListener("click", (even
 }));
 $("#mobileNavigation").addEventListener("change", (event) => switchTab(event.target.value));
 
+$("#refreshJobs").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadJobs); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#jobStatusFilter").addEventListener("change", renderJobs);
+$("#jobTypeFilter").addEventListener("change", renderJobs);
+$("#jobsList").addEventListener("click", async (event) => {
+  const cancel = event.target.closest("[data-cancel-job]");
+  const retry = event.target.closest("[data-retry-job]");
+  const button = cancel || retry;
+  if (!button) return;
+  const action = cancel ? "cancel" : "retry";
+  if (cancel && !confirm("Cancel this job at its next safe boundary?")) return;
+  try {
+    const result = await withButton(button, action === "cancel" ? "Cancelling..." : "Queuing...", () => api(
+      `/api/jobs/${encodeURIComponent(cancel?.dataset.cancelJob || retry.dataset.retryJob)}/${action}`,
+      { method: "POST" },
+    ));
+    rememberJob(result.job, action === "cancel" ? "Cancellation requested" : "Retry queued");
+    await loadJobs();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
 $("#siteSearch").addEventListener("input", renderSites);
 $("#refreshStats").addEventListener("click", async (event) => {
   try {
@@ -1067,9 +1166,8 @@ syncProvisionDnsOptions();
 syncProvisionSourceMode();
 $("#optimizeAllImages").addEventListener("click", async () => {
   try {
-    state.imageOptimization = await api("/api/sites/images/optimize-all", { method: "POST" });
-    renderImageOptimization();
-    notice("Image optimization started.");
+    const result = await api("/api/sites/images/optimize-all", { method: "POST" });
+    rememberJob(result.job, "Image optimization queued");
   } catch (error) {
     notice(error.message, "warning");
   }
@@ -1085,13 +1183,13 @@ async function runSiteAction(domain, action) {
       method: "POST",
       body: JSON.stringify({ domain }),
     });
-    notice(`Created ${result.created} WebP images and saved ${formatBytes(result.bytesSaved)}.`);
+    rememberJob(result.job, `Image optimization queued for ${domain}`);
     return;
   }
   if (action === "backup") {
-    await api("/api/backups/site", { method: "POST", body: JSON.stringify({ domain }) });
+    const result = await api("/api/backups/site", { method: "POST", body: JSON.stringify({ domain }) });
     state.backupName = domain;
-    notice(`${domain} backup completed.`);
+    rememberJob(result.job, `Backup queued for ${domain}`);
     return;
   }
 
@@ -1486,9 +1584,7 @@ $("#runMaintenance").addEventListener("click", async (event) => {
       method: "POST",
       body: JSON.stringify({ domains, operations }),
     }));
-    state.maintenance = { ...(state.maintenance || {}), status: data.status };
-    renderMaintenance();
-    notice("WordPress maintenance started.");
+    rememberJob(data.job, "WordPress maintenance queued");
   } catch (error) { notice(error.message, "warning"); }
 });
 
@@ -1552,10 +1648,9 @@ $("#backupSettingsForm").addEventListener("submit", async (event) => {
 
 $("#backupAppData").addEventListener("click", async (event) => {
   try {
-    await withButton(event.currentTarget, "Backing up...", () => api("/api/backups/app-data", { method: "POST" }));
+    const result = await withButton(event.currentTarget, "Queuing...", () => api("/api/backups/app-data", { method: "POST" }));
     state.backupName = "app-data";
-    notice("Application data backup completed.");
-    await loadBackupView();
+    rememberJob(result.job, "Application-data backup queued");
   } catch (error) { notice(error.message, "warning"); }
 });
 
@@ -1567,15 +1662,7 @@ async function startWebsiteBatch(scope, button) {
       method: "POST",
       body: JSON.stringify({ scope }),
     }));
-    state.backupStatus = result.status;
-    renderBackupStatus();
-    notice(all ? "All-website backup started." : "Enabled-website backup started.");
-    await monitorBackupJob();
-    const last = state.backupStatus?.lastResult;
-    if (last?.message) notice(`Website backup failed: ${last.message}`, "warning");
-    else notice(last?.ok === false
-      ? `Website backup completed with ${last.failed || 0} failure(s).`
-      : `Website backup completed for ${last?.succeeded || last?.total || 0} site(s).`, last?.ok === false ? "warning" : "success");
+    rememberJob(result.job, all ? "All-website backup queued" : "Enabled-website backup queued");
   } catch (error) { notice(error.message, "warning"); }
 }
 
@@ -1595,8 +1682,7 @@ $("#backupHistory").addEventListener("click", async (event) => {
           backup_id: restoreButton.dataset.restoreBackup,
         }),
       }));
-      notice(`Restore complete. Safety backup: ${result.safetyBackup}.`);
-      await loadBackupView();
+      rememberJob(result.job, `Restore queued for ${state.backupName}`);
     } catch (error) { notice(error.message, "warning"); }
     return;
   }

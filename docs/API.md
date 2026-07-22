@@ -45,6 +45,25 @@ cache; avoid adding permanent polling.
 | `POST /api/backups/restore` | restore a validated site set |
 | `DELETE /api/backups/...` | delete a complete backup set |
 
+Backup, restore, maintenance, and image-optimization POST routes return `202`
+with a public job record. Use the job API to follow completion rather than
+holding the originating HTTP request open.
+
+### Background jobs
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/jobs?status=&type=&limit=` | list newest durable jobs with optional filters |
+| `GET /api/jobs/:id` | read one public job record |
+| `POST /api/jobs/:id/cancel` | cancel queued work or request cancellation at the next safe boundary |
+| `POST /api/jobs/:id/retry` | enqueue a linked retry of a finished retryable job |
+
+Public records include lifecycle status, operator, trigger, targets, progress,
+current step, bounded results/errors, timestamps, conflicts, retry linkage, and
+the active job blocking queued work. Internal handler payloads and idempotency
+keys are not returned. Job payloads containing password, token, secret, key,
+authorization, cookie, SQL, or dump fields are rejected before persistence.
+
 ### Integrations and performance
 
 | Method/path | Purpose |

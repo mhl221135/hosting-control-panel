@@ -58,6 +58,7 @@ routes. There is no Express framework or external npm dependency.
 | Module | Owns |
 |---|---|
 | `auth.js` | scrypt account hash, sessions, throttling, cookies |
+| `job-manager.js` | durable queue, conflict scheduling, recovery, cancellation, retries, bounded history |
 | `integration-settings.js` | AES-256-GCM secrets and environment fallback |
 | `integrations.js` | NPM, ACME, Cloudflare DNS and Security clients |
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
@@ -114,12 +115,28 @@ reported so an administrator can retry without deleting a valid site.
 - **Image negotiation** serves smaller `.webp` sidecars when accepted.
   Negotiated JPEG/PNG URLs avoid shared caching so edge caches cannot mix formats.
 
+## Background Jobs
+
+`job-manager.js` persists jobs atomically in `/app/data/jobs.json`. Queued work
+survives a panel restart; work that was running is marked failed because the
+panel cannot prove that an interrupted external mutation completed. Named
+conflict keys serialize CPU, storage, database, and per-site work while allowing
+future independent operations to run concurrently. Cancellation is cooperative
+and takes effect only when a handler reaches an explicit safe checkpoint.
+
+The public API omits private handler payloads. Payloads with sensitive field
+names are rejected before persistence, result/error text is bounded, and
+terminal history is pruned to `JOB_HISTORY_LIMIT` without removing active work.
+Backups, restores, WordPress maintenance, and image optimization use this queue;
+their legacy status files remain compatibility views for their existing tabs.
+
 ## Backup And Restore
 
-The backup manager serializes backups, restores, and bulk image work with a
-shared lock. WordPress backups pair files, a logical database dump, and a
-manifest. HTML/PHP backups are file-only sets with an explicit null database.
-Retention deletes complete sets.
+The job scheduler serializes backups, restores, maintenance, and image work
+through the `server-heavy` conflict class. The backup manager retains a
+defensive internal lock for direct recovery calls. WordPress backups pair files,
+a logical database dump, and a manifest. HTML/PHP backups are file-only sets
+with an explicit null database. Retention deletes complete sets.
 
 Restore validates ownership, creates a safety backup, stages the file swap on
 the websites filesystem, imports the database, and attempts rollback on import

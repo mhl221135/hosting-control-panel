@@ -11,6 +11,7 @@ class ImageOptimizationManager {
   constructor(options) {
     this.dataDir = options.dataDir;
     this.backupManager = options.backupManager;
+    this.jobManager = options.jobManager || null;
     this.optimizer = options.optimizer;
     this.siteProvider = options.siteProvider;
     this.statusPath = path.join(this.dataDir, "image-optimization-status.json");
@@ -21,6 +22,20 @@ class ImageOptimizationManager {
     fs.mkdirSync(this.dataDir, { recursive: true });
     this.status = this.loadStatus();
     this.saveStatus();
+    if (this.jobManager) {
+      this.jobManager.register("images.optimize", async (context, payload) => {
+        this.start(payload.sites, context, payload.trigger || "manual");
+        const status = await this.wait();
+        return {
+          ...status,
+          ok: status.completed === status.total && status.results.every((result) => result.ok !== false),
+          total: status.total,
+          completed: status.completed,
+          results: status.results,
+          message: status.message,
+        };
+      });
+    }
   }
 
   loadStatus() {
@@ -128,13 +143,41 @@ class ImageOptimizationManager {
       this.updateSettings({ lastScheduledDate: localDate });
       return { ok: true, results: [] };
     }
-    this.start(sites);
+    if (this.jobManager) {
+      const job = this.enqueue(sites, "scheduler", "scheduled", `images.schedule:${localDate}`);
+      const finished = await this.jobManager.wait(job.id);
+      if (finished.completed === sites.length) this.updateSettings({ lastScheduledDate: localDate });
+      return finished;
+    }
+    this.start(sites, null, "scheduled");
     const status = await this.wait();
     if (status.results.length === sites.length) this.updateSettings({ lastScheduledDate: localDate });
     return status;
   }
 
-  start(sites) {
+  enqueue(sites, operator = "system", trigger = "manual", idempotencyKey = "") {
+    if (!this.jobManager) throw new Error("Shared job manager is not configured");
+    if (!Array.isArray(sites) || !sites.length) {
+      throw Object.assign(new Error("No primary websites are configured"), { statusCode: 400 });
+    }
+    const targets = sites.map((site) => site.host);
+    return this.jobManager.create({
+      type: "images.optimize",
+      label: sites.length === 1 ? `Optimize images for ${targets[0]}` : `Optimize images for ${sites.length} websites`,
+      operator,
+      trigger,
+      targets,
+      conflicts: ["server-heavy", ...targets.map((domain) => `site:${domain}`)],
+      idempotencyKey: idempotencyKey || `images.optimize:${[...targets].sort().join(",")}`,
+      payload: {
+        trigger,
+        sites: sites.map((site) => ({ host: site.host, directory: site.directory })),
+      },
+      total: sites.length,
+    });
+  }
+
+  start(sites, jobContext = null, trigger = "manual") {
     if (this.status.running) {
       const error = new Error(`Image optimization is already running for ${this.status.currentDomain || "a website"}`);
       error.statusCode = 409;
@@ -150,21 +193,28 @@ class ImageOptimizationManager {
       running: true,
       total: sites.length,
       startedAt: new Date().toISOString(),
-      message: "Image optimization is running",
+      message: `${trigger === "scheduled" ? "Scheduled" : "Manual"} image optimization is running`,
     };
     this.saveStatus();
-    this.currentPromise = this.run(sites);
+    this.currentPromise = this.run(sites, jobContext);
     return this.getStatus();
   }
 
-  async run(sites) {
+  async run(sites, jobContext = null) {
     try {
       await this.backupManager.withLock(
         { type: "images-all", label: "Optimize images for all websites" },
         async () => {
           for (const site of sites) {
+            jobContext?.checkpoint();
             this.status.currentDomain = site.host;
             this.saveStatus();
+            jobContext?.update({
+              total: sites.length,
+              completed: this.status.completed,
+              currentStep: `Optimizing images for ${site.host}`,
+              results: this.status.results,
+            });
             try {
               const result = await this.optimizer(site.directory);
               this.status.results.push({ domain: site.host, ok: true, ...result });
@@ -173,6 +223,7 @@ class ImageOptimizationManager {
             }
             this.status.completed += 1;
             this.saveStatus();
+            jobContext?.update({ completed: this.status.completed, results: this.status.results });
           }
         },
       );

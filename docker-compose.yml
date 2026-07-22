@@ -36,6 +36,7 @@ services:
       BACKUPS_ROOT: /srv/backups
       EXPORTS_ROOT: /srv/exports
       IMPORTS_ROOT: /srv/imports
+      JOB_HISTORY_LIMIT: ${JOB_HISTORY_LIMIT:-250}
       MYSQL_CONTAINER: hosting-db
       PHP_CONTAINER: hosting-php-fpm
       TZ: Europe/Kyiv
