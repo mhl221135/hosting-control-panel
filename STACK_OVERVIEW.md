@@ -55,6 +55,7 @@ The panel provides:
 - MySQL installer container and database-prefix settings
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
+- Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Manual-refresh server/container statistics, per-pool PHP usage, cache health,
   and selected-site NPM traffic summaries

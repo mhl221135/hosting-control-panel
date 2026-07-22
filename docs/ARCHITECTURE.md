@@ -130,6 +130,12 @@ terminal history is pruned to `JOB_HISTORY_LIMIT` without removing active work.
 Backups, restores, WordPress maintenance, and image optimization use this queue;
 their legacy status files remain compatibility views for their existing tabs.
 
+Website deletion also uses the queue and recalculates live resource ownership
+inside the worker. It allows cancellation before backup and before the first
+destructive mutation, then completes the selected destructive sequence without
+interruption. Deletion jobs are intentionally non-retryable; a new live preview
+is required after any partial external mutation.
+
 `notification-manager.js` subscribes to terminal job events and creates one
 deduplicated delivery record per job outcome. Telegram uses the Bot API and SMTP
 uses a pinned Nodemailer transport. Failed channel attempts use bounded backoff

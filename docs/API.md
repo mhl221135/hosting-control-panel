@@ -114,12 +114,15 @@ authorization, cookie, SQL, or dump fields are rejected before persistence.
 | Method/path | Purpose |
 |---|---|
 | `GET /api/site-removal?domain=` | recalculate resource ownership and safety |
-| `POST /api/site-removal` | delete selected safe resources after typed confirmation |
+| `POST /api/site-removal` | queue deletion of selected safe resources after typed confirmation; returns `202` and a job |
 
 Removal accepts separate booleans for final backup, runtime routes, pool, files,
 database/user, NPM host, NPM certificate, Cloudflare web DNS, panel state, and
 stored backups. POST ignores browser assumptions and rebuilds the ownership
 plan before mutation. Shared or unverified resources return `409`.
+Deletion jobs conflict with other server-heavy and same-site work. They can be
+cancelled before the final backup or before destructive removal starts, but are
+not retryable after failure; refresh the preview and submit a new operation.
 
 ### WordPress and media
 

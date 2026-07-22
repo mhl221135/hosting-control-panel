@@ -34,8 +34,8 @@ into dedicated directories.
 - Per-site manual and scheduled backups with retention
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel
-- Ownership-aware website removal with selectable routes, pool, files, database,
-  NPM, certificate, Cloudflare DNS, panel state, and backups
+- Durable ownership-aware website removal jobs with selectable routes, pool,
+  files, database, NPM, certificate, Cloudflare DNS, panel state, and backups
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
