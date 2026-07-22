@@ -1,14 +1,37 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { WordPressMaintenanceRunner, validateOperations, wordpressPath } = require("../lib/wordpress-maintenance");
+const { WordPressMaintenanceRunner, validateOperations, validateRevisionRetention, wordpressPath } = require("../lib/wordpress-maintenance");
 
 test("validates operations and confines WordPress paths", () => {
   assert.deepEqual(validateOperations(["cron", "cron", "transients"]), ["cron", "transients"]);
   assert.throws(() => validateOperations([]), (error) => error.statusCode === 400);
   assert.throws(() => validateOperations(["core-update"]), (error) => error.statusCode === 400);
+  assert.equal(validateRevisionRetention(undefined), 5);
+  assert.equal(validateRevisionRetention(20), 20);
+  assert.throws(() => validateRevisionRetention(0), (error) => error.statusCode === 400);
+  assert.throws(() => validateRevisionRetention(101), (error) => error.statusCode === 400);
   assert.equal(wordpressPath("example.com"), "/var/www/example.com");
   assert.throws(() => wordpressPath("../../etc"), /Invalid WordPress directory/);
   assert.throws(() => wordpressPath(""), /Invalid WordPress directory/);
+});
+
+test("previews and deletes only revisions outside validated per-post retention", async () => {
+  const calls = [];
+  const runner = new WordPressMaintenanceRunner({
+    execFile: async (_file, args) => {
+      calls.push(args);
+      return { stdout: args.some((arg) => arg.includes("wp_delete_post"))
+        ? '{"total":14,"delete":4,"deleted":4}\n'
+        : 'notice\n{"total":14,"delete":4}\n' };
+    },
+  });
+
+  assert.deepEqual(await runner.previewRevisions({ directory: "example.com" }, 5), { total: 14, delete: 4 });
+  const result = await runner.run({ directory: "example.com", redis: false }, ["revisions"], { revisionRetention: 5 });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.operations[0], { operation: "revisions", ok: true, total: 14, delete: 4, deleted: 4 });
+  assert.ok(calls.every((args) => args.includes("--skip-plugins") && args.includes("--skip-themes")));
+  assert.ok(calls.every((args) => args.some((arg) => arg.includes("$keep = 5"))));
 });
 
 test("runs selected maintenance commands without shell interpolation", async () => {

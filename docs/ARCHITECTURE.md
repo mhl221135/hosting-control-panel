@@ -63,7 +63,7 @@ routes. There is no Express framework or external npm dependency.
 | `integrations.js` | NPM, ACME, Cloudflare DNS and Security clients |
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
-| `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations |
+| `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations and bounded revision retention/preview |
 | `maintenance-manager.js` | persisted manual/weekly maintenance scheduling and progress |
 | `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
 | `backup-manager.js` | schedule, locks, archives, retention, restore |

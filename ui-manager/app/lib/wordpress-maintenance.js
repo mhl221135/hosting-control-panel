@@ -3,7 +3,17 @@ const path = require("path");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
-const ALLOWED_OPERATIONS = new Set(["transients", "trash", "cron", "database"]);
+const ALLOWED_OPERATIONS = new Set(["transients", "trash", "cron", "database", "revisions"]);
+
+function validateRevisionRetention(value) {
+  const retention = Number(value ?? 5);
+  if (!Number.isInteger(retention) || retention < 1 || retention > 100) {
+    const error = new Error("Revision retention must be an integer from 1 to 100");
+    error.statusCode = 400;
+    throw error;
+  }
+  return retention;
+}
 
 function validateOperations(values) {
   const operations = [...new Set(Array.isArray(values) ? values.map(String) : [])];
@@ -50,7 +60,46 @@ class WordPressMaintenanceRunner {
     }
   }
 
-  async runOperation(site, operation) {
+  revisionScript(retention, remove = false) {
+    const keep = validateRevisionRetention(retention);
+    return [
+      "global $wpdb;",
+      `$keep = ${keep};`,
+      "$rows = $wpdb->get_results(\"SELECT ID, post_parent FROM {$wpdb->posts} WHERE post_type = 'revision' ORDER BY post_parent ASC, post_date_gmt DESC, ID DESC\");",
+      "$seen = []; $candidates = [];",
+      "foreach ($rows as $row) {",
+      "  $parent = (int) $row->post_parent;",
+      "  $seen[$parent] = ($seen[$parent] ?? 0) + 1;",
+      "  if ($seen[$parent] > $keep) $candidates[] = (int) $row->ID;",
+      "}",
+      ...(remove ? [
+        "$deleted = 0; $failed = [];",
+        "foreach ($candidates as $id) { if (wp_delete_post($id, true)) $deleted++; else $failed[] = $id; }",
+        "if ($failed) WP_CLI::error('Could not delete ' . count($failed) . ' revision(s).');",
+        "WP_CLI::line(wp_json_encode(['total' => count($rows), 'delete' => count($candidates), 'deleted' => $deleted]));",
+      ] : [
+        "WP_CLI::line(wp_json_encode(['total' => count($rows), 'delete' => count($candidates)]));",
+      ]),
+    ].join("\n");
+  }
+
+  async revisionSummary(site, retention, remove = false) {
+    const output = await this.wp(site.directory, ["eval", this.revisionScript(retention, remove), "--skip-plugins", "--skip-themes"]);
+    const line = output.split(/\r?\n/).reverse().find((value) => value.trim().startsWith("{"));
+    if (!line) throw new Error("WordPress did not return a revision summary");
+    const summary = JSON.parse(line);
+    return {
+      total: Number(summary.total || 0),
+      delete: Number(summary.delete || 0),
+      ...(remove ? { deleted: Number(summary.deleted || 0) } : {}),
+    };
+  }
+
+  async previewRevisions(site, retention) {
+    return this.revisionSummary(site, retention, false);
+  }
+
+  async runOperation(site, operation, options = {}) {
     if (operation === "transients") {
       return { message: await this.wp(site.directory, ["transient", "delete", "--expired", "--skip-plugins", "--skip-themes"]) };
     }
@@ -64,6 +113,9 @@ class WordPressMaintenanceRunner {
     }
     if (operation === "cron") {
       return { message: await this.wp(site.directory, ["cron", "event", "run", "--due-now"]) };
+    }
+    if (operation === "revisions") {
+      return this.revisionSummary(site, options.revisionRetention, true);
     }
     const optimizeTables = [
       "global $wpdb;",
@@ -85,12 +137,12 @@ class WordPressMaintenanceRunner {
     return { message: await this.wp(site.directory, ["eval", optimizeTables, "--skip-plugins", "--skip-themes"], 30 * 60_000) };
   }
 
-  async run(site, requestedOperations) {
+  async run(site, requestedOperations, options = {}) {
     const operations = validateOperations(requestedOperations);
     const results = [];
     for (const operation of operations) {
       try {
-        results.push({ operation, ok: true, ...(await this.runOperation(site, operation)) });
+        results.push({ operation, ok: true, ...(await this.runOperation(site, operation, options)) });
       } catch (error) {
         results.push({ operation, ok: false, message: String(error.stderr || error.message) });
       }
@@ -106,4 +158,4 @@ class WordPressMaintenanceRunner {
   }
 }
 
-module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, validateOperations, wordpressPath };
+module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, validateOperations, validateRevisionRetention, wordpressPath };

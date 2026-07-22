@@ -141,7 +141,13 @@ not retryable after failure; refresh the preview and submit a new operation.
 | `POST /api/sites/images/optimize-all` | start sequential optimization |
 | `GET /api/maintenance/status` | persisted maintenance status and weekly settings |
 | `PUT /api/maintenance/settings` | update weekly schedule and operations |
+| `POST /api/maintenance/revisions/preview` | count revisions that exceed per-post retention for selected sites without mutation |
 | `POST /api/maintenance/run` | start maintenance for selected WordPress sites |
+
+Maintenance revision retention accepts an integer from 1 through 100 and
+defaults to five newest revisions per post. Preview runs sequentially and
+isolates failures by website. Deletion occurs only when `revisions` is included
+in a manual or scheduled maintenance job.
 
 `POST /api/provision/import-upload` requires `upload_id`, `kind` (`website` or
 `database`), and `filename` query parameters. Its body is the raw file. A later

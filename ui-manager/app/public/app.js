@@ -508,7 +508,7 @@ function renderImageOptimization() {
 }
 
 function maintenanceOperationLabel(operation) {
-  return { transients: "Expired transients", trash: "Trash and spam", cron: "Due WP-Cron", database: "Database optimize", redis: "Redis cache flush" }[operation] || operation;
+  return { transients: "Expired transients", trash: "Trash and spam", cron: "Due WP-Cron", database: "Database optimize", revisions: "Old post revisions", redis: "Redis cache flush" }[operation] || operation;
 }
 
 function renderMaintenance() {
@@ -520,6 +520,7 @@ function renderMaintenance() {
   form.elements.enabled.checked = Boolean(settings.enabled);
   form.elements.weekday.value = String(settings.weekday ?? 0);
   form.elements.schedule_time.value = settings.scheduleTime || "05:00";
+  form.elements.revision_retention.value = String(settings.revisionRetention ?? 5);
   $$('[name="scheduled_operation"]').forEach((input) => { input.checked = (settings.operations || []).includes(input.value); });
 
   const detail = status.running
@@ -535,13 +536,16 @@ function renderMaintenance() {
   $("#maintenanceResults").classList.toggle("empty", !results.length);
   $("#maintenanceResults").innerHTML = results.length ? results.map((result) => {
     const operations = (result.operations || []).map((operation) => {
+      if (operation.operation === "revisions" && operation.ok) {
+        return `${maintenanceOperationLabel(operation.operation)}: ${operation.deleted || 0} deleted from ${operation.total || 0}`;
+      }
       const detail = operation.ok ? "complete" : `failed${operation.message ? ` (${String(operation.message).trim().slice(0, 180)})` : ""}`;
       return `${maintenanceOperationLabel(operation.operation)}: ${detail}`;
     }).join(" · ");
     return `<div class="maintenance-result ${result.ok ? "" : "has-error"}"><strong>${escapeHtml(result.domain)}</strong><span>${escapeHtml(operations || result.message || "No result details")}</span></div>`;
   }).join("") : "No results.";
 
-  const sites = primarySites().filter((site) => site.state?.siteType !== "static");
+  const sites = primarySites().filter((site) => site.state?.siteType === "wordpress");
   $("#maintenanceSites").innerHTML = sites.length ? sites.map((site) => `
     <div class="maintenance-site-row">
       <label class="check"><input type="checkbox" data-maintenance-site value="${escapeHtml(site.host)}" ${selected.has(site.host) ? "checked" : ""} /><span><strong>${escapeHtml(site.host)}</strong><small>${escapeHtml(site.poolName || "WordPress")}</small></span></label>
@@ -1661,6 +1665,7 @@ $("#maintenanceSettingsForm").addEventListener("submit", async (event) => {
         weekday: Number(event.currentTarget.elements.weekday.value),
         schedule_time: event.currentTarget.elements.schedule_time.value,
         operations,
+        revision_retention: Number(event.currentTarget.elements.revision_retention.value),
       }),
     }));
     state.maintenance = { ...(state.maintenance || {}), settings: data.settings };
@@ -1671,15 +1676,20 @@ $("#maintenanceSettingsForm").addEventListener("submit", async (event) => {
 
 $("#selectAllMaintenance").addEventListener("click", () => {
   $$("[data-maintenance-site]").forEach((input) => { input.checked = true; });
+  $("#revisionPreview").classList.add("hidden");
 });
 
 $("#clearMaintenanceSelection").addEventListener("click", () => {
   $$("[data-maintenance-site]").forEach((input) => { input.checked = false; });
+  $("#revisionPreview").classList.add("hidden");
 });
 
 $("#maintenanceSites").addEventListener("change", async (event) => {
   const checkbox = event.target.closest("[data-maintenance-weekly]");
-  if (!checkbox) return;
+  if (!checkbox) {
+    $("#revisionPreview").classList.add("hidden");
+    return;
+  }
   checkbox.disabled = true;
   try {
     await api("/api/site-state", {
@@ -1695,6 +1705,10 @@ $("#maintenanceSites").addEventListener("change", async (event) => {
   } finally { checkbox.disabled = false; }
 });
 
+$("#maintenanceSettingsForm").elements.revision_retention.addEventListener("input", () => {
+  $("#revisionPreview").classList.add("hidden");
+});
+
 $("#runMaintenance").addEventListener("click", async (event) => {
   const domains = $$("[data-maintenance-site]:checked").map((input) => input.value);
   const operations = $$('[name="manual_operation"]:checked').map((input) => input.value);
@@ -1703,9 +1717,31 @@ $("#runMaintenance").addEventListener("click", async (event) => {
   try {
     const data = await withButton(event.currentTarget, "Starting...", () => api("/api/maintenance/run", {
       method: "POST",
-      body: JSON.stringify({ domains, operations }),
+      body: JSON.stringify({ domains, operations, revision_retention: Number($("#maintenanceSettingsForm").elements.revision_retention.value) }),
     }));
     rememberJob(data.job, "WordPress maintenance queued");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#previewRevisions").addEventListener("click", async (event) => {
+  const domains = $$("[data-maintenance-site]:checked").map((input) => input.value);
+  if (!domains.length) return notice("Select at least one WordPress website.", "warning");
+  try {
+    const data = await withButton(event.currentTarget, "Previewing...", () => api("/api/maintenance/revisions/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        domains,
+        revision_retention: Number($("#maintenanceSettingsForm").elements.revision_retention.value),
+      }),
+    }));
+    const preview = $("#revisionPreview");
+    preview.classList.remove("hidden");
+    preview.textContent = [
+      `Keep ${data.revisionRetention} newest revision(s) per post; ${data.totalDelete} revision(s) would be deleted.`,
+      ...data.results.map((result) => result.ok
+        ? `${result.domain}: ${result.delete} of ${result.total} revision(s)`
+        : `${result.domain}: preview failed (${String(result.message || "unknown error").trim().slice(0, 180)})`),
+    ].join("\n");
   } catch (error) { notice(error.message, "warning"); }
 });
 

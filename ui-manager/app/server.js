@@ -1785,6 +1785,7 @@ async function handleApi(req, res) {
       weekday: body.weekday,
       scheduleTime: body.schedule_time,
       operations: body.operations,
+      revisionRetention: body.revision_retention,
     });
     sendJson(res, 200, { ok: true, settings });
     return true;
@@ -1806,8 +1807,29 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "Every selected domain must be a configured WordPress website" });
       return true;
     }
-    const job = maintenanceManager.enqueue(sites, body.operations, req.auth.email, "manual");
+    const job = maintenanceManager.enqueue(sites, body.operations, req.auth.email, "manual", "", {
+      revisionRetention: body.revision_retention,
+    });
     sendJson(res, 202, { ok: true, job, status: maintenanceManager.getStatus() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/maintenance/revisions/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const requested = new Set(Array.isArray(body.domains) ? body.domains.map((domain) => validateDomain(domain)) : []);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const sites = getSitesWithPools(mapParsed, poolsParsed)
+      .filter((site) => !site.isAlias && requested.has(site.host) && site.state?.siteType === "wordpress")
+      .map((site) => ({
+        ...site,
+        directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+      }));
+    if (sites.length !== requested.size || !sites.length) {
+      sendJson(res, 400, { ok: false, message: "Every selected domain must be a configured WordPress website" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, ...(await maintenanceManager.previewRevisions(sites, body.revision_retention)) });
     return true;
   }
 

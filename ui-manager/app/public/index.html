@@ -212,7 +212,9 @@
                 <label class="check"><input name="scheduled_operation" value="trash" type="checkbox" checked /> Empty post/comment trash and spam</label>
                 <label class="check"><input name="scheduled_operation" value="cron" type="checkbox" checked /> Run due WP-Cron events</label>
                 <label class="check"><input name="scheduled_operation" value="database" type="checkbox" /> Optimize database tables</label>
+                <label class="check"><input name="scheduled_operation" value="revisions" type="checkbox" /> Delete old post revisions</label>
               </fieldset>
+              <label>Revisions retained per post<input name="revision_retention" type="number" min="1" max="100" step="1" value="5" required /></label>
               <div class="form-actions"><button type="submit">Save schedule</button></div>
             </form>
 
@@ -234,9 +236,11 @@
               <label class="check"><input name="manual_operation" value="trash" type="checkbox" checked /> Trash and spam</label>
               <label class="check"><input name="manual_operation" value="cron" type="checkbox" checked /> Due WP-Cron</label>
               <label class="check"><input name="manual_operation" value="database" type="checkbox" /> Database optimize</label>
+              <label class="check"><input name="manual_operation" value="revisions" type="checkbox" /> Old post revisions</label>
             </fieldset>
             <div id="maintenanceSites" class="maintenance-sites"></div>
-            <div class="form-actions"><button id="runMaintenance" type="button">Run selected websites</button></div>
+            <div id="revisionPreview" class="status-box hidden"></div>
+            <div class="form-actions"><button id="previewRevisions" class="secondary" type="button">Preview revision cleanup</button><button id="runMaintenance" type="button">Run selected websites</button></div>
           </article>
         </section>
 
@@ -665,6 +669,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260723-12"></script>
+    <script src="/app.js?v=20260723-13"></script>
   </body>
 </html>
