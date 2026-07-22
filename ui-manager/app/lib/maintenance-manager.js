@@ -1,12 +1,13 @@
 const fs = require("fs");
 const path = require("path");
-const { validateOperations } = require("./wordpress-maintenance");
+const { validateOperations, validateRevisionRetention } = require("./wordpress-maintenance");
 
 const DEFAULT_SETTINGS = {
   enabled: false,
   weekday: 0,
   scheduleTime: "05:00",
   operations: ["transients", "trash", "cron"],
+  revisionRetention: 5,
   lastScheduledDate: "",
 };
 
@@ -27,7 +28,9 @@ class MaintenanceManager {
     this.saveStatus();
     if (this.jobManager) {
       this.jobManager.register("wordpress.maintenance", async (context, payload) => {
-        this.start(payload.sites, payload.operations, payload.trigger || "manual", context);
+        this.start(payload.sites, payload.operations, payload.trigger || "manual", context, {
+          revisionRetention: payload.revisionRetention,
+        });
         const status = await this.wait();
         return {
           ...status,
@@ -85,6 +88,7 @@ class MaintenanceManager {
       next.scheduleTime = value;
     }
     if (patch.operations !== undefined) next.operations = validateOperations(patch.operations);
+    if (patch.revisionRetention !== undefined) next.revisionRetention = validateRevisionRetention(patch.revisionRetention);
     if (patch.lastScheduledDate !== undefined) next.lastScheduledDate = String(patch.lastScheduledDate);
     fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
     return next;
@@ -108,23 +112,26 @@ class MaintenanceManager {
       return this.getStatus();
     }
     if (this.jobManager) {
-      const job = this.enqueue(sites, settings.operations, "scheduler", "scheduled", `maintenance.schedule:${localDate}`);
+      const job = this.enqueue(sites, settings.operations, "scheduler", "scheduled", `maintenance.schedule:${localDate}`, {
+        revisionRetention: settings.revisionRetention,
+      });
       const finished = await this.jobManager.wait(job.id);
       if (finished.completed === sites.length) this.updateSettings({ lastScheduledDate: localDate });
       return finished;
     }
-    this.start(sites, settings.operations, "scheduled");
+    this.start(sites, settings.operations, "scheduled", null, { revisionRetention: settings.revisionRetention });
     const status = await this.wait();
     if (status.completed === sites.length) this.updateSettings({ lastScheduledDate: localDate });
     return status;
   }
 
-  enqueue(sites, operations, operator = "system", trigger = "manual", idempotencyKey = "") {
+  enqueue(sites, operations, operator = "system", trigger = "manual", idempotencyKey = "", options = {}) {
     if (!this.jobManager) throw new Error("Shared job manager is not configured");
     if (!Array.isArray(sites) || !sites.length) {
       throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
     }
     const selectedOperations = validateOperations(operations);
+    const revisionRetention = validateRevisionRetention(options.revisionRetention);
     const targets = sites.map((site) => site.host);
     return this.jobManager.create({
       type: "wordpress.maintenance",
@@ -133,10 +140,11 @@ class MaintenanceManager {
       trigger,
       targets,
       conflicts: ["server-heavy", ...targets.map((domain) => `site:${domain}`)],
-      idempotencyKey: idempotencyKey || `maintenance:${[...targets].sort().join(",")}:${[...selectedOperations].sort().join(",")}`,
+      idempotencyKey: idempotencyKey || `maintenance:${[...targets].sort().join(",")}:${[...selectedOperations].sort().join(",")}:revisions-${revisionRetention}`,
       payload: {
         trigger,
         operations: selectedOperations,
+        revisionRetention,
         sites: sites.map((site) => ({
           host: site.host,
           directory: site.directory,
@@ -147,17 +155,19 @@ class MaintenanceManager {
     });
   }
 
-  start(sites, operations, trigger = "manual", jobContext = null) {
+  start(sites, operations, trigger = "manual", jobContext = null, options = {}) {
     if (this.status.running) throw Object.assign(new Error(`Maintenance is already running for ${this.status.currentDomain || "a website"}`), { statusCode: 409 });
     if (!Array.isArray(sites) || !sites.length) throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
     const selectedOperations = validateOperations(operations);
     this.status = { ...this.emptyStatus(), running: true, total: sites.length, startedAt: new Date().toISOString(), message: `${trigger === "scheduled" ? "Scheduled" : "Manual"} maintenance is running` };
     this.saveStatus();
-    this.currentPromise = this.run(sites, selectedOperations, jobContext);
+    this.currentPromise = this.run(sites, selectedOperations, jobContext, {
+      revisionRetention: validateRevisionRetention(options.revisionRetention),
+    });
     return this.getStatus();
   }
 
-  async run(sites, operations, jobContext = null) {
+  async run(sites, operations, jobContext = null, options = {}) {
     const touched = [];
     try {
       await this.backupManager.withLock({ type: "maintenance", label: "WordPress maintenance" }, async () => {
@@ -172,7 +182,7 @@ class MaintenanceManager {
             results: this.status.results,
           });
           try {
-            const result = await this.runner.run(site, operations);
+            const result = await this.runner.run(site, operations, options);
             this.status.results.push({ domain: site.host, ...result });
             touched.push(site.host);
           } catch (error) {
@@ -200,6 +210,20 @@ class MaintenanceManager {
   async wait() {
     if (this.currentPromise) await this.currentPromise;
     return this.getStatus();
+  }
+
+  async previewRevisions(sites, retention) {
+    if (!Array.isArray(sites) || !sites.length) throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
+    const revisionRetention = validateRevisionRetention(retention);
+    const results = [];
+    for (const site of sites) {
+      try {
+        results.push({ domain: site.host, ok: true, ...(await this.runner.previewRevisions(site, revisionRetention)) });
+      } catch (error) {
+        results.push({ domain: site.host, ok: false, message: String(error.stderr || error.message) });
+      }
+    }
+    return { revisionRetention, totalDelete: results.reduce((sum, result) => sum + (result.delete || 0), 0), results };
   }
 }
 

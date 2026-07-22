@@ -14,6 +14,7 @@ function fixture(options = {}) {
     runner: options.runner || { async run() { return { ok: true, operations: [] }; } },
     siteProvider: options.siteProvider || (async () => []),
     afterRun: options.afterRun,
+    jobManager: options.jobManager,
   });
   return { root, jobs, manager };
 }
@@ -37,17 +38,67 @@ test("runs websites sequentially, records results, and purges touched caches", a
   } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
 });
 
+test("queues revision retention in durable payload and deduplication scope", () => {
+  const registered = new Map();
+  const created = [];
+  const context = fixture({
+    jobManager: {
+      register(type, handler) { registered.set(type, handler); },
+      create(input) { created.push(input); return { id: "job-1", ...input }; },
+    },
+  });
+  try {
+    const job = context.manager.enqueue(
+      [{ host: "one.example", directory: "one.example", redis: false }],
+      ["revisions"],
+      "operator@example",
+      "manual",
+      "",
+      { revisionRetention: 7 },
+    );
+    assert.ok(registered.has("wordpress.maintenance"));
+    assert.equal(job.payload.revisionRetention, 7);
+    assert.match(job.idempotencyKey, /revisions-7$/);
+    assert.deepEqual(created[0].payload.operations, ["revisions"]);
+  } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
+});
+
 test("validates and persists weekly maintenance settings", () => {
   const context = fixture();
   try {
     const initial = context.manager.readSettings();
     assert.equal(initial.enabled, false);
     assert.equal(initial.weekday, 0);
+    assert.equal(initial.revisionRetention, 5);
     assert.deepEqual(initial.operations, ["transients", "trash", "cron"]);
-    const settings = context.manager.updateSettings({ enabled: true, weekday: 3, scheduleTime: "04:30", operations: ["cron"] });
+    const settings = context.manager.updateSettings({ enabled: true, weekday: 3, scheduleTime: "04:30", operations: ["cron", "revisions"], revisionRetention: 8 });
     assert.equal(settings.scheduleTime, "04:30");
+    assert.equal(settings.revisionRetention, 8);
     assert.throws(() => context.manager.updateSettings({ weekday: 7 }), (error) => error.statusCode === 400);
     assert.throws(() => context.manager.updateSettings({ scheduleTime: "29:00" }), (error) => error.statusCode === 400);
+    assert.throws(() => context.manager.updateSettings({ revisionRetention: 0 }), (error) => error.statusCode === 400);
+  } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
+});
+
+test("previews revision cleanup sequentially and isolates site failures", async () => {
+  const context = fixture({
+    runner: {
+      async previewRevisions(site, retention) {
+        assert.equal(retention, 6);
+        if (site.host === "bad.example") throw new Error("preview failed");
+        return { total: 12, delete: 3 };
+      },
+    },
+  });
+  try {
+    const preview = await context.manager.previewRevisions([
+      { host: "good.example" },
+      { host: "bad.example" },
+    ], 6);
+    assert.equal(preview.totalDelete, 3);
+    assert.deepEqual(preview.results[0], { domain: "good.example", ok: true, total: 12, delete: 3 });
+    assert.equal(preview.results[1].ok, false);
+    assert.match(preview.results[1].message, /preview failed/);
   } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
 });
 

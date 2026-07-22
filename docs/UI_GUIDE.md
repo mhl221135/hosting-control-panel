@@ -123,16 +123,22 @@ primary WordPress websites; HTML/PHP sites are excluded.
 | --- | --- |
 | **Enable weekly maintenance** | Enables the global weekly scheduler. It is off by default. |
 | **Weekday / Start time** | Chooses one server-local weekly execution window. A missed start runs on the next scheduler check that day. |
-| **Scheduled operations** | Selects expired transient cleanup, trash/spam removal, due WP-Cron execution, and optional database optimization. |
+| **Scheduled operations** | Selects expired transient cleanup, trash/spam removal, due WP-Cron execution, database optimization, and old-revision cleanup. |
+| **Revisions retained per post** | Keeps 1-100 newest revisions for each post. The safe default is five. This value is shared by manual and weekly runs. |
 | **Weekly** | Includes that WordPress website in scheduled runs without changing manual selection. |
 | **Manual operations** | Selects the operations for the next manual batch. |
 | **Select all / Clear** | Changes the current manual website selection. |
+| **Preview revision cleanup** | Counts revisions that would be removed for selected websites without changing WordPress data. |
 | **Run selected websites** | Starts a persisted sequential job and reports each website and operation independently. |
 
 After a processed site, the panel invalidates its FastCGI cache generation. If
 Redis is enabled for that site, its WordPress object cache is flushed as well.
 An operation failure does not prevent the remaining operations or websites from
 running.
+
+Revision cleanup retains the configured newest revisions independently for
+each parent post. The result records how many revisions were found, eligible,
+and deleted. It is disabled in both operation lists by default.
 
 ## Provision
 

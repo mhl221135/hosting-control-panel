@@ -30,7 +30,7 @@ into dedicated directories.
 - Validated global OPcache, FastCGI, Redis, MySQL, and PHP performance settings
 - Deterministic first-install accounts for the panel, NPM, and File Browser
 - Global gzip compression and per-site or bulk WebP image generation
-- Manual and opt-in weekly WordPress cleanup with persisted progress and per-operation results
+- Manual and opt-in weekly WordPress cleanup with revision-retention preview, persisted progress, and per-operation results
 - Per-site manual and scheduled backups with retention
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel

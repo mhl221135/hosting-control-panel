@@ -151,13 +151,6 @@ duplicating the tested shell-script logic.
 
 ## 4. WordPress Maintenance And Controlled Updates
 
-### Remaining Cleanup Work
-
-- Add configurable post-revision retention with a safe default and previewed
-  deletion count.
-- Keep light cleanup weekly rather than daily.
-- Continue isolating failures per operation and per site.
-
 ### Update Workflow
 
 - Inventory WordPress core, plugin, and theme versions across selected sites.
