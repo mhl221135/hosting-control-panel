@@ -24,19 +24,6 @@ function wordpressPath(directory) {
   return normalized;
 }
 
-function databaseOptimizeFailures(output) {
-  const failures = [];
-  let table = "database table";
-  for (const rawLine of String(output || "").split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    if (!/^(?:note|error|status)\s*:/i.test(line)) table = line;
-    const match = line.match(/^error\s*:\s*(.+)$/i);
-    if (match) failures.push(`${table}: ${match[1]}`);
-  }
-  return failures;
-}
-
 class WordPressMaintenanceRunner {
   constructor(options = {}) {
     this.phpContainer = options.phpContainer || "hosting-php-fpm";
@@ -78,10 +65,24 @@ class WordPressMaintenanceRunner {
     if (operation === "cron") {
       return { message: await this.wp(site.directory, ["cron", "event", "run", "--due-now"]) };
     }
-    const message = await this.wp(site.directory, ["db", "optimize", "--skip-ssl", "--skip-plugins", "--skip-themes"], 30 * 60_000);
-    const failures = databaseOptimizeFailures(message);
-    if (failures.length) throw new Error(`Some tables could not be optimized: ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? `; and ${failures.length - 3} more` : ""}`);
-    return { message };
+    const optimizeTables = [
+      "global $wpdb;",
+      "$tables = $wpdb->get_col($wpdb->prepare(\"SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE'\", DB_NAME));",
+      "$failures = [];",
+      "foreach ($tables as $table) {",
+      "  $safe = str_replace(\"`\", \"``\", $table);",
+      "  $rows = $wpdb->get_results(\"OPTIMIZE TABLE `\" . $safe . \"`\");",
+      "  if ($rows === null) { $failures[] = $table . \": \" . ($wpdb->last_error ?: \"query failed\"); continue; }",
+      "  foreach ($rows as $row) {",
+      "    $type = strtolower((string) ($row->Msg_type ?? \"\"));",
+      "    $text = (string) ($row->Msg_text ?? \"\");",
+      "    if ($type === \"error\" || stripos($text, \"operation failed\") !== false) $failures[] = $table . \": \" . $text;",
+      "  }",
+      "}",
+      "if ($failures) WP_CLI::error(\"Some tables could not be optimized: \" . implode(\"; \", array_slice($failures, 0, 3)) . (count($failures) > 3 ? \"; and \" . (count($failures) - 3) . \" more\" : \"\"));",
+      "WP_CLI::success(\"Optimized \" . count($tables) . \" database tables.\");",
+    ].join("\n");
+    return { message: await this.wp(site.directory, ["eval", optimizeTables, "--skip-plugins", "--skip-themes"], 30 * 60_000) };
   }
 
   async run(site, requestedOperations) {
@@ -105,4 +106,4 @@ class WordPressMaintenanceRunner {
   }
 }
 
-module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, databaseOptimizeFailures, validateOperations, wordpressPath };
+module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, validateOperations, wordpressPath };

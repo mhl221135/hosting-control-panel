@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { WordPressMaintenanceRunner, databaseOptimizeFailures, validateOperations, wordpressPath } = require("../lib/wordpress-maintenance");
+const { WordPressMaintenanceRunner, validateOperations, wordpressPath } = require("../lib/wordpress-maintenance");
 
 test("validates operations and confines WordPress paths", () => {
   assert.deepEqual(validateOperations(["cron", "cron", "transients"]), ["cron", "transients"]);
@@ -9,17 +9,6 @@ test("validates operations and confines WordPress paths", () => {
   assert.equal(wordpressPath("example.com"), "/var/www/example.com");
   assert.throws(() => wordpressPath("../../etc"), /Invalid WordPress directory/);
   assert.throws(() => wordpressPath(""), /Invalid WordPress directory/);
-});
-
-test("extracts mysqlcheck table failures despite WP-CLI success output", () => {
-  assert.deepEqual(databaseOptimizeFailures(`
-example.wp_posts
-note     : Table does not support optimize, doing recreate + analyze instead
-error    : Invalid default value for 'post_date'
-status   : Operation failed
-example.wp_options
-status   : OK
-  `), ["example.wp_posts: Invalid default value for 'post_date'"]);
 });
 
 test("runs selected maintenance commands without shell interpolation", async () => {
@@ -40,10 +29,10 @@ test("runs selected maintenance commands without shell interpolation", async () 
   assert.ok(calls.every((call) => call.file === "docker"));
   assert.ok(calls.every((call) => call.args.includes("--path=/var/www/example.com")));
   assert.deepEqual(calls[0].args.slice(0, 9), ["exec", "-u", "33:33", "hosting-php-fpm", "nice", "-n", "10", "wp", "--allow-root"]);
-  const databaseCall = calls.find((call) => call.args.includes("db"));
+  const databaseCall = calls.find((call) => call.args.includes("eval"));
   assert.ok(databaseCall);
-  assert.ok(databaseCall.args.includes("optimize"));
-  assert.ok(databaseCall.args.includes("--skip-ssl"));
+  assert.ok(databaseCall.args.some((arg) => arg.includes("OPTIMIZE TABLE")));
+  assert.ok(databaseCall.args.some((arg) => arg.includes("WP_CLI::error")));
   assert.ok(calls.some((call) => call.args.includes("flush")));
 });
 
@@ -67,13 +56,4 @@ test("deletes trash in bounded batches and keeps operation failures isolated", a
   assert.equal(calls.filter((args) => args.includes("delete") && args.includes("post")).length, 2);
   assert.equal(calls.filter((args) => args.includes("delete") && args.includes("comment")).length, 1);
   assert.match(result.operations[1].message, /cron failed/);
-});
-
-test("marks partial database optimization errors as a failed operation", async () => {
-  const runner = new WordPressMaintenanceRunner({
-    execFile: async () => ({ stdout: "example.wp_posts\nerror : Invalid default value for 'post_date'\nstatus : Operation failed\nSuccess: Database optimized." }),
-  });
-  const result = await runner.run({ directory: "example.com", redis: false }, ["database"]);
-  assert.equal(result.ok, false);
-  assert.match(result.operations[0].message, /example\.wp_posts/);
 });
