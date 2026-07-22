@@ -69,6 +69,11 @@ and cancellation at safe operation boundaries. Queued jobs survive a panel
 restart; interrupted running jobs are marked failed. `JOB_HISTORY_LIMIT`
 controls retained records and defaults to 250.
 
+Website deletion uses the same queue. The worker revalidates live ownership,
+reports each completed resource, and permits cancellation only before the
+destructive sequence starts. Failed deletion jobs require a fresh preview and
+new submission rather than unsafe automatic retry.
+
 ## Website provisioning
 
 Open **Provision** to create a site, PHP-FPM pool, database and database user,

@@ -28,9 +28,15 @@ Finish adopting the implemented durable job service for imports, exports,
 provisioning imports, deletion, WordPress updates, off-site copies, and future
 bulk operations.
 
+Website deletion now uses the durable job system with conflict locks, live
+ownership revalidation, bounded progress, notification delivery, and
+cancellation only at coherent safety boundaries. Destructive deletion jobs are
+not retryable because a partially completed external deletion cannot be replayed
+without a new ownership preview.
+
 ### Requirements
 
-- Move website import/provisioning and deletion off browser-bound requests.
+- Move website import and provisioning off browser-bound requests.
 - Design one-time credential delivery for fresh provisioning without storing
   generated database or WordPress passwords in `jobs.json`.
 - Register import/export, WordPress update, off-site copy, Cloudflare bulk, and

@@ -265,7 +265,7 @@ changed resources are detected.
 | **Cloudflare A, AAAA, and CNAME records** | Removes exact web-host records; mail and unrelated records are retained. |
 | **Panel cache and backup settings** | Clears saved per-site cache and scheduling state. |
 | **Stored website backups** | Deletes all stored backup sets for the site. This is off by default. |
-| **Delete selected resources** | Executes checked actions only after the confirmation domain exactly matches. |
+| **Delete selected resources** | Queues a durable deletion job after the confirmation domain exactly matches. Follow progress and results in **Jobs**. |
 
 Uncheck any resource that must be retained. Shared resources are disabled or
 skipped rather than force-deleted.

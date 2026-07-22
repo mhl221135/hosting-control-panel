@@ -1699,16 +1699,15 @@ $("#siteRemovalForm").addEventListener("submit", async (event) => {
   if (body.confirm_domain.trim().toLowerCase() !== domain) return notice(`Type ${domain} exactly to confirm deletion.`, "warning");
   if (!confirm(`Permanently delete the selected resources for ${domain}?`)) return;
   try {
-    const result = await withButton(event.submitter, "Deleting...", () => api("/api/site-removal", {
+    const result = await withButton(event.submitter, "Queueing...", () => api("/api/site-removal", {
       method: "POST",
       body: JSON.stringify({ domain, ...body }),
     }));
-    $("#removalResult").innerHTML = `<h3>${escapeHtml(domain)} removal completed</h3><p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}`).join(" · ")}</p>`;
+    $("#removalResult").innerHTML = `<h3>${escapeHtml(domain)} removal queued</h3><p>Follow progress and results in Jobs.</p>`;
     $("#removalResult").classList.remove("hidden");
-    notice(`Selected resources for ${domain} were deleted.`);
+    rememberJob(result.job, `Website deletion queued for ${domain}`);
     state.removalPlan = null;
-    await loadData();
-    switchTab("sites");
+    switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });
 

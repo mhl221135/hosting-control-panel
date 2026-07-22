@@ -32,6 +32,7 @@ const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
 const { StatsCollector } = require("./lib/stats-collector");
 const { buildSiteRemovalPlan } = require("./lib/site-removal-plan");
+const { jobInput: siteRemovalJobInput, parseSelection: parseSiteRemovalSelection, validateSelection: validateSiteRemovalSelection } = require("./lib/site-removal-job");
 const { MigrationManager, safeRelative } = require("./lib/migration-manager");
 const { ProvisionImportStore } = require("./lib/provision-import-store");
 const { MaintenanceManager } = require("./lib/maintenance-manager");
@@ -749,39 +750,8 @@ async function createSiteRemovalPlan(domain) {
   });
 }
 
-async function executeSiteRemoval(domain, body) {
-  if (String(body.confirm_domain || "").trim().toLowerCase() !== domain) {
-    const error = new Error(`Type ${domain} exactly to confirm deletion`);
-    error.statusCode = 400;
-    throw error;
-  }
-  const selected = {
-    finalBackup: Boolean(body.final_backup),
-    cloudflareDns: Boolean(body.cloudflare_dns),
-    npmHost: Boolean(body.npm_host),
-    npmCertificate: Boolean(body.npm_certificate),
-    runtime: Boolean(body.runtime),
-    pool: Boolean(body.pool),
-    panelState: Boolean(body.panel_state),
-    database: Boolean(body.database),
-    files: Boolean(body.files),
-    backups: Boolean(body.backups),
-  };
-  if (!Object.values(selected).some(Boolean)) {
-    const error = new Error("Select at least one resource to delete");
-    error.statusCode = 400;
-    throw error;
-  }
-  if (selected.finalBackup && selected.backups) {
-    const error = new Error("A final backup cannot be created and deleted in the same operation");
-    error.statusCode = 400;
-    throw error;
-  }
-  if (selected.pool && !selected.runtime) {
-    const error = new Error("Remove runtime host records before removing their PHP pool");
-    error.statusCode = 400;
-    throw error;
-  }
+async function executeSiteRemoval(domain, selected, jobContext = null) {
+  validateSiteRemovalSelection(selected);
   const operationStatus = backupManager.status();
   if (operationStatus.busy) {
     const error = new Error(`Cannot delete while another storage operation is running: ${operationStatus.currentJob?.label || "busy"}`);
@@ -815,23 +785,37 @@ async function executeSiteRemoval(domain, body) {
     const runtime = currentSites();
     const site = runtime.sites.find((item) => item.host === domain && !item.isAlias);
     const steps = [];
+    const record = (step) => {
+      steps.push(step);
+      jobContext?.update({
+        completed: steps.length,
+        results: steps.map((item) => ({ ...item, ok: true })),
+      });
+    };
     if (selected.finalBackup) {
+      jobContext?.checkpoint("Cancelled before the final safety backup");
+      jobContext?.update({ currentStep: `Creating final backup for ${domain}` });
       const backup = await backupManager.createSiteBackup(site, backupManager.readSettings().retention + 1);
-      steps.push({ name: "final-backup", status: "complete", id: backup.id });
+      record({ name: "final-backup", status: "complete", id: backup.id });
     }
+    jobContext?.checkpoint("Cancelled before destructive removal began");
     if (selected.cloudflareDns) {
+      jobContext?.update({ currentStep: `Removing Cloudflare DNS for ${domain}` });
       for (const recordId of plan.resources.cloudflareDns.ids) await cloudflare.deleteRecord(domain, recordId);
-      steps.push({ name: "cloudflare-dns", status: "complete", count: plan.resources.cloudflareDns.count });
+      record({ name: "cloudflare-dns", status: "complete", count: plan.resources.cloudflareDns.count });
     }
     if (selected.npmHost) {
+      jobContext?.update({ currentStep: `Removing proxy host for ${domain}` });
       for (const hostId of plan.resources.npmHost.ids) await npm.deleteHost(hostId);
-      steps.push({ name: "npm-host", status: "complete", count: plan.resources.npmHost.count });
+      record({ name: "npm-host", status: "complete", count: plan.resources.npmHost.count });
     }
     if (selected.npmCertificate) {
+      jobContext?.update({ currentStep: `Removing certificate for ${domain}` });
       for (const certificateId of plan.resources.npmCertificate.ids) await npm.deleteCertificate(certificateId);
-      steps.push({ name: "npm-certificate", status: "complete", count: plan.resources.npmCertificate.count });
+      record({ name: "npm-certificate", status: "complete", count: plan.resources.npmCertificate.count });
     }
     if (selected.runtime) {
+      jobContext?.update({ currentStep: `Removing runtime configuration for ${domain}` });
       const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
       const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
       const mapParsed = parseSitesMap(mapBefore);
@@ -846,28 +830,43 @@ async function executeSiteRemoval(domain, body) {
       }
       writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
       await validateAndReload(mapBefore, poolsBefore);
-      steps.push({ name: "runtime", status: "complete", count: plan.targetDomains.length });
-      if (selected.pool) steps.push({ name: "pool", status: "complete", count: 1 });
+      record({ name: "runtime", status: "complete", count: plan.targetDomains.length });
+      if (selected.pool) record({ name: "pool", status: "complete", count: 1 });
     }
     if (selected.panelState) {
+      jobContext?.update({ currentStep: `Removing panel state for ${domain}` });
       siteState.remove(plan.targetDomains);
-      steps.push({ name: "panel-state", status: "complete" });
+      record({ name: "panel-state", status: "complete" });
     }
     if (selected.database) {
+      jobContext?.update({ currentStep: `Removing database for ${domain}` });
       await dropDatabaseAndUser(plan.database.name, plan.database.user, integrationSettings.resolved());
-      steps.push({ name: "database", status: "complete", database: plan.database.name });
+      record({ name: "database", status: "complete", database: plan.database.name });
     }
     if (selected.files) {
+      jobContext?.update({ currentStep: `Removing website files for ${domain}` });
       removeSiteDirectory(WEBSITES_ROOT, plan.directory);
-      steps.push({ name: "files", status: "complete", directory: plan.directory });
+      record({ name: "files", status: "complete", directory: plan.directory });
     }
     if (selected.backups) {
+      jobContext?.update({ currentStep: `Removing stored backups for ${domain}` });
       backupManager.deleteSiteBackups(domain);
-      steps.push({ name: "backups", status: "complete" });
+      record({ name: "backups", status: "complete" });
     }
-    return { ok: true, domain, steps };
+    return {
+      ok: true,
+      domain,
+      steps,
+      results: steps.map((step) => ({ ...step, ok: true })),
+      total: Object.values(selected).filter(Boolean).length,
+      completed: steps.length,
+      message: `Selected resources for ${domain} were deleted`,
+    };
   });
 }
+
+jobManager.register("site.remove", (context, payload) =>
+  executeSiteRemoval(validateDomain(payload.domain), validateSiteRemovalSelection(payload.selected), context));
 
 async function provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords }) {
   const uploadId = String(body.import_upload_id || "");
@@ -1039,7 +1038,8 @@ async function handleApi(req, res) {
   if (req.method === "POST" && requestUrl.pathname === "/api/site-removal") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const domain = validateDomain(body.domain);
-    sendJson(res, 200, await executeSiteRemoval(domain, body));
+    const selected = parseSiteRemovalSelection(domain, body);
+    sendJson(res, 202, { ok: true, job: jobManager.create(siteRemovalJobInput(domain, selected, req.auth.email)) });
     return true;
   }
 
