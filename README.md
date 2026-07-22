@@ -40,7 +40,7 @@ into dedicated directories.
 - Runtime logs and service actions
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Encrypted NPM and Cloudflare credentials at rest
-- ARM64 PHP image with WP-CLI, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
+- ARM64 PHP image with WP-CLI, MySQL client tools, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
 
 ## Architecture
 

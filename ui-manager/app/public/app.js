@@ -456,7 +456,10 @@ function renderMaintenance() {
   const results = status.results || [];
   $("#maintenanceResults").classList.toggle("empty", !results.length);
   $("#maintenanceResults").innerHTML = results.length ? results.map((result) => {
-    const operations = (result.operations || []).map((operation) => `${maintenanceOperationLabel(operation.operation)}: ${operation.ok ? "complete" : "failed"}`).join(" · ");
+    const operations = (result.operations || []).map((operation) => {
+      const detail = operation.ok ? "complete" : `failed${operation.message ? ` (${String(operation.message).trim().slice(0, 180)})` : ""}`;
+      return `${maintenanceOperationLabel(operation.operation)}: ${detail}`;
+    }).join(" · ");
     return `<div class="maintenance-result ${result.ok ? "" : "has-error"}"><strong>${escapeHtml(result.domain)}</strong><span>${escapeHtml(operations || result.message || "No result details")}</span></div>`;
   }).join("") : "No results.";
 

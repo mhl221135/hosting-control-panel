@@ -15,6 +15,7 @@ RUN apt-get update && apt-get install -y \
     imagemagick \
     libfcgi-bin \
     libmagickwand-dev \
+    default-mysql-client \
     unzip \
     git \
     curl \
