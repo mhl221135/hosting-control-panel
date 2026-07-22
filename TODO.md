@@ -81,8 +81,6 @@ operating a local mail server or using Telegram as backup storage.
 
 ### Remaining Events
 
-- Capture direct certificate issuance/renewal job failures, not only expiry and
-  NPM API state.
 - Import/export and WordPress-update failures become covered when those
   operations adopt the shared background-job service.
 - Hosting/domain renewal reminders after the billing service exists.

@@ -61,6 +61,7 @@ routes. There is no Express framework or external npm dependency.
 | `job-manager.js` | durable queue, conflict scheduling, recovery, cancellation, retries, bounded history |
 | `integration-settings.js` | AES-256-GCM secrets and environment fallback |
 | `integrations.js` | NPM, ACME, Cloudflare DNS and Security clients |
+| `certificate-job-manager.js` | durable NPM certificate issuance/renewal with ownership revalidation |
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
 | `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations and bounded revision retention/preview |
@@ -143,6 +144,11 @@ and survive panel restarts in `/app/data/notification-deliveries.json`; channel
 state is copied onto the originating job for the UI. Notification credentials
 are AES-256-GCM encrypted separately from delivery history, and provider
 responses are not retained.
+
+Direct certificate issuance and renewal are durable jobs, so provider failures
+reach the same terminal notification path as backups and provisioning. Renewal
+revalidates the selected hostname/certificate relationship immediately before
+calling NPM; certificate operations are serialized and are not blindly retried.
 
 `health-monitor.js` runs a lightweight interval gate rather than collecting
 continuous metrics. It checks core container and service state, attached NPM

@@ -80,8 +80,13 @@ authorization, cookie, SQL, or dump fields are rejected before persistence.
 |---|---|
 | `GET /api/npm/hosts` | list proxy hosts |
 | `GET /api/npm/certificates` | list certificates |
-| `POST /api/npm/hosts/ensure` | create/link host and optionally issue SSL |
-| `POST /api/npm/certificates/renew` | renew a host certificate |
+| `POST /api/npm/hosts/ensure` | create/link a host synchronously, or queue certificate issuance with `issue_ssl` |
+| `POST /api/npm/certificates/renew` | queue renewal of a certificate revalidated against the selected host |
+
+Certificate issuance and renewal return `202` with a durable job. Their exact
+failures flow through normal job notifications. These external mutations are
+serialized per NPM integration and website, cannot be cancelled after starting,
+and require a fresh operator action after failure instead of blind retry.
 
 ### Cloudflare
 
