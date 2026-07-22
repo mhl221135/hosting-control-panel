@@ -20,6 +20,7 @@ Open **Settings** in the panel to configure:
 - MySQL container name and database/user prefix
 - Global PHP, OPcache, FastCGI, Redis, and MySQL resource limits
 - Telegram and external SMTP job notifications, recipients, severity filters, and test actions
+- Scheduled operational health checks, incident/recovery notifications, thresholds, and required containers
 
 NPM and Cloudflare secrets are encrypted at rest with AES-256-GCM. Use
 `UI_SETTINGS_KEY` for a stable externally managed encryption key, or let the
@@ -29,6 +30,12 @@ Telegram bot tokens and SMTP passwords use the same encryption design in a
 separate notification settings file. Failed, partial, and cancelled jobs notify
 enabled channels by default; successful-job alerts are opt-in. Delivery retry
 state is durable and visible in **Jobs**.
+
+The **Health** workspace checks core containers, MySQL, the NPM API and attached
+certificate expiry, OPcache pressure, and website/backup storage. It records
+only incident transitions, sends recovery alerts, and keeps bounded state in
+`/app/data/health-state.json`. Configure it in **Settings**; scheduled checks are
+disabled by default.
 
 The MySQL root password stays in the MySQL container environment and is never
 stored by the panel.

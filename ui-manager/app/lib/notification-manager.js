@@ -133,6 +133,62 @@ class NotificationManager {
     this.process().catch(() => {});
   }
 
+  enqueueEvent(input) {
+    const severity = ["critical", "failure", "warning", "success"].includes(input.severity)
+      ? input.severity
+      : "warning";
+    const settings = this.settings.resolved();
+    const channels = this.enabledChannels(settings);
+    if (!channels.length || (input.respectSeverityFilter !== false && !this.severityEnabled(settings, severity))) return null;
+    const dedupeKey = bounded(input.dedupeKey || `${input.eventType}:${input.eventId}`, 240);
+    const existing = this.deliveries.find((item) => item.dedupeKey === dedupeKey);
+    if (existing) return this.publicDelivery(existing.id);
+    const timestamp = this.now().toISOString();
+    const delivery = {
+      id: crypto.randomUUID(),
+      dedupeKey,
+      eventType: bounded(input.eventType || "event", 80),
+      eventId: bounded(input.eventId || crypto.randomUUID(), 160),
+      severity,
+      status: "queued",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      nextAttemptAt: timestamp,
+      channels: Object.fromEntries(channels.map((channel) => [channel, {
+        status: "queued", attempts: 0, lastAttemptAt: "", error: "",
+      }])),
+      event: {
+        label: bounded(input.label, 160),
+        status: bounded(input.status || "event", 80),
+        operator: "system",
+        targets: (input.targets || []).slice(0, 10).map((target) => bounded(target, 160)),
+        message: bounded(input.message, 500),
+        error: bounded(input.error, 500),
+        finishedAt: input.finishedAt || timestamp,
+      },
+    };
+    this.deliveries.push(delivery);
+    this.persist();
+    this.process().catch(() => {});
+    return this.publicDelivery(delivery.id);
+  }
+
+  publicDelivery(id) {
+    const delivery = this.deliveries.find((item) => item.id === id);
+    if (!delivery) return null;
+    return {
+      id: delivery.id,
+      status: delivery.status,
+      severity: delivery.severity,
+      updatedAt: delivery.updatedAt,
+      channels: Object.fromEntries(Object.entries(delivery.channels).map(([name, value]) => [name, {
+        status: value.status,
+        attempts: value.attempts,
+        error: value.error,
+      }])),
+    };
+  }
+
   formatMessage(event, settings, test = false) {
     const title = test ? "Notification test" : `${event.severity.toUpperCase()}: ${event.label}`;
     const lines = [

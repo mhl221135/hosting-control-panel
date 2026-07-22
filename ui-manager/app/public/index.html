@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260722-7" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-8" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -27,6 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
+            <option value="health">Health</option>
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
             <option value="provision">Provision</option>
@@ -42,6 +43,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
+          <button class="nav-item" data-tab-link="health" data-short="HL" title="Health">Health</button>
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
           <button class="nav-item" data-tab-link="provision" data-short="PR" title="Provision">Provision</button>
@@ -140,6 +142,29 @@
             </div>
             <article class="panel"><h3>Top requested paths</h3><div id="sitePathStats" class="rank-list"></div></article>
           </section>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="health">
+          <div class="section-head">
+            <div><h2>Operational health</h2><p id="healthUpdated">No health check has run.</p></div>
+            <button id="runHealthCheck" type="button">Run health check</button>
+          </div>
+          <div class="metrics">
+            <article><span>Overall state</span><strong id="healthOverall">Not checked</strong></article>
+            <article><span>Critical</span><strong id="healthCritical">0</strong></article>
+            <article><span>Warnings</span><strong id="healthWarnings">0</strong></article>
+            <article><span>Check duration</span><strong id="healthDuration">-</strong></article>
+          </div>
+          <div class="two-column health-layout">
+            <article class="panel">
+              <div class="card-head"><div><h3>Active incidents</h3><p class="muted">Alerts are sent only when an issue opens, changes, or recovers.</p></div></div>
+              <div id="healthActive" class="health-list empty">No active incidents.</div>
+            </article>
+            <article class="panel">
+              <div class="card-head"><div><h3>Event history</h3><p class="muted">Recent health transitions and notification delivery state.</p></div></div>
+              <div id="healthHistory" class="health-list empty">No health events recorded.</div>
+            </article>
+          </div>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="jobs">
@@ -531,6 +556,19 @@
             <div class="form-actions full"><button type="submit">Save notification settings</button></div>
           </form>
 
+          <form id="healthSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>Operational health monitoring</h3><p>Check core containers, MySQL, proxy certificates, OPcache, and storage without continuous metrics collection.</p></div>
+            <label>Check interval (minutes)<input name="intervalMinutes" type="number" min="1" max="60" required /></label>
+            <label>OPcache warning (%)<input name="opcacheWarningPercent" type="number" min="50" max="99" required /></label>
+            <label>Disk warning (%)<input name="diskWarningPercent" type="number" min="50" max="98" required /></label>
+            <label>Disk critical (%)<input name="diskCriticalPercent" type="number" min="51" max="99" required /></label>
+            <label>Certificate warning (days)<input name="certificateWarningDays" type="number" min="7" max="90" required /></label>
+            <label>Certificate critical (days)<input name="certificateCriticalDays" type="number" min="1" max="30" required /></label>
+            <label class="full">Required containers<textarea name="requiredContainers" rows="4" placeholder="One container name per line" required></textarea></label>
+            <label class="check inline"><input name="enabled" type="checkbox" /> Enable scheduled health checks</label>
+            <div class="form-actions full"><button type="submit">Save health settings</button></div>
+          </form>
+
           <form id="performanceSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>PHP and OPcache</h3></div>
             <label>PHP memory per request (MB)<input name="phpMemoryLimitMb" type="number" min="128" max="2048" required /></label>
@@ -617,6 +655,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260722-7"></script>
+    <script src="/app.js?v=20260722-8"></script>
   </body>
 </html>

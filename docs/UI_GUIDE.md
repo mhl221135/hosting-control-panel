@@ -75,6 +75,19 @@ high-frequency background collector.
 Traffic details are based on a bounded recent access-log sample. They are useful
 for diagnosis, not long-term analytics or billing.
 
+## Health
+
+| Control or section | Function |
+| --- | --- |
+| **Run health check** | Immediately checks configured containers, MySQL, NPM, attached certificates, OPcache, and storage. |
+| **Overall state** | Summarizes the latest check as healthy, warning, or critical. |
+| **Active incidents** | Shows unresolved issues and when each one opened. |
+| **Event history** | Shows opened, updated, and recovered transitions plus notification delivery state. |
+| **Operational health monitoring** | In Settings, enables scheduled checks and controls interval, thresholds, and required containers. |
+
+Checks do not generate repeated alerts while an incident remains unchanged.
+Recovery creates a separate success notification.
+
 ## Jobs
 
 The Jobs workspace is the durable activity view for backups, restores,

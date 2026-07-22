@@ -138,6 +138,13 @@ state is copied onto the originating job for the UI. Notification credentials
 are AES-256-GCM encrypted separately from delivery history, and provider
 responses are not retained.
 
+`health-monitor.js` runs a lightweight interval gate rather than collecting
+continuous metrics. It checks core container and service state, attached NPM
+certificate expiry, OPcache pressure, and storage thresholds. Active incidents
+are reconciled by stable keys, so notifications are created only when an issue
+opens, changes, or resolves. `/app/data/health-state.json` preserves active
+state and bounded transition history across panel restarts.
+
 ## Backup And Restore
 
 The job scheduler serializes backups, restores, maintenance, and image work
