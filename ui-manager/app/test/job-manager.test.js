@@ -185,3 +185,21 @@ test("deduplicates active submissions and reports a completed final step accurat
     fs.rmSync(context.root, { recursive: true, force: true });
   }
 });
+
+test("redacts command-line database and WordPress passwords from failed jobs", async () => {
+  const context = fixture();
+  try {
+    context.manager.register("site.provision", async () => {
+      throw new Error("Command failed --dbpass=db-secret --admin_password=wp-secret IDENTIFIED BY 'sql-secret'");
+    });
+    context.manager.start();
+    const queued = context.manager.create({ type: "site.provision", payload: {} });
+    const job = await context.manager.wait(queued.id);
+    assert.equal(job.status, "failed");
+    assert.equal(job.error.includes("db-secret"), false);
+    assert.equal(job.error.includes("wp-secret"), false);
+    assert.equal(job.error.includes("sql-secret"), false);
+  } finally {
+    fs.rmSync(context.root, { recursive: true, force: true });
+  }
+});

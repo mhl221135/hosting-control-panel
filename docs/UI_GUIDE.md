@@ -174,12 +174,15 @@ proxy host, and certificate. HTML/PHP sites do not create a database.
 | **Server IPv4** | Selects a saved server address or accepts a manually entered IPv4 address. |
 | **Add DNS preset records** | Applies the selected reusable DNS record set after host DNS is created. |
 | **Installation packages** | Selects uploaded plugin and theme ZIP files for fresh installation. No package is selected by default. The first selected theme is activated. |
-| **Create website** | Validates the complete request and starts provisioning. |
+| **Create website** | Validates the request and queues durable provisioning; follow progress in Jobs. |
 | **Upload plugins / Upload themes** | Adds ZIP packages to the persistent panel library for future installations. |
 
 The fresh WordPress installer removes the default `Hello world!` post. Failed
-provisioning reports the completed step and preserves enough state for repair;
-it does not silently overwrite an existing non-empty website or database.
+provisioning reports the completed step in **Jobs** and preserves failed import
+staging for up to 24 hours. Successful WordPress jobs show **Reveal credentials**;
+the encrypted credentials expire after 24 hours and disappear immediately after
+the first reveal. Provisioning does not silently overwrite an existing non-empty
+website or configured domain.
 
 ## DNS & SSL
 

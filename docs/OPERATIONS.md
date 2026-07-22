@@ -148,6 +148,11 @@ Uploaded files are staged under `imports/ui-provision`. Successful imports and
 staging older than 24 hours are removed automatically. Failed imports retain
 their staged inputs so the form can be retried until expiration.
 
+The final import runs in **Jobs**, so closing the upload page does not stop it.
+Cancellation is honored only before archive extraction/import or runtime
+configuration mutation. WordPress credentials can be revealed once from a
+successful job and expire after 24 hours; they cannot be recovered afterward.
+
 ### Website returns 502
 
 1. Check the NPM host forwards to `hosting-nginx:80` over HTTP.

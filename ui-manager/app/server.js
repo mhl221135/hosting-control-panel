@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const http = require("http");
+const crypto = require("crypto");
 const { exec, execFile } = require("child_process");
 const { AuthStore } = require("./lib/auth");
 const { IntegrationSettings } = require("./lib/integration-settings");
@@ -42,6 +43,8 @@ const { NotificationSettings } = require("./lib/notification-settings");
 const { NotificationManager } = require("./lib/notification-manager");
 const { HealthSettings } = require("./lib/health-settings");
 const { HealthMonitor } = require("./lib/health-monitor");
+const { OneTimeVault } = require("./lib/one-time-vault");
+const { jobInput: provisioningJobInput, safeProvisionPayload } = require("./lib/provisioning-job");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -191,6 +194,10 @@ const healthMonitor = new HealthMonitor({
   maxHistory: Number(process.env.HEALTH_HISTORY_LIMIT || 250),
 });
 const provisionImports = new ProvisionImportStore({ importsRoot: IMPORTS_ROOT });
+const provisioningVault = new OneTimeVault({
+  dataDir: DATA_DIR,
+  ttlHours: process.env.PROVISION_CREDENTIAL_TTL_HOURS || 24,
+});
 const migrationManager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
@@ -203,6 +210,10 @@ const migrationManager = new MigrationManager({
   cloudflare,
   siteState,
 });
+
+function decorateJob(job, operator) {
+  return job ? { ...job, oneTimeAccessAvailable: provisioningVault.has(job.id, operator) } : null;
+}
 
 function sendJson(res, code, obj, headers = {}) {
   res.writeHead(code, { "Content-Type": "application/json; charset=utf-8", ...headers });
@@ -868,7 +879,7 @@ async function executeSiteRemoval(domain, selected, jobContext = null) {
 jobManager.register("site.remove", (context, payload) =>
   executeSiteRemoval(validateDomain(payload.domain), validateSiteRemovalSelection(payload.selected), context));
 
-async function provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords }) {
+async function provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords, jobContext }) {
   const uploadId = String(body.import_upload_id || "");
   const settings = integrationSettings.resolved();
   const databaseName = mysqlIdentifier(domain, settings.mysqlSitePrefix || process.env.MYSQL_SITE_PREFIX || "yogali00_");
@@ -876,7 +887,11 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
   const aliases = alias ? [alias] : [];
 
   return backupManager.withLock({ type: "site-import", domain, label: `Import ${domain}` }, async () => {
+    jobContext?.checkpoint("Provisioning cancelled before archive preparation");
+    jobContext?.update({ completed: 1, currentStep: "Validating and preparing uploaded archives" });
     const prepared = await provisionImports.prepare(uploadId, directory);
+    jobContext?.checkpoint("Provisioning cancelled before website and database import");
+    jobContext?.update({ completed: 2, currentStep: "Importing website files and database" });
     const manifest = {
       version: 1,
       type: "hosting-sites-export",
@@ -912,6 +927,7 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
       issueSsl: Boolean(body.issue_ssl),
       includeCredentials: true,
     });
+    jobContext?.update({ completed: 6, currentStep: "Applying optional website integrations" });
     const result = imported.results[0];
     const steps = [
       { name: "website-import", status: "complete" },
@@ -941,6 +957,7 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
       notes: String(body.notes || "").slice(0, 2000),
     });
     provisionImports.remove(uploadId);
+    jobContext?.update({ completed: 8, currentStep: "Finalizing imported website" });
     return {
       ok: true,
       imported: true,
@@ -954,6 +971,174 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
     };
   });
 }
+
+function validateProvisionRequest(body) {
+  const domain = validateDomain(body.domain);
+  const directory = safeRelative(String(body.directory || domain).trim(), "website directory");
+  const sourceMode = body.source_mode === "import" ? "import" : "fresh";
+  const siteType = body.site_type === "static" ? "static" : "wordpress";
+  const adminEmail = String(body.admin_email || "").trim().toLowerCase();
+  const adminUser = String(body.admin_user || "admin").trim();
+  if (siteType === "wordpress" && sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
+    throw Object.assign(new Error("Enter a valid WordPress administrator email"), { statusCode: 400 });
+  }
+  if (siteType === "wordpress" && sourceMode === "fresh" && !/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
+    throw Object.assign(new Error("WordPress administrator username is invalid"), { statusCode: 400 });
+  }
+  if (sourceMode === "import" && !body.import_upload_id) {
+    throw Object.assign(new Error("Upload the website files before starting the import"), { statusCode: 400 });
+  }
+  return { domain, directory, sourceMode, siteType, adminEmail, adminUser };
+}
+
+async function executeProvisioning(body, jobContext, adminPassword = "") {
+  const { domain, directory, sourceMode, siteType, adminEmail, adminUser } = validateProvisionRequest(body);
+  const pluginPackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
+  const themePackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
+  const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
+  const presetRecords = body.apply_dns_preset
+    ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
+    : [];
+  const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
+  const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
+  const mapParsed = parseSitesMap(mapBefore);
+  const poolsParsed = parsePools(poolsBefore);
+  if (mapParsed.hosts[domain]) {
+    throw Object.assign(new Error("Domain is already configured"), { statusCode: 409 });
+  }
+
+  if (siteType === "wordpress" && sourceMode === "import") {
+    return provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords, jobContext });
+  }
+
+  jobContext?.checkpoint("Provisioning cancelled before website files were prepared");
+  jobContext?.update({ completed: 1, currentStep: sourceMode === "import" ? "Extracting website archive" : "Preparing website files" });
+  const sitePath = prepareSiteDirectory(WEBSITES_ROOT, directory);
+  if (siteType === "static") {
+    if (sourceMode === "import") {
+      await provisionImports.installWebsiteArchive(String(body.import_upload_id || ""), sitePath);
+    } else {
+      fs.writeFileSync(
+        path.join(sitePath, "index.html"),
+        `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body><main><h1>${domain}</h1></main></body></html>\n`,
+        { encoding: "utf8", mode: 0o664 },
+      );
+    }
+    await normalizeWordPressPermissions(directory);
+  }
+
+  jobContext?.checkpoint("Provisioning cancelled before runtime configuration was changed");
+  jobContext?.update({ completed: 2, currentStep: "Creating PHP and nginx runtime configuration" });
+  const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
+  const port = Math.max(9000, ...usedPorts) + 1;
+  const poolName = sanitizeSectionName(domain);
+  const defaults = readDefaultPool();
+  const presets = readPoolPresets();
+  const tier = normalizeTier(body.pool_tier, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+  const root = `/var/www/${directory}`;
+  poolsParsed.sections[poolName] = buildPoolSettings({
+    incomingPool: {}, basePool: {}, defaults, tierName: tier, root, port, presets,
+  });
+  setPoolOpcache(poolsParsed.sections[poolName], body.opcache !== false);
+  poolsParsed.sectionOrder.push(poolName);
+  mapParsed.hosts[domain] = { host: domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
+  const domains = [domain];
+  if (body.add_www && !domain.startsWith("www.")) {
+    const alias = `www.${domain}`;
+    domains.push(alias);
+    mapParsed.hosts[alias] = { host: alias, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: domain };
+  }
+
+  writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+  const steps = [];
+  await validateAndReload(mapBefore, poolsBefore);
+  steps.push({ name: "runtime", status: "complete" });
+  jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
+  let database = null;
+  if (siteType === "wordpress") {
+    database = await createDatabase(domain, integrationSettings.resolved());
+    steps.push({ name: "database", status: "complete", database: database.name });
+    await installWordPress({
+      domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
+      adminPassword, redis: Boolean(body.redis), useHttps: false,
+      commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
+      keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
+    });
+    steps.push({ name: "wordpress", status: "complete" });
+  } else {
+    steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
+  }
+
+  siteState.update(domain, {
+    fastcgiCache: Boolean(body.fastcgi_cache), redis: siteType === "wordpress" && Boolean(body.redis),
+    opcache: body.opcache !== false, backupEnabled: Boolean(body.scheduled_backup),
+    imageOptimizationEnabled: Boolean(body.scheduled_image_optimization), siteType, cacheVersion: 1,
+    notes: String(body.notes || "").slice(0, 2000),
+  });
+  await execCommand("docker exec hosting-nginx nginx -s reload");
+  jobContext?.update({ completed: 5, currentStep: "Applying DNS and proxy integrations" });
+
+  if (body.create_update_dns) {
+    try {
+      for (const host of domains) await cloudflare.upsertHostAddress(host, dnsIp, true);
+      steps.push({ name: "dns", status: "complete", count: domains.length });
+    } catch (error) {
+      steps.push({ name: "dns", status: "warning", message: error.message });
+    }
+  }
+  if (presetRecords.length) {
+    try {
+      for (const record of presetRecords) await cloudflare.upsertRecord(domain, record);
+      steps.push({ name: "dns-preset", status: "complete", count: presetRecords.length });
+    } catch (error) {
+      steps.push({ name: "dns-preset", status: "warning", message: error.message });
+    }
+  }
+
+  let npmHost = null;
+  if (body.create_npm_host) {
+    try {
+      npmHost = await npm.ensureHost(domains, Boolean(body.issue_ssl));
+      steps.push({ name: "npm", status: "complete", hostId: npmHost.id });
+      if (npmHost.certificate_id) {
+        if (siteType === "wordpress") await updateWordPressUrl(directory, domain, true);
+        steps.push({ name: "https", status: "complete" });
+      }
+    } catch (error) {
+      steps.push({ name: "npm", status: "warning", message: error.message });
+    }
+  }
+  if (siteType === "static" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
+  jobContext?.update({ completed: 8, currentStep: "Finalizing website" });
+  return {
+    ok: true, imported: sourceMode === "import", siteType, domain, directory, port,
+    database: database ? { name: database.name, user: database.user, password: database.password } : null,
+    wordpress: siteType === "wordpress" ? { adminUser, adminPassword, adminEmail } : null,
+    npmHost, steps,
+  };
+}
+
+jobManager.register("site.provision", async (context, payload) => {
+  const body = safeProvisionPayload(payload.request || {});
+  const secret = payload.requestRef ? provisioningVault.take(payload.requestRef, payload.owner) : null;
+  if (payload.requestRef && !secret) throw new Error("Provisioning request credentials expired; submit the form again");
+  const result = await executeProvisioning(body, context, secret?.adminPassword || "");
+  if (result.database) {
+    provisioningVault.put(context.id, payload.owner, {
+      domain: result.domain,
+      imported: result.imported,
+      database: result.database,
+      wordpress: result.wordpress,
+    });
+  }
+  return {
+    ok: true,
+    completed: 8,
+    total: 8,
+    message: `${result.domain} ${result.imported ? "imported" : "provisioned"}`,
+    results: result.steps.map((step) => ({ ...step, ok: step.status !== "failed" })),
+  };
+});
 
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
   backupFile(SITES_MAP_PATH, mapBefore);
@@ -972,7 +1157,7 @@ async function handleApi(req, res) {
         status: requestUrl.searchParams.get("status"),
         type: requestUrl.searchParams.get("type"),
         limit: requestUrl.searchParams.get("limit"),
-      }),
+      }).map((job) => decorateJob(job, req.auth.email)),
     });
     return true;
   }
@@ -987,7 +1172,7 @@ async function handleApi(req, res) {
     if (req.method === "GET" && parts.length === 1) {
       const job = jobManager.publicJob(jobManager.get(id));
       if (!job) sendJson(res, 404, { ok: false, message: "Job not found" });
-      else sendJson(res, 200, { ok: true, job });
+      else sendJson(res, 200, { ok: true, job: decorateJob(job, req.auth.email) });
       return true;
     }
     if (req.method === "POST" && parts.length === 2 && parts[1] === "cancel") {
@@ -1633,196 +1818,60 @@ async function handleApi(req, res) {
     return true;
   }
 
-  if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
-    const body = JSON.parse((await readBody(req)) || "{}");
-    const domain = validateDomain(body.domain);
-    const directory = safeRelative(String(body.directory || domain).trim(), "website directory");
-    const sourceMode = body.source_mode === "import" ? "import" : "fresh";
-    const siteType = body.site_type === "static" ? "static" : "wordpress";
-    const adminEmail = String(body.admin_email || "").trim().toLowerCase();
-    const adminUser = String(body.admin_user || "admin").trim();
-    if (siteType === "wordpress" && sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
-      sendJson(res, 400, { ok: false, message: "Enter a valid WordPress administrator email" });
+  if (req.method === "POST" && requestUrl.pathname.startsWith("/api/provision/credentials/")
+      && requestUrl.pathname.endsWith("/reveal")) {
+    const id = requestUrl.pathname.slice("/api/provision/credentials/".length, -"/reveal".length);
+    if (!/^[0-9a-f-]{36}$/.test(id)) {
+      sendJson(res, 400, { ok: false, message: "Invalid job identifier" });
       return true;
     }
-    if (siteType === "wordpress" && sourceMode === "fresh" && !/^[a-zA-Z0-9_.@-]{3,60}$/.test(adminUser)) {
-      sendJson(res, 400, { ok: false, message: "WordPress administrator username is invalid" });
+    const job = jobManager.get(id);
+    if (!job || job.type !== "site.provision" || job.status !== "succeeded") {
+      sendJson(res, 409, { ok: false, message: "Provisioning credentials are not available for this job" });
       return true;
     }
-    const pluginPackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
-    const themePackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
-    const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
-    const presetRecords = body.apply_dns_preset
-      ? dnsPresets.resolveAll(String(body.dns_preset_id || ""), domain)
-      : [];
+    const credentials = provisioningVault.take(id, req.auth.email);
+    if (!credentials) {
+      sendJson(res, 404, { ok: false, message: "Credentials were already revealed or have expired" });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, credentials }, { "Cache-Control": "no-store" });
+    return true;
+  }
 
-    const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
-    const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
-    const mapParsed = parseSitesMap(mapBefore);
-    const poolsParsed = parsePools(poolsBefore);
-    if (mapParsed.hosts[domain]) {
+  if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
+    const submitted = JSON.parse((await readBody(req)) || "{}");
+    const normalized = validateProvisionRequest(submitted);
+    if (submitted.create_update_dns) validateIpv4(submitted.dns_ip);
+    if (submitted.apply_dns_preset) dnsPresets.resolveAll(String(submitted.dns_preset_id || ""), normalized.domain);
+    if (normalized.siteType === "wordpress" && normalized.sourceMode === "fresh") {
+      wordpressPackages.resolve("plugins", submitted.plugin_packages);
+      wordpressPackages.resolve("themes", submitted.theme_packages);
+    }
+    const configured = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    if (configured.hosts[normalized.domain]) {
       sendJson(res, 409, { ok: false, message: "Domain is already configured" });
       return true;
     }
 
-    if (siteType === "wordpress" && sourceMode === "import") {
-      const result = await provisionImportedWebsite({ body, domain, directory, dnsIp, presetRecords });
-      sendJson(res, 201, result);
-      return true;
+    let requestRef = "";
+    if (normalized.siteType === "wordpress" && normalized.sourceMode === "fresh") {
+      requestRef = crypto.randomUUID();
+      provisioningVault.put(requestRef, req.auth.email, {
+        adminPassword: String(submitted.admin_password || "") || randomPassword(24),
+      });
     }
-
-    const sitePath = prepareSiteDirectory(WEBSITES_ROOT, directory);
-    if (siteType === "static") {
-      if (sourceMode === "import") {
-        await provisionImports.installWebsiteArchive(String(body.import_upload_id || ""), sitePath);
-      } else {
-        fs.writeFileSync(
-          path.join(sitePath, "index.html"),
-          `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body><main><h1>${domain}</h1></main></body></html>\n`,
-          { encoding: "utf8", mode: 0o664 },
-        );
-      }
-      await normalizeWordPressPermissions(directory);
-    }
-    const usedPorts = Object.values(poolsParsed.sections)
-      .map((pool) => Number(pool.listen))
-      .filter(Number.isInteger);
-    const port = Math.max(9000, ...usedPorts) + 1;
-    const poolName = sanitizeSectionName(domain);
-    const defaults = readDefaultPool();
-    const presets = readPoolPresets();
-    const tier = normalizeTier(body.pool_tier, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
-    const root = `/var/www/${directory}`;
-    poolsParsed.sections[poolName] = buildPoolSettings({
-      incomingPool: {},
-      basePool: {},
-      defaults,
-      tierName: tier,
-      root,
-      port,
-      presets,
-    });
-    setPoolOpcache(poolsParsed.sections[poolName], body.opcache !== false);
-    poolsParsed.sectionOrder.push(poolName);
-    mapParsed.hosts[domain] = {
-      host: domain,
-      root,
-      port,
-      upstream: `hosting-php-fpm:${port}`,
-      canonicalTo: "",
-    };
-    const domains = [domain];
-    if (body.add_www && !domain.startsWith("www.")) {
-      const alias = `www.${domain}`;
-      domains.push(alias);
-      mapParsed.hosts[alias] = {
-        host: alias,
-        root,
-        port,
-        upstream: `hosting-php-fpm:${port}`,
-        canonicalTo: domain,
-      };
-    }
-
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    const steps = [];
     try {
-      await validateAndReload(mapBefore, poolsBefore);
-      steps.push({ name: "runtime", status: "complete" });
-      let database = null;
-      let adminPassword = "";
-      if (siteType === "wordpress") {
-        database = await createDatabase(domain, integrationSettings.resolved());
-        steps.push({ name: "database", status: "complete", database: database.name });
-        adminPassword = String(body.admin_password || "") || randomPassword(24);
-        await installWordPress({
-          domain,
-          directory,
-          database,
-          title: String(body.title || domain),
-          adminEmail,
-          adminUser,
-          adminPassword,
-          redis: Boolean(body.redis),
-          useHttps: false,
-          commentsEnabled: Boolean(body.enable_comments),
-          keepDefaultPlugins: Boolean(body.keep_default_plugins),
-          keepDefaultThemes: Boolean(body.keep_default_themes),
-          pluginPackages,
-          themePackages,
-        });
-        steps.push({ name: "wordpress", status: "complete" });
-      } else {
-        steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
-      }
-
-      siteState.update(domain, {
-        fastcgiCache: Boolean(body.fastcgi_cache),
-        redis: siteType === "wordpress" && Boolean(body.redis),
-        opcache: body.opcache !== false,
-        backupEnabled: Boolean(body.scheduled_backup),
-        imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
-        siteType,
-        cacheVersion: 1,
-        notes: String(body.notes || "").slice(0, 2000),
-      });
-      await execCommand("docker exec hosting-nginx nginx -s reload");
-
-      if (body.create_update_dns) {
-        try {
-          for (const host of domains) await cloudflare.upsertHostAddress(host, dnsIp, true);
-          steps.push({ name: "dns", status: "complete", count: domains.length });
-        } catch (error) {
-          steps.push({ name: "dns", status: "warning", message: error.message });
-        }
-      }
-      if (presetRecords.length) {
-        try {
-          for (const record of presetRecords) await cloudflare.upsertRecord(domain, record);
-          steps.push({ name: "dns-preset", status: "complete", count: presetRecords.length });
-        } catch (error) {
-          steps.push({ name: "dns-preset", status: "warning", message: error.message });
-        }
-      }
-
-      let npmHost = null;
-      if (body.create_npm_host) {
-        try {
-          npmHost = await npm.ensureHost(domains, Boolean(body.issue_ssl));
-          steps.push({ name: "npm", status: "complete", hostId: npmHost.id });
-          if (npmHost.certificate_id) {
-            if (siteType === "wordpress") await updateWordPressUrl(directory, domain, true);
-            steps.push({ name: "https", status: "complete" });
-          }
-        } catch (error) {
-          steps.push({ name: "npm", status: "warning", message: error.message });
-        }
-      }
-
-      if (siteType === "static" && sourceMode === "import") {
-        provisionImports.remove(String(body.import_upload_id || ""));
-      }
-
-      sendJson(res, 201, {
-        ok: true,
-        imported: sourceMode === "import",
-        siteType,
-        domain,
-        directory,
-        port,
-        database: database ? { name: database.name, user: database.user, password: database.password } : null,
-        wordpress: siteType === "wordpress" ? { adminUser, adminPassword, adminEmail } : null,
-        npmHost,
-        steps,
-      });
+      const job = jobManager.create(provisioningJobInput({
+        body: submitted,
+        domain: normalized.domain,
+        operator: req.auth.email,
+        requestRef,
+      }));
+      sendJson(res, 202, { ok: true, job: decorateJob(job, req.auth.email) });
     } catch (error) {
-      steps.push({ name: "failed", status: "failed", message: error.message });
-      sendJson(res, error.statusCode || 500, {
-        ok: false,
-        message: error.message,
-        details: error.details || error.output || "",
-        steps,
-      });
+      if (requestRef) provisioningVault.remove(requestRef);
+      throw error;
     }
     return true;
   }

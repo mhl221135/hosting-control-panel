@@ -561,6 +561,8 @@ function jobTypeLabel(type) {
     "backup.schedule": "Scheduled backup",
     "images.optimize": "Image optimization",
     "wordpress.maintenance": "WordPress maintenance",
+    "site.provision": "Website provisioning",
+    "site.remove": "Website deletion",
   }[type] || type;
 }
 
@@ -596,11 +598,12 @@ function renderJobs() {
       : "";
     const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
     const canRetry = terminal && job.retryable && job.status !== "succeeded";
+    const canReveal = job.status === "succeeded" && job.oneTimeAccessAvailable;
     return `<div class="job-row">
       <div><span class="job-status ${escapeHtml(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span><h3>${escapeHtml(job.label)}</h3><p>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(job.operator || "system")}</p></div>
       <div class="job-progress"><div class="job-progress-track"><i style="width:${percent}%"></i></div><p>${total ? `${completed} of ${total}` : jobStatusLabel(job.status)}${job.currentStep ? ` · ${escapeHtml(job.currentStep)}` : ""}</p></div>
       <div><p>${escapeHtml(detail)}</p><p>${escapeHtml(new Date(job.startedAt || job.createdAt).toLocaleString())}${job.finishedAt ? ` · finished ${escapeHtml(new Date(job.finishedAt).toLocaleString())}` : ""}</p>${notificationText ? `<p>${escapeHtml(notificationText)}</p>` : ""}</div>
-      <div class="job-actions">${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
+      <div class="job-actions">${canReveal ? `<button class="secondary" data-reveal-provision="${job.id}">Reveal credentials</button>` : ""}${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
     </div>`;
   }).join("") : "No jobs match the selected filters.";
 
@@ -613,9 +616,14 @@ function renderJobs() {
 }
 
 async function loadJobs() {
+  const previous = new Map((state.jobs || []).map((job) => [job.id, job.status]));
   const response = await api("/api/jobs?limit=100");
   state.jobs = response.jobs || [];
   renderJobs();
+  if (state.jobs.some((job) => job.type === "site.provision" && job.status === "succeeded"
+      && previous.has(job.id) && previous.get(job.id) !== "succeeded")) {
+    await loadData();
+  }
 }
 
 function renderDomainOptions() {
@@ -1208,6 +1216,28 @@ $("#refreshJobs").addEventListener("click", async (event) => {
 $("#jobStatusFilter").addEventListener("change", renderJobs);
 $("#jobTypeFilter").addEventListener("change", renderJobs);
 $("#jobsList").addEventListener("click", async (event) => {
+  const reveal = event.target.closest("[data-reveal-provision]");
+  if (reveal) {
+    try {
+      const result = await withButton(reveal, "Revealing...", () => api(
+        `/api/provision/credentials/${encodeURIComponent(reveal.dataset.revealProvision)}/reveal`,
+        { method: "POST" },
+      ));
+      const credentials = result.credentials;
+      const wordpress = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : `WordPress user: ${escapeHtml(credentials.wordpress?.adminUser || "")}
+WordPress password: ${escapeHtml(credentials.wordpress?.adminPassword || "")}
+WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}`;
+      $("#provisionResult").innerHTML = `<h3>${escapeHtml(credentials.domain)} credentials</h3><p>These credentials have now been removed from the panel. Store them securely.</p><pre>Database: ${escapeHtml(credentials.database.name)}
+Database user: ${escapeHtml(credentials.database.user)}
+Database password: ${escapeHtml(credentials.database.password)}
+
+${wordpress}</pre>`;
+      $("#provisionResult").classList.remove("hidden");
+      switchTab("provision");
+      await loadJobs();
+    } catch (error) { notice(error.message, "warning"); }
+    return;
+  }
   const cancel = event.target.closest("[data-cancel-job]");
   const retry = event.target.closest("[data-retry-job]");
   const button = cancel || retry;
@@ -1505,45 +1535,16 @@ $("#provisionForm").addEventListener("submit", async (event) => {
             importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
           });
         }
-        submitButton.textContent = "Extracting and importing...";
-        importProgress.textContent = wordpress
-          ? "Uploads complete. Extracting files, importing the database, and configuring services."
-          : "Upload complete. Extracting files and configuring services.";
+        submitButton.textContent = "Queuing import...";
+        importProgress.textContent = "Uploads complete. The staged files are ready for the background job.";
       }
       return api("/api/provision", { method: "POST", body: JSON.stringify(body) });
     });
-    resultPanel.innerHTML = result.siteType === "static" ? `
-      <h3>${escapeHtml(result.domain)} ${result.imported ? "imported" : "created"}</h3>
-      <p>HTML/PHP files are served through the site's isolated PHP-FPM pool. No database was created.</p>
-      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
-    ` : result.imported ? `
-      <h3>${escapeHtml(result.domain)} imported</h3>
-      <p>Existing WordPress users and content were preserved. The new database credentials are shown once.</p>
-      <pre>Database: ${escapeHtml(result.database.name)}
-Database user: ${escapeHtml(result.database.user)}
-Database password: ${escapeHtml(result.database.password)}</pre>
-      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
-    ` : `
-      <h3>${escapeHtml(result.domain)} created</h3>
-      <p>Database and WordPress credentials are shown once. Store them securely.</p>
-      <pre>Database: ${escapeHtml(result.database.name)}
-Database user: ${escapeHtml(result.database.user)}
-Database password: ${escapeHtml(result.database.password)}
-
-WordPress user: ${escapeHtml(result.wordpress.adminUser)}
-WordPress password: ${escapeHtml(result.wordpress.adminPassword)}
-WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
-      <p>${result.steps.map((step) => `${escapeHtml(step.name)}: ${escapeHtml(step.status)}${step.message ? ` (${escapeHtml(step.message)})` : ""}`).join(" · ")}</p>
-    `;
-    if (result.imported) importProgress.textContent = "Import completed. Temporary uploaded files were removed.";
+    resultPanel.innerHTML = `<h3>Provisioning queued</h3><p>Job ${escapeHtml(result.job.id.slice(0, 8))} will continue without keeping this browser request open. Progress, warnings, cancellation, and one-time WordPress credentials are available in Jobs.</p>`;
     resultPanel.classList.remove("hidden");
-    const warnings = result.steps.filter((step) => step.status === "warning");
-    if (warnings.length) {
-      notice(`Website ${result.imported ? "imported" : "created"} with warnings: ${warnings.map((step) => `${step.name}: ${step.message}`).join("; ")}`, "warning");
-    } else {
-      notice(result.imported ? "Website import completed." : "Website provisioning completed.");
-    }
-    await loadData();
+    importProgress.textContent = importing ? "Import queued. Uploaded staging is retained until the job succeeds." : "Provisioning queued.";
+    rememberJob(result.job, importing ? "Website import queued" : "Website provisioning queued");
+    switchTab("jobs");
   } catch (error) {
     resultPanel.innerHTML = `<h3>Provisioning stopped</h3><p>${escapeHtml(error.message)}</p><pre>${escapeHtml(error.details || "")}</pre>`;
     resultPanel.classList.remove("hidden");

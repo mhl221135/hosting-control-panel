@@ -310,8 +310,16 @@ Uploads use resumable 16 MB chunks staged under `imports/ui-provision` instead
 of being held in UI memory. Website archives are limited to 8 GB, database dumps
 to 4 GB, and abandoned staging directories expire after 24 hours. Database input
 can be SQL/SQL.GZ or a TAR.GZ/TGZ containing exactly one dump. Archive paths are
-checked before extraction and website symlinks are safely excluded. The import
-itself shares the storage lock with backups, image optimization, and deletion.
+checked before extraction and website symlinks are safely excluded. The final
+provisioning/import transaction runs as a durable background job and shares
+conflict locks with backups, image optimization, maintenance, and deletion. The
+browser can close after the job is queued. Failed import staging is retained for
+up to 24 hours; successful jobs remove it.
+
+Fresh and imported WordPress database credentials are stored in a separate
+encrypted vault for at most 24 hours. A successful job exposes a **Reveal
+credentials** action in **Jobs**. Retrieval is one-time: the panel deletes the
+record before returning it, and credentials never enter `jobs.json`.
 
 When the panel is behind NPM, its proxy host needs these Advanced directives for
 large streamed uploads:
