@@ -24,6 +24,19 @@ function wordpressPath(directory) {
   return normalized;
 }
 
+function databaseOptimizeFailures(output) {
+  const failures = [];
+  let table = "database table";
+  for (const rawLine of String(output || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (!/^(?:note|error|status)\s*:/i.test(line)) table = line;
+    const match = line.match(/^error\s*:\s*(.+)$/i);
+    if (match) failures.push(`${table}: ${match[1]}`);
+  }
+  return failures;
+}
+
 class WordPressMaintenanceRunner {
   constructor(options = {}) {
     this.phpContainer = options.phpContainer || "hosting-php-fpm";
@@ -65,7 +78,10 @@ class WordPressMaintenanceRunner {
     if (operation === "cron") {
       return { message: await this.wp(site.directory, ["cron", "event", "run", "--due-now"]) };
     }
-    return { message: await this.wp(site.directory, ["db", "optimize", "--skip-plugins", "--skip-themes"], 30 * 60_000) };
+    const message = await this.wp(site.directory, ["db", "optimize", "--skip-ssl", "--skip-plugins", "--skip-themes"], 30 * 60_000);
+    const failures = databaseOptimizeFailures(message);
+    if (failures.length) throw new Error(`Some tables could not be optimized: ${failures.slice(0, 3).join("; ")}${failures.length > 3 ? `; and ${failures.length - 3} more` : ""}`);
+    return { message };
   }
 
   async run(site, requestedOperations) {
@@ -89,4 +105,4 @@ class WordPressMaintenanceRunner {
   }
 }
 
-module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, validateOperations, wordpressPath };
+module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, databaseOptimizeFailures, validateOperations, wordpressPath };
