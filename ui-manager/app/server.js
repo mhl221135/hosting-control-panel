@@ -34,6 +34,8 @@ const { StatsCollector } = require("./lib/stats-collector");
 const { buildSiteRemovalPlan } = require("./lib/site-removal-plan");
 const { MigrationManager, safeRelative } = require("./lib/migration-manager");
 const { ProvisionImportStore } = require("./lib/provision-import-store");
+const { MaintenanceManager } = require("./lib/maintenance-manager");
+const { WordPressMaintenanceRunner } = require("./lib/wordpress-maintenance");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -133,6 +135,25 @@ const imageOptimizationManager = new ImageOptimizationManager({
       ...site,
       directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
     }));
+  },
+});
+const maintenanceManager = new MaintenanceManager({
+  dataDir: DATA_DIR,
+  backupManager,
+  runner: new WordPressMaintenanceRunner({ phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm" }),
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed)
+      .filter((site) => !site.isAlias)
+      .map((site) => ({
+        ...site,
+        directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+      }));
+  },
+  afterRun: async (domains) => {
+    for (const domain of domains) siteState.purge(domain);
+    await execCommand("docker exec hosting-nginx nginx -s reload");
   },
 });
 const statsCollector = new StatsCollector({
@@ -588,16 +609,7 @@ function getSitesWithPools(mapParsed, poolsParsed) {
       poolName: pool ? pool.name : "",
       pool: pool ? pool.settings : null,
       poolTier: detectTier(pool ? pool.settings : null),
-      state: states[s.host] || {
-        fastcgiCache: false,
-        cacheVersion: 1,
-        redis: false,
-        opcache: true,
-        backupEnabled: false,
-        imageOptimizationEnabled: false,
-        siteType: "wordpress",
-        notes: "",
-      },
+      state: { ...siteState.defaults(), ...(states[s.host] || {}) },
     };
   });
   return annotateSiteAliases(sites);
@@ -1385,6 +1397,7 @@ async function handleApi(req, res) {
       ...(typeof body.opcache === "boolean" ? { opcache: body.opcache } : {}),
       ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
       ...(typeof body.image_optimization_enabled === "boolean" ? { imageOptimizationEnabled: body.image_optimization_enabled } : {}),
+      ...(typeof body.maintenance_enabled === "boolean" ? { maintenanceEnabled: body.maintenance_enabled } : {}),
       ...(typeof body.notes === "string" ? { notes: body.notes.slice(0, 2000) } : {}),
     });
     if (
@@ -1455,6 +1468,48 @@ async function handleApi(req, res) {
       }));
     const status = imageOptimizationManager.start(sites);
     sendJson(res, 202, { ok: true, ...status });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/maintenance/status") {
+    sendJson(res, 200, {
+      ok: true,
+      status: maintenanceManager.getStatus(),
+      settings: maintenanceManager.readSettings(),
+    });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/maintenance/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const settings = maintenanceManager.updateSettings({
+      enabled: body.enabled,
+      weekday: body.weekday,
+      scheduleTime: body.schedule_time,
+      operations: body.operations,
+    });
+    sendJson(res, 200, { ok: true, settings });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/maintenance/run") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const requested = new Set(Array.isArray(body.domains) ? body.domains.map((domain) => validateDomain(domain)) : []);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const sites = getSitesWithPools(mapParsed, poolsParsed)
+      .filter((site) => !site.isAlias && requested.has(site.host) && site.state?.siteType === "wordpress")
+      .map((site) => ({
+        ...site,
+        directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+        redis: Boolean(site.state?.redis),
+      }));
+    if (sites.length !== requested.size) {
+      sendJson(res, 400, { ok: false, message: "Every selected domain must be a configured WordPress website" });
+      return true;
+    }
+    const status = maintenanceManager.start(sites, body.operations, "manual");
+    sendJson(res, 202, { ok: true, status });
     return true;
   }
 
@@ -2273,6 +2328,7 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
   backupManager.start();
   imageOptimizationManager.startScheduler();
+  maintenanceManager.startScheduler();
   if (fs.existsSync(performanceSettings.path)) {
     setTimeout(async () => {
       const settings = performanceSettings.read();

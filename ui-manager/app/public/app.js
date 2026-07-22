@@ -18,12 +18,14 @@ const state = {
   wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
+  maintenance: null,
   stats: null,
   siteStats: null,
   removalPlan: null,
 };
 
 let imageOptimizationPollTimer = null;
+let maintenancePollTimer = null;
 let provisionInFlight = false;
 const PROVISION_UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
 const PROVISION_UPLOAD_RETRIES = 3;
@@ -210,11 +212,12 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
+  if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
@@ -424,6 +427,55 @@ function renderImageOptimization() {
       }
     }, 5000);
   }
+}
+
+function maintenanceOperationLabel(operation) {
+  return { transients: "Expired transients", trash: "Trash and spam", cron: "Due WP-Cron", database: "Database optimize", redis: "Redis cache flush" }[operation] || operation;
+}
+
+function renderMaintenance() {
+  const data = state.maintenance || {};
+  const settings = data.settings || {};
+  const status = data.status || {};
+  const selected = new Set($$("[data-maintenance-site]:checked").map((input) => input.value));
+  const form = $("#maintenanceSettingsForm");
+  form.elements.enabled.checked = Boolean(settings.enabled);
+  form.elements.weekday.value = String(settings.weekday ?? 0);
+  form.elements.schedule_time.value = settings.scheduleTime || "05:00";
+  $$('[name="scheduled_operation"]').forEach((input) => { input.checked = (settings.operations || []).includes(input.value); });
+
+  const detail = status.running
+    ? `${status.message || "Maintenance is running"}\n${status.currentDomain || "Starting..."}\n${status.completed || 0} of ${status.total || 0} websites completed`
+    : status.finishedAt
+      ? `${status.message || "Maintenance completed"}\nFinished ${new Date(status.finishedAt).toLocaleString()}\n${status.completed || 0} of ${status.total || 0} websites completed`
+      : "No maintenance has run.";
+  $("#maintenanceStatus").textContent = detail;
+  $("#runMaintenance").disabled = Boolean(status.running);
+  $("#runMaintenance").textContent = status.running ? `Running ${status.completed || 0}/${status.total || 0}` : "Run selected websites";
+
+  const results = status.results || [];
+  $("#maintenanceResults").classList.toggle("empty", !results.length);
+  $("#maintenanceResults").innerHTML = results.length ? results.map((result) => {
+    const operations = (result.operations || []).map((operation) => `${maintenanceOperationLabel(operation.operation)}: ${operation.ok ? "complete" : "failed"}`).join(" · ");
+    return `<div class="maintenance-result ${result.ok ? "" : "has-error"}"><strong>${escapeHtml(result.domain)}</strong><span>${escapeHtml(operations || result.message || "No result details")}</span></div>`;
+  }).join("") : "No results.";
+
+  const sites = primarySites().filter((site) => site.state?.siteType !== "static");
+  $("#maintenanceSites").innerHTML = sites.length ? sites.map((site) => `
+    <div class="maintenance-site-row">
+      <label class="check"><input type="checkbox" data-maintenance-site value="${escapeHtml(site.host)}" ${selected.has(site.host) ? "checked" : ""} /><span><strong>${escapeHtml(site.host)}</strong><small>${escapeHtml(site.poolName || "WordPress")}</small></span></label>
+      <label class="check weekly-check"><input type="checkbox" data-maintenance-weekly="${escapeHtml(site.host)}" ${site.state?.maintenanceEnabled ? "checked" : ""} /> Weekly</label>
+    </div>`).join("") : '<div class="muted">No WordPress websites are configured.</div>';
+
+  window.clearTimeout(maintenancePollTimer);
+  if (status.running) {
+    maintenancePollTimer = window.setTimeout(() => loadMaintenance().catch((error) => notice(error.message, "warning")), 3000);
+  }
+}
+
+async function loadMaintenance() {
+  state.maintenance = await api("/api/maintenance/status");
+  renderMaintenance();
 }
 
 function renderDomainOptions() {
@@ -657,13 +709,14 @@ function renderHosts() {
 }
 
 async function loadData() {
-  const [status, siteData, poolData, presetData, backupData, imageOptimization, dnsData, ipData, packages] = await Promise.all([
+  const [status, siteData, poolData, presetData, backupData, imageOptimization, maintenance, dnsData, ipData, packages] = await Promise.all([
     api("/api/status"),
     api("/api/sites"),
     api("/api/pools"),
     api("/api/pool-presets"),
     api("/api/backups/settings"),
     api("/api/sites/images/status"),
+    api("/api/maintenance/status"),
     api("/api/dns-presets"),
     api("/api/cloudflare/ip-addresses"),
     api("/api/wordpress-packages"),
@@ -675,6 +728,7 @@ async function loadData() {
   state.backupSettings = backupData.settings;
   state.backupStatus = backupData.status;
   state.imageOptimization = imageOptimization;
+  state.maintenance = maintenance;
   state.dnsPresets = dnsData.presets || [];
   state.cloudflareIps = ipData.addresses || [];
   state.wordpressPackages = packages;
@@ -686,6 +740,7 @@ async function loadData() {
   renderPools();
   renderHosts();
   renderImageOptimization();
+  renderMaintenance();
   renderDnsPresets();
   renderDnsPresetDraft();
   renderCloudflareIps();
@@ -1350,6 +1405,73 @@ $("#imageOptimizationSettingsForm").addEventListener("submit", async (event) => 
   } catch (error) {
     notice(error.message, "warning");
   }
+});
+
+$("#refreshMaintenance").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadMaintenance); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#maintenanceSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const operations = $$('[name="scheduled_operation"]:checked').map((input) => input.value);
+  if (!operations.length) return notice("Select at least one scheduled maintenance operation.", "warning");
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/maintenance/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: event.currentTarget.elements.enabled.checked,
+        weekday: Number(event.currentTarget.elements.weekday.value),
+        schedule_time: event.currentTarget.elements.schedule_time.value,
+        operations,
+      }),
+    }));
+    state.maintenance = { ...(state.maintenance || {}), settings: data.settings };
+    renderMaintenance();
+    notice("WordPress maintenance schedule saved.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#selectAllMaintenance").addEventListener("click", () => {
+  $$("[data-maintenance-site]").forEach((input) => { input.checked = true; });
+});
+
+$("#clearMaintenanceSelection").addEventListener("click", () => {
+  $$("[data-maintenance-site]").forEach((input) => { input.checked = false; });
+});
+
+$("#maintenanceSites").addEventListener("change", async (event) => {
+  const checkbox = event.target.closest("[data-maintenance-weekly]");
+  if (!checkbox) return;
+  checkbox.disabled = true;
+  try {
+    await api("/api/site-state", {
+      method: "PUT",
+      body: JSON.stringify({ domain: checkbox.dataset.maintenanceWeekly, maintenance_enabled: checkbox.checked }),
+    });
+    const site = state.sites.find((entry) => entry.host === checkbox.dataset.maintenanceWeekly);
+    if (site) site.state = { ...(site.state || {}), maintenanceEnabled: checkbox.checked };
+    notice(`Weekly maintenance ${checkbox.checked ? "enabled" : "disabled"} for ${checkbox.dataset.maintenanceWeekly}.`);
+  } catch (error) {
+    checkbox.checked = !checkbox.checked;
+    notice(error.message, "warning");
+  } finally { checkbox.disabled = false; }
+});
+
+$("#runMaintenance").addEventListener("click", async (event) => {
+  const domains = $$("[data-maintenance-site]:checked").map((input) => input.value);
+  const operations = $$('[name="manual_operation"]:checked').map((input) => input.value);
+  if (!domains.length) return notice("Select at least one WordPress website.", "warning");
+  if (!operations.length) return notice("Select at least one maintenance operation.", "warning");
+  try {
+    const data = await withButton(event.currentTarget, "Starting...", () => api("/api/maintenance/run", {
+      method: "POST",
+      body: JSON.stringify({ domains, operations }),
+    }));
+    state.maintenance = { ...(state.maintenance || {}), status: data.status };
+    renderMaintenance();
+    notice("WordPress maintenance started.");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#backupDomain").addEventListener("change", async (event) => {

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260722-2" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-3" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -27,6 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
+            <option value="maintenance">Maintenance</option>
             <option value="provision">Provision</option>
             <option value="integrations">DNS &amp; SSL</option>
             <option value="security">Security</option>
@@ -40,6 +41,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
+          <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
           <button class="nav-item" data-tab-link="provision" data-short="PR" title="Provision">Provision</button>
           <button class="nav-item" data-tab-link="integrations" data-short="DN" title="DNS and SSL">DNS &amp; SSL</button>
           <button class="nav-item" data-tab-link="security" data-short="SE" title="Security">Security</button>
@@ -136,6 +138,54 @@
             </div>
             <article class="panel"><h3>Top requested paths</h3><div id="sitePathStats" class="rank-list"></div></article>
           </section>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="maintenance">
+          <div class="section-head">
+            <div><h2>WordPress maintenance</h2><p>Run low-priority cleanup for selected WordPress websites.</p></div>
+            <button id="refreshMaintenance" class="secondary" type="button">Refresh</button>
+          </div>
+
+          <div class="two-column maintenance-layout">
+            <form id="maintenanceSettingsForm" class="panel form-stack">
+              <div><h3>Weekly schedule</h3><p class="muted">Only websites marked Weekly below are included.</p></div>
+              <label class="check"><input name="enabled" type="checkbox" /> Enable weekly maintenance</label>
+              <div class="compact-grid maintenance-schedule">
+                <label>Weekday<select name="weekday"><option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option></select></label>
+                <label>Start time<input name="schedule_time" type="time" required /></label>
+              </div>
+              <fieldset class="maintenance-operations">
+                <legend>Scheduled operations</legend>
+                <label class="check"><input name="scheduled_operation" value="transients" type="checkbox" checked /> Delete expired transients</label>
+                <label class="check"><input name="scheduled_operation" value="trash" type="checkbox" checked /> Empty post/comment trash and spam</label>
+                <label class="check"><input name="scheduled_operation" value="cron" type="checkbox" checked /> Run due WP-Cron events</label>
+                <label class="check"><input name="scheduled_operation" value="database" type="checkbox" /> Optimize database tables</label>
+              </fieldset>
+              <div class="form-actions"><button type="submit">Save schedule</button></div>
+            </form>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Maintenance activity</h3><p class="muted">Maintenance shares the server job lock with backups and image optimization.</p></div></div>
+              <div id="maintenanceStatus" class="status-box">No maintenance has run.</div>
+              <div id="maintenanceResults" class="rows empty">No results.</div>
+            </article>
+          </div>
+
+          <article class="panel maintenance-sites-panel">
+            <div class="card-head">
+              <div><h3>WordPress websites</h3><p class="muted">Choose websites for a manual run and opt them into the weekly schedule.</p></div>
+              <div class="button-row"><button id="selectAllMaintenance" class="secondary" type="button">Select all</button><button id="clearMaintenanceSelection" class="secondary" type="button">Clear</button></div>
+            </div>
+            <fieldset class="maintenance-operations manual-operations">
+              <legend>Manual operations</legend>
+              <label class="check"><input name="manual_operation" value="transients" type="checkbox" checked /> Expired transients</label>
+              <label class="check"><input name="manual_operation" value="trash" type="checkbox" checked /> Trash and spam</label>
+              <label class="check"><input name="manual_operation" value="cron" type="checkbox" checked /> Due WP-Cron</label>
+              <label class="check"><input name="manual_operation" value="database" type="checkbox" /> Database optimize</label>
+            </fieldset>
+            <div id="maintenanceSites" class="maintenance-sites"></div>
+            <div class="form-actions"><button id="runMaintenance" type="button">Run selected websites</button></div>
+          </article>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="provision">
@@ -509,6 +559,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260722-2"></script>
+    <script src="/app.js?v=20260722-3"></script>
   </body>
 </html>

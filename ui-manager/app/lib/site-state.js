@@ -23,7 +23,7 @@ class SiteState {
     this.renderCacheMap(data);
   }
 
-  get(domain) {
+  defaults() {
     return {
       fastcgiCache: false,
       cacheVersion: 1,
@@ -31,10 +31,14 @@ class SiteState {
       opcache: true,
       backupEnabled: false,
       imageOptimizationEnabled: false,
+      maintenanceEnabled: false,
       siteType: "wordpress",
       notes: "",
-      ...(this.read().sites[domain] || {}),
     };
+  }
+
+  get(domain) {
+    return { ...this.defaults(), ...(this.read().sites[domain] || {}) };
   }
 
   update(domain, patch) {
