@@ -5,8 +5,6 @@ the README and detailed documentation instead of this list.
 
 ## Operator Experience
 
-- Replace the many per-site action buttons on phone-sized screens with one
-  accessible action dropdown. Keep the current direct buttons on desktop.
 - Add one shared background-jobs view for backups, imports/exports, image work,
   and maintenance, with durable history, cancellation where safe, and clear
   conflict/queue state.

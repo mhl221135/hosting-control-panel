@@ -387,8 +387,22 @@ function renderSites() {
         <span class="badge ${state.imageOptimization?.settings?.enabled && site.state?.imageOptimizationEnabled ? "on" : ""}">Images ${state.imageOptimization?.settings?.enabled === false ? "paused" : site.state?.imageOptimizationEnabled ? "daily" : "manual"}</span>
       </div>
       <div class="site-actions">
-        <label class="check site-backup-check"><input type="checkbox" data-toggle-backup="${escapeHtml(site.host)}" ${site.state?.backupEnabled ? "checked" : ""} /> Daily</label>
-        <label class="check site-backup-check"><input type="checkbox" data-toggle-image-optimization="${escapeHtml(site.host)}" ${site.state?.imageOptimizationEnabled ? "checked" : ""} /> Images daily</label>
+        <label class="site-mobile-action">Site action
+          <select data-site-action="${escapeHtml(site.host)}" aria-label="Choose an action for ${escapeHtml(site.host)}">
+            <option value="">Choose action</option>
+            <option value="backup" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up now</option>
+            <option value="backup-schedule">${site.state?.backupEnabled ? "Disable" : "Enable"} daily backup</option>
+            <option value="optimize">Optimize images</option>
+            <option value="image-schedule">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily image optimization</option>
+            <option value="fastcgi">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</option>
+            ${wordpress ? `<option value="redis">${site.state?.redis ? "Disable" : "Enable"} Redis</option>` : ""}
+            <option value="opcache">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</option>
+            <option value="purge">Purge cache</option>
+            <option value="manage">Manage DNS &amp; SSL</option>
+          </select>
+        </label>
+        <button class="secondary" data-toggle-backup="${escapeHtml(site.host)}">${site.state?.backupEnabled ? "Disable" : "Enable"} daily backup</button>
+        <button class="secondary" data-toggle-image-optimization="${escapeHtml(site.host)}">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily images</button>
         <button class="secondary site-action-primary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
         <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
         <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
@@ -1060,66 +1074,78 @@ $("#optimizeAllImages").addEventListener("click", async () => {
     notice(error.message, "warning");
   }
 });
-$("#sitesList").addEventListener("click", (event) => {
-  const manage = event.target.closest("[data-manage-site]");
-  if (manage) {
-    state.selectedDomain = manage.dataset.manageSite;
+async function runSiteAction(domain, action) {
+  if (action === "manage") {
+    state.selectedDomain = domain;
     switchTab("integrations");
     return;
   }
+  if (action === "optimize") {
+    const result = await api("/api/sites/images/optimize", {
+      method: "POST",
+      body: JSON.stringify({ domain }),
+    });
+    notice(`Created ${result.created} WebP images and saved ${formatBytes(result.bytesSaved)}.`);
+    return;
+  }
+  if (action === "backup") {
+    await api("/api/backups/site", { method: "POST", body: JSON.stringify({ domain }) });
+    state.backupName = domain;
+    notice(`${domain} backup completed.`);
+    return;
+  }
+
+  const site = state.sites.find((entry) => entry.host === domain);
+  if (!site) throw new Error(`Website ${domain} is not available.`);
+  if (action === "backup-schedule" || action === "image-schedule") {
+    const images = action === "image-schedule";
+    const enabled = images ? !site.state?.imageOptimizationEnabled : !site.state?.backupEnabled;
+    await api("/api/site-state", {
+      method: "PUT",
+      body: JSON.stringify({
+        domain,
+        ...(images ? { image_optimization_enabled: enabled } : { backup_enabled: enabled }),
+      }),
+    });
+    notice(`${images ? "Daily image optimization" : "Daily backup"} ${enabled ? "enabled" : "disabled"} for ${domain}.`);
+    await loadData();
+    return;
+  }
+  if (action === "purge") {
+    await api("/api/site-state/purge", { method: "POST", body: JSON.stringify({ domain }) });
+    notice("Site page cache purged.");
+  } else {
+    await api("/api/site-state", {
+      method: "PUT",
+      body: JSON.stringify({
+        domain,
+        ...(action === "fastcgi" ? { fastcgi_cache: !site.state?.fastcgiCache } : {}),
+        ...(action === "redis" ? { redis: !site.state?.redis } : {}),
+        ...(action === "opcache" ? { opcache: site.state?.opcache === false } : {}),
+      }),
+    });
+    notice("Site cache settings updated.");
+  }
+  await loadData();
+}
+
+$("#sitesList").addEventListener("click", async (event) => {
+  const manage = event.target.closest("[data-manage-site]");
   const fastcgi = event.target.closest("[data-toggle-fastcgi]");
   const redis = event.target.closest("[data-toggle-redis]");
   const opcache = event.target.closest("[data-toggle-opcache]");
   const purge = event.target.closest("[data-purge-cache]");
   const backup = event.target.closest("[data-backup-site]");
   const optimize = event.target.closest("[data-optimize-images]");
-  if (optimize) {
-    const domain = optimize.dataset.optimizeImages;
-    withButton(optimize, "Optimizing...", () => api("/api/sites/images/optimize", {
-      method: "POST",
-      body: JSON.stringify({ domain }),
-    }))
-      .then((result) => notice(`Created ${result.created} WebP images and saved ${formatBytes(result.bytesSaved)}.`))
-      .catch((error) => notice(error.message, "warning"));
-    return;
-  }
-  if (backup) {
-    const domain = backup.dataset.backupSite;
-    withButton(backup, "Backing up...", () => api("/api/backups/site", {
-      method: "POST",
-      body: JSON.stringify({ domain }),
-    }))
-      .then(() => {
-        notice(`${domain} backup completed.`);
-        state.backupName = domain;
-      })
-      .catch((error) => notice(error.message, "warning"));
-    return;
-  }
-  const domain =
-    fastcgi?.dataset.toggleFastcgi ||
-    redis?.dataset.toggleRedis ||
-    opcache?.dataset.toggleOpcache ||
-    purge?.dataset.purgeCache;
-  if (!domain) return;
-  const site = state.sites.find((entry) => entry.host === domain);
-  const request = purge
-    ? api("/api/site-state/purge", { method: "POST", body: JSON.stringify({ domain }) })
-    : api("/api/site-state", {
-        method: "PUT",
-        body: JSON.stringify({
-          domain,
-          ...(fastcgi ? { fastcgi_cache: !site.state?.fastcgiCache } : {}),
-          ...(redis ? { redis: !site.state?.redis } : {}),
-          ...(opcache ? { opcache: site.state?.opcache === false } : {}),
-        }),
-      });
-  withButton(event.target.closest("button"), "Working...", () => request)
-    .then(async () => {
-      notice(purge ? "Site page cache purged." : "Site cache settings updated.");
-      await loadData();
-    })
-    .catch((error) => notice(error.message, "warning"));
+  const backupSchedule = event.target.closest("[data-toggle-backup]");
+  const imageSchedule = event.target.closest("[data-toggle-image-optimization]");
+  const button = manage || fastcgi || redis || opcache || purge || backup || optimize || backupSchedule || imageSchedule;
+  if (!button) return;
+  const action = manage ? "manage" : fastcgi ? "fastcgi" : redis ? "redis" : opcache ? "opcache" : purge ? "purge" : backup ? "backup" : optimize ? "optimize" : backupSchedule ? "backup-schedule" : "image-schedule";
+  const domain = manage?.dataset.manageSite || fastcgi?.dataset.toggleFastcgi || redis?.dataset.toggleRedis || opcache?.dataset.toggleOpcache || purge?.dataset.purgeCache || backup?.dataset.backupSite || optimize?.dataset.optimizeImages || backupSchedule?.dataset.toggleBackup || imageSchedule.dataset.toggleImageOptimization;
+  const pending = action === "backup" ? "Backing up..." : action === "optimize" ? "Optimizing..." : "Working...";
+  try { await withButton(button, pending, () => runSiteAction(domain, action)); }
+  catch (error) { notice(error.message, "warning"); }
 });
 
 $("#integrationDomain").addEventListener("change", async (event) => {
@@ -1345,6 +1371,18 @@ WordPress email: ${escapeHtml(result.wordpress.adminEmail)}</pre>
 });
 
 $("#sitesList").addEventListener("change", async (event) => {
+  const actionSelect = event.target.closest("[data-site-action]");
+  if (actionSelect) {
+    if (!actionSelect.value) return;
+    actionSelect.disabled = true;
+    try { await runSiteAction(actionSelect.dataset.siteAction, actionSelect.value); }
+    catch (error) { notice(error.message, "warning"); }
+    finally {
+      actionSelect.value = "";
+      actionSelect.disabled = false;
+    }
+    return;
+  }
   const tier = event.target.closest("[data-site-pool-tier]");
   if (tier) {
     tier.disabled = true;
@@ -1369,29 +1407,6 @@ $("#sitesList").addEventListener("change", async (event) => {
       tier.disabled = false;
     }
     return;
-  }
-  const checkbox = event.target.closest("[data-toggle-backup], [data-toggle-image-optimization]");
-  if (!checkbox) return;
-  const isImages = Boolean(checkbox.dataset.toggleImageOptimization);
-  const domain = isImages ? checkbox.dataset.toggleImageOptimization : checkbox.dataset.toggleBackup;
-  checkbox.disabled = true;
-  try {
-    await api("/api/site-state", {
-      method: "PUT",
-      body: JSON.stringify({
-        domain,
-        ...(isImages
-          ? { image_optimization_enabled: checkbox.checked }
-          : { backup_enabled: checkbox.checked }),
-      }),
-    });
-    notice(`${isImages ? "Daily image optimization" : "Daily backup"} ${checkbox.checked ? "enabled" : "disabled"} for ${domain}.`);
-    await loadData();
-  } catch (error) {
-    checkbox.checked = !checkbox.checked;
-    notice(error.message, "warning");
-  } finally {
-    checkbox.disabled = false;
   }
 });
 
