@@ -66,7 +66,7 @@ function validate(payload = {}) {
       maxExecutionSeconds: integer(source.php.maxExecutionSeconds, "PHP execution time", 30, 1800),
     },
     opcache: {
-      memoryMb: integer(source.opcache.memoryMb, "OPcache memory", 128, 4096),
+      memoryMb: integer(source.opcache.memoryMb, "OPcache memory", 128, 8192),
       internedStringsMb: integer(source.opcache.internedStringsMb, "Interned strings memory", 16, 256),
       maxFiles: integer(source.opcache.maxFiles, "OPcache file limit", 10000, 1000000),
       validateTimestamps: Boolean(source.opcache.validateTimestamps),
