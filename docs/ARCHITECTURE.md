@@ -199,6 +199,8 @@ cancellation checkpoints before irreversible changes. Core import work runs
 under the shared storage-operation lock; external integration failures are
 reported as warnings after the site is usable. Generated credentials live only
 in an AES-256-GCM encrypted one-time vault, never in persisted job records.
+Those integration warnings are failed sub-results, so the durable job resolves
+as partially succeeded and can trigger warning notifications.
 
 The panel treats Redis management as a WordPress capability. Non-WordPress
 website rows omit the Redis state and action, and the API rejects attempts to

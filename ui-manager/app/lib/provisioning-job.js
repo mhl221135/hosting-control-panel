@@ -33,4 +33,16 @@ function jobInput({ body, domain, operator, requestRef = "" }) {
   };
 }
 
-module.exports = { SAFE_FIELDS, jobInput, safeProvisionPayload };
+function jobResult(result) {
+  const results = (result.steps || []).map((step) => ({ ...step, ok: step.status === "complete" }));
+  const warnings = results.filter((step) => !step.ok).length;
+  return {
+    ok: warnings === 0,
+    completed: 8,
+    total: 8,
+    message: `${result.domain} ${result.imported ? "imported" : "provisioned"}${warnings ? ` with ${warnings} warning${warnings === 1 ? "" : "s"}` : ""}`,
+    results,
+  };
+}
+
+module.exports = { SAFE_FIELDS, jobInput, jobResult, safeProvisionPayload };
