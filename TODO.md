@@ -16,17 +16,17 @@ backlog only when their acceptance criteria are satisfied.
 8. Encrypted off-site backups.
 9. Warm-standby replication and controlled failover.
 
-The durable job system now handles backups, restores, maintenance, and image
-optimization. Remaining long operations should adopt it instead of creating
-another status file, lock, or browser-bound request.
+The durable job system now handles backups, restores, maintenance, image
+optimization, website deletion, and website provisioning/import. Remaining long
+operations should adopt it instead of creating another status file, lock, or
+browser-bound request.
 
 ## 1. Remaining Background-Job Adoption
 
 ### Objective
 
-Finish adopting the implemented durable job service for imports, exports,
-provisioning imports, deletion, WordPress updates, off-site copies, and future
-bulk operations.
+Finish adopting the implemented durable job service for multi-site imports,
+exports, WordPress updates, off-site copies, and future bulk operations.
 
 Website deletion now uses the durable job system with conflict locks, live
 ownership revalidation, bounded progress, notification delivery, and
@@ -34,11 +34,13 @@ cancellation only at coherent safety boundaries. Destructive deletion jobs are
 not retryable because a partially completed external deletion cannot be replayed
 without a new ownership preview.
 
+Website provisioning and single-site browser imports now return a durable job,
+retain failed upload staging for 24 hours, and expose generated WordPress/MySQL
+credentials through an encrypted 24-hour vault that removes them on first read.
+Passwords never enter job payloads, results, errors, notifications, or Git.
+
 ### Requirements
 
-- Move website import and provisioning off browser-bound requests.
-- Design one-time credential delivery for fresh provisioning without storing
-  generated database or WordPress passwords in `jobs.json`.
 - Register import/export, WordPress update, off-site copy, Cloudflare bulk, and
   billing/mail migration handlers as those features are implemented.
 - Add explicit safe cancellation checkpoints to each handler. Never interrupt a

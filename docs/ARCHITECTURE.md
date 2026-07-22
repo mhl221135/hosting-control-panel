@@ -193,9 +193,12 @@ The Provision tab's single-site adapter stages raw uploads below
 `imports/ui-provision`, validates archive member paths, rejects symlinks, finds
 the sole WordPress document root, and produces the same normalized archive and
 manifest consumed by `MigrationManager`. This keeps browser imports on the same
-database/runtime rollback path as host-level imports. Core import work runs
+database/runtime rollback path as host-level imports. The final transaction is
+a `site.provision` durable job with site/runtime/heavy-work conflicts and safe
+cancellation checkpoints before irreversible changes. Core import work runs
 under the shared storage-operation lock; external integration failures are
-reported as warnings after the site is usable.
+reported as warnings after the site is usable. Generated credentials live only
+in an AES-256-GCM encrypted one-time vault, never in persisted job records.
 
 The panel treats Redis management as a WordPress capability. Non-WordPress
 website rows omit the Redis state and action, and the API rejects attempts to

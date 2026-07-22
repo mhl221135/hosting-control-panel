@@ -101,8 +101,12 @@ SQL/SQL.GZ dumps or a TAR.GZ/TGZ containing exactly one dump. It accepts a neste
 content. Chunk offsets are carried in validated URL parameters so restrictive
 edge proxies do not reject browser-controlled range headers. Failed chunks
 retry without restarting the archive. Extracted WordPress ownership and modes
-are normalized before WP-CLI reads `wp-config.php`. Staging expires
-after 24 hours and is removed immediately after a successful import.
+are normalized before WP-CLI reads `wp-config.php`. After upload, the final
+operation runs as a durable background job with progress in **Jobs**; the
+original browser request does not need to remain open. Staging expires after 24
+hours and is removed immediately after a successful import. WordPress/MySQL
+credentials are encrypted separately and can be revealed once from the
+successful job for up to 24 hours.
 
 ## Sites and image optimization
 

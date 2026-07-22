@@ -128,8 +128,9 @@ not retryable after failure; refresh the preview and submit a new operation.
 
 | Method/path | Purpose |
 |---|---|
-| `POST /api/provision` | provision a complete WordPress site |
+| `POST /api/provision` | validate and queue a website provisioning job |
 | `POST /api/provision/import-upload` | stream one staged website archive or database dump |
+| `POST /api/provision/credentials/:jobId/reveal` | reveal and delete generated credentials once |
 | `GET /api/wordpress-packages` | list stored plugin/theme packages |
 | `POST /api/wordpress-packages/:kind` | upload a ZIP package |
 | `DELETE /api/wordpress-packages/:kind/:id` | remove a package |
@@ -143,7 +144,10 @@ not retryable after failure; refresh the preview and submit a new operation.
 `POST /api/provision/import-upload` requires `upload_id`, `kind` (`website` or
 `database`), and `filename` query parameters. Its body is the raw file. A later
 `POST /api/provision` with `source_mode: "import"` and the same
-`import_upload_id` validates, normalizes, and consumes both staged files.
+`import_upload_id` validates the request and returns a durable job. The job
+normalizes and consumes staged files, and removes staging only after success.
+Generated credentials are encrypted outside job state, expire after 24 hours,
+and are deleted by the first successful reveal request.
 
 ### Runtime administration
 

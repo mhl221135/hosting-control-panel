@@ -14,6 +14,7 @@ the supported keys.
 | `UI_ADMIN_PASSWORD` | First panel password | Hashed when account state is created |
 | `UI_SETTINGS_KEY` | Stable secret-encryption material | Overrides generated key file |
 | `JOB_HISTORY_LIMIT` | Maximum durable job records | Defaults to 250; active work is never pruned |
+| `PROVISION_CREDENTIAL_TTL_HOURS` | One-time provisioning credential lifetime | Defaults to 24; bounded to 1-168 hours |
 | `NPM_API_URL` | NPM API endpoint | Environment fallback; editable in panel |
 | `NPM_IDENTITY` | Initial NPM account/panel API identity | Existing NPM database wins |
 | `NPM_SECRET` | Initial NPM password/panel API secret | Existing NPM database wins |
@@ -51,6 +52,8 @@ Paths below are relative to `app-data/ui-manager`.
 | `pool-presets.json` | low/medium/high worker definitions | no |
 | `image-optimization-status.json` | persisted bulk-job progress | no |
 | `jobs.json` | durable queue, progress, results, and bounded history | no; secret fields are rejected |
+| `provisioning-credentials.json` | encrypted, expiring one-time provisioning records | yes |
+| `provisioning-credentials.key` | generated AES-256-GCM key for those records | yes |
 | `wordpress-packages/` | ZIPs and package metadata | user content |
 
 These files are operational data, not source. Back them up, but never commit
