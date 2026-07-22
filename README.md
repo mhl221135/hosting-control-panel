@@ -24,6 +24,7 @@ into dedicated directories.
 - Nginx Proxy Manager proxy-host creation and durable, alertable Let's Encrypt certificate actions
 - Cloudflare A, AAAA, CNAME, and TXT record management
 - Cloudflare sensitive-path, XML-RPC, and login rate-limit security presets
+- Opt-in post-provision Cloudflare hardening with partial-success reporting
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
 - Per-site PHP OPcache enablement

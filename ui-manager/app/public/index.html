@@ -297,6 +297,15 @@
               <label class="check"><input name="apply_dns_preset" type="checkbox" /> Add DNS preset records</label>
               <label>DNS preset<select name="dns_preset_id" id="provisionDnsPreset"><option value="">Select a preset</option></select></label>
             </fieldset>
+            <fieldset class="option-group full provision-security-options">
+              <legend>Cloudflare security</legend>
+              <label class="check"><input name="apply_security_preset" type="checkbox" /> Apply security preset after provisioning</label>
+              <label>Security preset<select name="security_preset">
+                <option value="suspicious-probes">Block sensitive-file probes</option>
+                <option value="xmlrpc-challenge">Challenge WordPress XML-RPC</option>
+                <option value="login-rate-limit">Rate limit WordPress login</option>
+              </select></label>
+            </fieldset>
             <fieldset class="option-group full package-selection" data-provision-wordpress data-provision-fresh>
               <legend>Installation packages</legend>
               <div><strong>Plugins</strong><div id="provisionPluginPackages" class="package-checks muted">No uploaded plugins.</div></div>
@@ -683,6 +692,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260723-15"></script>
+    <script src="/app.js?v=20260723-16"></script>
   </body>
 </html>

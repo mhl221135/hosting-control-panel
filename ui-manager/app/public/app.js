@@ -94,6 +94,20 @@ function syncProvisionDnsOptions() {
   form.elements.dns_preset_id.required = usePreset;
 }
 
+function syncProvisionSecurityOptions() {
+  const form = $("#provisionForm");
+  const enabled = form.elements.apply_security_preset.checked;
+  const wordpress = form.elements.site_type.value === "wordpress";
+  form.elements.security_preset.disabled = !enabled;
+  form.elements.security_preset.required = enabled;
+  for (const option of form.elements.security_preset.options) {
+    option.disabled = !wordpress && ["xmlrpc-challenge", "login-rate-limit"].includes(option.value);
+  }
+  if (!wordpress && ["xmlrpc-challenge", "login-rate-limit"].includes(form.elements.security_preset.value)) {
+    form.elements.security_preset.value = "suspicious-probes";
+  }
+}
+
 function syncNotificationSeverityControls(form = $("#notificationSettingsForm")) {
   for (const channel of ["telegram", "smtp"]) {
     const inherit = form.elements[`${channel}UseGlobalSeverity`].checked;
@@ -125,6 +139,7 @@ function syncProvisionSourceMode() {
   $("#provisionDatabaseDump").required = importing && wordpress;
   $("#provisionDatabaseDump").disabled = !wordpress;
   $("#provisionSubmit").textContent = importing ? "Import website" : wordpress ? "Create WordPress website" : "Create HTML/PHP website";
+  syncProvisionSecurityOptions();
 }
 
 function provisionUploadId() {
@@ -1332,10 +1347,12 @@ $("#clearIpinfoCache").addEventListener("click", async (event) => {
 });
 $("#provisionForm").elements.create_update_dns.addEventListener("change", syncProvisionDnsOptions);
 $("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncProvisionDnsOptions);
+$("#provisionForm").elements.apply_security_preset.addEventListener("change", syncProvisionSecurityOptions);
 $$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $$('#provisionForm input[name="site_type"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 syncProvisionDnsOptions();
 syncProvisionSourceMode();
+syncProvisionSecurityOptions();
 $("#optimizeAllImages").addEventListener("click", async () => {
   try {
     const result = await api("/api/sites/images/optimize-all", { method: "POST" });
@@ -1575,6 +1592,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
   if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
   if (body.apply_dns_preset && !body.dns_preset_id) return notice("Select the DNS preset to add.", "warning");
+  if (body.apply_security_preset && !body.security_preset) return notice("Select the Cloudflare security preset to apply.", "warning");
   const websiteArchive = $("#provisionWebsiteArchive").files[0];
   const databaseDump = $("#provisionDatabaseDump").files[0];
   if (importing && !websiteArchive) return notice("Select the website archive.", "warning");

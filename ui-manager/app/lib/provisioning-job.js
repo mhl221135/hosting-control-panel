@@ -4,6 +4,7 @@ const SAFE_FIELDS = new Set([
   "scheduled_image_optimization", "enable_comments", "keep_default_plugins", "keep_default_themes",
   "plugin_packages", "theme_packages", "create_update_dns", "dns_ip", "apply_dns_preset",
   "dns_preset_id", "add_www", "create_npm_host", "issue_ssl", "notes", "import_upload_id",
+  "apply_security_preset", "security_preset",
 ]);
 
 function safeProvisionPayload(body = {}) {

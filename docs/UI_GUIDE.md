@@ -183,6 +183,8 @@ proxy host, and certificate. HTML/PHP sites do not create a database.
 | **Create or update website DNS** | Creates or replaces the host record through Cloudflare. |
 | **Server IPv4** | Selects a saved server address or accepts a manually entered IPv4 address. |
 | **Add DNS preset records** | Applies the selected reusable DNS record set after host DNS is created. |
+| **Apply security preset after provisioning** | Optionally applies one panel-owned Cloudflare rule after DNS and NPM setup. It is off by default. |
+| **Security preset** | Blocks sensitive-file probes for any site, or applies WordPress-only XML-RPC challenge or login rate limiting. |
 | **Installation packages** | Selects uploaded plugin and theme ZIP files for fresh installation. No package is selected by default. The first selected theme is activated. |
 | **Create website** | Validates the request and queues durable provisioning; follow progress in Jobs. |
 | **Upload plugins / Upload themes** | Adds ZIP packages to the persistent panel library for future installations. |
@@ -193,6 +195,10 @@ staging for up to 24 hours. Successful WordPress jobs show **Reveal credentials*
 the encrypted credentials expire after 24 hours and disappear immediately after
 the first reveal. Provisioning does not silently overwrite an existing non-empty
 website or configured domain.
+
+Cloudflare security failure does not remove a successfully created local site.
+The provisioning job becomes **partially succeeded**, retains the warning, and
+can be corrected from the Security workspace. Preset application is idempotent.
 
 When local provisioning succeeds but optional DNS, NPM, or SSL work fails, the
 job is marked **partially succeeded**. The job retains the exact warning and the
