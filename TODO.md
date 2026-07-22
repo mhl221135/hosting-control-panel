@@ -39,5 +39,3 @@ the README and detailed documentation instead of this list.
 - Add encrypted off-site backup replication to S3-compatible storage with
   retention verification and restore testing. Telegram must not be used as
   primary backup storage.
-- Design primary/standby replication and documented failover for installations
-  that need higher availability.

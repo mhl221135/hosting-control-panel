@@ -184,3 +184,6 @@ requests in 10 seconds and a 10-second block; Free permits one rate rule per zon
 - Statistics are sampled on demand; there is no background metrics database.
 - Docker socket compromise of `hosting-ui` is host-level compromise. Restrict
   panel access to administrators and publish it through HTTPS.
+
+Primary/standby boundaries, replicated-state rules, fencing, and the manual
+promotion sequence are defined in [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md).

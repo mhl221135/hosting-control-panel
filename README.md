@@ -90,6 +90,7 @@ that access.
 |   |-- API.md
 |   |-- ARCHITECTURE.md
 |   |-- CONFIGURATION.md
+|   |-- HIGH_AVAILABILITY.md
 |   |-- OPERATIONS.md
 |   |-- SECURITY.md
 |   `-- UI_GUIDE.md
@@ -654,6 +655,7 @@ not invoked or modified by this panel.
 - [STACK_OVERVIEW.md](STACK_OVERVIEW.md): runtime ownership and provisioning flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): service and module design
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): environment and persistent state
+- [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
 - [docs/API.md](docs/API.md): authenticated panel API route index
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics
 - [ui-manager/README.md](ui-manager/README.md): panel-specific configuration
