@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260722-6" />
+    <link rel="stylesheet" href="/styles.css?v=20260722-7" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -495,6 +495,40 @@
             <div class="button-row full"><button type="button" class="secondary" data-test-integration="mysql">Test MySQL</button></div>
 
             <div class="form-actions full"><button type="submit">Save integration settings</button></div>
+          </form>
+
+          <form id="notificationSettingsForm" class="panel form-grid">
+            <div class="group-title full"><h3>Notifications</h3><p>Send bounded job results through Telegram or an external SMTP relay. Credentials remain encrypted in panel storage.</p></div>
+            <label>Installation name<input name="installationName" maxlength="100" required /></label>
+            <label>Server name<input name="serverName" maxlength="100" placeholder="opi5" required /></label>
+            <label>Public panel URL<input name="panelUrl" type="url" placeholder="https://ui.example.com" /></label>
+
+            <div class="group-title full"><h3>Telegram</h3><p>Create a bot with BotFather, message it or add it to a private operator group, then enter the numeric chat ID.</p></div>
+            <label>Bot token<input name="telegramBotToken" type="password" placeholder="Leave empty to keep saved token" /></label>
+            <label>Allowed chat IDs<textarea name="telegramChatIds" rows="3" placeholder="One numeric chat ID per line"></textarea></label>
+            <label class="check inline"><input name="telegramEnabled" type="checkbox" /> Enable Telegram delivery</label>
+            <label class="check inline"><input name="clearTelegramBotToken" type="checkbox" /> Clear saved Telegram token</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-notification="telegram">Send Telegram test</button></div>
+
+            <div class="group-title full"><h3>External SMTP relay</h3><p>Use a transactional provider or existing mailbox relay. This does not operate a local mail server.</p></div>
+            <label>SMTP host<input name="smtpHost" placeholder="smtp.example.com" /></label>
+            <label>SMTP port<input name="smtpPort" type="number" min="1" max="65535" value="587" required /></label>
+            <label>SMTP username<input name="smtpUsername" autocomplete="off" /></label>
+            <label>SMTP password<input name="smtpPassword" type="password" placeholder="Leave empty to keep saved password" autocomplete="new-password" /></label>
+            <label>Sender address<input name="smtpFrom" type="email" placeholder="hosting-alerts@example.com" /></label>
+            <label>Recipients<textarea name="smtpRecipients" rows="3" placeholder="One email address per line"></textarea></label>
+            <label class="check inline"><input name="smtpEnabled" type="checkbox" /> Enable SMTP delivery</label>
+            <label class="check inline"><input name="smtpSecure" type="checkbox" /> Use implicit TLS (normally port 465)</label>
+            <label class="check inline"><input name="clearSmtpPassword" type="checkbox" /> Clear saved SMTP password</label>
+            <div class="button-row full"><button type="button" class="secondary" data-test-notification="smtp">Send SMTP test</button></div>
+
+            <fieldset class="option-group full">
+              <legend>Job severities</legend>
+              <label class="check"><input name="severityFailure" type="checkbox" checked /> Failures</label>
+              <label class="check"><input name="severityWarning" type="checkbox" checked /> Partial results and cancellations</label>
+              <label class="check"><input name="severitySuccess" type="checkbox" /> Successful jobs</label>
+            </fieldset>
+            <div class="form-actions full"><button type="submit">Save notification settings</button></div>
           </form>
 
           <form id="performanceSettingsForm" class="panel form-grid">

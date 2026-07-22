@@ -1,0 +1,8 @@
+{
+  "name": "hosting-control-panel-ui",
+  "version": "2.5.0",
+  "private": true,
+  "dependencies": {
+    "nodemailer": "9.0.3"
+  }
+}

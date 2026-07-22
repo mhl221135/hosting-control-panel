@@ -89,6 +89,7 @@ immediately; closing the page does not stop the server-side job.
 | **Cancel** | Cancels queued work immediately or requests running work to stop at its next safe checkpoint. |
 | **Retry** | Creates a new linked attempt using the original non-secret operation payload. |
 | **Refresh** | Reloads job state; active views also refresh every three seconds. |
+| **Alert status** | Shows Telegram/SMTP delivery, retry, or failure state for the job outcome when notifications are enabled. |
 
 Queued rows identify the active job blocking them. A panel restart preserves
 queued work and history but marks interrupted running work failed, because an
@@ -299,6 +300,22 @@ current configuration before large edits.
 | **FastCGI page cache** | Keys-zone memory, disk maximum, inactivity expiry, response validity, upstream timeout, and cache locking. |
 | **Redis and MySQL** | Redis memory/eviction policy and MySQL buffer pool, connection limit, and redo capacity. |
 | **Apply performance settings** | Validates ranges, writes managed configuration, and reloads the affected services. |
+
+### Notifications
+
+| Control | Function |
+| --- | --- |
+| **Installation name / Server name** | Identifies the deployment and physical host in every alert. |
+| **Public panel URL** | Adds a direct operator link; leave it empty when the panel has no safe public route. |
+| **Telegram token / Chat IDs** | Sends alerts through a BotFather-created bot only to the listed chats. Empty token fields retain the encrypted value. |
+| **SMTP settings / Recipients** | Sends plain-text alerts through an external STARTTLS or implicit-TLS relay. |
+| **Job severities** | Selects failures, partial/cancelled outcomes, and optional successes. Successes are off by default. |
+| **Send ... test** | Sends one test using saved settings without changing enablement or severity filters. |
+| **Save notification settings** | Validates and encrypts notification configuration. |
+
+Tests use the last saved credentials. Save changed values before sending a test.
+Provider errors are bounded and do not expose tokens or passwords in the Jobs
+workspace.
 
 ### DNS tools
 

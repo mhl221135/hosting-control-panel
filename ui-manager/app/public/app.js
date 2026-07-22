@@ -549,18 +549,24 @@ function renderJobs() {
     const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : job.status === "succeeded" ? 100 : 0;
     const blocker = job.waitingFor?.length ? `Waiting for ${job.waitingFor.map((item) => item.label).join(", ")}` : "";
     const detail = job.error || blocker || job.currentStep || job.message || "";
+    const notification = job.notifications?.at(-1);
+    const notificationText = notification
+      ? `Alert ${notification.status}: ${Object.entries(notification.channels || {}).map(([name, value]) => `${name} ${value.status}`).join(", ")}`
+      : "";
     const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
     const canRetry = terminal && job.retryable && job.status !== "succeeded";
     return `<div class="job-row">
       <div><span class="job-status ${escapeHtml(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span><h3>${escapeHtml(job.label)}</h3><p>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(job.operator || "system")}</p></div>
       <div class="job-progress"><div class="job-progress-track"><i style="width:${percent}%"></i></div><p>${total ? `${completed} of ${total}` : jobStatusLabel(job.status)}${job.currentStep ? ` · ${escapeHtml(job.currentStep)}` : ""}</p></div>
-      <div><p>${escapeHtml(detail)}</p><p>${escapeHtml(new Date(job.startedAt || job.createdAt).toLocaleString())}${job.finishedAt ? ` · finished ${escapeHtml(new Date(job.finishedAt).toLocaleString())}` : ""}</p></div>
+      <div><p>${escapeHtml(detail)}</p><p>${escapeHtml(new Date(job.startedAt || job.createdAt).toLocaleString())}${job.finishedAt ? ` · finished ${escapeHtml(new Date(job.finishedAt).toLocaleString())}` : ""}</p>${notificationText ? `<p>${escapeHtml(notificationText)}</p>` : ""}</div>
       <div class="job-actions">${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
     </div>`;
   }).join("") : "No jobs match the selected filters.";
 
   window.clearTimeout(jobsPollTimer);
-  if (state.activeTab === "jobs" && allJobs.some((job) => ["queued", "running", "cancelling"].includes(job.status))) {
+  if (state.activeTab === "jobs" && allJobs.some((job) =>
+    ["queued", "running", "cancelling"].includes(job.status)
+    || ["queued", "retrying"].includes(job.notifications?.at(-1)?.status))) {
     jobsPollTimer = window.setTimeout(() => loadJobs().catch((error) => notice(error.message, "warning")), 3000);
   }
 }
@@ -1036,10 +1042,11 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData, imageData] = await Promise.all([
+    const [settings, performanceData, imageData, notificationData] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
       api("/api/sites/images/status"),
+      api("/api/settings/notifications"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -1059,6 +1066,29 @@ async function loadIntegrationSettings() {
     form.elements.clearNpmSecret.checked = false;
     form.elements.clearCloudflareToken.checked = false;
     form.elements.clearCloudflareSecurityToken.checked = false;
+    const notifications = notificationData.settings;
+    const notificationForm = $("#notificationSettingsForm");
+    notificationForm.elements.installationName.value = notifications.installationName || "Hosting control panel";
+    notificationForm.elements.serverName.value = notifications.serverName || "hosting-server";
+    notificationForm.elements.panelUrl.value = notifications.panelUrl || "";
+    notificationForm.elements.telegramEnabled.checked = notifications.telegramEnabled;
+    notificationForm.elements.telegramBotToken.value = "";
+    notificationForm.elements.telegramBotToken.placeholder = notifications.telegramBotTokenConfigured ? "Saved token configured" : "Enter Telegram bot token";
+    notificationForm.elements.telegramChatIds.value = notifications.telegramChatIds || "";
+    notificationForm.elements.clearTelegramBotToken.checked = false;
+    notificationForm.elements.smtpEnabled.checked = notifications.smtpEnabled;
+    notificationForm.elements.smtpHost.value = notifications.smtpHost || "";
+    notificationForm.elements.smtpPort.value = notifications.smtpPort || 587;
+    notificationForm.elements.smtpSecure.checked = notifications.smtpSecure;
+    notificationForm.elements.smtpUsername.value = notifications.smtpUsername || "";
+    notificationForm.elements.smtpPassword.value = "";
+    notificationForm.elements.smtpPassword.placeholder = notifications.smtpPasswordConfigured ? "Saved password configured" : "Enter SMTP password";
+    notificationForm.elements.smtpFrom.value = notifications.smtpFrom || "";
+    notificationForm.elements.smtpRecipients.value = notifications.smtpRecipients || "";
+    notificationForm.elements.clearSmtpPassword.checked = false;
+    notificationForm.elements.severityFailure.checked = notifications.severityFailure;
+    notificationForm.elements.severityWarning.checked = notifications.severityWarning;
+    notificationForm.elements.severitySuccess.checked = notifications.severitySuccess;
     state.performance = performanceData.settings;
     const performance = $("#performanceSettingsForm");
     performance.elements.phpMemoryLimitMb.value = state.performance.php.memoryLimitMb;
@@ -1893,6 +1923,32 @@ $("#integrationSettingsForm").addEventListener("submit", async (event) => {
     notice(error.message, "warning");
   }
 });
+
+$("#notificationSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/settings/notifications", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    notice("Notification settings saved.");
+    await loadIntegrationSettings();
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$$('[data-test-notification]').forEach((button) => button.addEventListener("click", async () => {
+  try {
+    const result = await withButton(button, "Sending...", () => api("/api/settings/notifications/test", {
+      method: "POST",
+      body: JSON.stringify({ channel: button.dataset.testNotification }),
+    }));
+    notice(result.message);
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+}));
 
 $("#performanceSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();

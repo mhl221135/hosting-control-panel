@@ -362,6 +362,19 @@ class JobManager {
     });
   }
 
+  recordNotification(id, notification) {
+    const job = this.get(id);
+    if (!job) return null;
+    job.notifications = Array.isArray(job.notifications) ? job.notifications : [];
+    const safe = safeResult(notification);
+    const existing = job.notifications.findIndex((item) => item.id === safe.id);
+    if (existing >= 0) job.notifications[existing] = safe;
+    else job.notifications.push(safe);
+    job.notifications = job.notifications.slice(-10);
+    this.persist();
+    return this.publicJob(job);
+  }
+
   wait(id) {
     const current = this.get(id);
     if (!current) return Promise.reject(Object.assign(new Error("Job not found"), { statusCode: 404 }));

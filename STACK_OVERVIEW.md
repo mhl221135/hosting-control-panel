@@ -49,6 +49,7 @@ The panel provides:
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
 - Encrypted integration settings for NPM and Cloudflare
+- Encrypted Telegram and external SMTP job notifications with retries and severity filters
 - MySQL installer container and database-prefix settings
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
@@ -87,6 +88,10 @@ generated and persistent files include:
 - `app-data/ui-manager/integration-settings.json`: encrypted integration settings
 - `app-data/ui-manager/integration-settings.key`: generated encryption key when
   `UI_SETTINGS_KEY` is not supplied
+- `app-data/ui-manager/notification-settings.json`: encrypted Telegram/SMTP configuration
+- `app-data/ui-manager/notification-settings.key`: generated notification encryption key
+- `app-data/ui-manager/notification-deliveries.json`: bounded durable delivery history
+- `app-data/ui-manager/jobs.json`: durable background-job history and latest alert status
 - `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
