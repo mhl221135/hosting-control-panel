@@ -145,7 +145,9 @@ The existing `backup_websites.sh` is unchanged and is not part of this flow.
 
 `scripts/export-websites.sh` runs the migration CLI inside `hosting-ui`, groups
 hosts by document root and PHP pool, archives each website, dumps its WordPress
-database, and writes a password-free JSON manifest.
+database, and writes a password-free JSON manifest with SHA-256 checksums. The
+Transfers workspace uses the same manager through a durable `sites.export` job,
+shares the backup storage lock, and preserves independent per-site results.
 
 `scripts/import-websites.sh` stages an export or dump directory below
 `imports`. Manifest imports restore archives. Manual imports discover copied

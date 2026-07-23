@@ -51,6 +51,21 @@ Backup, restore, maintenance, and image-optimization POST routes return `202`
 with a public job record. Use the job API to follow completion rather than
 holding the originating HTTP request open.
 
+### Portable transfers
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/transfers/export/preview?domain=` | preview selected primary sites, aliases, type, root, and database |
+| `POST /api/transfers/export` | queue a durable portable export job |
+| `GET /api/transfers/exports` | list completed export bundles and artifact metadata |
+| `GET /api/transfers/exports/:id?file=` | download one bounded regular artifact |
+
+The export request accepts a non-empty `domains` array. Aliases resolve to their
+primary site. Export jobs share the backup storage lock, continue after
+individual site failures, and can be cancelled only between complete site
+bundles. Downloads are confined to completed export directories and default to
+a 512 MB per-file limit.
+
 ### Background jobs
 
 | Method/path | Purpose |

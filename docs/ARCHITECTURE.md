@@ -195,7 +195,13 @@ default, while historical backup deletion is a separate, incompatible choice.
 
 ## Migration
 
-Exports are password-free manifests plus website archives and database dumps.
+Exports are password-free manifests plus website archives, database dumps, and
+SHA-256 checksums. The authenticated Transfers workspace previews primary sites
+and queues `sites.export` work through the durable job manager. Export and
+backup operations share the storage lock; per-site failures remain independent,
+and cancellation occurs only between complete site bundles. Completed artifact
+downloads are path-confined, reject symlinks, and enforce a configurable size
+limit.
 Imports support a full manifest, a lightweight `import-sites.json`, or discovery
 from existing `wp-config.php` files. Import generates new database credentials
 and rewrites `wp-config.php`; source credentials are never required.

@@ -132,7 +132,63 @@ test("round trips runtime maps and pools", () => {
   assert.deepEqual(parseSitesMap(renderSitesMap(map)), map);
   const pools = parsePools("[www]\nlisten = 9000\npm = ondemand\n");
   assert.deepEqual(parsePools(renderPools(pools)).sections, pools.sections);
-  assert.equal(transferId(new Date("2026-07-19T02:00:00Z")), "export-2026-07-19_02-00");
+  assert.equal(transferId(new Date("2026-07-19T02:00:00Z")), "export-2026-07-19_02-00-00");
+});
+
+test("previews primary exports and reads bounded artifact history", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-exports-"));
+  try {
+    const sitesMapPath = path.join(directory, "sites.map");
+    const poolsPath = path.join(directory, "pools.conf");
+    const exportsRoot = path.join(directory, "exports");
+    fs.writeFileSync(sitesMapPath, [
+      "map $host $site_root {", "  default /var/www/_default;", "  example.com /var/www/example.com;", "  www.example.com /var/www/example.com;", "}", "",
+      "map $host $php_upstream {", "  default hosting-php-fpm:9000;", "  example.com hosting-php-fpm:9001;", "  www.example.com hosting-php-fpm:9001;", "}", "",
+      "map $host $canonical_host {", "  default \"\";", "  www.example.com example.com;", "}", "",
+    ].join("\n"));
+    fs.writeFileSync(poolsPath, "[www]\nlisten = 9000\n\n[example_com]\nlisten = 9001\npm.max_children = 6\n");
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot,
+      websitesRoot: path.join(directory, "websites"),
+      sitesMapPath,
+      poolsPath,
+      siteState: { get: () => ({ opcache: true }) },
+    });
+    manager.wordpressDatabase = async () => "example_db";
+    const preview = await manager.previewExport(["www.example.com"]);
+    assert.equal(preview.length, 1);
+    assert.equal(preview[0].domain, "example.com");
+    assert.deepEqual(preview[0].components, ["website files", "database"]);
+
+    const id = "export-2026-07-19_02-00-00";
+    const exportDirectory = path.join(exportsRoot, id);
+    fs.mkdirSync(path.join(exportDirectory, "sites"), { recursive: true });
+    fs.writeFileSync(path.join(exportDirectory, "sites", "example.tar.gz"), "archive");
+    fs.writeFileSync(path.join(exportDirectory, "manifest.json"), JSON.stringify({
+      version: 1,
+      type: "hosting-sites-export",
+      id,
+      createdAt: "2026-07-19T02:00:00.000Z",
+      sites: [{
+        domain: "example.com",
+        aliases: ["www.example.com"],
+        websitePath: "example.com",
+        database: "example_db",
+        websiteArchive: "sites/example.tar.gz",
+        databaseDump: "databases/example.sql.gz",
+      }],
+    }));
+    const history = manager.listExports();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].sites[0].domain, "example.com");
+    assert.equal(history[0].files.length, 2);
+    assert.equal(manager.exportFile(id, "manifest.json").name, "manifest.json");
+    assert.throws(() => manager.exportFile(id, "../manifest.json"), /Invalid export artifact/);
+    assert.throws(() => manager.exportFile(id, "sites/example.tar.gz", 1), /download limit/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("enabled pools inherit global OPcache while disabled pools override it", () => {

@@ -24,7 +24,7 @@ const DEFAULT_PRESETS = {
 };
 
 function transferId(date = new Date()) {
-  return `export-${date.toISOString().replace(/T/, "_").replace(/:\d{2}\.\d{3}Z$/, "").replaceAll(":", "-")}`;
+  return `export-${date.toISOString().replace(/T/, "_").replace(/\.\d{3}Z$/, "").replaceAll(":", "-")}`;
 }
 
 function dumpTimestamp(date = new Date()) {
@@ -51,6 +51,27 @@ function validateDatabaseName(value) {
   const name = String(value || "").trim();
   if (!DATABASE_PATTERN.test(name)) throw new Error(`Database name '${name}' cannot also be used as a MySQL user`);
   return name;
+}
+
+async function sha256File(filePath) {
+  const hash = crypto.createHash("sha256");
+  await pipeline(fs.createReadStream(filePath), hash);
+  return hash.digest("hex");
+}
+
+function artifactFiles(directory) {
+  const files = [];
+  const walk = (current, relative = "") => {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue;
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      const child = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(child, childRelative);
+      else if (entry.isFile()) files.push({ name: childRelative, path: child, size: fs.statSync(child).size });
+    }
+  };
+  walk(directory);
+  return files.sort((left, right) => left.name.localeCompare(right.name));
 }
 
 function newestDatabaseDump(directory, database) {
@@ -203,50 +224,100 @@ class MigrationManager {
     return validateDatabaseName(stdout.trim());
   }
 
-  async exportAll(selectedDomains = []) {
+  selectedSites(selectedDomains = []) {
     const selected = new Set(selectedDomains.map(validateDomain));
-    const sites = this.primarySites().filter((site) =>
+    const primary = this.primarySites();
+    const known = new Set(primary.flatMap((site) => [site.host, ...site.aliases]));
+    const unknown = [...selected].filter((domain) => !known.has(domain));
+    if (unknown.length) {
+      throw Object.assign(new Error(`Website is not configured: ${unknown.join(", ")}`), { statusCode: 404 });
+    }
+    const sites = primary.filter((site) =>
       selected.size === 0 || selected.has(site.host) || site.aliases.some((alias) => selected.has(alias)));
     if (!sites.length) throw new Error("No configured primary websites were selected for export");
+    return sites;
+  }
+
+  async previewExport(selectedDomains = []) {
+    return Promise.all(this.selectedSites(selectedDomains).map(async (site) => {
+      const websitePath = this.websiteRelative(site);
+      const siteType = site.state?.siteType === "static" ? "static" : "wordpress";
+      let database = "";
+      let warning = "";
+      if (siteType === "wordpress") {
+        try {
+          database = await this.wordpressDatabase(websitePath);
+        } catch (error) {
+          warning = error.message;
+        }
+      }
+      return {
+        domain: site.host,
+        aliases: site.aliases,
+        siteType,
+        websitePath,
+        database,
+        components: database ? ["website files", "database"] : ["website files"],
+        warning,
+      };
+    }));
+  }
+
+  async exportAll(selectedDomains = [], options = {}) {
+    const sites = this.selectedSites(selectedDomains);
     const id = transferId();
     const partial = path.join(this.exportsRoot, `.partial-${id}`);
     const complete = path.join(this.exportsRoot, id);
+    if (fs.existsSync(partial) || fs.existsSync(complete)) throw new Error(`Export destination already exists: ${id}`);
     fs.mkdirSync(path.join(partial, "sites"), { recursive: true });
     fs.mkdirSync(path.join(partial, "databases"), { recursive: true });
     const manifestSites = [];
+    const results = [];
     try {
-      for (const site of sites) {
-        const websitePath = this.websiteRelative(site);
-        const source = resolveInside(this.websitesRoot, websitePath, "website path");
+      for (const [index, site] of sites.entries()) {
+        options.checkpoint?.(`Export cancelled before ${site.host}`);
+        options.onProgress?.({ completed: index, total: sites.length, currentStep: `Exporting ${site.host}`, results });
         const siteType = site.state?.siteType === "static" ? "static" : "wordpress";
-        if (siteType === "wordpress" && !fs.existsSync(path.join(source, "wp-config.php"))) {
-          throw new Error(`wp-config.php not found for ${site.host}`);
-        }
-        const database = siteType === "static" ? "" : await this.wordpressDatabase(websitePath);
         const slug = sanitizeSectionName(site.host);
         const websiteArchive = `sites/${slug}.tar.gz`;
-        const databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
-        await execFileAsync("tar", ["--ignore-failed-read", "--warning=no-file-changed", "-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
-        if (database) await this.dumpDatabase(database, path.join(partial, databaseDump));
-        manifestSites.push({
-          domain: site.host,
-          siteType,
-          aliases: site.aliases,
-          canonicalAliases: site.canonicalAliases,
-          websitePath,
-          database,
-          websiteArchive,
-          databaseDump,
-          poolTier: site.poolTier,
-          state: {
-            fastcgiCache: Boolean(site.state.fastcgiCache),
-            redis: Boolean(site.state.redis),
-            opcache: site.state.opcache !== false,
-            backupEnabled: Boolean(site.state.backupEnabled),
-            imageOptimizationEnabled: Boolean(site.state.imageOptimizationEnabled),
+        let databaseDump = "";
+        try {
+          const websitePath = this.websiteRelative(site);
+          const source = resolveInside(this.websitesRoot, websitePath, "website path");
+          if (siteType === "wordpress" && !fs.existsSync(path.join(source, "wp-config.php"))) {
+            throw new Error(`wp-config.php not found for ${site.host}`);
+          }
+          const database = siteType === "static" ? "" : await this.wordpressDatabase(websitePath);
+          databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
+          await execFileAsync("tar", ["--ignore-failed-read", "--warning=no-file-changed", "-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+          if (database) await this.dumpDatabase(database, path.join(partial, databaseDump));
+          manifestSites.push({
+            domain: site.host,
             siteType,
-          },
-        });
+            aliases: site.aliases,
+            canonicalAliases: site.canonicalAliases,
+            websitePath,
+            database,
+            websiteArchive,
+            databaseDump,
+            poolTier: site.poolTier,
+            state: {
+              fastcgiCache: Boolean(site.state.fastcgiCache),
+              redis: Boolean(site.state.redis),
+              opcache: site.state.opcache !== false,
+              backupEnabled: Boolean(site.state.backupEnabled),
+              imageOptimizationEnabled: Boolean(site.state.imageOptimizationEnabled),
+              siteType,
+            },
+          });
+          results.push({ domain: site.host, ok: true, message: "Exported" });
+        } catch (error) {
+          fs.rmSync(path.join(partial, websiteArchive), { force: true });
+          if (databaseDump) fs.rmSync(path.join(partial, databaseDump), { force: true });
+          results.push({ domain: site.host, ok: false, message: String(error.message || error).slice(0, 1000) });
+        }
+        options.onProgress?.({ completed: index + 1, total: sites.length, currentStep: `Finished ${site.host}`, results });
+        options.checkpoint?.(`Export cancelled after ${site.host}`);
       }
       const manifest = {
         version: 1,
@@ -254,14 +325,82 @@ class MigrationManager {
         id,
         createdAt: new Date().toISOString(),
         sites: manifestSites,
+        failures: results.filter((result) => !result.ok),
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o600 });
+      const checksums = [];
+      options.onProgress?.({ completed: sites.length, total: sites.length, currentStep: "Writing checksums", results });
+      for (const file of artifactFiles(partial)) {
+        options.checkpoint?.("Export cancelled while preparing checksums");
+        checksums.push(`${await sha256File(file.path)}  ${file.name}`);
+      }
+      fs.writeFileSync(path.join(partial, "checksums.sha256"), `${checksums.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
+      const files = artifactFiles(partial).map(({ name, size }) => ({ name, size }));
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
       fs.renameSync(partial, complete);
-      return { directory: complete, manifest };
+      const ok = results.every((result) => result.ok);
+      return {
+        ok,
+        exportId: id,
+        directory: complete,
+        manifest,
+        results,
+        files,
+        totalBytes,
+        total: sites.length,
+        completed: sites.length,
+        message: ok
+          ? `Exported ${results.length} website${results.length === 1 ? "" : "s"}`
+          : `Export completed with ${results.filter((result) => !result.ok).length} failure(s)`,
+      };
     } catch (error) {
       fs.rmSync(partial, { recursive: true, force: true });
       throw error;
     }
+  }
+
+  listExports(limit = 50) {
+    if (!fs.existsSync(this.exportsRoot)) return [];
+    return fs.readdirSync(this.exportsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && /^export-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?$/.test(entry.name))
+      .map((entry) => {
+        const directory = path.join(this.exportsRoot, entry.name);
+        try {
+          const raw = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
+          const manifest = validateManifest(raw);
+          const files = artifactFiles(directory).map(({ name, size }) => ({ name, size }));
+          return {
+            id: entry.name,
+            createdAt: raw.createdAt || fs.statSync(directory).mtime.toISOString(),
+            sites: manifest.sites.map((site) => ({ domain: site.domain, siteType: site.siteType, aliases: site.aliases })),
+            failures: Array.isArray(raw.failures) ? raw.failures : [],
+            files,
+            totalBytes: files.reduce((sum, file) => sum + file.size, 0),
+          };
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .slice(0, Math.min(Math.max(Number(limit) || 50, 1), 100));
+  }
+
+  exportFile(exportId, fileName, maximumBytes = 512 * 1024 * 1024) {
+    if (!/^export-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?$/.test(String(exportId || ""))) {
+      throw Object.assign(new Error("Invalid export identifier"), { statusCode: 400 });
+    }
+    const directory = path.join(this.exportsRoot, exportId);
+    const filePath = resolveInside(directory, fileName, "export artifact");
+    const root = fs.realpathSync(directory);
+    const stat = fs.lstatSync(filePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || !fs.realpathSync(filePath).startsWith(`${root}${path.sep}`)) {
+      throw Object.assign(new Error("Export artifact is not a regular file"), { statusCode: 400 });
+    }
+    if (stat.size > maximumBytes) {
+      throw Object.assign(new Error(`Artifact exceeds the ${Math.floor(maximumBytes / 1024 / 1024)} MB panel download limit`), { statusCode: 413 });
+    }
+    return { path: filePath, name: path.basename(filePath), size: stat.size };
   }
 
   async dumpDatabase(database, outputPath) {

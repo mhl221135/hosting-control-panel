@@ -26,6 +26,8 @@ const state = {
   siteStats: null,
   ipinfo: {},
   removalPlan: null,
+  exports: [],
+  exportPreview: null,
 };
 
 let imageOptimizationPollTimer = null;
@@ -242,7 +244,7 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
@@ -251,6 +253,7 @@ function switchTab(name) {
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
+  if (name === "transfers") loadExports().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
@@ -604,7 +607,77 @@ function jobTypeLabel(type) {
     "site.remove": "Website deletion",
     "npm.certificate.issue": "SSL certificate issuance",
     "npm.certificate.renew": "SSL certificate renewal",
+    "sites.export": "Website export",
   }[type] || type;
+}
+
+function selectedExportDomains() {
+  return $$("[data-export-site]:checked").map((input) => input.value);
+}
+
+function renderExportSelection() {
+  const selected = new Set(selectedExportDomains());
+  const sites = primarySites();
+  $("#exportSiteSelection").innerHTML = sites.length ? sites.map((site) => `
+    <label class="check transfer-site">
+      <input type="checkbox" data-export-site value="${escapeHtml(site.host)}" ${selected.has(site.host) ? "checked" : ""} />
+      <span><strong>${escapeHtml(site.host)}</strong><small>${site.aliases?.length ? `Aliases: ${escapeHtml(site.aliases.join(", "))}` : "No aliases"}</small></span>
+    </label>
+  `).join("") : '<p class="muted">No primary websites are configured.</p>';
+}
+
+function renderExportPreview() {
+  const preview = state.exportPreview;
+  const target = $("#exportPreview");
+  target.className = preview?.sites?.length ? "rows" : "rows empty";
+  target.innerHTML = preview?.sites?.length ? `
+    <p class="muted">Destination: <code>${escapeHtml(preview.destination)}</code></p>
+    ${preview.sites.map((site) => `<div class="transfer-preview-row">
+      <strong>${escapeHtml(site.domain)} · ${escapeHtml(site.siteType)}</strong>
+      <p>Document root: <code>${escapeHtml(site.websitePath)}</code></p>
+      <p>Database: ${escapeHtml(site.database || (site.siteType === "static" ? "not required" : "not detected"))}</p>
+      <p>Components: ${escapeHtml(site.components.join(", "))}${site.aliases.length ? ` · aliases: ${escapeHtml(site.aliases.join(", "))}` : ""}</p>
+      ${site.warning ? `<p class="message error">${escapeHtml(site.warning)}</p>` : ""}
+    </div>`).join("")}
+  ` : "Select websites and preview the export.";
+}
+
+function renderExportHistory() {
+  const exports = state.exports || [];
+  const target = $("#exportHistory");
+  target.className = exports.length ? "rows" : "rows empty";
+  target.innerHTML = exports.length ? exports.map((item) => {
+    const sites = item.sites.map((site) => site.domain).join(", ") || "No successful sites";
+    const files = item.files.map((file) => {
+      const downloadable = file.size <= 512 * 1024 * 1024;
+      const url = `/api/transfers/exports/${encodeURIComponent(item.id)}?file=${encodeURIComponent(file.name)}`;
+      return downloadable
+        ? `<a href="${url}" download title="${escapeHtml(file.name)}">${escapeHtml(file.name)} · ${formatBytes(file.size)}</a>`
+        : `<span class="export-file-server">${escapeHtml(file.name)} · ${formatBytes(file.size)} · server only</span>`;
+    }).join("");
+    return `<div class="export-history-row">
+      <strong>${escapeHtml(item.id)}</strong>
+      <p>${escapeHtml(new Date(item.createdAt).toLocaleString())} · ${formatBytes(item.totalBytes)} · ${escapeHtml(sites)}</p>
+      ${item.failures.length ? `<p class="message error">${item.failures.length} site export(s) failed. See manifest.json.</p>` : ""}
+      <div class="export-files">${files}</div>
+    </div>`;
+  }).join("") : "No completed portable exports were found.";
+}
+
+async function loadExports() {
+  renderExportSelection();
+  const response = await api("/api/transfers/exports");
+  state.exports = response.exports || [];
+  renderExportHistory();
+}
+
+async function previewExport() {
+  const domains = selectedExportDomains();
+  if (!domains.length) throw new Error("Select at least one website");
+  const query = new URLSearchParams();
+  domains.forEach((domain) => query.append("domain", domain));
+  state.exportPreview = await api(`/api/transfers/export/preview?${query}`);
+  renderExportPreview();
 }
 
 function renderJobs() {
@@ -934,6 +1007,7 @@ async function loadData() {
   renderDnsPresetDraft();
   renderCloudflareIps();
   renderWordPressPackages();
+  renderExportSelection();
 }
 
 async function loadNpm() {
@@ -1864,6 +1938,42 @@ async function startWebsiteBatch(scope, button) {
 
 $("#backupEnabledSites").addEventListener("click", (event) => startWebsiteBatch("enabled", event.currentTarget));
 $("#backupAllSites").addEventListener("click", (event) => startWebsiteBatch("all", event.currentTarget));
+
+$("#selectAllExports").addEventListener("click", () => {
+  $$("[data-export-site]").forEach((input) => { input.checked = true; });
+  state.exportPreview = null;
+  renderExportPreview();
+});
+$("#clearExportSelection").addEventListener("click", () => {
+  $$("[data-export-site]").forEach((input) => { input.checked = false; });
+  state.exportPreview = null;
+  renderExportPreview();
+});
+$("#exportSiteSelection").addEventListener("change", () => {
+  state.exportPreview = null;
+  renderExportPreview();
+});
+$("#refreshExports").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadExports); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewExport").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Checking...", previewExport); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#startExport").addEventListener("click", async (event) => {
+  const domains = selectedExportDomains();
+  if (!domains.length) return notice("Select at least one website.", "warning");
+  if (!state.exportPreview) return notice("Preview the selected websites before starting.", "warning");
+  try {
+    const result = await withButton(event.currentTarget, "Queuing...", () => api("/api/transfers/export", {
+      method: "POST",
+      body: JSON.stringify({ domains }),
+    }));
+    rememberJob(result.job, "Portable website export queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
 
 $("#backupHistory").addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-restore-backup]");
