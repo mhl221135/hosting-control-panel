@@ -277,6 +277,23 @@ Only one backup job runs at a time. Application-data restore is intentionally a
 maintenance procedure performed with the stack stopped; it is not exposed as a
 one-click panel action.
 
+## Transfers
+
+The Transfers workspace creates portable migration bundles without embedding
+source or generated passwords.
+
+| Control | Function |
+| --- | --- |
+| **Select all / Clear** | Changes the primary-site selection; aliases remain grouped with their primary site. |
+| **Preview** | Reads site type, document root, WordPress database, aliases, components, and destination without changing runtime state. |
+| **Start export** | Queues sequential archive/database work in Jobs and allows cancellation between complete sites. |
+| **Refresh** | Reloads completed export bundles and file sizes. |
+| Artifact link | Downloads an authenticated regular file up to the configured limit; larger files remain in the exports directory. |
+
+Every completed export includes `manifest.json` and `checksums.sha256`.
+Individual site failures appear in the job and manifest without deleting
+successfully generated site bundles.
+
 ## Delete
 
 Deletion is ownership-aware and requires typing the selected domain. Always

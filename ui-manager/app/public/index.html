@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260723-13" />
+    <link rel="stylesheet" href="/styles.css?v=20260723-14" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -34,6 +34,7 @@
             <option value="integrations">DNS &amp; SSL</option>
             <option value="security">Security</option>
             <option value="backups">Backups</option>
+            <option value="transfers">Transfers</option>
             <option value="removal">Delete website</option>
             <option value="runtime">Runtime</option>
             <option value="settings">Settings</option>
@@ -50,6 +51,7 @@
           <button class="nav-item" data-tab-link="integrations" data-short="DN" title="DNS and SSL">DNS &amp; SSL</button>
           <button class="nav-item" data-tab-link="security" data-short="SE" title="Security">Security</button>
           <button class="nav-item" data-tab-link="backups" data-short="BK" title="Backups">Backups</button>
+          <button class="nav-item" data-tab-link="transfers" data-short="TR" title="Transfers">Transfers</button>
           <button class="nav-item" data-tab-link="removal" data-short="DE" title="Delete website">Delete</button>
           <button class="nav-item" data-tab-link="runtime" data-short="RT" title="Runtime">Runtime</button>
           <button class="nav-item" data-tab-link="settings" data-short="CF" title="Settings">Settings</button>
@@ -436,6 +438,40 @@
           </article>
         </section>
 
+        <section class="tab-panel hidden" data-tab-panel="transfers">
+          <div class="section-head">
+            <div><h2>Portable exports</h2><p>Create password-free migration bundles for selected primary websites.</p></div>
+            <button id="refreshExports" class="secondary" type="button">Refresh</button>
+          </div>
+
+          <div class="two-column transfer-layout">
+            <article class="panel">
+              <div class="card-head">
+                <div><h3>Select websites</h3><p class="muted">Aliases are included with their primary website.</p></div>
+                <div class="button-row">
+                  <button id="selectAllExports" class="secondary" type="button">Select all</button>
+                  <button id="clearExportSelection" class="secondary" type="button">Clear</button>
+                </div>
+              </div>
+              <div id="exportSiteSelection" class="transfer-sites"></div>
+              <div class="form-actions transfer-actions">
+                <button id="previewExport" class="secondary" type="button">Preview</button>
+                <button id="startExport" type="button">Start export</button>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Export preview</h3><p class="muted">Database detection is read-only.</p></div></div>
+              <div id="exportPreview" class="rows empty">Select websites and preview the export.</div>
+            </article>
+          </div>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>Generated exports</h3><p class="muted">Large artifacts remain available in the configured exports directory.</p></div></div>
+            <div id="exportHistory" class="rows empty">No exports loaded.</div>
+          </article>
+        </section>
+
         <section class="tab-panel hidden" data-tab-panel="removal">
           <div class="section-head">
             <div><h2>Delete website</h2><p>Preview ownership, select resources, and confirm permanent removal.</p></div>
@@ -692,6 +728,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260723-16"></script>
+    <script src="/app.js?v=20260723-17"></script>
   </body>
 </html>

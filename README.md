@@ -584,7 +584,8 @@ and create incidents for connection failures, timeouts, or non-2xx/3xx status.
 
 ## Website Migration
 
-Create a portable export from the running stack:
+Create a portable export from the authenticated **Transfers** workspace, or
+from the running stack with the recovery-oriented shell command:
 
 ```bash
 cd /media/ssdmount/websites-v2/sources
@@ -599,7 +600,8 @@ The script can export every configured primary site or a comma-separated
 selection. It writes a directory such as:
 
 ```text
-exports/export-2026-07-19_02-00/
+exports/export-2026-07-19_02-00-00/
+|-- checksums.sha256
 |-- manifest.json
 |-- sites/
 |   `-- example_com.tar.gz
@@ -607,7 +609,13 @@ exports/export-2026-07-19_02-00/
     `-- yogali00_example_com_2026-07-19_02-00.sql.gz
 ```
 
-`manifest.json` contains no passwords. For each site it records the primary
+The panel previews site type, document root, database, aliases, and expected
+components before it queues a durable export job. Sites run sequentially under
+the shared storage lock; a failed site is recorded without discarding successful
+site bundles. The generated history lists total size and allows authenticated
+downloads of regular artifacts up to 512 MB by default.
+
+`manifest.json` contains no passwords. For each successful site it records the primary
 domain, aliases, canonical redirects, website path, original database name,
 archive and dump paths, PHP profile, and cache/backup state.
 

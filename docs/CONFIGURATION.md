@@ -25,6 +25,7 @@ the supported keys.
 | `CLOUDFLARE_SECURITY_API_TOKEN` | WAF/rulesets token | Environment fallback; editable in panel |
 | `CLOUDFLARE_ACCOUNT_ID` | Account-owned token account | Environment fallback; editable in panel |
 | `IPINFO_TOKEN` | Optional IPinfo API token | Environment fallback; encrypted when saved in panel |
+| `EXPORT_DOWNLOAD_MAX_BYTES` | Maximum size of one authenticated panel artifact download | `536870912` (512 MB) |
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |

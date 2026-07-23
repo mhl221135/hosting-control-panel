@@ -61,6 +61,7 @@ const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
 const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
 const EXPORTS_ROOT = process.env.EXPORTS_ROOT || "/srv/exports";
 const IMPORTS_ROOT = process.env.IMPORTS_ROOT || "/srv/imports";
+const EXPORT_DOWNLOAD_MAX_BYTES = Number(process.env.EXPORT_DOWNLOAD_MAX_BYTES || 512 * 1024 * 1024);
 const DEFAULT_PHP_UPSTREAM = process.env.DEFAULT_PHP_UPSTREAM || "hosting-php-fpm:9000";
 const PHP_INI_PATH = process.env.PHP_INI_PATH || "/srv/configs/php/global.ini";
 const NGINX_CONFIG_PATH = process.env.NGINX_CONFIG_PATH || "/srv/configs/nginx/nginx.conf";
@@ -215,6 +216,21 @@ const migrationManager = new MigrationManager({
   cloudflare,
   siteState,
 });
+jobManager.register("sites.export", async (context, payload) =>
+  backupManager.withLock({ type: "export", label: "Portable website export" }, async () => {
+    const result = await migrationManager.exportAll(payload.domains, {
+      checkpoint: context.checkpoint,
+      onProgress: context.update,
+    });
+    return {
+      ok: result.ok,
+      exportId: result.exportId,
+      results: result.results,
+      total: result.total,
+      completed: result.completed,
+      message: result.message,
+    };
+  }));
 
 function decorateJob(job, operator) {
   return job ? { ...job, oneTimeAccessAvailable: provisioningVault.has(job.id, operator) } : null;
@@ -1272,6 +1288,66 @@ async function handleApi(req, res) {
       return true;
     }
     sendJson(res, 200, { ok: true, result: await ipinfo.lookup(ip, ipAddresses.read()) });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/transfers/export/preview") {
+    const domains = requestUrl.searchParams.getAll("domain").map(validateDomain);
+    sendJson(res, 200, {
+      ok: true,
+      destination: "/srv/exports/export-YYYY-MM-DD_HH-MM-SS",
+      sites: await migrationManager.previewExport(domains),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/export") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (!Array.isArray(body.domains) || !body.domains.length) {
+      sendJson(res, 400, { ok: false, message: "Select at least one primary website" });
+      return true;
+    }
+    const domains = [...new Set(body.domains.map(validateDomain))];
+    const sites = migrationManager.selectedSites(domains);
+    sendJson(res, 202, {
+      ok: true,
+      job: jobManager.create({
+        type: "sites.export",
+        label: `Export ${sites.length} website${sites.length === 1 ? "" : "s"}`,
+        operator: req.auth.email,
+        trigger: "manual",
+        payload: { domains: sites.map((site) => site.host) },
+        targets: sites.map((site) => site.host),
+        conflicts: ["server-heavy", "storage:exports", ...sites.map((site) => `site:${site.host}`)],
+        total: sites.length,
+        cancellable: true,
+        retryable: true,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/transfers/exports") {
+    sendJson(res, 200, { ok: true, exports: migrationManager.listExports() });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname.startsWith("/api/transfers/exports/")) {
+    const exportId = decodeURIComponent(requestUrl.pathname.slice("/api/transfers/exports/".length));
+    const artifact = migrationManager.exportFile(
+      exportId,
+      requestUrl.searchParams.get("file"),
+      EXPORT_DOWNLOAD_MAX_BYTES,
+    );
+    const downloadName = artifact.name.replace(/[^A-Za-z0-9._-]/g, "_");
+    res.writeHead(200, {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": artifact.size,
+      "Content-Disposition": `attachment; filename="${downloadName}"`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    });
+    fs.createReadStream(artifact.path).pipe(res);
     return true;
   }
 

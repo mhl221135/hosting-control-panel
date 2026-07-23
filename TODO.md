@@ -17,16 +17,16 @@ backlog only when their acceptance criteria are satisfied.
 9. Warm-standby replication and controlled failover.
 
 The durable job system now handles backups, restores, maintenance, image
-optimization, website deletion, and website provisioning/import. Remaining long
-operations should adopt it instead of creating another status file, lock, or
-browser-bound request.
+optimization, website deletion, website provisioning/import, and portable
+website exports. Remaining long operations should adopt it instead of creating
+another status file, lock, or browser-bound request.
 
 ## 1. Remaining Background-Job Adoption
 
 ### Objective
 
 Finish adopting the implemented durable job service for multi-site imports,
-exports, WordPress updates, off-site copies, and future bulk operations.
+WordPress updates, off-site copies, and future bulk operations.
 
 Website deletion now uses the durable job system with conflict locks, live
 ownership revalidation, bounded progress, notification delivery, and
@@ -112,18 +112,6 @@ After notifications are stable, add only allowlisted commands such as
 Expose the existing portable migration manager in the authenticated UI without
 duplicating the tested shell-script logic.
 
-### Export Workflow
-
-- Select one, several, or all primary websites; aliases remain part of their
-  primary site.
-- Preview site type, document root, database, expected components, and export
-  destination before starting.
-- Run as a background job with per-site archive/dump progress and independent
-  results.
-- Show the generated export directory, checksums, manifest, size, and download
-  controls for the manifest and reasonably sized artifacts.
-- Preserve password-free manifests and generated target credentials.
-
 ### Import Workflow
 
 - Accept a portable export manifest or lightweight `import-sites.json`.
@@ -136,7 +124,7 @@ duplicating the tested shell-script logic.
 
 ### Acceptance Criteria
 
-- Shell and UI imports produce equivalent runtime state.
+- Shell and future UI imports produce equivalent runtime state.
 - Progress survives navigation and panel restart through the shared job system.
 - Existing files, databases, NPM hosts, or DNS records are never overwritten
   without a visible conflict decision and typed confirmation.
