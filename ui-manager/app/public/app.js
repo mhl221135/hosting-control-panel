@@ -10,6 +10,7 @@ const state = {
   backupName: "app-data",
   backupSettings: null,
   backupStatus: null,
+  offsite: null,
   dnsRecords: [],
   dnsPresets: [],
   dnsPresetDraft: [],
@@ -925,21 +926,90 @@ function renderBackupHistory(backups) {
   `).join("");
 }
 
+function renderOffsite() {
+  const data = state.offsite || {};
+  const settings = data.settings || {};
+  const jobs = data.jobs || [];
+  const active = jobs.some((job) => ["queued", "running", "cancelling"].includes(job.status));
+  for (const id of ["offsiteSync", "offsiteCheck", "offsiteRestoreTest", "offsiteInitialize"]) {
+    $(id.startsWith("#") ? id : `#${id}`).disabled = active || !settings.configured;
+  }
+  $("#offsiteInitialize").disabled = active || !settings.configured;
+  const latest = jobs[0];
+  $("#offsiteStatus").textContent = [
+    `Configuration: ${settings.configured ? "complete" : "incomplete"}`,
+    `Scheduled replication: ${settings.enabled ? `enabled at ${settings.scheduleTime}` : "disabled"}`,
+    `Retention: ${settings.retention || 30} snapshots`,
+    `Verification: ${settings.verifyPercent ?? 5}% of repository data`,
+    `Weekly restore test: ${settings.restoreTestEnabled ? "enabled" : "disabled"}`,
+    latest ? `Latest job: ${latest.label} · ${latest.status}${latest.finishedAt ? ` · ${new Date(latest.finishedAt).toLocaleString()}` : ""}` : "No off-site jobs recorded.",
+    data.repositoryError ? `Repository: ${data.repositoryError}` : "",
+  ].filter(Boolean).join("\n");
+  const snapshots = data.snapshots || [];
+  const container = $("#offsiteSnapshots");
+  if (!snapshots.length) {
+    container.className = "rows empty";
+    container.textContent = settings.configured ? "No encrypted snapshots found." : "Save complete object-storage settings first.";
+  } else {
+    container.className = "rows";
+    container.innerHTML = snapshots.map((snapshot) => `
+      <div class="backup-row">
+        <div><strong>${escapeHtml(snapshot.id)}</strong><p>${escapeHtml(new Date(snapshot.time).toLocaleString())}</p></div>
+        <div><span>Encrypted Restic snapshot</span><p>${escapeHtml(snapshot.hostname || "")}</p></div>
+      </div>
+    `).join("");
+  }
+}
+
+async function loadOffsite(includeSnapshots = true) {
+  const data = await api(`/api/backups/offsite${includeSnapshots ? "?snapshots=1" : ""}`);
+  state.offsite = data;
+  const form = $("#offsiteSettingsForm");
+  const settings = data.settings;
+  for (const [name, value] of Object.entries({
+    endpoint: settings.endpoint,
+    bucket: settings.bucket,
+    prefix: settings.prefix,
+    region: settings.region,
+    schedule_time: settings.scheduleTime,
+    retention: settings.retention,
+    upload_limit_kib: settings.uploadLimitKib,
+    download_limit_kib: settings.downloadLimitKib,
+    verify_percent: settings.verifyPercent,
+    restore_test_day: settings.restoreTestDay,
+    restore_test_time: settings.restoreTestTime,
+    restore_test_max_gib: Math.max(1, Math.round(Number(settings.restoreTestMaxBytes || 0) / 1073741824)),
+  })) {
+    if (form.elements[name]) form.elements[name].value = value ?? "";
+  }
+  form.elements.enabled.checked = Boolean(settings.enabled);
+  form.elements.restore_test_enabled.checked = Boolean(settings.restoreTestEnabled);
+  form.elements.access_key_id.placeholder = settings.accessKeyConfigured ? "Stored securely; leave blank to keep" : "";
+  form.elements.secret_access_key.placeholder = settings.secretKeyConfigured ? "Stored securely; leave blank to keep" : "";
+  form.elements.repository_password.placeholder = settings.repositoryPasswordConfigured
+    ? "Stored securely; leave blank to keep"
+    : "";
+  renderOffsite();
+}
+
 async function loadBackupView() {
   renderBackupOptions();
   renderRemovalOptions();
-  const [data, history] = await Promise.all([
+  const [data, history, offsite] = await Promise.all([
     api("/api/backups/settings"),
     api(`/api/backups?name=${encodeURIComponent(state.backupName)}`),
+    api("/api/backups/offsite"),
   ]);
   state.backupSettings = data.settings;
   state.backupStatus = data.status;
+  state.offsite = offsite;
   $("#backupSettingsForm").elements.schedule_time.value = data.settings.scheduleTime;
   $("#backupSettingsForm").elements.retention.value = data.settings.retention;
   $("#backupSettingsForm").elements.site_backups_enabled.checked = data.settings.siteBackupsEnabled;
   $("#backupSettingsForm").elements.app_data_enabled.checked = data.settings.appDataEnabled;
   renderBackupStatus();
   renderBackupHistory(history.backups || []);
+  renderOffsite();
 }
 
 function renderPools() {
@@ -1938,6 +2008,47 @@ async function startWebsiteBatch(scope, button) {
 
 $("#backupEnabledSites").addEventListener("click", (event) => startWebsiteBatch("enabled", event.currentTarget));
 $("#backupAllSites").addEventListener("click", (event) => startWebsiteBatch("all", event.currentTarget));
+
+$("#offsiteSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/backups/offsite", {
+      method: "PUT",
+      body: JSON.stringify(formObject(event.currentTarget)),
+    }));
+    event.currentTarget.elements.access_key_id.value = "";
+    event.currentTarget.elements.secret_access_key.value = "";
+    event.currentTarget.elements.repository_password.value = "";
+    notice("Off-site backup settings saved.");
+    await loadOffsite(false);
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+async function startOffsiteAction(action, button, pending) {
+  try {
+    const result = await withButton(button, pending, () => api(`/api/backups/offsite/${action}`, {
+      method: "POST",
+      body: action === "initialize" ? JSON.stringify({ confirm: "INITIALIZE" }) : undefined,
+    }));
+    rememberJob(result.job, result.job.label);
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+}
+
+$("#offsiteSync").addEventListener("click", (event) =>
+  startOffsiteAction("sync", event.currentTarget, "Queueing..."));
+$("#offsiteCheck").addEventListener("click", (event) =>
+  startOffsiteAction("check", event.currentTarget, "Queueing..."));
+$("#offsiteRestoreTest").addEventListener("click", (event) =>
+  startOffsiteAction("restore-test", event.currentTarget, "Queueing..."));
+$("#offsiteInitialize").addEventListener("click", (event) => {
+  if (!confirm("Initialize a NEW empty encrypted repository? Do not use this on an existing repository.")) return;
+  startOffsiteAction("initialize", event.currentTarget, "Queueing...");
+});
+$("#refreshOffsite").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", () => loadOffsite(true)); }
+  catch (error) { notice(error.message, "warning"); }
+});
 
 $("#selectAllExports").addEventListener("click", () => {
   $$("[data-export-site]").forEach((input) => { input.checked = true; });

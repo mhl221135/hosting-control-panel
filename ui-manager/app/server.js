@@ -24,6 +24,7 @@ const {
 const { SiteState } = require("./lib/site-state");
 const { supportsWordPressRedis } = require("./lib/site-capabilities");
 const { BackupManager } = require("./lib/backup-manager");
+const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -150,6 +151,14 @@ const backupManager = new BackupManager({
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
     return getSitesWithPools(mapParsed, poolsParsed);
   },
+});
+const offsiteBackupManager = new OffsiteBackupManager({
+  dataDir: DATA_DIR,
+  backupsRoot: BACKUPS_ROOT,
+  backupManager,
+  jobManager,
+  encrypt: (value) => integrationSettings.encrypt(value),
+  decrypt: (value) => integrationSettings.decrypt(value),
 });
 const imageOptimizationManager = new ImageOptimizationManager({
   dataDir: DATA_DIR,
@@ -1362,6 +1371,67 @@ async function handleApi(req, res) {
       settings: backupManager.readSettings(),
       status: backupManager.status(),
     });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/backups/offsite") {
+    const status = offsiteBackupManager.status();
+    let snapshots = [];
+    let repositoryError = "";
+    if (status.settings.configured && requestUrl.searchParams.get("snapshots") === "1") {
+      try {
+        snapshots = await offsiteBackupManager.snapshots();
+      } catch (error) {
+        repositoryError = error.message;
+      }
+    }
+    sendJson(res, 200, { ok: true, ...status, snapshots, repositoryError });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/backups/offsite") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const settings = offsiteBackupManager.settings.update({
+      enabled: body.enabled,
+      endpoint: body.endpoint,
+      bucket: body.bucket,
+      prefix: body.prefix,
+      region: body.region,
+      accessKeyId: body.access_key_id,
+      secretAccessKey: body.secret_access_key,
+      repositoryPassword: body.repository_password,
+      scheduleTime: body.schedule_time,
+      retention: body.retention,
+      uploadLimitKib: body.upload_limit_kib,
+      downloadLimitKib: body.download_limit_kib,
+      verifyPercent: body.verify_percent,
+      restoreTestEnabled: body.restore_test_enabled,
+      restoreTestDay: body.restore_test_day,
+      restoreTestTime: body.restore_test_time,
+      restoreTestMaxBytes: Number(body.restore_test_max_gib) * 1024 * 1024 * 1024,
+    });
+    sendJson(res, 200, { ok: true, settings });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname.startsWith("/api/backups/offsite/")) {
+    const action = requestUrl.pathname.slice("/api/backups/offsite/".length);
+    const definitions = {
+      initialize: ["offsite.initialize", "Initialize encrypted off-site repository"],
+      sync: ["offsite.sync", "Replicate backups off site"],
+      check: ["offsite.check", "Check off-site repository"],
+      "restore-test": ["offsite.restore-test", "Test off-site restore"],
+    };
+    if (!definitions[action]) return false;
+    if (action === "initialize") {
+      const body = JSON.parse((await readBody(req)) || "{}");
+      if (body.confirm !== "INITIALIZE") {
+        sendJson(res, 400, { ok: false, message: "Type INITIALIZE to create a new encrypted repository" });
+        return true;
+      }
+    }
+    const [type, label] = definitions[action];
+    sendJson(res, 202, { ok: true, job: offsiteBackupManager.job(type, label, req.auth.email) });
     return true;
   }
 
@@ -2607,6 +2677,7 @@ server.listen(PORT, "0.0.0.0", () => {
   healthMonitor.start();
   jobManager.start();
   backupManager.start();
+  offsiteBackupManager.start();
   imageOptimizationManager.startScheduler();
   maintenanceManager.startScheduler();
   if (fs.existsSync(performanceSettings.path)) {
