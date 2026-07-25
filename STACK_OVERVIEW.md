@@ -48,6 +48,8 @@ The panel provides:
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
+- Dry-run Cloudflare bulk hardening, rollback, provisioning defaults, and
+  expiring hostname-scoped traffic mitigations
 - Encrypted integration settings for NPM and Cloudflare
 - Encrypted Telegram and external SMTP job notifications with retries and severity filters
 - Transition-based operational health checks and recovery alerts for containers,

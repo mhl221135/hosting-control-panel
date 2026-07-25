@@ -65,6 +65,7 @@ routes. There is no Express framework or external npm dependency.
 | `runtime-config.js` | nginx host map and PHP pool parsing/rendering |
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
 | `provision-security.js` | capability validation and warning-safe Cloudflare hardening step |
+| `cloudflare-automation-manager.js` | bulk dry-runs/jobs/rollback, provisioning defaults, temporary mitigation lifecycle |
 | `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations and bounded revision retention/preview |
 | `maintenance-manager.js` | persisted manual/weekly maintenance scheduling and progress |
 | `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
@@ -240,6 +241,12 @@ panel-owned reference. Sensitive-probe and XML-RPC rules are host-scoped. The
 login rule is path-only because Cloudflare Free restricts expression fields, so
 it protects `/wp-login.php` across the selected zone. Its values are five
 requests in 10 seconds and a 10-second block; Free permits one rate rule per zone.
+
+Bulk automation rereads provider state before apply, runs sequentially through
+the durable job manager, and stores exact panel-owned rollback state. Temporary
+incident rules use a stable website/address reference, exact public addresses,
+hostname scope, bounded expiry, and durable removal jobs. Provider settings
+shared by multiple selected websites in one zone are changed once.
 
 ## Failure Boundaries
 

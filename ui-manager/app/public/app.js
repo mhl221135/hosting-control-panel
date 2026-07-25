@@ -16,6 +16,9 @@ const state = {
   dnsPresetDraft: [],
   cloudflareIps: [],
   securityRules: [],
+  cloudflareAutomation: null,
+  cloudflareAutomationPreview: null,
+  incidentPreview: null,
   wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
@@ -248,7 +251,8 @@ function switchTab(name) {
   const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
-  if (name === "security") loadSecurity().catch((error) => notice(error.message, "warning"));
+  if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
+    .catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
@@ -387,7 +391,7 @@ function renderSiteStats() {
     const location = info ? [info.city, info.region, info.country].filter(Boolean).join(", ") || "Location unavailable" : "";
     const organization = info ? [info.asn, info.organization, info.network].filter(Boolean).join(" · ") || "Network details unavailable" : "";
     const signals = info ? Object.entries(info.indicators || {}).map(([name, value]) => `${name}: ${value === null ? "unavailable" : value ? "yes" : "no"}`).join(" · ") : "";
-    return `<div class="ip-rank-row"><code>${escapeHtml(row.ip)}</code><strong>${escapeHtml(row.requests)}</strong><button type="button" class="secondary" data-ipinfo-lookup="${escapeHtml(row.ip)}">Look up</button>${info ? `<p>${escapeHtml(location)}<br>${escapeHtml(organization)}${info.hostname ? `<br>${escapeHtml(info.hostname)}` : ""}<br>${escapeHtml(signals)} · ${info.cached ? "cached" : "live"}</p>` : ""}</div>`;
+    return `<div class="ip-rank-row"><code>${escapeHtml(row.ip)}</code><strong>${escapeHtml(row.requests)}</strong><button type="button" class="secondary" data-ipinfo-lookup="${escapeHtml(row.ip)}">Look up</button><button type="button" class="secondary" data-mitigate-ip="${escapeHtml(row.ip)}">Mitigate</button>${info ? `<p>${escapeHtml(location)}<br>${escapeHtml(organization)}${info.hostname ? `<br>${escapeHtml(info.hostname)}` : ""}<br>${escapeHtml(signals)} · ${info.cached ? "cached" : "live"}</p>` : ""}</div>`;
   }).join("") : "No matching requests in the current log sample.";
   renderRankList("#sitePathStats", stats.traffic.topPaths || [], "path");
   if (stats.warnings?.length) notice(stats.warnings.join(" · "), "warning");
@@ -602,6 +606,10 @@ function jobTypeLabel(type) {
     "backup.app-data": "Application-data backup",
     "backup.restore": "Website restore",
     "backup.schedule": "Scheduled backup",
+    "cloudflare.bulk-apply": "Cloudflare bulk automation",
+    "cloudflare.bulk-rollback": "Cloudflare automation rollback",
+    "cloudflare.incident-apply": "Cloudflare incident action",
+    "cloudflare.incident-remove": "Cloudflare mitigation removal",
     "images.optimize": "Image optimization",
     "wordpress.maintenance": "WordPress maintenance",
     "site.provision": "Website provisioning",
@@ -850,6 +858,106 @@ async function loadSecurity() {
   renderSecurityRules();
 }
 
+function selectedAutomationValues(selector) {
+  return $$(selector).filter((input) => input.checked).map((input) => input.value);
+}
+
+function renderCloudflareAutomationPreview() {
+  const preview = state.cloudflareAutomationPreview;
+  const container = $("#cloudflareAutomationPreview");
+  $("#applyCloudflareAutomation").disabled = !preview || preview.totals.errors > 0;
+  if (!preview) {
+    container.className = "rows empty";
+    container.textContent = "Select websites and presets, then preview.";
+    return;
+  }
+  const summary = `<div class="automation-diff"><strong>${preview.totals.changes} changes · ${preview.totals.unchanged} unchanged · ${preview.totals.errors} errors</strong>${(preview.warnings || []).map((warning) => `<p>${escapeHtml(warning)}</p>`).join("")}</div>`;
+  container.className = "rows";
+  container.innerHTML = summary + preview.operations.map((operation) => `
+    <div class="automation-diff">
+      <strong>${escapeHtml(operation.domain)} · ${escapeHtml(operation.preset)} · ${escapeHtml(operation.change)}</strong>
+      <p>${escapeHtml(operation.zone || "Zone unavailable")}${operation.setting ? ` · ${escapeHtml(operation.setting)}` : ""}</p>
+      ${operation.error ? `<p class="message error">${escapeHtml(operation.error)}</p>` : `<p>Current: ${escapeHtml(JSON.stringify(operation.current))}<br>Desired: ${escapeHtml(JSON.stringify(operation.desired))}</p>`}
+    </div>
+  `).join("");
+}
+
+function renderCloudflareAutomation() {
+  const data = state.cloudflareAutomation || { settings: {}, presets: [], batches: [], incidents: [] };
+  const selectedSites = new Set(selectedAutomationValues("[data-automation-site]"));
+  const selectedPresets = new Set(selectedAutomationValues("[data-automation-preset]"));
+  $("#cloudflareAutomationSites").innerHTML = primarySites().map((site) => `
+    <label class="check"><input type="checkbox" data-automation-site value="${escapeHtml(site.host)}" ${selectedSites.has(site.host) ? "checked" : ""} /><span><strong>${escapeHtml(site.host)}</strong><small>${escapeHtml(site.state?.siteType || "wordpress")}</small></span></label>
+  `).join("");
+  const presetMarkup = data.presets.map((preset) => `
+    <label class="check"><input type="checkbox" data-automation-preset value="${escapeHtml(preset.id)}" ${selectedPresets.has(preset.id) ? "checked" : ""} /><span><strong>${escapeHtml(preset.label)}</strong>${preset.wordpressOnly ? "<small>WordPress only</small>" : ""}${preset.warning ? `<small>${escapeHtml(preset.warning)}</small>` : ""}</span></label>
+  `).join("");
+  $("#cloudflareAutomationPresets").innerHTML = presetMarkup;
+  const configuredDefaults = new Set(data.settings.provisioningPresets || []);
+  $("#cloudflareDefaultPresets").innerHTML = data.presets.map((preset) => `
+    <label class="check"><input type="checkbox" data-default-preset value="${escapeHtml(preset.id)}" ${configuredDefaults.has(preset.id) ? "checked" : ""} /><span><strong>${escapeHtml(preset.label)}</strong>${preset.warning ? `<small>${escapeHtml(preset.warning)}</small>` : ""}</span></label>
+  `).join("");
+  const settingsForm = $("#cloudflareAutomationSettingsForm");
+  settingsForm.elements.provisioning_defaults_enabled.checked = Boolean(data.settings.provisioningDefaultsEnabled);
+  settingsForm.elements.protected_addresses.value = (data.settings.protectedAddresses || []).join("\n");
+  const provisionDefault = $("#provisionForm").elements.apply_security_defaults;
+  provisionDefault.disabled = !data.settings.provisioningDefaultsEnabled;
+  if (!provisionDefault.dataset.initialized) {
+    provisionDefault.checked = Boolean(data.settings.provisioningDefaultsEnabled);
+    provisionDefault.dataset.initialized = "1";
+  }
+  const history = $("#cloudflareAutomationHistory");
+  history.className = data.batches.length ? "rows" : "rows empty";
+  history.innerHTML = data.batches.length ? data.batches.map((batch) => `
+    <div class="automation-history">
+      <strong>${escapeHtml(new Date(batch.createdAt).toLocaleString())} · ${escapeHtml(batch.status)}</strong>
+      <p>${escapeHtml(batch.changed)} changed · ${escapeHtml(batch.failed)} failed · ${escapeHtml(batch.total)} operations</p>
+      ${batch.rolledBackAt ? `<p>Rolled back ${escapeHtml(new Date(batch.rolledBackAt).toLocaleString())}</p>` : `<div><button type="button" class="secondary" data-rollback-automation="${escapeHtml(batch.id)}">Rollback</button></div>`}
+    </div>
+  `).join("") : "No automation batches recorded.";
+  const incidents = $("#cloudflareIncidentList");
+  incidents.className = data.incidents.length ? "rows" : "rows empty";
+  incidents.innerHTML = data.incidents.length ? data.incidents.map((incident) => `
+    <div class="incident-history">
+      <strong>${escapeHtml(incident.domain)} · ${escapeHtml(incident.action)} · ${escapeHtml(incident.status)}</strong>
+      <p>${escapeHtml(incident.address)}${incident.expiresAt ? ` · expires ${escapeHtml(new Date(incident.expiresAt).toLocaleString())}` : ""}</p>
+      ${incident.status === "active" ? `<div><button type="button" class="secondary danger-button" data-remove-mitigation="${escapeHtml(incident.id)}">Remove now</button></div>` : ""}
+    </div>
+  `).join("") : "No temporary mitigations recorded.";
+  renderCloudflareAutomationPreview();
+}
+
+async function loadCloudflareAutomation() {
+  state.cloudflareAutomation = await api("/api/cloudflare/automation");
+  renderCloudflareAutomation();
+}
+
+function renderIncidentPreview() {
+  const preview = state.incidentPreview;
+  $("#applyIncidentAction").disabled = !preview;
+  $("#incidentActionPreview").textContent = preview ? [
+    `Zone: ${preview.zone}`,
+    `Website: ${preview.domain}`,
+    preview.address ? `Address: ${preview.address}` : "",
+    `Action: ${preview.action}`,
+    preview.expression ? `Expression: ${preview.expression}` : "",
+    preview.expiresAt ? `Expires: ${new Date(preview.expiresAt).toLocaleString()}` : "",
+    `Change: ${preview.change}`,
+  ].filter(Boolean).join("\n") : "Preview is required before this action can run.";
+}
+
+function openIncidentAction(address = "", action = "managed_challenge") {
+  const form = $("#incidentActionForm");
+  form.classList.remove("hidden");
+  form.elements.domain.value = state.siteStats?.domain || "";
+  form.elements.address.value = address;
+  form.elements.action.value = action;
+  form.elements.duration.disabled = action === "purge_cache";
+  state.incidentPreview = null;
+  renderIncidentPreview();
+  form.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
 function renderBackupOptions() {
   const names = ["app-data", ...primarySites().map((site) => site.host)];
   if (!names.includes(state.backupName)) state.backupName = "app-data";
@@ -1041,7 +1149,7 @@ function renderHosts() {
 }
 
 async function loadData() {
-  const [status, siteData, poolData, presetData, backupData, imageOptimization, maintenance, dnsData, ipData, packages] = await Promise.all([
+  const [status, siteData, poolData, presetData, backupData, imageOptimization, maintenance, dnsData, ipData, packages, automation] = await Promise.all([
     api("/api/status"),
     api("/api/sites"),
     api("/api/pools"),
@@ -1052,6 +1160,7 @@ async function loadData() {
     api("/api/dns-presets"),
     api("/api/cloudflare/ip-addresses"),
     api("/api/wordpress-packages"),
+    api("/api/cloudflare/automation"),
   ]);
   state.status = status;
   state.sites = siteData.sites || [];
@@ -1064,6 +1173,7 @@ async function loadData() {
   state.dnsPresets = dnsData.presets || [];
   state.cloudflareIps = ipData.addresses || [];
   state.wordpressPackages = packages;
+  state.cloudflareAutomation = automation;
   $("#provisionTier").innerHTML = Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}">${escapeHtml(tier)}</option>`).join("");
   renderSummary();
   renderSites();
@@ -1078,6 +1188,7 @@ async function loadData() {
   renderCloudflareIps();
   renderWordPressPackages();
   renderExportSelection();
+  renderCloudflareAutomation();
 }
 
 async function loadNpm() {
@@ -1469,6 +1580,11 @@ $("#loadSiteStats").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 $("#siteIpStats").addEventListener("click", async (event) => {
+  const mitigation = event.target.closest("[data-mitigate-ip]");
+  if (mitigation) {
+    openIncidentAction(mitigation.dataset.mitigateIp);
+    return;
+  }
   const button = event.target.closest("[data-ipinfo-lookup]");
   if (!button || !state.siteStats?.domain) return;
   try {
@@ -1478,6 +1594,52 @@ $("#siteIpStats").addEventListener("click", async (event) => {
     }));
     state.ipinfo[response.result.ip] = response.result;
     renderSiteStats();
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#purgeCloudflareCache").addEventListener("click", () => {
+  if (!state.siteStats?.domain) return notice("Inspect a website first.", "warning");
+  openIncidentAction("", "purge_cache");
+});
+$("#cancelIncidentAction").addEventListener("click", () => {
+  $("#incidentActionForm").classList.add("hidden");
+  state.incidentPreview = null;
+});
+$("#incidentActionForm").elements.action.addEventListener("change", (event) => {
+  const purge = event.target.value === "purge_cache";
+  const form = $("#incidentActionForm");
+  form.elements.duration.disabled = purge;
+  if (purge) form.elements.address.value = "";
+  state.incidentPreview = null;
+  renderIncidentPreview();
+});
+$("#incidentActionForm").addEventListener("change", (event) => {
+  if (event.target.name === "action") return;
+  state.incidentPreview = null;
+  renderIncidentPreview();
+});
+$("#previewIncidentAction").addEventListener("click", async (event) => {
+  const body = formObject($("#incidentActionForm"));
+  try {
+    const result = await withButton(event.currentTarget, "Checking...", () => api("/api/cloudflare/incidents/preview", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }));
+    state.incidentPreview = result.preview;
+    renderIncidentPreview();
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#applyIncidentAction").addEventListener("click", async (event) => {
+  if (!state.incidentPreview) return notice("Preview the incident action first.", "warning");
+  if (!confirm(`Apply the reviewed ${state.incidentPreview.action} action to ${state.incidentPreview.domain}?`)) return;
+  try {
+    const result = await withButton(event.currentTarget, "Queueing...", () => api("/api/cloudflare/incidents/apply", {
+      method: "POST",
+      body: JSON.stringify({ preview: state.incidentPreview, confirm: "APPLY" }),
+    }));
+    state.incidentPreview = null;
+    $("#incidentActionForm").classList.add("hidden");
+    rememberJob(result.job, "Cloudflare incident action queued");
+    switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });
 $("#clearIpinfoCache").addEventListener("click", async (event) => {
@@ -1590,6 +1752,99 @@ $("#securityDomain").addEventListener("change", async (event) => {
 $("#refreshSecurity").addEventListener("click", async (event) => {
   try { await withButton(event.currentTarget, "Refreshing...", loadSecurity); }
   catch (error) { notice(error.message, "warning"); }
+});
+$("#refreshCloudflareAutomation").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadCloudflareAutomation); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#selectAllAutomationSites").addEventListener("click", () => {
+  $$("[data-automation-site]").forEach((input) => { input.checked = true; });
+  state.cloudflareAutomationPreview = null;
+  renderCloudflareAutomationPreview();
+});
+$("#clearAutomationSites").addEventListener("click", () => {
+  $$("[data-automation-site]").forEach((input) => { input.checked = false; });
+  state.cloudflareAutomationPreview = null;
+  renderCloudflareAutomationPreview();
+});
+$("#cloudflareAutomationSites").addEventListener("change", () => {
+  state.cloudflareAutomationPreview = null;
+  renderCloudflareAutomationPreview();
+});
+$("#cloudflareAutomationPresets").addEventListener("change", () => {
+  state.cloudflareAutomationPreview = null;
+  renderCloudflareAutomationPreview();
+});
+$("#previewCloudflareAutomation").addEventListener("click", async (event) => {
+  const domains = selectedAutomationValues("[data-automation-site]");
+  const presets = selectedAutomationValues("[data-automation-preset]");
+  if (!domains.length || !presets.length) return notice("Select at least one website and one preset.", "warning");
+  try {
+    const result = await withButton(event.currentTarget, "Inspecting...", () => api("/api/cloudflare/automation/preview", {
+      method: "POST",
+      body: JSON.stringify({ domains, presets }),
+    }));
+    state.cloudflareAutomationPreview = result.preview;
+    renderCloudflareAutomationPreview();
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#applyCloudflareAutomation").addEventListener("click", async (event) => {
+  const preview = state.cloudflareAutomationPreview;
+  if (!preview) return notice("Preview the Cloudflare changes first.", "warning");
+  if (!confirm(`Apply ${preview.totals.changes} reviewed Cloudflare changes sequentially?`)) return;
+  try {
+    const result = await withButton(event.currentTarget, "Queueing...", () => api("/api/cloudflare/automation/apply", {
+      method: "POST",
+      body: JSON.stringify({
+        domains: preview.domains,
+        presets: preview.presets,
+        preview_id: preview.id,
+        confirm: "APPLY",
+      }),
+    }));
+    state.cloudflareAutomationPreview = null;
+    rememberJob(result.job, "Cloudflare automation queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#cloudflareAutomationSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  body.provisioning_presets = selectedAutomationValues("[data-default-preset]");
+  body.protected_addresses = body.protected_addresses.split(/\s+/).filter(Boolean);
+  try {
+    await withButton(event.submitter, "Saving...", () => api("/api/cloudflare/automation", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }));
+    notice("Cloudflare automation settings saved.");
+    delete $("#provisionForm").elements.apply_security_defaults.dataset.initialized;
+    await loadCloudflareAutomation();
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#cloudflareAutomationHistory").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-rollback-automation]");
+  if (!button || !confirm("Rollback only the panel-managed changes recorded by this batch?")) return;
+  try {
+    const result = await withButton(button, "Queueing...", () => api("/api/cloudflare/automation/rollback", {
+      method: "POST",
+      body: JSON.stringify({ batch_id: button.dataset.rollbackAutomation, confirm: "ROLLBACK" }),
+    }));
+    rememberJob(result.job, "Cloudflare rollback queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#cloudflareIncidentList").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-remove-mitigation]");
+  if (!button || !confirm("Remove this temporary panel-managed mitigation now?")) return;
+  try {
+    const result = await withButton(button, "Queueing...", () => api("/api/cloudflare/incidents/remove", {
+      method: "POST",
+      body: JSON.stringify({ mitigation_id: button.dataset.removeMitigation }),
+    }));
+    rememberJob(result.job, "Cloudflare mitigation removal queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
 });
 $$('[data-security-preset]').forEach((button) => button.addEventListener("click", async (event) => {
   try {

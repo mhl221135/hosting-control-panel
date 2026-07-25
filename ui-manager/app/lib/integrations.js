@@ -519,6 +519,17 @@ class CloudflareClient {
         },
       };
     }
+    if (preset === "xmlrpc-block") {
+      return {
+        phase: "http_request_firewall_custom",
+        rule: {
+          ...common,
+          action: "block",
+          description: `[Hosting Control] Block XML-RPC requests for ${domain}`,
+          expression: `${host} and http.request.uri.path eq "/xmlrpc.php"`,
+        },
+      };
+    }
     if (preset === "login-rate-limit") {
       return {
         phase: "http_ratelimit",
@@ -574,11 +585,59 @@ class CloudflareClient {
   }
 
   async applySecurityPreset(domain, preset) {
-    const zone = await this.zoneForDomain(domain);
     const definition = this.securityPreset(domain, preset);
+    return this.applyPanelRule(domain, definition);
+  }
+
+  rulePayload(rule) {
+    const output = {};
+    for (const key of [
+      "action", "action_parameters", "description", "enabled", "expression", "logging", "ratelimit", "ref",
+    ]) {
+      if (rule[key] !== undefined) output[key] = rule[key];
+    }
+    return output;
+  }
+
+  rulesEquivalent(left, right) {
+    return JSON.stringify(this.rulePayload(left)) === JSON.stringify(this.rulePayload(right));
+  }
+
+  async previewPanelRule(domain, definition) {
+    const zone = await this.zoneForDomain(domain);
+    const ruleset = await this.phaseRuleset(zone.id, definition.phase, true);
+    const existing = (ruleset?.rules || []).find((rule) => rule.ref === definition.rule.ref) || null;
+    return {
+      zone: { id: zone.id, name: zone.name },
+      phase: definition.phase,
+      rulesetId: ruleset?.id || "",
+      existing,
+      desired: definition.rule,
+      change: !existing ? "create" : this.rulesEquivalent(existing, definition.rule) ? "none" : "update",
+    };
+  }
+
+  async applyPanelRule(domain, definition) {
+    const preview = await this.previewPanelRule(domain, definition);
+    const { zone } = preview;
+    if (preview.existing && preview.change === "none") {
+      return { created: false, updated: false, rule: preview.existing, zone, rulesetId: preview.rulesetId };
+    }
+    if (preview.existing) {
+      const result = await this.request(
+        `/zones/${zone.id}/rulesets/${preview.rulesetId}/rules/${preview.existing.id}`,
+        { method: "PATCH", body: JSON.stringify(definition.rule) },
+      );
+      return {
+        created: false,
+        updated: true,
+        previous: this.rulePayload(preview.existing),
+        rule: result.result,
+        zone,
+        rulesetId: preview.rulesetId,
+      };
+    }
     let ruleset = await this.phaseRuleset(zone.id, definition.phase, true);
-    const existing = (ruleset?.rules || []).find((rule) => rule.ref === definition.rule.ref);
-    if (existing) return { created: false, rule: existing, zone: { id: zone.id, name: zone.name } };
     if (!ruleset) {
       const result = await this.request(`/zones/${zone.id}/rulesets`, {
         method: "POST",
@@ -590,13 +649,60 @@ class CloudflareClient {
           rules: [definition.rule],
         }),
       });
-      return { created: true, rule: result.result?.rules?.[0], zone: { id: zone.id, name: zone.name } };
+      return {
+        created: true,
+        updated: false,
+        rule: result.result?.rules?.[0],
+        zone,
+        rulesetId: result.result?.id,
+      };
     }
     const result = await this.request(`/zones/${zone.id}/rulesets/${ruleset.id}/rules`, {
       method: "POST",
       body: JSON.stringify(definition.rule),
     });
-    return { created: true, rule: result.result, zone: { id: zone.id, name: zone.name } };
+    return { created: true, updated: false, rule: result.result, zone, rulesetId: ruleset.id };
+  }
+
+  async restorePanelRule(domain, rulesetId, ruleId, previous) {
+    const zone = await this.zoneForDomain(domain);
+    const rules = await this.securityRules(domain);
+    const current = rules.rules.find((item) => item.rulesetId === rulesetId && item.id === ruleId);
+    if (!current) throw new IntegrationError("Panel-managed Cloudflare rule was not found", 404);
+    const result = await this.request(`/zones/${zone.id}/rulesets/${rulesetId}/rules/${ruleId}`, {
+      method: "PATCH",
+      body: JSON.stringify(this.rulePayload(previous)),
+    });
+    return result.result;
+  }
+
+  async zoneSetting(domain, settingId) {
+    const zone = await this.zoneForDomain(domain);
+    const result = await this.request(`/zones/${zone.id}/settings/${encodeURIComponent(settingId)}`);
+    return {
+      zone: { id: zone.id, name: zone.name },
+      id: result.result?.id || settingId,
+      value: result.result?.value,
+      editable: result.result?.editable !== false,
+    };
+  }
+
+  async setZoneSetting(domain, settingId, value) {
+    const zone = await this.zoneForDomain(domain);
+    const result = await this.request(`/zones/${zone.id}/settings/${encodeURIComponent(settingId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ value }),
+    });
+    return { zone: { id: zone.id, name: zone.name }, setting: result.result };
+  }
+
+  async purgeZoneCache(domain) {
+    const zone = await this.zoneForDomain(domain);
+    await this.request(`/zones/${zone.id}/purge_cache`, {
+      method: "POST",
+      body: JSON.stringify({ purge_everything: true }),
+    });
+    return { zone: { id: zone.id, name: zone.name } };
   }
 
   async updateSecurityRule(domain, rulesetId, ruleId, enabled) {
