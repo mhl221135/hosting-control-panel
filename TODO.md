@@ -129,9 +129,15 @@ duplicating the tested shell-script logic.
 
 ## 4. WordPress Maintenance And Controlled Updates
 
+### Implemented Inventory
+
+The Maintenance workspace now queues a durable, read-only inventory across
+selected WordPress websites. It records core, plugin, and theme versions,
+cached update availability reported by WP-CLI, active/inactive state, bounded
+per-site errors, and the latest snapshot without executing update commands.
+
 ### Update Workflow
 
-- Inventory WordPress core, plugin, and theme versions across selected sites.
 - Allow core, selected plugin, selected theme, or all-compatible updates.
 - Before each site update, create and verify a complete website/database backup.
 - Put only the selected site into maintenance mode, update sequentially, and

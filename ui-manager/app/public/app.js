@@ -543,6 +543,31 @@ function maintenanceOperationLabel(operation) {
   return { transients: "Expired transients", trash: "Trash and spam", cron: "Due WP-Cron", database: "Database optimize", revisions: "Old post revisions", redis: "Redis cache flush" }[operation] || operation;
 }
 
+function renderWordPressInventory() {
+  const inventory = state.maintenance?.inventory || { generatedAt: "", results: [] };
+  $("#wordpressInventoryTime").textContent = inventory.generatedAt
+    ? `Latest snapshot: ${new Date(inventory.generatedAt).toLocaleString()}`
+    : "No inventory has run.";
+  const container = $("#wordpressInventory");
+  container.classList.toggle("empty", !inventory.results.length);
+  container.innerHTML = inventory.results.length ? inventory.results.map((result) => {
+    if (!result.ok) {
+      return `<div class="maintenance-result has-error"><strong>${escapeHtml(result.domain)}</strong><span>${escapeHtml(result.message || "Inventory failed")}</span></div>`;
+    }
+    const plugins = result.plugins || [];
+    const themes = result.themes || [];
+    const updates = [...plugins, ...themes].filter((item) => item.update === "available").length;
+    const packages = [
+      ...plugins.map((item) => ({ ...item, type: "Plugin" })),
+      ...themes.map((item) => ({ ...item, type: "Theme" })),
+    ];
+    return `<details class="wordpress-inventory-row">
+      <summary><strong>${escapeHtml(result.domain)} · WordPress ${escapeHtml(result.core || "unknown")}</strong><span>${plugins.length} plugins · ${themes.length} themes · ${updates} updates available</span></summary>
+      <div class="wordpress-package-list">${packages.length ? packages.map((item) => `<div><span>${escapeHtml(item.type)} · ${escapeHtml(item.name)} · ${escapeHtml(item.status)}</span><strong>${escapeHtml(item.version || "unknown")}${item.update === "available" && item.updateVersion ? ` → ${escapeHtml(item.updateVersion)}` : ""}</strong></div>`).join("") : '<span class="muted">No plugins or themes reported.</span>'}</div>
+    </details>`;
+  }).join("") : "Select websites above and run an inventory.";
+}
+
 function renderMaintenance() {
   const data = state.maintenance || {};
   const settings = data.settings || {};
@@ -583,6 +608,7 @@ function renderMaintenance() {
       <label class="check"><input type="checkbox" data-maintenance-site value="${escapeHtml(site.host)}" ${selected.has(site.host) ? "checked" : ""} /><span><strong>${escapeHtml(site.host)}</strong><small>${escapeHtml(site.poolName || "WordPress")}</small></span></label>
       <label class="check weekly-check"><input type="checkbox" data-maintenance-weekly="${escapeHtml(site.host)}" ${site.state?.maintenanceEnabled ? "checked" : ""} /> Weekly</label>
     </div>`).join("") : '<div class="muted">No WordPress websites are configured.</div>';
+  renderWordPressInventory();
 
   window.clearTimeout(maintenancePollTimer);
   if (status.running) {
@@ -612,6 +638,7 @@ function jobTypeLabel(type) {
     "cloudflare.incident-remove": "Cloudflare mitigation removal",
     "images.optimize": "Image optimization",
     "wordpress.maintenance": "WordPress maintenance",
+    "wordpress.inventory": "WordPress version inventory",
     "site.provision": "Website provisioning",
     "site.remove": "Website deletion",
     "npm.certificate.issue": "SSL certificate issuance",
@@ -2159,6 +2186,19 @@ $("#runMaintenance").addEventListener("click", async (event) => {
       body: JSON.stringify({ domains, operations, revision_retention: Number($("#maintenanceSettingsForm").elements.revision_retention.value) }),
     }));
     rememberJob(data.job, "WordPress maintenance queued");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#inventoryWordPress").addEventListener("click", async (event) => {
+  const domains = $$("[data-maintenance-site]:checked").map((input) => input.value);
+  if (!domains.length) return notice("Select at least one WordPress website.", "warning");
+  try {
+    const data = await withButton(event.currentTarget, "Queueing...", () => api("/api/maintenance/inventory", {
+      method: "POST",
+      body: JSON.stringify({ domains }),
+    }));
+    rememberJob(data.job, "WordPress inventory queued");
+    switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });
 

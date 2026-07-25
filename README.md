@@ -34,6 +34,7 @@ into dedicated directories.
 - Deterministic first-install accounts for the panel, NPM, and File Browser
 - Global gzip compression and per-site or bulk WebP image generation
 - Manual and opt-in weekly WordPress cleanup with revision-retention preview, persisted progress, and per-operation results
+- Durable read-only WordPress core, plugin, and theme version inventory
 - Per-site manual and scheduled backups with retention
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump

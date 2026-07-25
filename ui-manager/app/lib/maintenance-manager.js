@@ -21,6 +21,7 @@ class MaintenanceManager {
     this.afterRun = options.afterRun || (async () => {});
     this.settingsPath = path.join(this.dataDir, "maintenance-settings.json");
     this.statusPath = path.join(this.dataDir, "maintenance-status.json");
+    this.inventoryPath = path.join(this.dataDir, "wordpress-inventory.json");
     this.currentPromise = null;
     this.timer = null;
     fs.mkdirSync(this.dataDir, { recursive: true });
@@ -39,6 +40,25 @@ class MaintenanceManager {
           completed: status.completed,
           results: status.results,
           message: status.message,
+        };
+      });
+      this.jobManager.register("wordpress.inventory", async (context, payload) => {
+        const inventory = await this.runInventory(payload.sites, context);
+        return {
+          ok: inventory.results.every((result) => result.ok),
+          total: inventory.results.length,
+          completed: inventory.results.length,
+          results: inventory.results.map((result) => ({
+            domain: result.domain,
+            ok: result.ok,
+            core: result.core || "",
+            pluginCount: result.plugins?.length || 0,
+            themeCount: result.themes?.length || 0,
+            message: result.message || "",
+          })),
+          message: inventory.results.every((result) => result.ok)
+            ? "WordPress inventory completed"
+            : "WordPress inventory completed with failures",
         };
       });
     }
@@ -64,6 +84,18 @@ class MaintenanceManager {
 
   getStatus() {
     return JSON.parse(JSON.stringify(this.status));
+  }
+
+  readInventory() {
+    try {
+      const value = JSON.parse(fs.readFileSync(this.inventoryPath, "utf8"));
+      return {
+        generatedAt: String(value.generatedAt || ""),
+        results: Array.isArray(value.results) ? value.results : [],
+      };
+    } catch {
+      return { generatedAt: "", results: [] };
+    }
   }
 
   readSettings() {
@@ -153,6 +185,65 @@ class MaintenanceManager {
       },
       total: sites.length,
     });
+  }
+
+  enqueueInventory(sites, operator = "system") {
+    if (!this.jobManager) throw new Error("Shared job manager is not configured");
+    if (!Array.isArray(sites) || !sites.length) {
+      throw Object.assign(new Error("Select at least one WordPress website"), { statusCode: 400 });
+    }
+    const targets = sites.map((site) => site.host);
+    return this.jobManager.create({
+      type: "wordpress.inventory",
+      label: `Inventory ${sites.length} WordPress website(s)`,
+      operator,
+      trigger: "manual",
+      targets,
+      conflicts: targets.map((domain) => `site:${domain}`),
+      idempotencyKey: `wordpress.inventory:${[...targets].sort().join(",")}`,
+      payload: {
+        sites: sites.map((site) => ({ host: site.host, directory: site.directory })),
+      },
+      total: sites.length,
+      cancellable: true,
+      retryable: true,
+    });
+  }
+
+  async runInventory(sites, context = null) {
+    const results = [];
+    context?.update({ total: sites.length, completed: 0, currentStep: "Reading WordPress versions" });
+    for (const site of sites) {
+      context?.checkpoint();
+      context?.update({ currentStep: `Inventorying ${site.host}` });
+      try {
+        results.push({ domain: site.host, ok: true, ...(await this.runner.inventory(site)) });
+      } catch (error) {
+        results.push({
+          domain: site.host,
+          ok: false,
+          message: String(error.stderr || error.message).replace(/[\r\n\t]+/g, " ").trim().slice(0, 500),
+          plugins: [],
+          themes: [],
+        });
+      }
+      context?.update({
+        completed: results.length,
+        results: results.map((result) => ({
+          domain: result.domain,
+          ok: result.ok,
+          core: result.core || "",
+          pluginCount: result.plugins?.length || 0,
+          themeCount: result.themes?.length || 0,
+          message: result.message || "",
+        })),
+      });
+    }
+    const inventory = { generatedAt: new Date().toISOString(), results };
+    const temporary = `${this.inventoryPath}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(inventory, null, 2), { encoding: "utf8", mode: 0o600 });
+    fs.renameSync(temporary, this.inventoryPath);
+    return inventory;
   }
 
   start(sites, operations, trigger = "manual", jobContext = null, options = {}) {
