@@ -182,7 +182,7 @@ class OffsiteBackupManager {
     this.binary = options.binary || "restic";
     this.runner = options.runner || this.runProcess.bind(this);
     this.cacheDir = path.join(this.dataDir, "restic-cache");
-    this.restoreRoot = path.join(this.dataDir, "offsite-restore-tests");
+    this.restoreRoot = path.join(this.backupsRoot, ".offsite-restore-tests");
     this.settings = new OffsiteSettings({
       dataDir: this.dataDir,
       encrypt: options.encrypt,
@@ -306,6 +306,7 @@ class OffsiteBackupManager {
         "--host", "hosting-control",
         "--exclude", "**/.partial-*",
         "--exclude", "**/restore-test-*",
+        "--exclude", "**/.offsite-restore-tests/**",
       ], {
         onProgress: (event) => context.update({
           message: `Uploaded ${Math.round(Number(event.percent_done || 0) * 100)}%`,
@@ -376,6 +377,11 @@ class OffsiteBackupManager {
   }
 
   async restoreTest(context) {
+    return this.backupManager.withLock({ type: "offsite-restore-test", label: "Off-site restore test" }, () =>
+      this.runRestoreTest(context));
+  }
+
+  async runRestoreTest(context) {
     const settings = this.settings.resolved();
     const candidate = this.restoreCandidate(settings.restoreTestMaxBytes);
     if (!candidate) {
