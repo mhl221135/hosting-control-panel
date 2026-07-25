@@ -63,6 +63,50 @@ test("queues revision retention in durable payload and deduplication scope", () 
   } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
 });
 
+test("queues and persists a sequential read-only WordPress inventory", async () => {
+  const registered = new Map();
+  const created = [];
+  const calls = [];
+  const context = fixture({
+    runner: {
+      async inventory(site) {
+        calls.push(site.host);
+        if (site.host === "bad.example") throw new Error("wp-config.php not found");
+        return {
+          core: "6.8.2",
+          plugins: [{ name: "woocommerce", version: "9.9.0" }],
+          themes: [{ name: "storefront", version: "4.6.0" }],
+        };
+      },
+    },
+    jobManager: {
+      register(type, handler) { registered.set(type, handler); },
+      create(input) { created.push(input); return { id: "job-inventory", ...input }; },
+    },
+  });
+  try {
+    const sites = [
+      { host: "good.example", directory: "good.example" },
+      { host: "bad.example", directory: "bad.example" },
+    ];
+    const job = context.manager.enqueueInventory(sites, "operator@example");
+    assert.equal(job.type, "wordpress.inventory");
+    assert.deepEqual(job.conflicts, ["site:good.example", "site:bad.example"]);
+    assert.ok(registered.has("wordpress.inventory"));
+
+    const inventory = await context.manager.runInventory(sites, {
+      checkpoint() {},
+      update() {},
+    });
+    assert.deepEqual(calls, ["good.example", "bad.example"]);
+    assert.equal(inventory.results[0].core, "6.8.2");
+    assert.equal(inventory.results[1].ok, false);
+    assert.match(inventory.results[1].message, /wp-config/);
+    assert.deepEqual(context.manager.readInventory(), inventory);
+    assert.equal(created.length, 1);
+  } finally { fs.rmSync(context.root, { recursive: true, force: true }); }
+});
+
 test("validates and persists weekly maintenance settings", () => {
   const context = fixture();
   try {

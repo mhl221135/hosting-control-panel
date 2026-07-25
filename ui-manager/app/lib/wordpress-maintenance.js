@@ -99,6 +99,43 @@ class WordPressMaintenanceRunner {
     return this.revisionSummary(site, retention, false);
   }
 
+  async packageList(directory, type) {
+    const output = await this.wp(directory, [
+      type,
+      "list",
+      "--fields=name,status,version,update,update_version,auto_update",
+      "--format=json",
+      "--skip-plugins",
+      "--skip-themes",
+      "--quiet",
+    ], 5 * 60_000);
+    const packages = JSON.parse(output || "[]");
+    if (!Array.isArray(packages)) throw new Error(`WordPress returned an invalid ${type} inventory`);
+    return packages.slice(0, 500).map((item) => ({
+      name: String(item.name || "").slice(0, 160),
+      status: String(item.status || "").slice(0, 40),
+      version: String(item.version || "").slice(0, 80),
+      update: String(item.update || "").slice(0, 40),
+      updateVersion: String(item.update_version || "").slice(0, 80),
+      autoUpdate: String(item.auto_update || "").slice(0, 40),
+    }));
+  }
+
+  async inventory(site) {
+    const core = await this.wp(site.directory, [
+      "core", "version", "--skip-plugins", "--skip-themes", "--quiet",
+    ], 2 * 60_000);
+    const [plugins, themes] = await Promise.all([
+      this.packageList(site.directory, "plugin"),
+      this.packageList(site.directory, "theme"),
+    ]);
+    return {
+      core: String(core || "").split(/\r?\n/)[0].slice(0, 80),
+      plugins,
+      themes,
+    };
+  }
+
   async runOperation(site, operation, options = {}) {
     if (operation === "transients") {
       return { message: await this.wp(site.directory, ["transient", "delete", "--expired", "--skip-plugins", "--skip-themes"]) };

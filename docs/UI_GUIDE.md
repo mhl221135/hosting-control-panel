@@ -136,6 +136,7 @@ primary WordPress websites; HTML/PHP sites are excluded.
 | Control | Function |
 | --- | --- |
 | **Enable weekly maintenance** | Enables the global weekly scheduler. It is off by default. |
+| **Inventory versions** | Queues a read-only core, plugin, and theme version snapshot for selected WordPress sites. |
 | **Weekday / Start time** | Chooses one server-local weekly execution window. A missed start runs on the next scheduler check that day. |
 | **Scheduled operations** | Selects expired transient cleanup, trash/spam removal, due WP-Cron execution, database optimization, and old-revision cleanup. |
 | **Revisions retained per post** | Keeps 1-100 newest revisions for each post. The safe default is five. This value is shared by manual and weekly runs. |

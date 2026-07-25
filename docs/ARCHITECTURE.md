@@ -66,8 +66,8 @@ routes. There is no Express framework or external npm dependency.
 | `provisioner.js` | WordPress files, database/user, WP-CLI operations |
 | `provision-security.js` | capability validation and warning-safe Cloudflare hardening step |
 | `cloudflare-automation-manager.js` | bulk dry-runs/jobs/rollback, provisioning defaults, temporary mitigation lifecycle |
-| `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup operations and bounded revision retention/preview |
-| `maintenance-manager.js` | persisted manual/weekly maintenance scheduling and progress |
+| `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup, bounded revisions, and read-only version inventory |
+| `maintenance-manager.js` | persisted manual/weekly maintenance plus durable inventory jobs |
 | `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
 | `backup-manager.js` | schedule, locks, archives, retention, restore |
 | `migration-manager.js` | portable export/import and runtime adoption |

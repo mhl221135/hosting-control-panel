@@ -59,6 +59,49 @@ test("runs selected maintenance commands without shell interpolation", async () 
   assert.ok(calls.some((call) => call.args.includes("flush")));
 });
 
+test("collects bounded WordPress core, plugin, and theme versions without mutation", async () => {
+  const calls = [];
+  const runner = new WordPressMaintenanceRunner({
+    execFile: async (_file, args) => {
+      calls.push(args);
+      if (args.includes("core")) return { stdout: "6.8.2\n" };
+      if (args.includes("plugin")) {
+        return { stdout: JSON.stringify([{
+          name: "woocommerce",
+          status: "active",
+          version: "9.9.0",
+          update: "available",
+          update_version: "9.9.1",
+          auto_update: "off",
+        }]) };
+      }
+      return { stdout: JSON.stringify([{
+        name: "storefront",
+        status: "active",
+        version: "4.6.0",
+        update: "none",
+        update_version: "",
+        auto_update: "off",
+      }]) };
+    },
+  });
+
+  const inventory = await runner.inventory({ directory: "example.com" });
+  assert.equal(inventory.core, "6.8.2");
+  assert.deepEqual(inventory.plugins[0], {
+    name: "woocommerce",
+    status: "active",
+    version: "9.9.0",
+    update: "available",
+    updateVersion: "9.9.1",
+    autoUpdate: "off",
+  });
+  assert.equal(inventory.themes[0].name, "storefront");
+  assert.equal(calls.length, 3);
+  assert.ok(calls.every((args) => args.includes("--skip-plugins") && args.includes("--skip-themes")));
+  assert.equal(calls.some((args) => args.includes("update")), false);
+});
+
 test("deletes trash in bounded batches and keeps operation failures isolated", async () => {
   const calls = [];
   const runner = new WordPressMaintenanceRunner({

@@ -186,6 +186,7 @@ not retryable after failure; refresh the preview and submit a new operation.
 | `PUT /api/maintenance/settings` | update weekly schedule and operations |
 | `POST /api/maintenance/revisions/preview` | count revisions that exceed per-post retention for selected sites without mutation |
 | `POST /api/maintenance/run` | start maintenance for selected WordPress sites |
+| `POST /api/maintenance/inventory` | queue read-only core/plugin/theme inventory for selected WordPress sites |
 
 Maintenance revision retention accepts an integer from 1 through 100 and
 defaults to five newest revisions per post. Preview runs sequentially and

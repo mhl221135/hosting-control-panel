@@ -189,6 +189,11 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .maintenance-result strong { overflow-wrap: anywhere; }
 .maintenance-result span { color: var(--muted); font-size: 12px; }
 .maintenance-result.has-error strong { color: var(--danger); }
+.wordpress-inventory-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.wordpress-inventory-row summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; cursor: pointer; }
+.wordpress-inventory-row summary span { color: var(--muted); font-size: 12px; text-align: right; }
+.wordpress-package-list { display: grid; gap: 5px; margin-top: 10px; padding-left: 20px; }
+.wordpress-package-list div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; color: var(--muted); font-size: 12px; }
 .job-filters { display: grid; grid-template-columns: repeat(2, minmax(180px, 260px)); gap: 12px; margin-bottom: 18px; }
 .job-list { display: grid; gap: 10px; }
 .job-list.empty { color: var(--muted); font-size: 13px; }
@@ -323,6 +328,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .site-mobile-action { display: grid; grid-column: 1 / -1; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
   .site-mobile-action select { width: 100%; font-size: 14px; }
   .maintenance-site-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .wordpress-inventory-row summary, .wordpress-package-list div { grid-template-columns: 1fr; }
+  .wordpress-inventory-row summary span { text-align: left; }
   .maintenance-sites-panel .card-head .button-row { display: grid; grid-template-columns: 1fr 1fr; }
   .option-group { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .option-group .check { min-height: 42px; padding: 7px 0; }
