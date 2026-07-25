@@ -127,6 +127,17 @@ and require a fresh operator action after failure instead of blind retry.
 | `GET,POST,DELETE /api/dns-presets...` | manage/apply record templates |
 | `GET,PUT /api/cloudflare/ip-addresses` | reusable IPv4 values |
 | `POST /api/cloudflare/replace-a-records` | exact-match bulk A migration |
+| `GET,PUT /api/cloudflare/automation` | presets, defaults, protected addresses, batch and incident history |
+| `POST /api/cloudflare/automation/preview` | immutable provider-state bulk dry run |
+| `POST /api/cloudflare/automation/apply` | queue a confirmed sequential bulk job |
+| `POST /api/cloudflare/automation/rollback` | queue reversal of one recorded panel-owned batch |
+| `POST /api/cloudflare/incidents/preview` | validate and preview one current-traffic action |
+| `POST /api/cloudflare/incidents/apply` | queue a confirmed temporary mitigation or cache purge |
+| `POST /api/cloudflare/incidents/remove` | queue early removal of a panel-owned mitigation |
+
+Bulk apply requires the current 64-character preview ID and `confirm: "APPLY"`.
+Rollback requires `confirm: "ROLLBACK"`. Incident apply accepts only the
+unchanged server preview and revalidates its traffic sample before queueing.
 
 ### Sites, pools, and caches
 

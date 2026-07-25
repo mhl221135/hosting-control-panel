@@ -49,6 +49,7 @@ const { jobInput: provisioningJobInput, jobResult: provisioningJobResult, safePr
 const { IpinfoClient } = require("./lib/ipinfo-client");
 const { CertificateJobManager } = require("./lib/certificate-job-manager");
 const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/provision-security");
+const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -129,6 +130,17 @@ siteState.renderCacheMap();
 const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
+});
+const cloudflareAutomation = new CloudflareAutomationManager({
+  dataDir: DATA_DIR,
+  client: cloudflareSecurity,
+  jobManager,
+  serverAddresses: () => ipAddresses.read(),
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed);
+  },
 });
 const certificateJobManager = new CertificateJobManager({ jobManager, npm });
 const notificationSettings = new NotificationSettings(DATA_DIR);
@@ -1007,6 +1019,11 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
       selectedProvisionSecurity(body, "wordpress"),
     );
     if (securityStep) steps.push(securityStep);
+    steps.push(...await cloudflareAutomation.applyProvisioningDefaults(
+      domain,
+      "wordpress",
+      Boolean(body.apply_security_defaults),
+    ));
     siteState.update(domain, {
       imageOptimizationEnabled: Boolean(body.scheduled_image_optimization),
       siteType: "wordpress",
@@ -1166,6 +1183,11 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   }
   const securityStep = await provisionSecurityStep(cloudflareSecurity, domain, securityPreset);
   if (securityStep) steps.push(securityStep);
+  steps.push(...await cloudflareAutomation.applyProvisioningDefaults(
+    domain,
+    siteType,
+    Boolean(body.apply_security_defaults),
+  ));
   if (siteType === "static" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
   jobContext?.update({ completed: 8, currentStep: "Finalizing website" });
   return {
@@ -1680,6 +1702,121 @@ async function handleApi(req, res) {
   if (req.method === "GET" && requestUrl.pathname === "/api/cloudflare/security") {
     const domain = validateDomain(requestUrl.searchParams.get("domain"));
     sendJson(res, 200, await cloudflareSecurity.securityRules(domain));
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/cloudflare/automation") {
+    sendJson(res, 200, { ok: true, ...cloudflareAutomation.publicView() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/cloudflare/automation") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const settings = cloudflareAutomation.updateSettings({
+      provisioningDefaultsEnabled: body.provisioning_defaults_enabled,
+      provisioningPresets: body.provisioning_presets,
+      protectedAddresses: body.protected_addresses,
+    });
+    sendJson(res, 200, { ok: true, settings });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/automation/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, {
+      ok: true,
+      preview: await cloudflareAutomation.previewBulk(body.domains, body.presets),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/automation/apply") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "APPLY") {
+      sendJson(res, 400, { ok: false, message: "Type APPLY to confirm the reviewed Cloudflare changes" });
+      return true;
+    }
+    const domains = [...new Set((body.domains || []).map(validateDomain))];
+    const presets = cloudflareAutomation.validatePresets(body.presets);
+    const previewId = String(body.preview_id || "");
+    if (!/^[a-f0-9]{64}$/.test(previewId)) {
+      sendJson(res, 400, { ok: false, message: "Refresh the Cloudflare dry run before applying" });
+      return true;
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: cloudflareAutomation.bulkJob({ domains, presets, previewId }, req.auth.email),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/automation/rollback") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "ROLLBACK") {
+      sendJson(res, 400, { ok: false, message: "Type ROLLBACK to confirm reversal of panel-managed changes" });
+      return true;
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: cloudflareAutomation.rollbackJob(String(body.batch_id || ""), req.auth.email),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/incidents/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const action = String(body.action || "");
+    if (action !== "purge_cache") {
+      const stats = await collectSiteStats(domain);
+      if (!(stats.traffic?.topIps || []).some((row) => row.ip === String(body.address || ""))) {
+        sendJson(res, 409, {
+          ok: false,
+          message: "Refresh website traffic and select an address from the current sample",
+        });
+        return true;
+      }
+      body.sourceStatsAt = stats.generatedAt;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      preview: await cloudflareAutomation.previewIncident({ ...body, domain }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/incidents/apply") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "APPLY") {
+      sendJson(res, 400, { ok: false, message: "Type APPLY to confirm the previewed Cloudflare action" });
+      return true;
+    }
+    const preview = body.preview || {};
+    if (preview.action !== "purge_cache") {
+      const domain = validateDomain(preview.domain);
+      const stats = await collectSiteStats(domain);
+      if (!(stats.traffic?.topIps || []).some((row) => row.ip === String(preview.address || ""))
+          || preview.sourceStatsAt !== stats.generatedAt) {
+        sendJson(res, 409, {
+          ok: false,
+          message: "Traffic data changed after preview; refresh the website traffic sample",
+        });
+        return true;
+      }
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: cloudflareAutomation.incidentJob(preview, req.auth.email),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/cloudflare/incidents/remove") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 202, {
+      ok: true,
+      job: cloudflareAutomation.removeIncidentJob(String(body.mitigation_id || ""), req.auth.email),
+    });
     return true;
   }
 
@@ -2676,6 +2813,7 @@ server.listen(PORT, "0.0.0.0", () => {
   notificationManager.start(jobManager);
   healthMonitor.start();
   jobManager.start();
+  cloudflareAutomation.start();
   backupManager.start();
   offsiteBackupManager.start();
   imageOptimizationManager.startScheduler();

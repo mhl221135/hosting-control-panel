@@ -9,11 +9,10 @@ backlog only when their acceptance criteria are satisfied.
 1. Adopt the shared background system for remaining long operations.
 2. Operational health notifications and import/export controls in the authenticated panel.
 3. Controlled WordPress updates and remaining maintenance options.
-4. Cloudflare bulk presets and provisioning defaults.
-5. Application adapters for generic PHP/MySQL and OpenCart.
-6. Separate billing and hosting-entitlement service.
-7. Separate mail platform with panel API integration.
-8. Warm-standby replication and controlled failover.
+4. Application adapters for generic PHP/MySQL and OpenCart.
+5. Separate billing and hosting-entitlement service.
+6. Separate mail platform with panel API integration.
+7. Warm-standby replication and controlled failover.
 
 The durable job system now handles backups, restores, maintenance, image
 optimization, website deletion, website provisioning/import, and portable
@@ -40,8 +39,8 @@ Passwords never enter job payloads, results, errors, notifications, or Git.
 
 ### Requirements
 
-- Register import/export, WordPress update, Cloudflare bulk, and
-  billing/mail migration handlers as those features are implemented.
+- Register import/export, WordPress update, and billing/mail migration handlers
+  as those features are implemented.
 - Add explicit safe cancellation checkpoints to each handler. Never interrupt a
   database import, file swap, credential update, or configuration write midway.
 - Make panel-triggered shell migration operations use the same managers and
@@ -153,79 +152,7 @@ duplicating the tested shell-script logic.
 - Never run bulk updates concurrently across websites on this shared runtime.
 - Expose exclusions/pinning for sites or packages that must remain on a version.
 
-## 5. Cloudflare Bulk And Provisioning Automation
-
-### Bulk Presets
-
-- Select websites/zones and one or more idempotent presets:
-  - WordPress login protection;
-  - XML-RPC blocking;
-  - sensitive-file blocking;
-  - conservative bot/security baseline;
-  - cache baseline;
-  - optional Always Online.
-- Produce a dry-run diff before mutation: zone, existing managed rule, desired
-  change, entitlement/plan limitations, and records/rules left untouched.
-- Apply sequentially as a background job with per-zone results.
-- Store enough previous managed state for an explicit rollback where the
-  Cloudflare API supports it.
-- Change only panel-owned rules or exact confirmed DNS records.
-
-### Provisioning Default Still Needed
-
-- Allow a global security-preset default while preserving the implemented
-  per-site opt-out. Keep external failures as provisioning warnings.
-
-### Incident Actions
-
-- Build conservative actions from the existing selected-site traffic view:
-  temporary IP/network mitigation, cache purge, or managed challenge/block.
-- Require a preview, explicit confirmation, expiry, operator allowlists, and an
-  audit log.
-- Restore the real visitor IP from trusted Cloudflare ranges before attributing
-  traffic.
-- Never create permanent automatic bans from one traffic sample.
-
-#### Cloudflare IP Actions
-
-- Add actions beside an enriched traffic row for managed challenge, temporary
-  block, and removal of an active panel-owned mitigation. Managed challenge is
-  the recommended default; permanent blocking is not a default action.
-- Scope each rule to the selected zone and hostname plus the exact IPv4 or IPv6
-  address. CIDR input requires separate validation and explicit confirmation.
-  Do not use account-wide IP Access Rules for a normal per-site action.
-- Offer bounded expiry choices such as 10 minutes, 1 hour, 24 hours, and 7 days.
-  Store the Cloudflare rule ID and automatically remove expired panel-owned rules.
-- Preview the zone, hostname, address/CIDR, rule expression, action, and expiry
-  before applying. Show the resulting active state and provide an immediate undo
-  action.
-- Refuse actions against operator allowlists, server LAN/WAN addresses, private or
-  reserved ranges, trusted Cloudflare proxy ranges, and configured monitoring
-  services.
-- Make rule creation idempotent and modify only tagged panel-owned rules. Record
-  the operator, source statistics timestamp, scope, action, expiry, Cloudflare
-  rule ID, and API result in the audit log.
-- Treat IPinfo metadata as context only. Never automatically challenge or block
-  an address based solely on geolocation, ASN, hosting, VPN, or proxy indicators.
-- Detect missing Cloudflare token permissions and plan entitlement failures and
-  report an actionable per-zone error without changing unrelated rules.
-
-Acceptance criteria:
-
-- Statistics remain lightweight when no enrichment is requested.
-- A mitigation affects only the confirmed hostname and expires as selected.
-- Protected/internal/proxy addresses cannot be blocked through the panel.
-- Repeating the same action does not create duplicate Cloudflare rules.
-- Tokens, raw provider responses, and production addresses are absent from Git
-  and routine application logs.
-
-### Always Online Warning
-
-Always Online is opt-in. Explain that it serves archived static content, cannot
-preserve carts/comments/dynamic behavior, and may involve Internet Archive
-integration.
-
-## 6. Application Adapter Model
+## 5. Application Adapter Model
 
 ### Objective
 
@@ -265,7 +192,7 @@ Each adapter defines:
 - Define session/cart/checkout exclusions before allowing FastCGI caching.
 - Add OpenCart-specific backup, restore, removal, and migration tests.
 
-## 7. Separate Billing And Entitlement Service
+## 6. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -310,7 +237,7 @@ remain a later optional adapter.
   notification-only mode. Local nginx cannot suspend externally hosted sites.
 - Never delete website data because payment expired.
 
-## 8. Separate Mail Platform
+## 7. Separate Mail Platform
 
 ### Objective
 
@@ -482,7 +409,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 9. Warm Standby And Controlled Failover
+## 8. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

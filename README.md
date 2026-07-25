@@ -25,6 +25,8 @@ into dedicated directories.
 - Cloudflare A, AAAA, CNAME, and TXT record management
 - Cloudflare sensitive-path, XML-RPC, and login rate-limit security presets
 - Opt-in post-provision Cloudflare hardening with partial-success reporting
+- Dry-run Cloudflare bulk security/cache presets with durable jobs and rollback
+- Temporary exact-IP Cloudflare challenge/block actions with expiry and audit
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
 - Per-site PHP OPcache enablement
@@ -714,6 +716,14 @@ created by Hosting Control. It can apply a sensitive-path block, an XML-RPC
 managed challenge, and a WordPress login rate limit. Existing user-created
 Cloudflare rules are not changed or displayed.
 
+The same workspace provides bulk presets for selected primary websites:
+WordPress login protection, XML-RPC blocking, sensitive-file blocking,
+conservative security and cache baselines, and optional Always Online. A fresh
+provider-state dry run is mandatory. Application runs sequentially through the
+durable job queue, records per-zone results, and can roll back only the exact
+panel-owned rules and zone settings changed by that batch. Global provisioning
+defaults are disabled initially and retain a per-site opt-out.
+
 The WordPress login preset is compatible with Cloudflare Free: it blocks an IP
 after five requests to `/wp-login.php` in 10 seconds for 10 seconds. Cloudflare
 Free restricts the available expression fields, so this rule applies across the
@@ -731,6 +741,13 @@ header. NPM access logs and the private internal nginx therefore use the
 restored visitor address instead of the Cloudflare edge address. The small
 source-built NPM image keeps NPM's automatic Cloudflare range updates and
 changes its trusted visitor header from `X-Real-IP` to `CF-Connecting-IP`.
+
+The selected-site traffic view can preview and queue a temporary managed
+challenge or block for one exact current public visitor address, or purge the
+selected zone cache. Mitigations are hostname-scoped, expire automatically, and
+reject protected, server, private/reserved, and Cloudflare proxy addresses.
+IPinfo remains operator-requested context and never triggers an automatic
+action. See [docs/CLOUDFLARE_AUTOMATION.md](docs/CLOUDFLARE_AUTOMATION.md).
 
 The legacy host-specific `backup_websites.sh` remains excluded from Git and is
 not invoked or modified by this panel.

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260725-18" />
+    <link rel="stylesheet" href="/styles.css?v=20260725-19" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -141,10 +141,21 @@
             <div class="two-column">
               <article class="panel"><h3>Response status</h3><div id="siteStatusStats" class="bar-list"></div></article>
               <article class="panel">
-                <div class="card-head"><div><h3>Top client / proxy IPs</h3><p class="muted">Lookup sends only the selected public IP address to IPinfo.</p></div><button id="clearIpinfoCache" type="button" class="secondary">Clear cache</button></div>
+                <div class="card-head"><div><h3>Top client / proxy IPs</h3><p class="muted">Lookup sends only the selected public IP address to IPinfo. Mitigation always requires a preview and confirmation.</p></div><div class="button-row"><button id="purgeCloudflareCache" type="button" class="secondary">Purge edge cache</button><button id="clearIpinfoCache" type="button" class="secondary">Clear lookup cache</button></div></div>
                 <div id="siteIpStats" class="rank-list"></div>
               </article>
             </div>
+            <form id="incidentActionForm" class="panel form-stack hidden">
+              <div class="card-head"><div><h3>Cloudflare incident action</h3><p class="muted">Temporary rules are scoped to this hostname and exact address. IPinfo context never triggers an action automatically.</p></div><button id="cancelIncidentAction" type="button" class="secondary">Close</button></div>
+              <input name="domain" type="hidden" />
+              <label>Selected address<input name="address" readonly /></label>
+              <div class="two-field-grid">
+                <label>Action<select name="action"><option value="managed_challenge">Managed challenge</option><option value="block">Temporary block</option><option value="purge_cache">Purge zone cache</option></select></label>
+                <label>Expiry<select name="duration"><option value="600">10 minutes</option><option value="3600">1 hour</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label>
+              </div>
+              <div class="button-row"><button id="previewIncidentAction" type="button" class="secondary">Preview action</button><button id="applyIncidentAction" type="button" disabled>Apply confirmed action</button></div>
+              <div id="incidentActionPreview" class="status-box compact-status">Preview is required before this action can run.</div>
+            </form>
             <article class="panel"><h3>Top requested paths</h3><div id="sitePathStats" class="rank-list"></div></article>
           </section>
         </section>
@@ -301,6 +312,7 @@
             </fieldset>
             <fieldset class="option-group full provision-security-options">
               <legend>Cloudflare security</legend>
+              <label class="check"><input name="apply_security_defaults" type="checkbox" /> Apply configured global defaults</label>
               <label class="check"><input name="apply_security_preset" type="checkbox" /> Apply security preset after provisioning</label>
               <label>Security preset<select name="security_preset">
                 <option value="suspicious-probes">Block sensitive-file probes</option>
@@ -399,6 +411,40 @@
             <article class="panel">
               <div class="card-head"><div><h3>Managed rules</h3><p class="muted">Only rules created by Hosting Control are shown.</p></div></div>
               <div id="securityRules" class="rows empty">No rules loaded.</div>
+            </article>
+          </div>
+
+          <div class="section-head subsection-head">
+            <div><h2>Bulk automation</h2><p>Preview idempotent panel-owned changes across selected websites before applying them sequentially.</p></div>
+            <button id="refreshCloudflareAutomation" class="secondary" type="button">Refresh</button>
+          </div>
+          <div class="two-column automation-layout">
+            <article class="panel form-stack">
+              <div><h3>Websites and presets</h3><p class="muted">Zone settings are applied once when several selected websites share one Cloudflare zone.</p></div>
+              <div class="button-row"><button id="selectAllAutomationSites" class="secondary" type="button">Select all</button><button id="clearAutomationSites" class="secondary" type="button">Clear</button></div>
+              <div id="cloudflareAutomationSites" class="selection-grid"></div>
+              <div id="cloudflareAutomationPresets" class="selection-grid"></div>
+              <div class="button-row"><button id="previewCloudflareAutomation" class="secondary" type="button">Preview changes</button><button id="applyCloudflareAutomation" type="button" disabled>Apply preview</button></div>
+            </article>
+            <article class="panel">
+              <div class="card-head"><div><h3>Dry-run diff</h3><p class="muted">Existing unrelated rules and records are never included.</p></div></div>
+              <div id="cloudflareAutomationPreview" class="rows empty">Select websites and presets, then preview.</div>
+            </article>
+          </div>
+
+          <div class="two-column automation-layout">
+            <form id="cloudflareAutomationSettingsForm" class="panel form-stack">
+              <div><h3>Provisioning defaults</h3><p class="muted">New-site provisioning retains a per-site opt-out. External failures remain warnings.</p></div>
+              <label class="check"><input name="provisioning_defaults_enabled" type="checkbox" /> Enable Cloudflare defaults for new websites</label>
+              <div id="cloudflareDefaultPresets" class="selection-grid"></div>
+              <label>Protected visitor/server addresses<textarea name="protected_addresses" rows="4" placeholder="One exact IPv4 or IPv6 address per line"></textarea></label>
+              <div class="form-actions"><button type="submit">Save automation settings</button></div>
+            </form>
+            <article class="panel">
+              <div class="card-head"><div><h3>Automation history</h3><p class="muted">Rollback reverses only changes recorded as panel-managed by that batch.</p></div></div>
+              <div id="cloudflareAutomationHistory" class="rows empty">No automation batches recorded.</div>
+              <div class="card-head"><div><h3>Temporary mitigations</h3><p class="muted">Expired rules are removed automatically.</p></div></div>
+              <div id="cloudflareIncidentList" class="rows empty">No temporary mitigations recorded.</div>
             </article>
           </div>
         </section>
@@ -782,6 +828,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260725-18"></script>
+    <script src="/app.js?v=20260725-19"></script>
   </body>
 </html>

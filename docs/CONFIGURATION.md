@@ -50,6 +50,9 @@ Paths below are relative to `app-data/ui-manager`.
 | `performance-settings.json` | validated performance values | no |
 | `dns-presets.json` | Cloudflare record template sets | no |
 | `cloudflare-ip-addresses.json` | reusable server IPv4 list | no |
+| `cloudflare-automation-settings.json` | provisioning presets and protected incident addresses | no |
+| `cloudflare-automation-history.json` | bounded bulk apply and rollback state | no |
+| `cloudflare-incidents.json` | temporary mitigation audit and expiry state | no |
 | `default-pool.json` | default PHP pool choice | no |
 | `pool-presets.json` | low/medium/high worker definitions | no |
 | `image-optimization-status.json` | persisted bulk-job progress | no |

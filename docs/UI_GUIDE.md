@@ -73,11 +73,25 @@ high-frequency background collector.
 | **Inspect** | Opens recent per-site activity: file size, request count, transfer volume, status codes, source IPs, and requested paths. |
 | **Look up** | Sends only that current public traffic IP to IPinfo and shows available location, ASN/network, hostname, and privacy/hosting indicators. |
 | **Clear cache** | Removes normalized IPinfo results retained locally for up to 24 hours. |
+| **Mitigate** | Opens a preview for an exact-IP temporary Cloudflare challenge/block selected from current traffic. |
+| **Purge edge cache** | Previews a full Cloudflare cache purge for the selected website zone. |
 
 Traffic details are based on a bounded recent access-log sample. They are useful
 for diagnosis, not long-term analytics or billing. IPinfo is never called during
 normal refreshes. Private, reserved, Cloudflare edge, and configured server
 addresses are refused, and unavailable plan fields are labeled unavailable.
+
+## Cloudflare Bulk Automation
+
+In **Security**, select primary websites and one or more presets, then use
+**Preview changes** before **Apply reviewed changes** becomes available. The
+diff reports existing and desired state plus permission, entitlement, and
+site-capability errors. Apply and rollback run in **Jobs**. Batch history and
+active temporary mitigations remain in the Security workspace.
+
+**Provisioning defaults** enables a global preset set while keeping an explicit
+checkbox on each new website. Defaults start disabled. Protected addresses in
+this section can never be selected for a traffic mitigation.
 
 ## Health
 
