@@ -1,9 +1,13 @@
+FROM restic/restic:0.18.1 AS restic
+
 FROM node:20-alpine
 
 WORKDIR /app
 
 RUN apk add --no-cache docker-cli tar tzdata unzip zip \
     && mkdir -p /srv/websites /srv/configs/nginx/conf.d /srv/configs/php-fpm /app/data
+
+COPY --from=restic /usr/bin/restic /usr/local/bin/restic
 
 COPY package.json package-lock.json /app/
 RUN npm ci --omit=dev && npm cache clean --force

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260723-14" />
+    <link rel="stylesheet" href="/styles.css?v=20260725-18" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -436,6 +436,60 @@
             </div>
             <div id="backupHistory" class="rows empty">Select a website or app data.</div>
           </article>
+
+          <div class="section-head subsection-head">
+            <div><h2>Encrypted off-site copies</h2><p>Replicate completed local backup sets to independent S3-compatible storage with Restic encryption.</p></div>
+            <div class="section-actions">
+              <button id="offsiteSync" type="button">Sync now</button>
+              <button id="offsiteCheck" class="secondary" type="button">Check repository</button>
+              <button id="offsiteRestoreTest" class="secondary" type="button">Run restore test</button>
+            </div>
+          </div>
+
+          <div class="two-column backup-layout">
+            <form id="offsiteSettingsForm" class="panel form-stack">
+              <div><h3>Object storage</h3><p class="muted">Secrets are encrypted in panel storage. Keep the repository password in a separate password vault.</p></div>
+              <label class="check"><input name="enabled" type="checkbox" /> Enable scheduled replication</label>
+              <label>HTTPS endpoint<input name="endpoint" type="url" placeholder="https://s3.us-east-1.amazonaws.com" /></label>
+              <label>Bucket<input name="bucket" placeholder="hosting-backups" /></label>
+              <label>Repository prefix<input name="prefix" value="hosting-control" /></label>
+              <label>Region<input name="region" value="us-east-1" /></label>
+              <label>Access key ID<input name="access_key_id" autocomplete="off" /></label>
+              <label>Secret access key<input name="secret_access_key" type="password" autocomplete="new-password" /></label>
+              <label>Repository password<input name="repository_password" type="password" autocomplete="new-password" /></label>
+              <div class="three-column">
+                <label>Daily sync<input name="schedule_time" type="time" required /></label>
+                <label>Snapshots to keep<input name="retention" type="number" min="1" max="365" required /></label>
+                <label>Verify data (%)<input name="verify_percent" type="number" min="0" max="100" required /></label>
+              </div>
+              <div class="two-field-grid">
+                <label>Upload limit (KiB/s, 0 unlimited)<input name="upload_limit_kib" type="number" min="0" max="1048576" /></label>
+                <label>Download limit (KiB/s, 0 unlimited)<input name="download_limit_kib" type="number" min="0" max="1048576" /></label>
+              </div>
+              <label class="check"><input name="restore_test_enabled" type="checkbox" /> Run an isolated restore test weekly</label>
+              <div class="three-column">
+                <label>Restore-test weekday
+                  <select name="restore_test_day">
+                    <option value="0">Sunday</option><option value="1">Monday</option><option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option><option value="4">Thursday</option><option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                  </select>
+                </label>
+                <label>Restore-test time<input name="restore_test_time" type="time" /></label>
+                <label>Maximum test set (GiB)<input name="restore_test_max_gib" type="number" min="1" max="1024" /></label>
+              </div>
+              <div class="form-actions button-row">
+                <button type="submit">Save off-site settings</button>
+                <button id="offsiteInitialize" class="secondary" type="button">Initialize new repository</button>
+              </div>
+            </form>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Repository state</h3><p class="muted">Recent jobs and encrypted snapshots. Refreshing never exposes credentials.</p></div><button id="refreshOffsite" class="secondary" type="button">Refresh</button></div>
+              <div id="offsiteStatus" class="status-box">Off-site status has not loaded.</div>
+              <div id="offsiteSnapshots" class="rows empty">No snapshots loaded.</div>
+            </article>
+          </div>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="transfers">
@@ -728,6 +782,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260723-17"></script>
+    <script src="/app.js?v=20260725-18"></script>
   </body>
 </html>

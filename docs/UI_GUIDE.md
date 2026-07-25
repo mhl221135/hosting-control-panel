@@ -277,6 +277,19 @@ Only one backup job runs at a time. Application-data restore is intentionally a
 maintenance procedure performed with the stack stopped; it is not exposed as a
 one-click panel action.
 
+### Encrypted Off-Site Copies
+
+The lower Backups section configures an independent S3-compatible Restic
+repository. **Sync now** encrypts and replicates complete local sets, **Check
+repository** verifies integrity, and **Run restore test** restores a
+representative set into an isolated temporary path. **Initialize new
+repository** is only for a new empty bucket prefix.
+
+Credential inputs are write-only; leaving them blank preserves stored encrypted
+values. Enable the schedule only after initialization or an existing repository
+check, one successful sync, and one successful restore test. See
+`docs/OFFSITE_BACKUPS.md` for key custody and host-loss recovery.
+
 ## Transfers
 
 The Transfers workspace creates portable migration bundles without embedding

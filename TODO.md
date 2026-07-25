@@ -13,8 +13,7 @@ backlog only when their acceptance criteria are satisfied.
 5. Application adapters for generic PHP/MySQL and OpenCart.
 6. Separate billing and hosting-entitlement service.
 7. Separate mail platform with panel API integration.
-8. Encrypted off-site backups.
-9. Warm-standby replication and controlled failover.
+8. Warm-standby replication and controlled failover.
 
 The durable job system now handles backups, restores, maintenance, image
 optimization, website deletion, website provisioning/import, and portable
@@ -26,7 +25,7 @@ another status file, lock, or browser-bound request.
 ### Objective
 
 Finish adopting the implemented durable job service for multi-site imports,
-WordPress updates, off-site copies, and future bulk operations.
+WordPress updates and future bulk operations.
 
 Website deletion now uses the durable job system with conflict locks, live
 ownership revalidation, bounded progress, notification delivery, and
@@ -41,7 +40,7 @@ Passwords never enter job payloads, results, errors, notifications, or Git.
 
 ### Requirements
 
-- Register import/export, WordPress update, off-site copy, Cloudflare bulk, and
+- Register import/export, WordPress update, Cloudflare bulk, and
   billing/mail migration handlers as those features are implemented.
 - Add explicit safe cancellation checkpoints to each handler. Never interrupt a
   database import, file swap, credential update, or configuration write midway.
@@ -483,37 +482,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 9. Encrypted Off-Site Backups
-
-### Objective
-
-Replicate completed backup sets to independent S3-compatible object storage
-with client-side encryption and tested restoration.
-
-### Requirements
-
-- Configure endpoint, bucket, region, credentials, encryption key source,
-  bandwidth limits, schedule, and retention without exposing secrets.
-- Upload only complete backup directories; ignore `.partial-*` and active
-  staging.
-- Preserve manifests and checksums, verify remote object completeness, and
-  record the remote copy in job history.
-- Retry interrupted uploads safely and prune only after a verified newer copy
-  exists according to policy.
-- Support manual replication and scheduled replication as background jobs.
-- Add periodic restore tests into isolated non-production paths and report
-  measured recovery time.
-- Notify through Telegram/SMTP about success summaries and failures, but keep
-  the backup payload in object storage.
-
-### Acceptance Criteria
-
-- Loss of the primary host and its attached backup disk still leaves a
-  documented, decryptable, verified recovery point.
-- Credentials and encryption material are absent from Git, logs, manifests, and
-  notification messages.
-
-## 10. Warm Standby And Controlled Failover
+## 9. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

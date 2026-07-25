@@ -55,6 +55,7 @@ The panel provides:
 - MySQL installer container and database-prefix settings
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
+- Optional encrypted Restic replication to independent S3-compatible storage
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Manual-refresh server/container statistics, per-pool PHP usage, cache health,
@@ -100,6 +101,7 @@ generated and persistent files include:
 - `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
+- `app-data/ui-manager/offsite-backup-settings.json`: encrypted off-site settings and schedule state
 
 ## Provisioning
 

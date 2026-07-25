@@ -46,10 +46,18 @@ cache; avoid adding permanent polling.
 | `POST /api/backups/app-data` | archive app data and dump all databases |
 | `POST /api/backups/restore` | restore a validated site set |
 | `DELETE /api/backups/...` | delete a complete backup set |
+| `GET,PUT /api/backups/offsite` | sanitized Restic configuration, recent jobs, and snapshots |
+| `POST /api/backups/offsite/initialize` | initialize a new encrypted repository after confirmation |
+| `POST /api/backups/offsite/sync` | queue encrypted replication and retention |
+| `POST /api/backups/offsite/check` | queue repository integrity verification |
+| `POST /api/backups/offsite/restore-test` | queue an isolated representative restore test |
 
 Backup, restore, maintenance, and image-optimization POST routes return `202`
 with a public job record. Use the job API to follow completion rather than
 holding the originating HTTP request open.
+
+Off-site secret fields are write-only. Blank secret fields preserve the stored
+encrypted value. Jobs contain no repository credentials or encryption material.
 
 ### Portable transfers
 

@@ -33,6 +33,7 @@ into dedicated directories.
 - Global gzip compression and per-site or bulk WebP image generation
 - Manual and opt-in weekly WordPress cleanup with revision-retention preview, persisted progress, and per-operation results
 - Per-site manual and scheduled backups with retention
+- Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel
 - Durable ownership-aware website removal jobs with selectable routes, pool,
@@ -528,6 +529,18 @@ Image optimization uses the same `server-heavy` job conflict as backups, so
 archive compression and ImageMagick cannot saturate storage and CPU at the same time.
 Backup archives run with reduced CPU and I/O priority and omit transient WebP
 optimizer files.
+
+### Encrypted Off-Site Copies
+
+The Backups workspace can replicate completed local sets to independent
+S3-compatible storage using Restic client-side encryption. Credentials and the
+repository password are encrypted in panel storage; durable jobs perform
+incremental sync, integrity checks, remote retention, bounded weekly pruning,
+and optional isolated restore tests. The feature is disabled by default.
+
+Read [`docs/OFFSITE_BACKUPS.md`](docs/OFFSITE_BACKUPS.md) before enabling it. A
+backup is not host-loss-ready until recovery credentials exist outside the
+server and `scripts/offsite-recovery.sh` has completed a restore drill.
 
 ## Background Jobs
 
