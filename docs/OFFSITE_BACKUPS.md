@@ -53,9 +53,10 @@ Local and remote retention remain independent.
 
 The restore test selects the smallest complete local backup set within the
 configured limit, restores that set from the latest encrypted snapshot into an
-isolated `offsite-restore-tests/restore-test-*` path, validates its manifest and
-non-empty content, records recovery time and byte count, and deletes the path.
-It never writes into websites, MySQL, NPM, or live application data.
+isolated `.offsite-restore-tests/restore-test-*` path on the backup disk,
+validates its manifest and non-empty content, records recovery time and byte
+count, and deletes the path. It holds the backup lock and never writes into
+websites, MySQL, NPM, or live application data.
 
 ## Host-Loss Recovery
 
