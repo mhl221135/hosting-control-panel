@@ -8,7 +8,7 @@ backlog only when their acceptance criteria are satisfied.
 
 1. Adopt the shared background system for remaining long operations.
 2. Production WordPress update/rollback drills.
-3. Application adapters for generic PHP/MySQL and OpenCart.
+3. OpenCart adapter and strict Static HTML runtime isolation.
 4. Separate billing and hosting-entitlement service.
 5. Separate mail platform with panel API integration.
 6. Warm-standby replication and controlled failover.
@@ -114,20 +114,17 @@ editor metadata.
   verification, health checks, and rollback have passed repeated production
   drills.
 
-## 4. Application Adapter Model
+## 4. Remaining Application Adapters
 
 ### Objective
 
-Replace the current combined HTML/PHP classification with capability-driven
-adapters. Do not provision OpenCart through WordPress-specific code.
+Extend the implemented WordPress, Generic PHP, and Static HTML capability
+registry without routing OpenCart through WordPress-specific code.
 
 ### Target Adapters
 
 | Adapter | Database | OPcache | FastCGI | Redis |
 |---|---|---:|---:|---:|
-| `static` | none | no | unnecessary | no |
-| `generic-php` | optional | yes | opt-in with declared exclusions | application-specific |
-| `wordpress` | required | yes | yes | supported |
 | `opencart` | required | yes | yes with commerce exclusions | adapter-specific |
 
 Each adapter defines:
@@ -139,12 +136,13 @@ Each adapter defines:
 - health checks, backup/restore, removal, and migration behavior;
 - update behavior, or an explicit unsupported state.
 
-### Generic PHP/MySQL
+### Static Runtime Isolation
 
-- Provision PHP-only or PHP plus a generated database/user.
-- Let the operator upload an archive and optional SQL dump.
-- Store connection details only where the application's declared configuration
-  mechanism supports a safe write; otherwise display them once for manual use.
+- Add an nginx route mode that cannot execute PHP even if a PHP file is later
+  placed in a Static HTML document root.
+- Stop allocating compatibility PHP-FPM pools to newly provisioned static
+  sites after the route format can represent a no-PHP upstream.
+- Migrate existing Static HTML routes only after preview and nginx validation.
 
 ### OpenCart
 

@@ -161,18 +161,21 @@ and deleted. It is disabled in both operation lists by default.
 
 ## Provision
 
-Provision creates either a WordPress runtime or an HTML/PHP runtime. Both receive
-files, an isolated PHP-FPM pool, internal route, optional Cloudflare DNS, NPM
-proxy host, and certificate. HTML/PHP sites do not create a database.
+Provision creates a WordPress, Generic PHP, or Static HTML site. All receive
+files, an internal route, optional Cloudflare DNS, NPM proxy host, and
+certificate. Generic PHP receives an isolated pool and can optionally create
+and import a MySQL database. Static HTML has no managed database or cache
+controls.
 
 ### Website source
 
 | Control | Function |
 | --- | --- |
 | **WordPress** | Enables fresh WordPress installation or archive-plus-database import. |
-| **Static / PHP** | Creates or imports HTML, CSS, JavaScript, assets, and optional PHP without MySQL. |
-| **New website** | Downloads WordPress or creates a minimal HTML/PHP starter according to website type. |
-| **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and requires SQL only for WordPress. |
+| **Generic PHP** | Creates or imports a PHP application with an optional generated MySQL database. |
+| **Static HTML** | Creates or imports files without a managed database, OPcache, Redis, or FastCGI controls. |
+| **New website** | Downloads WordPress or creates a minimal starter for the selected adapter. |
+| **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and accepts a Generic PHP SQL dump when database creation is enabled. |
 | **Domain** | Primary hostname used by nginx, NPM, WordPress, and optional DNS. |
 | **Website directory** | Overrides the directory name below the shared websites root; defaults to the domain. |
 | **Website title** | Sets the title during a fresh WordPress installation. |
@@ -186,6 +189,7 @@ proxy host, and certificate. HTML/PHP sites do not create a database.
 | --- | --- |
 | **Add www alias** | Adds `www.domain` for an apex domain and configures the canonical route. |
 | **Enable Redis object cache** | Installs and configures Redis Cache during provisioning. |
+| **Create MySQL database and user** | Generates one database/user for Generic PHP. Credentials are revealed once; application configuration remains manual. |
 | **Enable FastCGI page cache** | Enables anonymous HTML caching for the new route. |
 | **Enable PHP OPcache** | Enables PHP bytecode caching for the site. |
 | **Enable daily backup** | Includes the new site in scheduled backup runs. |

@@ -98,8 +98,8 @@ Provisioning validates inputs before mutation, then:
 1. prepares the website directory;
 2. allocates or updates the PHP-FPM pool and nginx map row;
 3. validates and reloads runtime services;
-4. for WordPress, creates a database and same-named site user with a random password;
-5. installs WordPress and applies clean-install choices, or installs validated HTML/PHP files;
+4. creates the required WordPress database or an optional Generic PHP database/user;
+5. installs WordPress and applies clean-install choices, or installs validated Generic PHP/Static HTML files;
 6. installs selected WordPress packages and optional Redis configuration;
 7. applies optional Cloudflare DNS and DNS presets;
 8. ensures the NPM proxy host and optional certificate;
@@ -187,8 +187,10 @@ operator adds hostnames to health settings.
 The job scheduler serializes backups, restores, maintenance, and image work
 through the `server-heavy` conflict class. The backup manager retains a
 defensive internal lock for direct recovery calls. WordPress backups pair files,
-a logical database dump, and a manifest. HTML/PHP backups are file-only sets
-with an explicit null database. Retention deletes complete sets.
+a logical database dump, and a manifest. Generic PHP does the same when its
+panel state declares a database, otherwise it is file-only. Static HTML backups
+are file-only sets with an explicit null database. Retention deletes complete
+sets.
 
 Restore validates ownership, creates a safety backup, stages the file swap on
 the websites filesystem, imports the database, and attempts rollback on import
@@ -245,10 +247,10 @@ manifest, validates every referenced artifact against `checksums.sha256`, and
 atomically publishes `upload-<uuid>` as a normal staged source. Failed upload
 workspaces expire after 24 hours.
 
-The Provision tab's single-site adapter stages raw uploads below
+The Provision tab's single-site adapters stage raw uploads below
 `imports/ui-provision`, validates archive member paths, rejects symlinks, finds
-the sole WordPress document root, and produces the same normalized archive and
-manifest consumed by `MigrationManager`. This keeps browser imports on the same
+the sole WordPress document root when applicable, and normalize optional Generic
+PHP dumps independently of WP-CLI. This keeps browser imports on the same
 database/runtime rollback path as host-level imports. The final transaction is
 a `site.provision` durable job with site/runtime/heavy-work conflicts and safe
 cancellation checkpoints before irreversible changes. Core import work runs
@@ -258,11 +260,11 @@ in an AES-256-GCM encrypted one-time vault, never in persisted job records.
 Those integration warnings are failed sub-results, so the durable job resolves
 as partially succeeded and can trigger warning notifications.
 
-The panel treats Redis management as a WordPress capability. Non-WordPress
-website rows omit the Redis state and action, and the API rejects attempts to
-enable the WordPress Redis integration for those sites. FastCGI and OPcache
-remain available to the current combined HTML/PHP site type because it may
-contain executable PHP.
+`site-capabilities.js` is the central adapter registry. WordPress requires a
+database and supports Redis, OPcache, FastCGI, and image optimization. Generic
+PHP has an optional state-declared database and supports OPcache and FastCGI,
+but never invokes WP-CLI. Static HTML exposes none of those controls. The API
+rejects unsupported state transitions even if a client bypasses the UI.
 
 ## External Integrations
 

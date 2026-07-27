@@ -412,6 +412,48 @@ class ProvisionImportStore {
     return { fileCount: entries.length };
   }
 
+  async prepareDatabaseDump(idValue) {
+    this.removeExpired();
+    const id = uploadId(idValue);
+    const metadata = this.read(id);
+    if (!metadata.files.database) {
+      const error = new Error("Upload a database dump before importing it");
+      error.statusCode = 400;
+      throw error;
+    }
+    const directory = this.directory(id);
+    const databaseDump = path.join(directory, metadata.files.database.path);
+    if (!fs.existsSync(databaseDump)) throw new Error("The staged database dump is missing");
+    const workspace = path.join(directory, "generic-database-prepared");
+    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.mkdirSync(workspace, { recursive: true, mode: 0o700 });
+    let databaseSource = databaseDump;
+    if (databaseDump.toLowerCase().endsWith(".tar.gz") || databaseDump.toLowerCase().endsWith(".tgz")) {
+      await this.archiveEntries(databaseDump, "Database");
+      const extracted = path.join(workspace, "extracted");
+      fs.mkdirSync(extracted, { recursive: true, mode: 0o700 });
+      await this.extractArchive(databaseDump, extracted);
+      const dumps = [];
+      walk(extracted, (target, entry) => {
+        if (entry.isFile() && (entry.name.toLowerCase().endsWith(".sql") || entry.name.toLowerCase().endsWith(".sql.gz"))) {
+          dumps.push(target);
+        }
+      });
+      if (dumps.length !== 1) {
+        throw new Error(`Database archive must contain exactly one .sql or .sql.gz file (found ${dumps.length})`);
+      }
+      databaseSource = dumps[0];
+    }
+    const normalized = path.join(workspace, "database.sql.gz");
+    if (databaseSource.toLowerCase().endsWith(".sql.gz")) {
+      fs.copyFileSync(databaseSource, normalized);
+    } else {
+      await pipeline(fs.createReadStream(databaseSource), zlib.createGzip({ level: 6 }), fs.createWriteStream(normalized, { mode: 0o600 }));
+    }
+    await execFileAsync("gzip", ["-t", normalized], { timeout: 10 * 60 * 1000, maxBuffer: 1024 * 1024 });
+    return normalized;
+  }
+
   async verifyChecksums(directory) {
     const checksumPath = path.join(directory, "checksums.sha256");
     if (!fs.existsSync(checksumPath)) throw new Error("Portable bundle is missing checksums.sha256");

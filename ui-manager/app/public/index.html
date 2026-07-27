@@ -298,12 +298,13 @@
             <fieldset class="source-mode full">
               <legend>Website type</legend>
               <label><input name="site_type" type="radio" value="wordpress" checked /><span><strong>WordPress</strong><small>Database-backed WordPress installation or import.</small></span></label>
-              <label><input name="site_type" type="radio" value="static" /><span><strong>Static / PHP</strong><small>HTML, CSS, JavaScript, assets, and optional PHP without MySQL.</small></span></label>
+              <label><input name="site_type" type="radio" value="generic-php" /><span><strong>Generic PHP</strong><small>PHP application with an optional generated MySQL database.</small></span></label>
+              <label><input name="site_type" type="radio" value="static" /><span><strong>Static HTML</strong><small>HTML, CSS, JavaScript, and assets without PHP or MySQL.</small></span></label>
             </fieldset>
             <fieldset class="source-mode full">
               <legend>Website source</legend>
-              <label><input name="source_mode" type="radio" value="fresh" checked /><span><strong>New website</strong><small>Install WordPress or create an empty HTML/PHP starter.</small></span></label>
-              <label><input name="source_mode" type="radio" value="import" /><span><strong>Import website</strong><small>Upload an archive, plus a database for WordPress.</small></span></label>
+              <label><input name="source_mode" type="radio" value="fresh" checked /><span><strong>New website</strong><small>Install WordPress or create an application starter.</small></span></label>
+              <label><input name="source_mode" type="radio" value="import" /><span><strong>Import website</strong><small>Upload an archive and an application database when applicable.</small></span></label>
             </fieldset>
             <label>Domain<input name="domain" placeholder="website.com" required /></label>
             <label>Website directory<input name="directory" placeholder="Defaults to domain" /></label>
@@ -318,13 +319,14 @@
             <fieldset class="option-group full import-source hidden" data-provision-import>
               <legend>Import files</legend>
               <label>Website archive<input id="provisionWebsiteArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" /><small>ZIP, TAR, TAR.GZ, or TGZ. WordPress imports must contain one wp-config.php.</small></label>
-              <label data-provision-wordpress>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>SQL, SQL.GZ, or TAR.GZ/TGZ containing one SQL dump.</small></label>
+              <label data-provision-database>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>Required for WordPress import; optional for Generic PHP with a database.</small></label>
               <div id="provisionImportProgress" class="status-box compact-status full">Uploaded files are validated and extracted into the website directory.</div>
             </fieldset>
             <fieldset class="option-group full">
               <legend>Provisioning options</legend>
               <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
               <label class="check" data-provision-wordpress><input name="redis" type="checkbox" /> Enable Redis object cache</label>
+              <label class="check" data-provision-generic><input name="create_database" type="checkbox" /> Create MySQL database and user</label>
               <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>
               <label class="check"><input name="opcache" type="checkbox" checked /> Enable PHP OPcache</label>
               <label class="check"><input name="scheduled_backup" type="checkbox" checked /> Enable daily backup</label>

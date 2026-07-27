@@ -5,6 +5,7 @@ const SAFE_FIELDS = new Set([
   "plugin_packages", "theme_packages", "create_update_dns", "dns_ip", "apply_dns_preset",
   "dns_preset_id", "add_www", "create_npm_host", "issue_ssl", "notes", "import_upload_id",
   "apply_security_preset", "security_preset", "apply_security_defaults",
+  "create_database", "import_database_dump",
 ]);
 
 function safeProvisionPayload(body = {}) {

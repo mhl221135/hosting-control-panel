@@ -6,6 +6,7 @@ const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
 const { migrateWordPressUrl, normalizeWordPressPermissions, validateDomain } = require("./provisioner");
+const { normalizeSiteType, siteAdapter, siteDatabaseReference } = require("./site-capabilities");
 const {
   parsePools,
   parseSitesMap,
@@ -102,7 +103,11 @@ function validateManifest(payload) {
   const domains = new Set();
   const sites = payload.sites.map((raw) => {
     const domain = validateDomain(raw.domain);
-    const siteType = raw.siteType === "static" || raw.state?.siteType === "static" ? "static" : "wordpress";
+    const siteType = normalizeSiteType(raw.siteType || raw.state?.siteType);
+    const adapter = siteAdapter(siteType);
+    const database = siteType === "wordpress"
+      ? validateDatabaseName(raw.database)
+      : siteType === "generic-php" && raw.database ? validateDatabaseName(raw.database) : "";
     if (domains.has(domain)) throw new Error(`Duplicate domain in manifest: ${domain}`);
     domains.add(domain);
     const aliases = [...new Set((raw.aliases || []).map(validateDomain))].filter((alias) => alias !== domain);
@@ -117,11 +122,18 @@ function validateManifest(payload) {
         .filter((alias) => aliases.includes(alias)),
       websitePath: safeRelative(raw.websitePath, "website path"),
       siteType,
-      database: siteType === "static" ? "" : validateDatabaseName(raw.database),
+      database,
       websiteArchive: raw.websiteArchive ? safeRelative(raw.websiteArchive, "website archive") : "",
-      databaseDump: siteType === "static" ? "" : safeRelative(raw.databaseDump, "database dump"),
+      databaseDump: database && raw.databaseDump ? safeRelative(raw.databaseDump, "database dump") : "",
       poolTier: ["low", "medium", "high"].includes(raw.poolTier) ? raw.poolTier : "medium",
-      state: { ...(raw.state && typeof raw.state === "object" ? raw.state : {}), siteType },
+      state: {
+        ...(raw.state && typeof raw.state === "object" ? raw.state : {}),
+        opcache: adapter.opcache && raw.state?.opcache !== false,
+        redis: adapter.redis && Boolean(raw.state?.redis),
+        fastcgiCache: adapter.fastcgi && Boolean(raw.state?.fastcgiCache),
+        imageOptimizationEnabled: adapter.imageOptimization && Boolean(raw.state?.imageOptimizationEnabled),
+        siteType,
+      },
     };
   });
   return { ...payload, sites };
@@ -141,7 +153,8 @@ function validateImportPlan(payload) {
       if (domains.has(alias)) throw new Error(`Duplicate domain in import JSON: ${alias}`);
       domains.add(alias);
     });
-    const siteType = raw.siteType === "static" || raw.state?.siteType === "static" ? "static" : "wordpress";
+    const siteType = normalizeSiteType(raw.siteType || raw.state?.siteType);
+    const adapter = siteAdapter(siteType);
     return {
       domain,
       aliases,
@@ -151,10 +164,14 @@ function validateImportPlan(payload) {
       siteType,
       poolTier: ["low", "medium", "high"].includes(raw.poolTier) ? raw.poolTier : "medium",
       state: {
-        opcache: raw.state?.opcache !== false,
-        redis: Boolean(raw.state?.redis),
-        fastcgiCache: Boolean(raw.state?.fastcgiCache),
+        opcache: adapter.opcache && raw.state?.opcache !== false,
+        redis: adapter.redis && Boolean(raw.state?.redis),
+        fastcgiCache: adapter.fastcgi && Boolean(raw.state?.fastcgiCache),
         backupEnabled: raw.state?.backupEnabled !== false,
+        databaseName: siteType === "generic-php" && raw.state?.databaseName
+          ? validateDatabaseName(raw.state.databaseName) : "",
+        databaseUser: siteType === "generic-php" && raw.state?.databaseUser
+          ? validateDatabaseName(raw.state.databaseUser) : "",
         siteType,
       },
     };
@@ -240,11 +257,13 @@ class MigrationManager {
     const plan = validateImportPlan(payload);
     const sites = [];
     for (const site of plan.sites) {
-      if (site.siteType === "static") {
+      if (site.siteType === "static" || (site.siteType === "generic-php" && !site.state.databaseName)) {
         sites.push({ ...site, database: "", databaseDump: "" });
         continue;
       }
-      const configuredDatabase = await this.wordpressDatabase(site.websitePath);
+      const configuredDatabase = site.siteType === "wordpress"
+        ? await this.wordpressDatabase(site.websitePath)
+        : site.state.databaseName;
       const dump = newestDatabaseDump(sourceDirectory, configuredDatabase);
       if (!dump) throw new Error(`No .sql.gz dump found for ${site.domain} database ${configuredDatabase}`);
       sites.push({ ...site, database: configuredDatabase, databaseDump: path.basename(dump) });
@@ -301,7 +320,7 @@ class MigrationManager {
         const archive = resolveInside(sourceDirectory, site.websiteArchive, "website archive");
         if (!fs.existsSync(archive) || !fs.lstatSync(archive).isFile()) conflicts.push(`Website archive is missing: ${site.websiteArchive}`);
       }
-      if (site.siteType !== "static") {
+      if (site.database) {
         const dump = resolveInside(sourceDirectory, site.databaseDump, "database dump");
         if (!fs.existsSync(dump) || !fs.lstatSync(dump).isFile()) conflicts.push(`Database dump is missing: ${site.databaseDump}`);
         if (await this.databaseExists(site.database)) conflicts.push(`Database already exists: ${site.database}`);
@@ -336,7 +355,7 @@ class MigrationManager {
         existingDnsRecords: dnsRecords,
         actions: {
           files: useExistingFiles ? "adopt staged website files" : "extract website archive",
-          database: site.siteType === "static" ? "not required" : "create database and import dump",
+          database: site.database ? "create database and import dump" : "not configured",
           dns: normalizedOptions.updateDns ? `upsert A records to ${normalizedOptions.wanIp}` : "leave unchanged",
           npm: normalizedOptions.createNpmHost ? "create or update proxy host" : "leave unchanged",
           ssl: normalizedOptions.issueSsl ? "request certificate" : "do not request",
@@ -437,7 +456,7 @@ class MigrationManager {
   async previewExport(selectedDomains = []) {
     return Promise.all(this.selectedSites(selectedDomains).map(async (site) => {
       const websitePath = this.websiteRelative(site);
-      const siteType = site.state?.siteType === "static" ? "static" : "wordpress";
+      const siteType = normalizeSiteType(site.state?.siteType);
       let database = "";
       let warning = "";
       if (siteType === "wordpress") {
@@ -447,6 +466,7 @@ class MigrationManager {
           warning = error.message;
         }
       }
+      if (siteType === "generic-php") database = siteDatabaseReference(site)?.name || "";
       return {
         domain: site.host,
         aliases: site.aliases,
@@ -474,7 +494,7 @@ class MigrationManager {
       for (const [index, site] of sites.entries()) {
         options.checkpoint?.(`Export cancelled before ${site.host}`);
         options.onProgress?.({ completed: index, total: sites.length, currentStep: `Exporting ${site.host}`, results });
-        const siteType = site.state?.siteType === "static" ? "static" : "wordpress";
+        const siteType = normalizeSiteType(site.state?.siteType);
         const slug = sanitizeSectionName(site.host);
         const websiteArchive = `sites/${slug}.tar.gz`;
         let databaseDump = "";
@@ -484,7 +504,9 @@ class MigrationManager {
           if (siteType === "wordpress" && !fs.existsSync(path.join(source, "wp-config.php"))) {
             throw new Error(`wp-config.php not found for ${site.host}`);
           }
-          const database = siteType === "static" ? "" : await this.wordpressDatabase(websitePath);
+          const database = siteType === "wordpress"
+            ? await this.wordpressDatabase(websitePath)
+            : siteDatabaseReference(site)?.name || "";
           databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
           await execFileAsync("tar", ["-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], {
             timeout: 4 * 60 * 60 * 1000,
@@ -683,7 +705,7 @@ class MigrationManager {
         extracted = true;
       }
     }
-    if (site.siteType !== "static" && !fs.existsSync(path.join(destination, "wp-config.php"))) {
+    if (site.siteType === "wordpress" && !fs.existsSync(path.join(destination, "wp-config.php"))) {
       throw new Error(`wp-config.php not found in ${site.websitePath}`);
     }
     if (!fs.existsSync(destination) || !fs.readdirSync(destination).length) {
@@ -774,6 +796,7 @@ class MigrationManager {
     let nextPort = Math.max(9000, ...usedPorts) + 1;
     const configured = [];
     for (const site of sites) {
+      const adapter = siteAdapter(site.siteType);
       const allDomains = [site.domain, ...site.aliases];
       for (const domain of allDomains) {
         if (map.hosts[domain]) throw new Error(`Domain is already configured: ${domain}`);
@@ -790,7 +813,7 @@ class MigrationManager {
         "pm.process_idle_timeout": String(tier.process_idle_timeout), "pm.max_requests": String(tier.max_requests),
         "php_admin_value[open_basedir]": `${root}/:/global/:/tmp/`,
         clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
-      }, site.state.opcache !== false);
+      }, adapter.opcache && site.state.opcache !== false);
       pools.sectionOrder.push(poolName);
       map.hosts[site.domain] = { host: site.domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
       for (const alias of site.aliases) {
@@ -842,8 +865,20 @@ class MigrationManager {
         if (website.extracted) {
           preparedFiles.push({ configPath: "", configContent: null, extractedDirectory: website.destination });
         }
-        if (site.siteType === "static") {
+        if (site.siteType === "static" || (site.siteType === "generic-php" && !site.database)) {
           prepared.push({ ...site, database: "", password: "" });
+          continue;
+        }
+        if (site.siteType === "generic-php") {
+          const database = validateDatabaseName(site.database);
+          if (await this.databaseExists(database)) throw new Error(`Database already exists: ${database}`);
+          if (!site.databaseDump) throw new Error(`Database dump not found for ${site.domain}`);
+          const dumpPath = resolveInside(sourceDirectory, site.databaseDump, "database dump");
+          const password = crypto.randomBytes(24).toString("base64url");
+          await this.createDatabaseUser(database, password);
+          createdDatabases.push(database);
+          await this.importDatabase(database, dumpPath);
+          prepared.push({ ...site, database, password });
           continue;
         }
         const configPath = path.join(website.destination, "wp-config.php");
@@ -919,17 +954,24 @@ class MigrationManager {
           warnings.push(`NPM/SSL: ${error.message}`);
         }
       }
-      if (site.siteType !== "static") {
+      if (site.siteType === "wordpress") {
         try {
           await migrateWordPressUrl(site.websitePath, site.domain, Boolean(npmHost?.certificate_id));
         } catch (error) {
           warnings.push(`WordPress URL: ${error.message}`);
         }
       }
+      const adapter = siteAdapter(site.siteType);
       this.siteState.update(site.domain, {
-        fastcgiCache: Boolean(site.state.fastcgiCache), redis: Boolean(site.state.redis),
-        opcache: site.state.opcache !== false, backupEnabled: Boolean(site.state.backupEnabled),
-        imageOptimizationEnabled: Boolean(site.state.imageOptimizationEnabled), siteType: site.siteType, cacheVersion: 1,
+        fastcgiCache: adapter.fastcgi && Boolean(site.state.fastcgiCache),
+        redis: adapter.redis && Boolean(site.state.redis),
+        opcache: adapter.opcache && site.state.opcache !== false,
+        backupEnabled: Boolean(site.state.backupEnabled),
+        imageOptimizationEnabled: adapter.imageOptimization && Boolean(site.state.imageOptimizationEnabled),
+        siteType: site.siteType,
+        cacheVersion: 1,
+        databaseName: site.siteType === "generic-php" ? site.database : "",
+        databaseUser: site.siteType === "generic-php" ? site.database : "",
       });
       results.push({
         domain: site.domain,

@@ -4,6 +4,7 @@ const zlib = require("zlib");
 const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
+const { siteAdapter, siteDatabaseReference } = require("./site-capabilities");
 
 const execFileAsync = promisify(execFile);
 
@@ -398,9 +399,20 @@ class BackupManager {
     return name;
   }
 
+  async siteDatabaseName(site, relative) {
+    const adapter = siteAdapter(site.state?.siteType);
+    if (adapter.database === "none") return null;
+    if (adapter.type === "generic-php") {
+      const reference = siteDatabaseReference(site);
+      if (!reference) return null;
+      if (!/^[A-Za-z0-9_$-]{1,64}$/.test(reference.name)) throw new Error("Generic PHP database name is invalid");
+      return reference.name;
+    }
+    return this.databaseName(relative);
+  }
+
   async createSiteBackup(site, retention) {
     const relative = this.siteRelativePath(site);
-    const staticSite = site.state?.siteType === "static";
     const parent = this.safeBackupParent(site.host);
     const id = this.nextBackupId(parent);
     const partial = path.join(parent, `.partial-${id}`);
@@ -408,7 +420,7 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
-      const database = staticSite ? null : await this.databaseName(relative);
+      const database = await this.siteDatabaseName(site, relative);
       await execFileAsync("ionice", [
         "-c",
         "2",
@@ -640,8 +652,7 @@ class BackupManager {
 
   async restoreSiteBackup(site, id) {
     const relative = this.siteRelativePath(site);
-    const staticSite = site.state?.siteType === "static";
-    const currentDatabase = staticSite ? null : await this.databaseName(relative);
+    const currentDatabase = await this.siteDatabaseName(site, relative);
     const { directory, manifest } = this.readSiteManifest(site, id);
     if (manifest.websitePath !== relative || manifest.database !== currentDatabase) {
       throw new Error("Backup website path or database does not match the current site");

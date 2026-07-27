@@ -1,15 +1,20 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { normalizeSiteType, supportsWordPressRedis } = require("../lib/site-capabilities");
+const { normalizeSiteType, siteAdapter, siteDatabaseReference } = require("../lib/site-capabilities");
 
-test("treats legacy missing site types as WordPress", () => {
-  assert.equal(normalizeSiteType(), "wordpress");
-  assert.equal(supportsWordPressRedis(), true);
+test("normalizes supported adapters and keeps legacy unknown values on WordPress", () => {
+  assert.equal(normalizeSiteType("generic-php"), "generic-php");
+  assert.equal(normalizeSiteType("static"), "static");
+  assert.equal(normalizeSiteType("legacy"), "wordpress");
 });
 
-test("limits WordPress Redis integration to WordPress sites", () => {
-  assert.equal(supportsWordPressRedis("wordpress"), true);
-  assert.equal(supportsWordPressRedis("static"), false);
-  assert.equal(supportsWordPressRedis("generic-php"), false);
-  assert.equal(supportsWordPressRedis("opencart"), false);
+test("declares capability-driven database and cache behavior", () => {
+  assert.equal(siteAdapter("wordpress").database, "required");
+  assert.equal(siteAdapter("generic-php").database, "optional");
+  assert.equal(siteAdapter("generic-php").redis, false);
+  assert.equal(siteAdapter("static").php, false);
+  assert.equal(siteDatabaseReference({ state: { siteType: "generic-php" } }), null);
+  assert.deepEqual(siteDatabaseReference({
+    state: { siteType: "generic-php", databaseName: "site_db", databaseUser: "site_user" },
+  }), { name: "site_db", user: "site_user" });
 });

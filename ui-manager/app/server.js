@@ -9,6 +9,7 @@ const { CloudflareClient, NpmClient } = require("./lib/integrations");
 const {
   createDatabase,
   dropDatabaseAndUser,
+  importDatabaseDump,
   installWordPress,
   mysqlIdentifier,
   normalizeWordPressPermissions,
@@ -22,7 +23,7 @@ const {
   wordpressDatabaseConfig,
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
-const { supportsWordPressRedis } = require("./lib/site-capabilities");
+const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPressRedis } = require("./lib/site-capabilities");
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
@@ -817,7 +818,8 @@ async function createSiteRemovalPlan(domain) {
   const warnings = [];
   const directory = siteDirectory(site);
   let database = null;
-  if (site.state?.siteType !== "static") {
+  const adapter = siteAdapter(site.state?.siteType);
+  if (adapter.type === "wordpress") {
     try {
       database = await wordpressDatabaseConfig(directory);
     } catch (error) {
@@ -831,7 +833,12 @@ async function createSiteRemovalPlan(domain) {
   const referenceResults = [];
   for (let offset = 0; offset < otherSites.length; offset += 4) {
     const batch = await Promise.all(otherSites.slice(offset, offset + 4).map(async (otherSite) => {
-      if (otherSite.state?.siteType === "static") return { domain: otherSite.host, static: true };
+      const otherAdapter = siteAdapter(otherSite.state?.siteType);
+      if (otherAdapter.database === "none") return { domain: otherSite.host, static: true };
+      if (otherAdapter.type === "generic-php") {
+        const reference = siteDatabaseReference(otherSite);
+        return reference ? { domain: otherSite.host, ...reference } : { domain: otherSite.host, static: true };
+      }
       try {
         return { domain: otherSite.host, ...(await wordpressDatabaseConfig(siteDirectory(otherSite))) };
       } catch (error) {
@@ -840,6 +847,7 @@ async function createSiteRemovalPlan(domain) {
     }));
     referenceResults.push(...batch);
   }
+  if (adapter.type === "generic-php") database = siteDatabaseReference(site);
   for (const reference of referenceResults) {
     if (reference.static) {
       // Static/PHP sites intentionally have no database reference.
@@ -1121,7 +1129,7 @@ function validateProvisionRequest(body) {
   const domain = validateDomain(body.domain);
   const directory = safeRelative(String(body.directory || domain).trim(), "website directory");
   const sourceMode = body.source_mode === "import" ? "import" : "fresh";
-  const siteType = body.site_type === "static" ? "static" : "wordpress";
+  const siteType = normalizeSiteType(body.site_type);
   const adminEmail = String(body.admin_email || "").trim().toLowerCase();
   const adminUser = String(body.admin_user || "admin").trim();
   if (siteType === "wordpress" && sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
@@ -1132,6 +1140,9 @@ function validateProvisionRequest(body) {
   }
   if (sourceMode === "import" && !body.import_upload_id) {
     throw Object.assign(new Error("Upload the website files before starting the import"), { statusCode: 400 });
+  }
+  if (siteType === "static" && body.create_database) {
+    throw Object.assign(new Error("Static HTML websites cannot create a database"), { statusCode: 400 });
   }
   return { domain, directory, sourceMode, siteType, adminEmail, adminUser };
 }
@@ -1160,13 +1171,15 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   jobContext?.checkpoint("Provisioning cancelled before website files were prepared");
   jobContext?.update({ completed: 1, currentStep: sourceMode === "import" ? "Extracting website archive" : "Preparing website files" });
   const sitePath = prepareSiteDirectory(WEBSITES_ROOT, directory);
-  if (siteType === "static") {
+  if (siteType !== "wordpress") {
     if (sourceMode === "import") {
       await provisionImports.installWebsiteArchive(String(body.import_upload_id || ""), sitePath);
     } else {
       fs.writeFileSync(
-        path.join(sitePath, "index.html"),
-        `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body><main><h1>${domain}</h1></main></body></html>\n`,
+        path.join(sitePath, siteType === "static" ? "index.html" : "index.php"),
+        siteType === "static"
+          ? `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${domain}</title></head><body><main><h1>${domain}</h1></main></body></html>\n`
+          : `<?php\nheader("Content-Type: text/plain; charset=utf-8");\necho "${domain}\\n";\n`,
         { encoding: "utf8", mode: 0o664 },
       );
     }
@@ -1185,7 +1198,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   poolsParsed.sections[poolName] = buildPoolSettings({
     incomingPool: {}, basePool: {}, defaults, tierName: tier, root, port, presets,
   });
-  setPoolOpcache(poolsParsed.sections[poolName], body.opcache !== false);
+  setPoolOpcache(poolsParsed.sections[poolName], siteType !== "static" && body.opcache !== false);
   poolsParsed.sectionOrder.push(poolName);
   mapParsed.hosts[domain] = { host: domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
   const domains = [domain];
@@ -1211,14 +1224,34 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
     });
     steps.push({ name: "wordpress", status: "complete" });
+  } else if (siteType === "generic-php" && body.create_database) {
+    database = await createDatabase(domain, integrationSettings.resolved());
+    steps.push({ name: "database", status: "complete", database: database.name });
+    if (sourceMode === "import" && body.import_database_dump) {
+      try {
+        const dumpPath = await provisionImports.prepareDatabaseDump(String(body.import_upload_id || ""));
+        await importDatabaseDump(database.name, dumpPath, integrationSettings.resolved());
+        steps.push({ name: "database-import", status: "complete" });
+      } catch (error) {
+        await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+        throw error;
+      }
+    }
+    steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
   } else {
     steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
   }
 
   siteState.update(domain, {
-    fastcgiCache: Boolean(body.fastcgi_cache), redis: siteType === "wordpress" && Boolean(body.redis),
-    opcache: body.opcache !== false, backupEnabled: Boolean(body.scheduled_backup),
-    imageOptimizationEnabled: Boolean(body.scheduled_image_optimization), siteType, cacheVersion: 1,
+    fastcgiCache: siteType !== "static" && Boolean(body.fastcgi_cache),
+    redis: siteType === "wordpress" && Boolean(body.redis),
+    opcache: siteType !== "static" && body.opcache !== false,
+    backupEnabled: Boolean(body.scheduled_backup),
+    imageOptimizationEnabled: siteType === "wordpress" && Boolean(body.scheduled_image_optimization),
+    siteType,
+    databaseName: database?.name || "",
+    databaseUser: database?.user || "",
+    cacheVersion: 1,
     notes: String(body.notes || "").slice(0, 2000),
   });
   await execCommand("docker exec hosting-nginx nginx -s reload");
@@ -1260,7 +1293,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     siteType,
     Boolean(body.apply_security_defaults),
   ));
-  if (siteType === "static" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
+  if (siteType !== "wordpress" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
   jobContext?.update({ completed: 8, currentStep: "Finalizing website" });
   return {
     ok: true, imported: sourceMode === "import", siteType, domain, directory, port,
@@ -2204,8 +2237,21 @@ async function handleApi(req, res) {
       return true;
     }
     const currentState = siteState.get(domain);
+    const adapter = siteAdapter(currentState.siteType);
     if (body.redis === true && !supportsWordPressRedis(currentState.siteType)) {
       sendJson(res, 400, { ok: false, message: "Redis object cache is available only for WordPress websites" });
+      return true;
+    }
+    if (body.fastcgi_cache === true && !adapter.fastcgi) {
+      sendJson(res, 400, { ok: false, message: `${adapter.label} websites do not support FastCGI page cache` });
+      return true;
+    }
+    if (body.opcache === true && !adapter.opcache) {
+      sendJson(res, 400, { ok: false, message: `${adapter.label} websites do not support OPcache` });
+      return true;
+    }
+    if (body.image_optimization_enabled === true && !adapter.imageOptimization) {
+      sendJson(res, 400, { ok: false, message: `Daily image optimization is available only for WordPress websites` });
       return true;
     }
     if (typeof body.redis === "boolean" && body.redis !== Boolean(currentState.redis)) {

@@ -49,6 +49,29 @@ test("validates portable manifests and rejects paths outside the transfer direct
   assert.equal(staticManifest.sites[0].siteType, "static");
   assert.equal(staticManifest.sites[0].database, "");
   assert.equal(staticManifest.sites[0].databaseDump, "");
+  const genericManifest = validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "app.example.com",
+      siteType: "generic-php",
+      websitePath: "app.example.com",
+      database: "app_db",
+      databaseDump: "databases/app_db.sql.gz",
+    }],
+  });
+  assert.equal(genericManifest.sites[0].siteType, "generic-php");
+  assert.equal(genericManifest.sites[0].database, "app_db");
+  const fileOnlyGeneric = validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "files.example.com",
+      siteType: "generic-php",
+      websitePath: "files.example.com",
+    }],
+  });
+  assert.equal(fileOnlyGeneric.sites[0].database, "");
   assert.throws(() => resolveInside("/tmp/import", "../private.sql.gz"), /Invalid path/);
   assert.throws(() => validateManifest({
     version: 1,
@@ -69,6 +92,8 @@ test("validates lightweight import JSON and applies safe defaults", () => {
     redis: false,
     fastcgiCache: false,
     backupEnabled: true,
+    databaseName: "",
+    databaseUser: "",
     siteType: "wordpress",
   });
   assert.throws(() => validateImportPlan({
@@ -84,6 +109,65 @@ test("validates lightweight import JSON and applies safe defaults", () => {
       { websitePath: "two", domain: "www.example.com" },
     ],
   }), /Duplicate domain/);
+  const generic = validateImportPlan({
+    version: 1,
+    type: "hosting-sites-import",
+    sites: [{
+      websitePath: "app.example.com",
+      domain: "app.example.com",
+      siteType: "generic-php",
+      state: { databaseName: "app_db", databaseUser: "app_user" },
+    }],
+  });
+  assert.equal(generic.sites[0].state.databaseName, "app_db");
+  assert.equal(generic.sites[0].state.databaseUser, "app_user");
+});
+
+test("previews a file-only Generic PHP import without invoking WordPress CLI", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-generic-preview-"));
+  try {
+    const importsRoot = path.join(directory, "imports");
+    const websitesRoot = path.join(directory, "websites");
+    const source = path.join(importsRoot, "generic");
+    fs.mkdirSync(source, { recursive: true });
+    fs.mkdirSync(path.join(websitesRoot, "app.example.com"), { recursive: true });
+    fs.writeFileSync(path.join(websitesRoot, "app.example.com", "index.php"), "<?php echo 'ok';");
+    fs.writeFileSync(path.join(source, "import-sites.json"), JSON.stringify({
+      version: 1,
+      type: "hosting-sites-import",
+      sites: [{
+        domain: "app.example.com",
+        websitePath: "app.example.com",
+        siteType: "generic-php",
+      }],
+    }));
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot,
+      websitesRoot,
+      sitesMapPath: path.join(directory, "sites.map"),
+      poolsPath: path.join(directory, "pools.conf"),
+      npm: { configured: () => false },
+      cloudflare: { configured: () => false },
+      siteState: { get: () => ({}) },
+    });
+    manager.primarySites = () => [];
+    manager.wordpressDatabase = async () => {
+      throw new Error("WordPress CLI must not run");
+    };
+    const preview = await manager.previewImport("generic", {
+      updateDns: false,
+      createNpmHost: false,
+      issueSsl: false,
+    });
+    assert.equal(preview.sites[0].siteType, "generic-php");
+    assert.equal(preview.sites[0].database, "");
+    assert.equal(preview.sites[0].actions.database, "not configured");
+    assert.equal(preview.blockingConflicts.length, 0);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("previews a staged lightweight import without changing runtime state", async () => {

@@ -1,3 +1,5 @@
+const { siteAdapter } = require("./site-capabilities");
+
 function buildSiteRemovalPlan(input) {
   const site = input.site;
   const targetDomains = [site.host, ...(site.aliases || [])];
@@ -31,6 +33,7 @@ function buildSiteRemovalPlan(input) {
   const databaseSafe = Boolean(input.database) && input.databaseInspectionComplete !== false && databaseSharedBy.length === 0;
   const npmHostSafe = matchingNpmHosts.length > 0 && unsafeNpmHosts.length === 0;
   const certificateSafe = certificates.length > 0 && sharedCertificateIds.length === 0 && mixedCertificates.length === 0;
+  const fileOnlyBackup = siteAdapter(site.state?.siteType).database !== "required";
 
   return {
     domain: site.host,
@@ -93,8 +96,8 @@ function buildSiteRemovalPlan(input) {
         items: (input.backups || []).map((backup) => backup.id),
       },
       finalBackup: {
-        available: Boolean(directory && (site.state?.siteType === "static" || input.database)),
-        safe: Boolean(directory && (site.state?.siteType === "static" || input.database)),
+        available: Boolean(directory && (fileOnlyBackup || input.database)),
+        safe: Boolean(directory && (fileOnlyBackup || input.database)),
         count: 1,
         items: [site.host],
       },

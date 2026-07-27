@@ -131,10 +131,15 @@ function syncNotificationSeverityControls(form = $("#notificationSettingsForm"))
 function syncProvisionSourceMode() {
   const form = $("#provisionForm");
   const importing = form.elements.source_mode.value === "import";
-  const wordpress = form.elements.site_type.value === "wordpress";
+  const siteType = form.elements.site_type.value;
+  const wordpress = siteType === "wordpress";
+  const genericPhp = siteType === "generic-php";
+  const staticHtml = siteType === "static";
   $$('[data-provision-fresh]').forEach((element) => element.classList.toggle("hidden", importing || !wordpress));
   $$('[data-provision-import]').forEach((element) => element.classList.toggle("hidden", !importing));
   $$('[data-provision-wordpress]:not([data-provision-fresh])').forEach((element) => element.classList.toggle("hidden", !wordpress));
+  $$('[data-provision-generic]').forEach((element) => element.classList.toggle("hidden", !genericPhp));
+  $$('[data-provision-database]').forEach((element) => element.classList.toggle("hidden", staticHtml));
   for (const name of ["admin_email", "admin_user"]) {
     form.elements[name].required = wordpress && !importing;
     form.elements[name].disabled = importing || !wordpress;
@@ -146,10 +151,22 @@ function syncProvisionSourceMode() {
   form.elements.keep_default_themes.disabled = importing || !wordpress;
   form.elements.redis.disabled = !wordpress;
   if (!wordpress) form.elements.redis.checked = false;
+  form.elements.create_database.disabled = !genericPhp;
+  if (!genericPhp) form.elements.create_database.checked = false;
+  form.elements.fastcgi_cache.disabled = staticHtml;
+  form.elements.opcache.disabled = staticHtml;
+  if (staticHtml) {
+    form.elements.fastcgi_cache.checked = false;
+    form.elements.opcache.checked = false;
+  }
+  form.elements.scheduled_image_optimization.disabled = !wordpress;
+  if (!wordpress) form.elements.scheduled_image_optimization.checked = false;
   $("#provisionWebsiteArchive").required = importing;
   $("#provisionDatabaseDump").required = importing && wordpress;
-  $("#provisionDatabaseDump").disabled = !wordpress;
-  $("#provisionSubmit").textContent = importing ? "Import website" : wordpress ? "Create WordPress website" : "Create HTML/PHP website";
+  $("#provisionDatabaseDump").disabled = staticHtml || (genericPhp && !form.elements.create_database.checked);
+  $("#provisionSubmit").textContent = importing
+    ? "Import website"
+    : wordpress ? "Create WordPress website" : genericPhp ? "Create PHP website" : "Create static website";
   syncProvisionSecurityOptions();
 }
 
@@ -492,7 +509,9 @@ function renderSites() {
     return;
   }
   container.innerHTML = sites.map((site) => {
-    const wordpress = site.state?.siteType !== "static";
+    const siteType = site.state?.siteType || "wordpress";
+    const wordpress = siteType === "wordpress";
+    const php = siteType !== "static";
     return `
     <article class="site-row">
       <div class="site-identity"><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
@@ -507,12 +526,12 @@ function renderSites() {
         </label>
       </div>
       <div class="site-flags">
-        <span class="badge on">${site.state?.siteType === "static" ? "HTML/PHP" : "WordPress"}</span>
-        <span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>
+        <span class="badge on">${siteType === "static" ? "Static HTML" : siteType === "generic-php" ? "Generic PHP" : "WordPress"}</span>
+        ${php ? `<span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>` : ""}
         ${wordpress ? `<span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>` : ""}
-        <span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>
+        ${php ? `<span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>` : ""}
         <span class="badge ${state.backupSettings?.siteBackupsEnabled && site.state?.backupEnabled ? "on" : ""}">Backup ${state.backupSettings?.siteBackupsEnabled === false ? "paused" : site.state?.backupEnabled ? "daily" : "off"}</span>
-        <span class="badge ${state.imageOptimization?.settings?.enabled && site.state?.imageOptimizationEnabled ? "on" : ""}">Images ${state.imageOptimization?.settings?.enabled === false ? "paused" : site.state?.imageOptimizationEnabled ? "daily" : "manual"}</span>
+        ${wordpress ? `<span class="badge ${state.imageOptimization?.settings?.enabled && site.state?.imageOptimizationEnabled ? "on" : ""}">Images ${state.imageOptimization?.settings?.enabled === false ? "paused" : site.state?.imageOptimizationEnabled ? "daily" : "manual"}</span>` : ""}
       </div>
       <div class="site-actions">
         <label class="site-mobile-action">Site action
@@ -520,23 +539,23 @@ function renderSites() {
             <option value="">Choose action</option>
             <option value="backup" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up now</option>
             <option value="backup-schedule">${site.state?.backupEnabled ? "Disable" : "Enable"} daily backup</option>
-            <option value="optimize">Optimize images</option>
-            <option value="image-schedule">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily image optimization</option>
-            <option value="fastcgi">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</option>
+            ${wordpress ? '<option value="optimize">Optimize images</option>' : ""}
+            ${wordpress ? `<option value="image-schedule">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily image optimization</option>` : ""}
+            ${php ? `<option value="fastcgi">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</option>` : ""}
             ${wordpress ? `<option value="redis">${site.state?.redis ? "Disable" : "Enable"} Redis</option>` : ""}
-            <option value="opcache">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</option>
-            <option value="purge">Purge cache</option>
+            ${php ? `<option value="opcache">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</option>` : ""}
+            ${php ? '<option value="purge">Purge cache</option>' : ""}
             <option value="manage">Manage DNS &amp; SSL</option>
           </select>
         </label>
         <button class="secondary" data-toggle-backup="${escapeHtml(site.host)}">${site.state?.backupEnabled ? "Disable" : "Enable"} daily backup</button>
-        <button class="secondary" data-toggle-image-optimization="${escapeHtml(site.host)}">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily images</button>
+        ${wordpress ? `<button class="secondary" data-toggle-image-optimization="${escapeHtml(site.host)}">${site.state?.imageOptimizationEnabled ? "Disable" : "Enable"} daily images</button>` : ""}
         <button class="secondary site-action-primary" data-backup-site="${escapeHtml(site.host)}" ${state.backupSettings?.siteBackupsEnabled === false ? "disabled" : ""}>Back up</button>
-        <button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>
-        <button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>
+        ${wordpress ? `<button class="secondary" data-optimize-images="${escapeHtml(site.host)}">Optimize images</button>` : ""}
+        ${php ? `<button class="secondary" data-toggle-fastcgi="${escapeHtml(site.host)}">${site.state?.fastcgiCache ? "Disable" : "Enable"} FastCGI</button>` : ""}
         ${wordpress ? `<button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>` : ""}
-        <button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>
-        <button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge cache</button>
+        ${php ? `<button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>` : ""}
+        ${php ? `<button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge cache</button>` : ""}
         <button class="site-action-primary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
       </div>
     </article>`;
@@ -1833,9 +1852,9 @@ $("#jobsList").addEventListener("click", async (event) => {
         { method: "POST" },
       ));
       const credentials = result.credentials;
-      const wordpress = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : `WordPress user: ${escapeHtml(credentials.wordpress?.adminUser || "")}
+      const wordpress = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : credentials.wordpress ? `WordPress user: ${escapeHtml(credentials.wordpress.adminUser || "")}
 WordPress password: ${escapeHtml(credentials.wordpress?.adminPassword || "")}
-WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}`;
+WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}` : "Update the application database configuration manually using these one-time credentials.";
       $("#provisionResult").innerHTML = `<h3>${escapeHtml(credentials.domain)} credentials</h3><p>These credentials have now been removed from the panel. Store them securely.</p><pre>Database: ${escapeHtml(credentials.database.name)}
 Database user: ${escapeHtml(credentials.database.user)}
 Database password: ${escapeHtml(credentials.database.password)}
@@ -1959,6 +1978,7 @@ $("#provisionForm").elements.apply_dns_preset.addEventListener("change", syncPro
 $("#provisionForm").elements.apply_security_preset.addEventListener("change", syncProvisionSecurityOptions);
 $$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $$('#provisionForm input[name="site_type"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
+$("#provisionForm").elements.create_database.addEventListener("change", syncProvisionSourceMode);
 syncProvisionDnsOptions();
 syncProvisionSourceMode();
 syncProvisionSecurityOptions();
@@ -2290,6 +2310,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   const body = formObject(event.currentTarget);
   const importing = body.source_mode === "import";
   const wordpress = body.site_type === "wordpress";
+  const genericPhp = body.site_type === "generic-php";
   body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
   body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
   if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
@@ -2299,6 +2320,8 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   const databaseDump = $("#provisionDatabaseDump").files[0];
   if (importing && !websiteArchive) return notice("Select the website archive.", "warning");
   if (importing && wordpress && !databaseDump) return notice("Select the WordPress database dump.", "warning");
+  if (genericPhp && databaseDump && !body.create_database) return notice("Enable MySQL database creation before selecting a database dump.", "warning");
+  body.import_database_dump = Boolean(importing && genericPhp && databaseDump);
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
   const submitButton = event.submitter || $("#provisionSubmit");
@@ -2311,7 +2334,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
         await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (loaded, total) => {
           importProgress.textContent = uploadProgress("Uploading website archive", loaded, total);
         });
-        if (wordpress) {
+        if (wordpress || body.import_database_dump) {
           await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
             importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
           });
