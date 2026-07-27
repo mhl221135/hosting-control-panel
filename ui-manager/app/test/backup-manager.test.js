@@ -150,6 +150,27 @@ test("rejects document roots outside the websites mount", () => {
   }
 });
 
+test("uses Generic PHP database state without invoking WordPress CLI", async () => {
+  const fixture = managerFixture();
+  try {
+    fixture.manager.databaseName = async () => {
+      throw new Error("WordPress CLI must not run");
+    };
+    assert.equal(await fixture.manager.siteDatabaseName({
+      state: {
+        siteType: "generic-php",
+        databaseName: "generic_db",
+        databaseUser: "generic_user",
+      },
+    }, "generic.example"), "generic_db");
+    assert.equal(await fixture.manager.siteDatabaseName({
+      state: { siteType: "generic-php" },
+    }, "files.example"), null);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("allocates a different identifier when two backups start in the same second", () => {
   const fixture = managerFixture();
   try {

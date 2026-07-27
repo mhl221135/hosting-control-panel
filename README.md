@@ -18,7 +18,8 @@ into dedicated directories.
 - Automatic grouping of `www` and other aliases under their primary website
 - Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
-- First-class HTML/PHP sites with isolated pools and no required database
+- Capability-driven WordPress, Generic PHP, and Static HTML site adapters
+- Generic PHP provisioning with an optional generated MySQL database and dump import
 - Provision-time website imports from ZIP/TAR archives and SQL/SQL.GZ dumps
 - Automatic MySQL database and user creation
 - Nginx Proxy Manager proxy-host creation and durable, alertable Let's Encrypt certificate actions
@@ -284,7 +285,7 @@ The Settings tab contains connection tests for:
 ## Provision a Website
 
 1. Open **Provision**.
-2. Select **WordPress** or **Static / PHP**, then enter the domain and directory.
+2. Select **WordPress**, **Generic PHP**, or **Static HTML**, then enter the domain and directory.
    WordPress fresh installs also require a title, administrator email, and user.
 3. Choose the PHP pool tier.
 4. Choose whether to create/update Cloudflare host DNS and optionally apply a
@@ -295,14 +296,16 @@ The Settings tab contains connection tests for:
    These options are off by default, and the initial Hello World post is removed.
 7. Submit the form and store the displayed one-time credentials.
 
-For HTML/PHP sites, a fresh operation creates a minimal `index.html`; import
-accepts only the website archive and creates no MySQL database. A single wrapper
-directory is flattened automatically. PHP files use the site's isolated pool,
-while direct access to dotfiles, configuration artifacts, and database dumps is
-blocked by internal nginx.
+For Generic PHP, a fresh operation creates a minimal `index.php`. Database
+creation is optional; an import can also load one SQL, SQL.GZ, or TAR.GZ/TGZ
+dump. Generated credentials are revealed once and must be applied through the
+application's own configuration mechanism. Static HTML creates `index.html`
+and has no managed database or cache controls. A single wrapper directory is
+flattened automatically.
 
-Panel exports preserve the site type. HTML/PHP exports contain only the website
-archive and manifest, and can be imported without a database dump.
+Panel exports preserve the adapter type. Generic PHP exports include its
+declared database when configured and otherwise remain file-only. Static HTML
+exports contain only the website archive and manifest.
 
 To move an existing WordPress site, select **Import website** under Website
 source. Upload a ZIP, TAR, TAR.GZ, or TGZ containing exactly one

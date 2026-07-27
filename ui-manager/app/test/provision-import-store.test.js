@@ -162,6 +162,25 @@ test("extracts exactly one SQL dump from a database TAR.GZ archive", async (cont
   );
 });
 
+test("prepares a Generic PHP database dump without requiring WordPress files", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-generic-db-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await store.upload(
+    requestFor(Buffer.from("CREATE TABLE generic_fixture (id INT);\n")),
+    id,
+    "database",
+    "generic.sql",
+  );
+
+  const prepared = await store.prepareDatabaseDump(id);
+  assert.equal(
+    zlib.gunzipSync(fs.readFileSync(prepared)).toString(),
+    "CREATE TABLE generic_fixture (id INT);\n",
+  );
+});
+
 test("installs a static website archive without wp-config or a database", async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "provision-static-import-"));
   context.after(() => fs.rmSync(root, { recursive: true, force: true }));

@@ -1,7 +1,9 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const { execFile, spawn } = require("child_process");
+const { pipeline } = require("stream/promises");
 
 function execFileAsync(file, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -126,6 +128,35 @@ async function dropDatabaseAndUser(database, user, config = {}) {
     "sh",
     "-c",
     'exec mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "$SITE_REMOVAL_SQL"',
+  ]);
+}
+
+async function importDatabaseDump(database, inputPath, config = {}) {
+  const container = String(config.mysqlContainer || process.env.MYSQL_CONTAINER || "hosting-db");
+  if (!/^[a-zA-Z0-9_.-]+$/.test(container)) {
+    const error = new Error("MySQL container name is invalid");
+    error.statusCode = 400;
+    throw error;
+  }
+  const databaseName = validMysqlIdentifier(database, "Database name");
+  const child = spawn("docker", [
+    "exec", "-i", container, "sh", "-c",
+    'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot "$1"',
+    "generic-php-import", databaseName,
+  ], { stdio: ["pipe", "ignore", "pipe"] });
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    if (stderr.length < 64 * 1024) stderr += chunk.toString();
+  });
+  await Promise.all([
+    pipeline(fs.createReadStream(inputPath), zlib.createGunzip(), child.stdin),
+    new Promise((resolve, reject) => {
+      child.on("error", reject);
+      child.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`MySQL import failed${stderr.trim() ? `: ${stderr.trim()}` : ""}`));
+      });
+    }),
   ]);
 }
 
@@ -397,6 +428,7 @@ function prepareSiteDirectory(websitesRoot, directory) {
 module.exports = {
   createDatabase,
   dropDatabaseAndUser,
+  importDatabaseDump,
   installWordPress,
   migrateWordPressUrl,
   mysqlIdentifier,

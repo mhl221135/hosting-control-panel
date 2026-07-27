@@ -180,7 +180,7 @@ unchanged server preview and revalidates its traffic sample before queueing.
 | `POST /api/pools/upsert` | create/update one pool |
 | `POST /api/pools/bulk-upsert` | update multiple pools |
 | `DELETE /api/pools/:name` | remove an unused pool |
-| `GET,PUT /api/site-state` | Redis/OPcache/FastCGI/backup/image/maintenance state |
+| `GET,PUT /api/site-state` | capability-validated Redis/OPcache/FastCGI/backup/image/maintenance state |
 | `POST /api/site-state/purge` | increment FastCGI version |
 
 ### Website removal

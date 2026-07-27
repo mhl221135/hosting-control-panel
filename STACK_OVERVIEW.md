@@ -46,7 +46,7 @@ The panel provides:
 - Global gzip and on-demand WebP generation with original-image fallback
 - Read-only WordPress inventory and manual backup-protected updates with
   persistent exclusions, health validation, and automatic rollback
-- WordPress and database-free HTML/PHP websites on isolated PHP-FPM pools
+- WordPress, optional-database Generic PHP, and Static HTML adapter types
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
@@ -122,6 +122,11 @@ WordPress provisioning performs these steps:
 
 Database identifiers use the form `yogali00_example_com`. Names exceeding the
 MySQL identifier limit are shortened with a deterministic hash suffix.
+
+Generic PHP can create the same isolated database/user pair and optionally
+import a dump, but never runs WP-CLI or rewrites application configuration.
+The generated credentials are exposed through the encrypted one-time vault.
+Static HTML has no managed database or PHP cache actions.
 
 ## Caching
 

@@ -33,6 +33,8 @@ class SiteState {
       imageOptimizationEnabled: false,
       maintenanceEnabled: false,
       siteType: "wordpress",
+      databaseName: "",
+      databaseUser: "",
       notes: "",
     };
   }

@@ -62,3 +62,14 @@ test("allows a final file-only backup for a static PHP site", () => {
   assert.equal(plan.resources.finalBackup.available, true);
   assert.equal(plan.resources.finalBackup.safe, true);
 });
+
+test("allows a final file-only backup for Generic PHP without a database", () => {
+  const input = baseInput();
+  input.site.state = { siteType: "generic-php" };
+  input.database = null;
+  input.databaseReferences = [];
+  const plan = buildSiteRemovalPlan(input);
+  assert.equal(plan.resources.database.available, false);
+  assert.equal(plan.resources.finalBackup.available, true);
+  assert.equal(plan.resources.finalBackup.safe, true);
+});
