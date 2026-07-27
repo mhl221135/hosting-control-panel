@@ -141,18 +141,21 @@ function validateImportPlan(payload) {
       if (domains.has(alias)) throw new Error(`Duplicate domain in import JSON: ${alias}`);
       domains.add(alias);
     });
+    const siteType = raw.siteType === "static" || raw.state?.siteType === "static" ? "static" : "wordpress";
     return {
       domain,
       aliases,
       canonicalAliases: [...new Set((raw.canonicalAliases || []).map(validateDomain))]
         .filter((alias) => aliases.includes(alias)),
       websitePath: safeRelative(raw.websitePath, "website path"),
+      siteType,
       poolTier: ["low", "medium", "high"].includes(raw.poolTier) ? raw.poolTier : "medium",
       state: {
         opcache: raw.state?.opcache !== false,
         redis: Boolean(raw.state?.redis),
         fastcgiCache: Boolean(raw.state?.fastcgiCache),
         backupEnabled: raw.state?.backupEnabled !== false,
+        siteType,
       },
     };
   });
@@ -164,6 +167,7 @@ class MigrationManager {
   constructor(options) {
     this.dataDir = options.dataDir;
     this.exportsRoot = options.exportsRoot;
+    this.importsRoot = options.importsRoot || path.join(path.dirname(this.exportsRoot), "imports");
     this.websitesRoot = options.websitesRoot;
     this.sitesMapPath = options.sitesMapPath;
     this.poolsPath = options.poolsPath;
@@ -173,6 +177,173 @@ class MigrationManager {
     this.cloudflare = options.cloudflare;
     this.siteState = options.siteState;
     fs.mkdirSync(this.exportsRoot, { recursive: true });
+    fs.mkdirSync(this.importsRoot, { recursive: true });
+  }
+
+  importSource(relative) {
+    const source = resolveInside(this.importsRoot, relative, "import source");
+    const root = fs.realpathSync(this.importsRoot);
+    const stat = fs.lstatSync(source);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || !fs.realpathSync(source).startsWith(`${root}${path.sep}`)) {
+      throw Object.assign(new Error("Import source must be a real directory below the imports directory"), { statusCode: 400 });
+    }
+    return source;
+  }
+
+  listImportSources(limit = 100) {
+    if (!fs.existsSync(this.importsRoot)) return [];
+    return fs.readdirSync(this.importsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => {
+        const directory = path.join(this.importsRoot, entry.name);
+        const manifest = fs.existsSync(path.join(directory, "manifest.json"));
+        const plan = fs.existsSync(path.join(directory, "import-sites.json"));
+        if (!manifest && !plan) return null;
+        const stat = fs.statSync(directory);
+        return {
+          source: entry.name,
+          type: manifest ? "portable manifest" : "lightweight plan",
+          modifiedAt: stat.mtime.toISOString(),
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt))
+      .slice(0, Math.min(Math.max(Number(limit) || 100, 1), 100));
+  }
+
+  async manifestFromImportPlan(sourceDirectory, payload) {
+    const plan = validateImportPlan(payload);
+    const sites = [];
+    for (const site of plan.sites) {
+      if (site.siteType === "static") {
+        sites.push({ ...site, database: "", databaseDump: "" });
+        continue;
+      }
+      const configuredDatabase = await this.wordpressDatabase(site.websitePath);
+      const dump = newestDatabaseDump(sourceDirectory, configuredDatabase);
+      if (!dump) throw new Error(`No .sql.gz dump found for ${site.domain} database ${configuredDatabase}`);
+      sites.push({ ...site, database: configuredDatabase, databaseDump: path.basename(dump) });
+    }
+    return validateManifest({
+      version: 1,
+      type: "hosting-sites-export",
+      createdAt: plan.createdAt || "",
+      sites,
+    });
+  }
+
+  async previewImport(relative, options = {}) {
+    const sourceDirectory = this.importSource(relative);
+    const manifestPath = path.join(sourceDirectory, "manifest.json");
+    const planPath = path.join(sourceDirectory, "import-sites.json");
+    const sourceType = fs.existsSync(manifestPath) ? "manifest" : fs.existsSync(planPath) ? "import-plan" : "";
+    if (!sourceType) throw Object.assign(new Error("Staged source needs manifest.json or import-sites.json"), { statusCode: 400 });
+    const manifest = sourceType === "manifest"
+      ? this.readManifest(sourceDirectory)
+      : await this.manifestFromImportPlan(sourceDirectory, JSON.parse(fs.readFileSync(planPath, "utf8")));
+    const normalizedOptions = {
+      updateDns: options.updateDns !== false,
+      proxied: options.proxied !== false,
+      createNpmHost: options.createNpmHost !== false,
+      issueSsl: options.issueSsl !== false,
+      wanIp: options.updateDns === false ? "" : validateIpv4(options.wanIp),
+    };
+    if (normalizedOptions.issueSsl) normalizedOptions.createNpmHost = true;
+    const useExistingFiles = manifest.sites.every((site) => !site.websiteArchive);
+    const configuredDomains = new Set(this.primarySites().flatMap((site) => [site.host, ...site.aliases]));
+    let npmHosts = [];
+    let npmWarning = "";
+    if (normalizedOptions.createNpmHost && this.npm?.configured?.()) {
+      try {
+        npmHosts = await this.npm.listHosts();
+      } catch (error) {
+        npmWarning = `NPM preview unavailable: ${error.message}`;
+      }
+    }
+    const sites = [];
+    const blockingConflicts = [];
+    const integrationWarnings = npmWarning ? [npmWarning] : [];
+    for (const site of manifest.sites) {
+      const destination = resolveInside(this.websitesRoot, site.websitePath, "website path");
+      const destinationExists = fs.existsSync(destination) && fs.readdirSync(destination).length > 0;
+      const conflicts = [];
+      for (const domain of [site.domain, ...site.aliases]) {
+        if (configuredDomains.has(domain)) conflicts.push(`Domain is already configured: ${domain}`);
+      }
+      if (useExistingFiles && !destinationExists) conflicts.push(`Website directory is missing or empty: ${site.websitePath}`);
+      if (!useExistingFiles && destinationExists) conflicts.push(`Website directory is not empty: ${site.websitePath}`);
+      if (site.websiteArchive) {
+        const archive = resolveInside(sourceDirectory, site.websiteArchive, "website archive");
+        if (!fs.existsSync(archive) || !fs.lstatSync(archive).isFile()) conflicts.push(`Website archive is missing: ${site.websiteArchive}`);
+      }
+      if (site.siteType !== "static") {
+        const dump = resolveInside(sourceDirectory, site.databaseDump, "database dump");
+        if (!fs.existsSync(dump) || !fs.lstatSync(dump).isFile()) conflicts.push(`Database dump is missing: ${site.databaseDump}`);
+        if (await this.databaseExists(site.database)) conflicts.push(`Database already exists: ${site.database}`);
+      }
+      const domains = [site.domain, ...site.aliases];
+      const matchingHosts = npmHosts.filter((host) =>
+        (host.domain_names || []).some((domain) => domains.includes(domain)));
+      let dnsRecords = [];
+      if (normalizedOptions.updateDns && this.cloudflare?.configured?.()) {
+        for (const domain of domains) {
+          try {
+            const response = await this.cloudflare.records(domain);
+            dnsRecords.push(...(response.records || []).filter((record) => record.name === domain)
+              .map((record) => ({ name: record.name, type: record.type, content: record.content })));
+          } catch (error) {
+            integrationWarnings.push(`Cloudflare preview ${domain}: ${error.message}`);
+          }
+        }
+      }
+      blockingConflicts.push(...conflicts.map((message) => ({ domain: site.domain, message })));
+      sites.push({
+        domain: site.domain,
+        aliases: site.aliases,
+        siteType: site.siteType,
+        websitePath: site.websitePath,
+        database: site.database,
+        databaseDump: site.databaseDump,
+        websiteArchive: site.websiteArchive,
+        poolTier: site.poolTier,
+        conflicts,
+        existingNpmHosts: matchingHosts.map((host) => Number(host.id)),
+        existingDnsRecords: dnsRecords,
+        actions: {
+          files: useExistingFiles ? "adopt staged website files" : "extract website archive",
+          database: site.siteType === "static" ? "not required" : "create database and import dump",
+          dns: normalizedOptions.updateDns ? `upsert A records to ${normalizedOptions.wanIp}` : "leave unchanged",
+          npm: normalizedOptions.createNpmHost ? "create or update proxy host" : "leave unchanged",
+          ssl: normalizedOptions.issueSsl ? "request certificate" : "do not request",
+        },
+      });
+    }
+    const fingerprint = crypto.createHash("sha256").update(JSON.stringify({
+      source: safeRelative(relative, "import source"),
+      sourceType,
+      manifest,
+      options: normalizedOptions,
+      artifacts: artifactFiles(sourceDirectory).map((file) => ({ name: file.name, size: file.size, mtime: fs.statSync(file.path).mtimeMs })),
+      observed: sites.map((site) => ({
+        domain: site.domain,
+        conflicts: site.conflicts,
+        existingNpmHosts: site.existingNpmHosts,
+        existingDnsRecords: site.existingDnsRecords,
+      })),
+      integrationWarnings: [...new Set(integrationWarnings)],
+    })).digest("hex");
+    return {
+      ok: true,
+      previewId: fingerprint,
+      source: safeRelative(relative, "import source"),
+      sourceType,
+      useExistingFiles,
+      options: normalizedOptions,
+      sites,
+      blockingConflicts,
+      integrationWarnings: [...new Set(integrationWarnings)],
+      manifest,
+    };
   }
 
   readRuntime() {
@@ -622,7 +793,13 @@ class MigrationManager {
     const preparedFiles = [];
     let runtimeChange;
     try {
-      for (const site of manifest.sites) {
+      for (const [index, site] of manifest.sites.entries()) {
+        options.onProgress?.({
+          completed: index,
+          total: manifest.sites.length,
+          currentStep: `Importing files and database for ${site.domain}`,
+          results: prepared.map((item) => ({ domain: item.domain, ok: true, message: "Files and database prepared" })),
+        });
         const website = await this.prepareWebsite(site, sourceDirectory, Boolean(options.useExistingFiles));
         if (website.extracted) {
           preparedFiles.push({ configPath: "", configContent: null, extractedDirectory: website.destination });
@@ -650,6 +827,11 @@ class MigrationManager {
         prepared.push({ ...site, database, password });
       }
 
+      options.onProgress?.({
+        completed: prepared.length,
+        total: manifest.sites.length,
+        currentStep: "Writing and validating runtime configuration",
+      });
       runtimeChange = this.configureRuntime(prepared);
       await this.validateAndReload(runtimeChange);
     } catch (error) {
@@ -673,7 +855,13 @@ class MigrationManager {
       throw error;
     }
     const results = [];
-    for (const site of runtimeChange.configured) {
+    for (const [index, site] of runtimeChange.configured.entries()) {
+      options.onProgress?.({
+        completed: index,
+        total: runtimeChange.configured.length,
+        currentStep: `Configuring DNS, proxy, and SSL for ${site.domain}`,
+        results,
+      });
       const domains = [site.domain, ...site.aliases];
       const warnings = [];
       if (options.updateDns !== false) {
@@ -707,6 +895,8 @@ class MigrationManager {
       });
       results.push({
         domain: site.domain,
+        ok: warnings.length === 0,
+        message: warnings.length ? `Imported with ${warnings.length} integration warning(s)` : "Imported",
         aliases: site.aliases,
         websitePath: site.websitePath,
         database: site.database,
@@ -714,9 +904,24 @@ class MigrationManager {
         port: site.port,
         warnings,
       });
+      options.onProgress?.({
+        completed: index + 1,
+        total: runtimeChange.configured.length,
+        currentStep: `Finished ${site.domain}`,
+        results,
+      });
     }
     await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-s", "reload"], { timeout: 30_000 });
-    return { ok: results.every((result) => result.warnings.length === 0), results };
+    const ok = results.every((result) => result.ok);
+    return {
+      ok,
+      results,
+      total: results.length,
+      completed: results.length,
+      message: ok
+        ? `Imported ${results.length} website${results.length === 1 ? "" : "s"}`
+        : `Import completed with integration warnings for ${results.filter((result) => !result.ok).length} website(s)`,
+    };
   }
 }
 

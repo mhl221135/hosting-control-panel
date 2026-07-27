@@ -321,10 +321,20 @@ source or generated passwords.
 | **Start export** | Queues sequential archive/database work in Jobs and allows cancellation between complete sites. |
 | **Refresh** | Reloads completed export bundles and file sizes. |
 | Artifact link | Downloads an authenticated regular file up to the configured limit; larger files remain in the exports directory. |
+| **Staged source** | Selects a directory below the configured imports root containing `manifest.json` or `import-sites.json`. |
+| **Preview import** | Resolves files and dumps, reads existing DNS/NPM matches, and reports blocking conflicts without mutation. |
+| DNS / proxy / NPM / SSL controls | Select the external actions included in the fingerprinted import plan. |
+| `IMPORT` confirmation | Authorizes only the current preview; changing a source or option invalidates it. |
+| **Start import** | Queues a non-cancellable, non-retryable durable import job after revalidation. |
 
 Every completed export includes `manifest.json` and `checksums.sha256`.
 Individual site failures appear in the job and manifest without deleting
 successfully generated site bundles.
+
+Staged imports never overwrite an existing database, configured domain, or
+non-empty archive destination. Existing DNS records and NPM hosts are shown
+before typed confirmation because those integrations use create-or-update
+behavior. Follow execution and integration warnings in **Jobs**.
 
 ## Delete
 

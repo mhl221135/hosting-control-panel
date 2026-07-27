@@ -33,6 +33,8 @@ const state = {
   removalPlan: null,
   exports: [],
   exportPreview: null,
+  importSources: [],
+  importPreview: null,
 };
 
 let imageOptimizationPollTimer = null;
@@ -259,7 +261,7 @@ function switchTab(name) {
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
-  if (name === "transfers") loadExports().catch((error) => notice(error.message, "warning"));
+  if (name === "transfers") loadTransfers().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
   if (name === "runtime") loadLogs();
   if (name === "settings") loadIntegrationSettings();
@@ -791,6 +793,7 @@ function jobTypeLabel(type) {
     "npm.certificate.issue": "SSL certificate issuance",
     "npm.certificate.renew": "SSL certificate renewal",
     "sites.export": "Website export",
+    "sites.import": "Website import",
   }[type] || type;
 }
 
@@ -852,6 +855,88 @@ async function loadExports() {
   const response = await api("/api/transfers/exports");
   state.exports = response.exports || [];
   renderExportHistory();
+}
+
+function importOptions() {
+  return {
+    source: $("#importSource").value,
+    wan_ip: $("#importWanIp").value.trim(),
+    update_dns: $("#importUpdateDns").checked,
+    proxied: $("#importProxied").checked,
+    create_npm_host: $("#importCreateNpm").checked,
+    issue_ssl: $("#importIssueSsl").checked,
+  };
+}
+
+function invalidateImportPreview() {
+  state.importPreview = null;
+  $("#importConfirmation").value = "";
+  renderImportPreview();
+}
+
+function renderImportSources() {
+  const current = $("#importSource").value;
+  const sources = state.importSources || [];
+  $("#importSource").innerHTML = sources.length
+    ? ['<option value="">Select staged source</option>', ...sources.map((source) =>
+      `<option value="${escapeHtml(source.source)}" ${source.source === current ? "selected" : ""}>${escapeHtml(source.source)} · ${escapeHtml(source.type)}</option>`
+    )].join("")
+    : '<option value="">No manifest or import plan found</option>';
+}
+
+function renderImportPreview() {
+  const preview = state.importPreview;
+  const target = $("#importPreview");
+  const start = $("#startImport");
+  start.disabled = !preview || preview.blockingConflicts.length > 0;
+  target.className = preview?.sites?.length ? "rows" : "rows empty";
+  if (!preview?.sites?.length) {
+    target.innerHTML = "Select a staged source and preview it.";
+    return;
+  }
+  const warnings = preview.integrationWarnings || [];
+  target.innerHTML = `
+    <div class="transfer-import-summary ${preview.blockingConflicts.length ? "has-conflicts" : "ready"}">
+      <strong>${preview.blockingConflicts.length ? `${preview.blockingConflicts.length} blocking conflict(s)` : "Ready for confirmed import"}</strong>
+      <p>${escapeHtml(preview.source)} · ${escapeHtml(preview.sourceType)} · ${preview.sites.length} website(s)</p>
+    </div>
+    ${warnings.map((warning) => `<p class="message warning">${escapeHtml(warning)}</p>`).join("")}
+    ${preview.sites.map((site) => `<div class="transfer-preview-row">
+      <strong>${escapeHtml(site.domain)} · ${escapeHtml(site.siteType)}</strong>
+      <p>Files: ${escapeHtml(site.actions.files)} · pool: ${escapeHtml(site.poolTier)}</p>
+      <p>Database: ${escapeHtml(site.database || "not required")} · ${escapeHtml(site.actions.database)}</p>
+      <p>DNS: ${escapeHtml(site.actions.dns)} · NPM: ${escapeHtml(site.actions.npm)} · SSL: ${escapeHtml(site.actions.ssl)}</p>
+      ${site.aliases.length ? `<p>Aliases: ${escapeHtml(site.aliases.join(", "))}</p>` : ""}
+      ${site.existingDnsRecords.length ? `<p>Existing DNS: ${site.existingDnsRecords.map((record) =>
+        escapeHtml(`${record.name} ${record.type} ${record.content}`)).join(" · ")}</p>` : ""}
+      ${site.existingNpmHosts.length ? `<p>Existing NPM host IDs: ${escapeHtml(site.existingNpmHosts.join(", "))}</p>` : ""}
+      ${site.conflicts.map((conflict) => `<p class="message error">${escapeHtml(conflict)}</p>`).join("")}
+    </div>`).join("")}
+  `;
+}
+
+async function loadTransfers() {
+  renderExportSelection();
+  const [exportsResponse, sourcesResponse] = await Promise.all([
+    api("/api/transfers/exports"),
+    api("/api/transfers/import/sources"),
+  ]);
+  state.exports = exportsResponse.exports || [];
+  state.importSources = sourcesResponse.sources || [];
+  renderExportHistory();
+  renderImportSources();
+  renderImportPreview();
+}
+
+async function previewImport() {
+  const options = importOptions();
+  if (!options.source) throw new Error("Select a staged import source");
+  state.importPreview = await api("/api/transfers/import/preview", {
+    method: "POST",
+    body: JSON.stringify(options),
+  });
+  $("#importConfirmation").value = "";
+  renderImportPreview();
 }
 
 async function previewExport() {
@@ -2576,8 +2661,8 @@ $("#exportSiteSelection").addEventListener("change", () => {
   state.exportPreview = null;
   renderExportPreview();
 });
-$("#refreshExports").addEventListener("click", async (event) => {
-  try { await withButton(event.currentTarget, "Refreshing...", loadExports); }
+$("#refreshTransfers").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Refreshing...", loadTransfers); }
   catch (error) { notice(error.message, "warning"); }
 });
 $("#previewExport").addEventListener("click", async (event) => {
@@ -2594,6 +2679,34 @@ $("#startExport").addEventListener("click", async (event) => {
       body: JSON.stringify({ domains }),
     }));
     rememberJob(result.job, "Portable website export queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+["#importSource", "#importWanIp", "#importUpdateDns", "#importProxied", "#importCreateNpm", "#importIssueSsl"]
+  .forEach((selector) => $(selector).addEventListener("change", invalidateImportPreview));
+$("#previewImport").addEventListener("click", async (event) => {
+  try { await withButton(event.currentTarget, "Checking...", previewImport); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#importTransferForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const preview = state.importPreview;
+  if (!preview) return notice("Preview the staged import first.", "warning");
+  if (preview.blockingConflicts.length) return notice("Resolve the blocking import conflicts first.", "warning");
+  if ($("#importConfirmation").value.trim() !== "IMPORT") {
+    return notice("Type IMPORT exactly to confirm.", "warning");
+  }
+  try {
+    const result = await withButton($("#startImport"), "Queuing...", () => api("/api/transfers/import", {
+      method: "POST",
+      body: JSON.stringify({
+        ...importOptions(),
+        preview_id: preview.previewId,
+        confirm: "IMPORT",
+      }),
+    }));
+    rememberJob(result.job, "Portable website import queued");
+    invalidateImportPreview();
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });

@@ -632,6 +632,16 @@ the shared storage lock; a failed site is recorded without discarding successful
 site bundles. The generated history lists total size and allows authenticated
 downloads of regular artifacts up to 512 MB by default.
 
+The same **Transfers** workspace lists server-side staged directories containing
+`manifest.json` or `import-sites.json`. **Preview import** resolves the newest
+matching dump, shows file/database conflicts and existing exact-host
+Cloudflare/NPM resources, and describes every requested DNS, proxy, and SSL
+action without changing the server. A changed source invalidates the preview.
+Starting the import requires typing `IMPORT`; files, databases, and configured
+domains are never overwritten. The non-retryable import runs as a durable job
+under the shared storage lock, so navigation or closing the browser does not
+interrupt it.
+
 `manifest.json` contains no passwords. For each successful site it records the primary
 domain, aliases, canonical redirects, website path, original database name,
 archive and dump paths, PHP profile, and cache/backup state.
