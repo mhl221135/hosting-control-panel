@@ -68,6 +68,9 @@ encrypted value. Jobs contain no repository credentials or encryption material.
 | `GET /api/transfers/exports` | list completed export bundles and artifact metadata |
 | `GET /api/transfers/exports/:id?file=` | download one bounded regular artifact |
 | `GET /api/transfers/import/sources` | list staged directories with a manifest or lightweight plan |
+| `POST /api/transfers/import/upload` | stream one ordered portable-bundle chunk |
+| `GET /api/transfers/import/upload/status` | return the committed resumable bundle offset |
+| `POST /api/transfers/import/upload/finalize` | queue durable validation and staging |
 | `POST /api/transfers/import/preview` | resolve and fingerprint a staged import without mutation |
 | `POST /api/transfers/import` | revalidate and queue a typed-confirmed durable import |
 | `POST /api/transfers/import/cleanup` | queue confined cleanup after exact-source confirmation |
@@ -86,6 +89,13 @@ exact-host DNS records and NPM hosts are visible in preview before their
 create-or-update actions. Import jobs are non-cancellable and non-retryable.
 Cleanup requires `confirm` to equal `source`, accepts only a listed direct
 manifest-bearing directory, and shares the `storage:imports` job conflict.
+
+Bundle upload requires a UUID `upload_id`, original `filename`, `offset`, and
+`total_size`; the raw body is limited to a 32 MiB chunk and the browser uses 16
+MiB. Status returns the committed byte count. Finalize queues non-retryable
+`sites.import-upload-stage`, which rejects unsafe entries and symlinks, validates
+the sole control manifest, and requires checksum coverage for every referenced
+portable-export artifact.
 
 ### Background jobs
 

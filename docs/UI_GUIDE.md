@@ -321,6 +321,7 @@ source or generated passwords.
 | **Start export** | Queues sequential archive/database work in Jobs and allows cancellation between complete sites. |
 | **Refresh** | Reloads completed export bundles and file sizes. |
 | Artifact link | Downloads an authenticated regular file up to the configured limit; larger files remain in the exports directory. |
+| **Upload and stage bundle** | Resumably uploads a complete ZIP/TAR bundle, then queues archive and checksum validation in Jobs. |
 | **Staged source** | Selects a directory below the configured imports root containing `manifest.json` or `import-sites.json`. |
 | **Preview import** | Resolves files and dumps, reads existing DNS/NPM matches, and reports blocking conflicts without mutation. |
 | DNS / proxy / NPM / SSL controls | Select the external actions included in the fingerprinted import plan. |
@@ -338,6 +339,9 @@ before typed confirmation because those integrations use create-or-update
 behavior. Follow execution and integration warnings in **Jobs**.
 Removing staging does not remove adopted website files, databases, runtime
 configuration, DNS, NPM hosts, or certificates.
+After bundle staging succeeds, return to Transfers and click **Refresh** to
+select the generated `upload-<uuid>` source. A paused upload resumes at the
+server's committed offset when the same local file is selected again.
 
 ## Delete
 

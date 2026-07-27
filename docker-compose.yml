@@ -17,7 +17,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.24
+    image: hosting-ui:2.25
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -41,6 +41,7 @@ services:
       IMPORTS_ROOT: /srv/imports
       JOB_HISTORY_LIMIT: ${JOB_HISTORY_LIMIT:-250}
       PROVISION_CREDENTIAL_TTL_HOURS: ${PROVISION_CREDENTIAL_TTL_HOURS:-24}
+      TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES: ${TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES:-17179869184}
       NOTIFICATION_HISTORY_LIMIT: ${NOTIFICATION_HISTORY_LIMIT:-500}
       HEALTH_HISTORY_LIMIT: ${HEALTH_HISTORY_LIMIT:-250}
       MYSQL_CONTAINER: hosting-db

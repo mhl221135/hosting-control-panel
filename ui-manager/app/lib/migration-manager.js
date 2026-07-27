@@ -193,7 +193,7 @@ class MigrationManager {
   listImportSources(limit = 100) {
     if (!fs.existsSync(this.importsRoot)) return [];
     return fs.readdirSync(this.importsRoot, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith("."))
       .map((entry) => {
         const directory = path.join(this.importsRoot, entry.name);
         const manifest = fs.existsSync(path.join(directory, "manifest.json"));
@@ -464,6 +464,7 @@ class MigrationManager {
     const id = transferId();
     const partial = path.join(this.exportsRoot, `.partial-${id}`);
     const complete = path.join(this.exportsRoot, id);
+    const bundlePartial = path.join(this.exportsRoot, `.partial-${id}.tar.gz`);
     if (fs.existsSync(partial) || fs.existsSync(complete)) throw new Error(`Export destination already exists: ${id}`);
     fs.mkdirSync(path.join(partial, "sites"), { recursive: true });
     fs.mkdirSync(path.join(partial, "databases"), { recursive: true });
@@ -485,7 +486,10 @@ class MigrationManager {
           }
           const database = siteType === "static" ? "" : await this.wordpressDatabase(websitePath);
           databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
-          await execFileAsync("tar", ["--ignore-failed-read", "--warning=no-file-changed", "-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+          await execFileAsync("tar", ["-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], {
+            timeout: 4 * 60 * 60 * 1000,
+            maxBuffer: 1024 * 1024,
+          });
           if (database) await this.dumpDatabase(database, path.join(partial, databaseDump));
           manifestSites.push({
             domain: site.host,
@@ -531,9 +535,16 @@ class MigrationManager {
         checksums.push(`${await sha256File(file.path)}  ${file.name}`);
       }
       fs.writeFileSync(path.join(partial, "checksums.sha256"), `${checksums.join("\n")}\n`, { encoding: "utf8", mode: 0o600 });
-      const files = artifactFiles(partial).map(({ name, size }) => ({ name, size }));
-      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+      options.checkpoint?.("Export cancelled before portable bundle packaging");
+      options.onProgress?.({ completed: sites.length, total: sites.length, currentStep: "Packaging portable bundle", results });
+      await execFileAsync("tar", ["-czf", bundlePartial, "-C", partial, "."], {
+        timeout: 4 * 60 * 60 * 1000,
+        maxBuffer: 4 * 1024 * 1024,
+      });
       fs.renameSync(partial, complete);
+      fs.renameSync(bundlePartial, path.join(complete, `${id}.tar.gz`));
+      const files = artifactFiles(complete).map(({ name, size }) => ({ name, size }));
+      const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
       const ok = results.every((result) => result.ok);
       return {
         ok,
@@ -551,6 +562,8 @@ class MigrationManager {
       };
     } catch (error) {
       fs.rmSync(partial, { recursive: true, force: true });
+      fs.rmSync(complete, { recursive: true, force: true });
+      fs.rmSync(bundlePartial, { force: true });
       throw error;
     }
   }

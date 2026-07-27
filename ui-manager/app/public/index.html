@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-24" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-25" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -607,6 +607,14 @@
           <div class="two-column transfer-layout transfer-import-layout">
             <form id="importTransferForm" class="panel form-stack">
               <div class="card-head"><div><h3>Staged import</h3><p class="muted">Sources are read from the configured imports directory.</p></div></div>
+              <label>Portable bundle archive
+                <input id="transferBundleArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" />
+                <small>Select a complete export bundle containing its manifest, checksums, website archives, and database dumps.</small>
+              </label>
+              <div class="form-actions transfer-actions">
+                <button id="uploadTransferBundle" class="secondary" type="button">Upload and stage bundle</button>
+              </div>
+              <div id="transferUploadProgress" class="status-box compact-status">No browser bundle upload in progress.</div>
               <label>Staged source
                 <select id="importSource" required><option value="">No staged sources loaded</option></select>
               </label>
@@ -893,6 +901,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-24"></script>
+    <script src="/app.js?v=20260727-25"></script>
   </body>
 </html>

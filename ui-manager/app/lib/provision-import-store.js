@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
@@ -10,6 +11,7 @@ const execFileAsync = promisify(execFile);
 const UPLOAD_ID_PATTERN = /^[a-f0-9-]{36}$/;
 const WEBSITE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
 const DATABASE_EXTENSIONS = [".sql.gz", ".sql", ".tar.gz", ".tgz"];
+const BUNDLE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
 const MAX_CHUNK_SIZE = 32 * 1024 * 1024;
 
 function uploadId(value) {
@@ -99,9 +101,11 @@ class ByteLimit extends Transform {
 
 class ProvisionImportStore {
   constructor(options = {}) {
-    this.root = path.join(options.importsRoot || "/srv/imports", "ui-provision");
+    this.importsRoot = options.importsRoot || "/srv/imports";
+    this.root = path.join(this.importsRoot, "ui-provision");
     this.websiteLimit = Number(options.websiteLimit || 8 * 1024 * 1024 * 1024);
     this.databaseLimit = Number(options.databaseLimit || 4 * 1024 * 1024 * 1024);
+    this.bundleLimit = Number(options.bundleLimit || 16 * 1024 * 1024 * 1024);
     fs.mkdirSync(this.root, { recursive: true, mode: 0o700 });
     this.removeExpired();
   }
@@ -127,6 +131,27 @@ class ProvisionImportStore {
     fs.writeFileSync(this.metadataPath(id), JSON.stringify(metadata, null, 2), { encoding: "utf8", mode: 0o600 });
   }
 
+  bundleUploadStatus(idValue) {
+    const id = uploadId(idValue);
+    const directory = this.directory(id);
+    const metadata = this.read(id);
+    if (metadata.files.bundle) {
+      const complete = path.join(directory, metadata.files.bundle.path);
+      if (fs.existsSync(complete)) {
+        return { id, complete: true, received: fs.statSync(complete).size, filename: metadata.files.bundle.filename };
+      }
+    }
+    if (!fs.existsSync(directory)) return { id, complete: false, received: 0, filename: "" };
+    const partial = fs.readdirSync(directory)
+      .find((name) => name.startsWith("bundle-upload") && name.endsWith(".partial"));
+    return {
+      id,
+      complete: false,
+      received: partial ? fs.statSync(path.join(directory, partial)).size : 0,
+      filename: "",
+    };
+  }
+
   async upload(request, idValue, kind, filenameValue) {
     this.removeExpired();
     const id = uploadId(idValue);
@@ -134,6 +159,7 @@ class ProvisionImportStore {
     const definitions = {
       website: { extensions: WEBSITE_EXTENSIONS, limit: this.websiteLimit, stored: "website-upload" },
       database: { extensions: DATABASE_EXTENSIONS, limit: this.databaseLimit, stored: "database-upload" },
+      bundle: { extensions: BUNDLE_EXTENSIONS, limit: this.bundleLimit, stored: "bundle-upload" },
     };
     const definition = definitions[kind];
     if (!definition) {
@@ -242,6 +268,7 @@ class ProvisionImportStore {
       : ["tar", [lower.endsWith(".tar") ? "-tf" : "-tzf", archive]];
     const { stdout } = await execFileAsync(command[0], command[1], { timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
     const listedEntries = stdout.split(/\r?\n/).filter(Boolean);
+    if (listedEntries.length > 250_000) throw new Error(`${label} archive contains too many entries`);
     const normalizedEntries = listedEntries.map(validateArchiveEntry);
     const entries = normalizedEntries.filter(Boolean);
     const symlinks = [];
@@ -383,6 +410,94 @@ class ProvisionImportStore {
       });
     }
     return { fileCount: entries.length };
+  }
+
+  async verifyChecksums(directory) {
+    const checksumPath = path.join(directory, "checksums.sha256");
+    if (!fs.existsSync(checksumPath)) throw new Error("Portable bundle is missing checksums.sha256");
+    const lines = fs.readFileSync(checksumPath, "utf8").split(/\r?\n/).filter(Boolean);
+    if (!lines.length) throw new Error("Portable bundle checksum file is empty");
+    const verified = new Set();
+    for (const line of lines) {
+      const match = /^([a-f0-9]{64})  (.+)$/.exec(line);
+      if (!match) throw new Error("Portable bundle checksum file is invalid");
+      const relative = validateArchiveEntry(match[2]);
+      const target = path.resolve(directory, relative);
+      if (!target.startsWith(`${path.resolve(directory)}${path.sep}`)) throw new Error("Portable bundle checksum path is unsafe");
+      const stat = fs.lstatSync(target);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Portable bundle artifact is invalid: ${relative}`);
+      const hash = crypto.createHash("sha256");
+      await pipeline(fs.createReadStream(target), hash);
+      if (hash.digest("hex") !== match[1]) throw new Error(`Portable bundle checksum failed: ${relative}`);
+      verified.add(relative);
+    }
+    return verified;
+  }
+
+  async prepareBundle(idValue) {
+    this.removeExpired();
+    const id = uploadId(idValue);
+    const metadata = this.read(id);
+    if (!metadata.files.bundle) {
+      const error = new Error("Upload the portable bundle before staging it");
+      error.statusCode = 400;
+      throw error;
+    }
+    const directory = this.directory(id);
+    const archive = path.join(directory, metadata.files.bundle.path);
+    if (!fs.existsSync(archive)) throw new Error("The uploaded portable bundle is missing");
+    const archiveManifest = await this.archiveEntries(archive, "Portable bundle");
+    const extracted = path.join(directory, "bundle-extracted");
+    fs.rmSync(extracted, { recursive: true, force: true });
+    fs.mkdirSync(extracted, { recursive: true, mode: 0o700 });
+    await this.extractArchive(archive, extracted, archiveManifest.symlinks);
+
+    const controls = [];
+    walk(extracted, (target, entry) => {
+      if (entry.isFile() && ["manifest.json", "import-sites.json"].includes(entry.name)) controls.push(target);
+    });
+    if (controls.length !== 1) {
+      throw new Error(`Portable bundle must contain exactly one manifest.json or import-sites.json (found ${controls.length})`);
+    }
+    const sourceDirectory = path.dirname(controls[0]);
+    const control = JSON.parse(fs.readFileSync(controls[0], "utf8"));
+    if (path.basename(controls[0]) === "manifest.json") {
+      const { validateManifest } = require("./migration-manager");
+      const manifest = validateManifest(control);
+      if (!manifest.sites.length) throw new Error("Portable bundle manifest contains no successful websites");
+      const verified = await this.verifyChecksums(sourceDirectory);
+      const required = ["manifest.json", ...manifest.sites.flatMap((site) =>
+        [site.websiteArchive, site.databaseDump].filter(Boolean))];
+      const missing = required.filter((item) => !verified.has(item));
+      if (missing.length) throw new Error(`Portable bundle checksum file does not cover: ${missing.join(", ")}`);
+    } else {
+      const { validateImportPlan } = require("./migration-manager");
+      validateImportPlan(control);
+    }
+
+    const source = `upload-${id}`;
+    const partial = path.join(this.importsRoot, `.${source}.partial`);
+    const destination = path.join(this.importsRoot, source);
+    if (fs.existsSync(destination)) throw new Error(`Staged import already exists: ${source}`);
+    fs.rmSync(partial, { recursive: true, force: true });
+    try {
+      fs.renameSync(sourceDirectory, partial);
+      fs.renameSync(partial, destination);
+      this.remove(id);
+      return {
+        ok: true,
+        source,
+        filename: metadata.files.bundle.filename,
+        size: metadata.files.bundle.size,
+        message: `Portable bundle staged as ${source}`,
+        total: 1,
+        completed: 1,
+        results: [{ source, ok: true, message: "Portable bundle validated and staged" }],
+      };
+    } catch (error) {
+      fs.rmSync(partial, { recursive: true, force: true });
+      throw error;
+    }
   }
 
   remove(id) {

@@ -235,7 +235,10 @@ const healthMonitor = new HealthMonitor({
   npm,
   maxHistory: Number(process.env.HEALTH_HISTORY_LIMIT || 250),
 });
-const provisionImports = new ProvisionImportStore({ importsRoot: IMPORTS_ROOT });
+const provisionImports = new ProvisionImportStore({
+  importsRoot: IMPORTS_ROOT,
+  bundleLimit: process.env.TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES,
+});
 const provisioningVault = new OneTimeVault({
   dataDir: DATA_DIR,
   ttlHours: process.env.PROVISION_CREDENTIAL_TTL_HOURS || 24,
@@ -289,6 +292,10 @@ jobManager.register("sites.import", async (context, payload) =>
 jobManager.register("sites.import-cleanup", async (context, payload) => {
   context.update({ completed: 0, total: 1, currentStep: `Removing staged import ${payload.source}` });
   return migrationManager.cleanupImportSource(payload.source);
+});
+jobManager.register("sites.import-upload-stage", async (context, payload) => {
+  context.update({ completed: 0, total: 1, currentStep: "Validating and extracting portable bundle" });
+  return provisionImports.prepareBundle(payload.uploadId);
 });
 
 function publicImportPreview(preview) {
@@ -1408,6 +1415,65 @@ async function handleApi(req, res) {
 
   if (req.method === "GET" && requestUrl.pathname === "/api/transfers/import/sources") {
     sendJson(res, 200, { ok: true, sources: migrationManager.listImportSources() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/import/upload") {
+    const offset = requestUrl.searchParams.get("offset");
+    const totalSize = requestUrl.searchParams.get("total_size");
+    if (offset !== null || totalSize !== null) {
+      const start = Number(offset);
+      const total = Number(totalSize);
+      const length = Number(req.headers["content-length"] || 0);
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(total) || !Number.isSafeInteger(length)
+          || start < 0 || total < 1 || length < 1 || start + length > total) {
+        sendJson(res, 400, { ok: false, message: "Upload chunk range is invalid" });
+        req.resume();
+        return true;
+      }
+      req.headers["content-range"] = `bytes ${start}-${start + length - 1}/${total}`;
+    }
+    const result = await provisionImports.upload(
+      req,
+      requestUrl.searchParams.get("upload_id"),
+      "bundle",
+      requestUrl.searchParams.get("filename"),
+    );
+    sendJson(res, 201, { ok: true, upload: result });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/transfers/import/upload/status") {
+    sendJson(res, 200, {
+      ok: true,
+      upload: provisionImports.bundleUploadStatus(requestUrl.searchParams.get("upload_id")),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/import/upload/finalize") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const metadata = provisionImports.read(body.upload_id);
+    if (!metadata.files.bundle) {
+      sendJson(res, 400, { ok: false, message: "Complete the portable bundle upload first" });
+      return true;
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: jobManager.create({
+        type: "sites.import-upload-stage",
+        label: `Stage portable bundle ${metadata.files.bundle.filename}`,
+        operator: req.auth.email,
+        trigger: "manual",
+        payload: { uploadId: metadata.id },
+        targets: [`upload:${metadata.id}`],
+        conflicts: ["server-heavy", "storage:imports"],
+        idempotencyKey: `stage-upload:${metadata.id}`,
+        total: 1,
+        cancellable: false,
+        retryable: false,
+      }),
+    });
     return true;
   }
 
