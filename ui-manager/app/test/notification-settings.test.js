@@ -16,6 +16,8 @@ test("encrypts notification credentials and exposes only configuration state", (
       telegramEnabled: true,
       telegramBotToken: "telegram-secret",
       telegramChatIds: "12345\n-67890\n12345",
+      telegramCommandsEnabled: true,
+      telegramCommandUserIds: "54321\n54321",
       smtpEnabled: true,
       smtpHost: "smtp.example.com",
       smtpPort: 465,
@@ -38,6 +40,8 @@ test("encrypts notification credentials and exposes only configuration state", (
     assert.equal(view.telegramBotTokenConfigured, true);
     assert.equal(view.smtpPasswordConfigured, true);
     assert.equal(view.telegramChatIds, "12345\n-67890");
+    assert.equal(view.telegramCommandsEnabled, true);
+    assert.equal(view.telegramCommandUserIds, "54321");
     assert.equal(settings.resolved().telegramBotToken, "telegram-secret");
     assert.equal(settings.resolved().smtpPassword, "smtp-secret");
     assert.equal(view.telegramUseGlobalSeverity, false);
@@ -70,6 +74,12 @@ test("validates enabled channels and public URLs", () => {
   try {
     const settings = new NotificationSettings(directory);
     assert.throws(() => settings.update({ telegramEnabled: true }), /bot token and at least one chat ID/);
+    assert.throws(() => settings.update({
+      telegramEnabled: true,
+      telegramBotToken: "secret",
+      telegramChatIds: "123",
+      telegramCommandsEnabled: true,
+    }), /allowed user ID/);
     assert.throws(() => settings.update({ panelUrl: "javascript:alert(1)" }), /must start with http/);
     assert.throws(() => settings.update({
       smtpEnabled: true,

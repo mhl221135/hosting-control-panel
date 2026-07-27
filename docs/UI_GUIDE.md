@@ -418,6 +418,7 @@ current configuration before large edits.
 | **Installation name / Server name** | Identifies the deployment and physical host in every alert. |
 | **Public panel URL** | Adds a direct operator link; leave it empty when the panel has no safe public route. |
 | **Telegram token / Chat IDs** | Sends alerts through a BotFather-created bot only to the listed chats. Empty token fields retain the encrypted value. |
+| **Command user IDs / Enable read-only commands** | Allows `/status` and `/site example.com` only when both the sender and chat are allowlisted. Commands are disabled by default. |
 | **SMTP settings / Recipients** | Sends plain-text alerts through an external STARTTLS or implicit-TLS relay. |
 | **Global job severities** | Selects default delivery for failures, partial/cancelled outcomes, and optional successes. Successes are off by default. |
 | **Telegram / SMTP severities** | Inherit the global defaults or independently select failures, warnings, and successes for that channel. |
@@ -431,6 +432,12 @@ workspace.
 Existing installations inherit global severities for both channels. Disabling
 inheritance affects only that channel. Health recovery notifications continue
 to bypass job-success filters so service recovery is not hidden.
+
+`/status` returns the current health summary, primary-site count, active jobs,
+recent failed jobs, and last health-check time. `/site example.com` returns
+adapter type, pool tier, and applicable cache/automation switches. Ten commands
+per sender per minute are accepted; denied and handled commands are included in
+the bounded local audit file.
 
 ### DNS tools
 

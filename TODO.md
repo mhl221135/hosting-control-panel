@@ -76,23 +76,20 @@ operating a local mail server or using Telegram as backup storage.
   Telegram/SMTP delivery state. Alerts occur only on open, changed, and resolved
   transitions; recovery alerts bypass successful-job filtering.
 
-### Remaining Events
+### Remaining Event
 
-- Import/export and WordPress-update failures become covered when those
-  operations adopt the shared background-job service.
 - Hosting/domain renewal reminders after the billing service exists.
 
-### Telegram Commands: Later Phase
+### Telegram Commands: Remaining Mutation Phase
 
-After notifications are stable, add only allowlisted commands such as
-`/status`, `/site example.com`, `/purge example.com`, and
-`/backup example.com`.
+The read-only `/status` and `/site example.com` commands are implemented with
+separate chat and user allowlists, per-user rate limiting, a durable update
+cursor, and bounded audit history.
 
-- Restrict commands by Telegram user and chat ID.
-- Require confirmation for mutations, rate-limit requests, and write an audit
-  record.
-- Map commands to existing allowlisted panel operations. Never expose arbitrary
-  shell, Docker, SQL, WP-CLI, or filesystem execution.
+Later, consider `/purge example.com` and `/backup example.com` only after adding
+expiring confirmation challenges. Map them to existing allowlisted panel
+operations and write every request/result to the command audit record. Never
+expose arbitrary shell, Docker, SQL, WP-CLI, or filesystem execution.
 
 ### Explicit Non-Goals
 

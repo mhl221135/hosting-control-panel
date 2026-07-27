@@ -1716,7 +1716,17 @@ async function loadIntegrationSettings() {
     notificationForm.elements.telegramBotToken.value = "";
     notificationForm.elements.telegramBotToken.placeholder = notifications.telegramBotTokenConfigured ? "Saved token configured" : "Enter Telegram bot token";
     notificationForm.elements.telegramChatIds.value = notifications.telegramChatIds || "";
+    notificationForm.elements.telegramCommandsEnabled.checked = notifications.telegramCommandsEnabled;
+    notificationForm.elements.telegramCommandUserIds.value = notifications.telegramCommandUserIds || "";
     notificationForm.elements.clearTelegramBotToken.checked = false;
+    const commandStatus = notificationData.commands || {};
+    $("#telegramCommandStatus").textContent = commandStatus.enabled
+      ? commandStatus.lastError
+        ? `Command polling error: ${commandStatus.lastError}`
+        : commandStatus.lastPollAt
+          ? `Command polling active · last checked ${new Date(commandStatus.lastPollAt).toLocaleString()}`
+          : "Command polling will start after these settings are saved."
+      : "Read-only commands are disabled.";
     notificationForm.elements.smtpEnabled.checked = notifications.smtpEnabled;
     notificationForm.elements.smtpHost.value = notifications.smtpHost || "";
     notificationForm.elements.smtpPort.value = notifications.smtpPort || 587;
