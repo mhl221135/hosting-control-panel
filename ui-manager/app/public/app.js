@@ -516,14 +516,14 @@ function renderSites() {
     <article class="site-row">
       <div class="site-identity"><h3>${escapeHtml(site.host)}</h3><p>${escapeHtml(site.root)}</p>${site.aliases?.length ? `<p>Aliases: ${site.aliases.map(escapeHtml).join(", ")}</p>` : ""}</div>
       <div class="site-runtime">
-        <strong>${escapeHtml(site.poolName || "No pool")}</strong>
-        <p>Port ${escapeHtml(site.port || "—")}</p>
-        <label class="site-tier">PHP profile
+        <strong>${escapeHtml(site.poolName || "No PHP pool")}</strong>
+        <p>${php ? `Port ${escapeHtml(site.port || "—")}` : "PHP execution blocked"}</p>
+        ${php ? `<label class="site-tier">PHP profile
           <select data-site-pool-tier="${escapeHtml(site.host)}" data-pool-name="${escapeHtml(site.poolName)}" data-pool-port="${escapeHtml(site.port)}">
             ${site.poolTier === "custom" ? '<option value="custom" selected disabled>Custom</option>' : ""}
             ${Object.keys(state.tiers).map((tier) => `<option value="${escapeHtml(tier)}" ${tier === site.poolTier ? "selected" : ""}>${escapeHtml(tier)}</option>`).join("")}
           </select>
-        </label>
+        </label>` : ""}
       </div>
       <div class="site-flags">
         <span class="badge on">${siteType === "static" ? "Static HTML" : siteType === "generic-php" ? "Generic PHP" : "WordPress"}</span>
@@ -1450,7 +1450,7 @@ function renderHosts() {
     <tr>
       <td><input data-host-field="host" value="${escapeHtml(site.host)}" /></td>
       <td><input data-host-field="root" value="${escapeHtml(site.root)}" /></td>
-      <td><select data-host-field="pool_name">${poolOptions.map((name) =>
+      <td><select data-host-field="pool_name">${site.phpEnabled === false ? '<option value="" selected>No PHP</option>' : ""}${poolOptions.map((name) =>
         `<option value="${escapeHtml(name)}" ${name === site.poolName ? "selected" : ""}>${escapeHtml(name)}</option>`
       ).join("")}</select></td>
       <td><input data-host-field="canonical_to" value="${escapeHtml(site.canonicalTo || "")}" /></td>
@@ -3037,6 +3037,7 @@ $("#saveHosts").addEventListener("click", async (event) => {
     host: row.querySelector('[data-host-field="host"]').value,
     root: row.querySelector('[data-host-field="root"]').value,
     pool_name: row.querySelector('[data-host-field="pool_name"]').value,
+    php_enabled: Boolean(row.querySelector('[data-host-field="pool_name"]').value),
     canonical_to: row.querySelector('[data-host-field="canonical_to"]').value,
     add_www_alias: row.querySelector('[data-host-field="add_www_alias"]').checked,
   }));

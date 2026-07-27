@@ -479,6 +479,7 @@ function detectTier(pool, presets = readPoolPresets()) {
 function parseSitesMap(content) {
   const rootBlockMatch = content.match(/map\s+\$host\s+\$site_root\s*\{([\s\S]*?)\n\}/);
   const upstreamBlockMatch = content.match(/map\s+\$host\s+\$php_upstream\s*\{([\s\S]*?)\n\}/);
+  const phpEnabledBlockMatch = content.match(/map\s+\$host\s+\$site_php_enabled\s*\{([\s\S]*?)\n\}/);
   const canonicalBlockMatch = content.match(/map\s+\$host\s+\$canonical_host\s*\{([\s\S]*?)\n\}/);
   if (!rootBlockMatch || !upstreamBlockMatch) {
     throw new Error("Could not parse sites.map. Expected both map blocks.");
@@ -500,11 +501,13 @@ function parseSitesMap(content) {
 
   const roots = parseBlock(rootBlockMatch[1]);
   const upstreams = parseBlock(upstreamBlockMatch[1]);
+  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1" };
   const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '""' };
   const hosts = {};
   const allHosts = new Set([
     ...Object.keys(roots.entries),
     ...Object.keys(upstreams.entries),
+    ...Object.keys(phpEnabled.entries),
     ...Object.keys(canonicals.entries),
   ]);
 
@@ -516,6 +519,7 @@ function parseSitesMap(content) {
       root: roots.entries[host] || "",
       upstream,
       port: portMatch ? Number(portMatch[1]) : null,
+      phpEnabled: phpEnabled.entries[host] !== "0",
       canonicalTo: canonicals.entries[host] || "",
     };
   }
@@ -523,6 +527,7 @@ function parseSitesMap(content) {
   return {
     defaultRoot: roots.defaultValue || "/var/www/_default",
     defaultUpstream: DEFAULT_PHP_UPSTREAM,
+    defaultPhpEnabled: phpEnabled.defaultValue !== "0",
     defaultCanonical: canonicals.defaultValue || '""',
     hosts,
   };
@@ -532,19 +537,22 @@ function renderSitesMap(parsed) {
   const hosts = Object.keys(parsed.hosts).sort();
   const rootLines = [`map $host $site_root {`, `  default ${parsed.defaultRoot};`];
   const upLines = [`map $host $php_upstream {`, `  default ${parsed.defaultUpstream};`];
+  const phpEnabledLines = [`map $host $site_php_enabled {`, `  default ${parsed.defaultPhpEnabled === false ? 0 : 1};`];
   const canonicalLines = [`map $host $canonical_host {`, `  default ${parsed.defaultCanonical || '""'};`];
 
   for (const host of hosts) {
     const site = parsed.hosts[host];
     if (site.root) rootLines.push(`  ${host} ${site.root};`);
     if (site.upstream) upLines.push(`  ${host} ${site.upstream};`);
+    if (site.phpEnabled === false) phpEnabledLines.push(`  ${host} 0;`);
     if (site.canonicalTo) canonicalLines.push(`  ${host} ${site.canonicalTo};`);
   }
 
   rootLines.push("}");
   upLines.push("}");
+  phpEnabledLines.push("}");
   canonicalLines.push("}");
-  return `${rootLines.join("\n")}\n\n${upLines.join("\n")}\n\n${canonicalLines.join("\n")}\n`;
+  return `${rootLines.join("\n")}\n\n${upLines.join("\n")}\n\n${phpEnabledLines.join("\n")}\n\n${canonicalLines.join("\n")}\n`;
 }
 
 function parsePools(content) {
@@ -1149,6 +1157,7 @@ function validateProvisionRequest(body) {
 
 async function executeProvisioning(body, jobContext, adminPassword = "") {
   const { domain, directory, sourceMode, siteType, adminEmail, adminUser } = validateProvisionRequest(body);
+  const adapter = siteAdapter(siteType);
   const pluginPackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
   const themePackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
   const dnsIp = body.create_update_dns ? validateIpv4(body.dns_ip) : "";
@@ -1188,24 +1197,42 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
 
   jobContext?.checkpoint("Provisioning cancelled before runtime configuration was changed");
   jobContext?.update({ completed: 2, currentStep: "Creating PHP and nginx runtime configuration" });
-  const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
-  const port = Math.max(9000, ...usedPorts) + 1;
-  const poolName = sanitizeSectionName(domain);
-  const defaults = readDefaultPool();
-  const presets = readPoolPresets();
-  const tier = normalizeTier(body.pool_tier, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+  let port = null;
+  let poolName = "";
   const root = `/var/www/${directory}`;
-  poolsParsed.sections[poolName] = buildPoolSettings({
-    incomingPool: {}, basePool: {}, defaults, tierName: tier, root, port, presets,
-  });
-  setPoolOpcache(poolsParsed.sections[poolName], siteType !== "static" && body.opcache !== false);
-  poolsParsed.sectionOrder.push(poolName);
-  mapParsed.hosts[domain] = { host: domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
+  if (adapter.php) {
+    const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
+    port = Math.max(9000, ...usedPorts) + 1;
+    poolName = sanitizeSectionName(domain);
+    const defaults = readDefaultPool();
+    const presets = readPoolPresets();
+    const tier = normalizeTier(body.pool_tier, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+    poolsParsed.sections[poolName] = buildPoolSettings({
+      incomingPool: {}, basePool: {}, defaults, tierName: tier, root, port, presets,
+    });
+    setPoolOpcache(poolsParsed.sections[poolName], body.opcache !== false);
+    poolsParsed.sectionOrder.push(poolName);
+  }
+  mapParsed.hosts[domain] = {
+    host: domain,
+    root,
+    port,
+    upstream: adapter.php ? `hosting-php-fpm:${port}` : "",
+    phpEnabled: adapter.php,
+    canonicalTo: "",
+  };
   const domains = [domain];
   if (body.add_www && !domain.startsWith("www.")) {
     const alias = `www.${domain}`;
     domains.push(alias);
-    mapParsed.hosts[alias] = { host: alias, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: domain };
+    mapParsed.hosts[alias] = {
+      host: alias,
+      root,
+      port,
+      upstream: adapter.php ? `hosting-php-fpm:${port}` : "",
+      phpEnabled: adapter.php,
+      canonicalTo: domain,
+    };
   }
 
   writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
@@ -2880,23 +2907,27 @@ async function handleApi(req, res) {
       const host = String(raw.host || "").trim().toLowerCase();
       const root = String(raw.root || "").trim();
       const poolName = sanitizeSectionName(String(raw.pool_name || "").trim());
+      const phpEnabled = raw.php_enabled !== false && Boolean(poolName);
       const canonicalTo = String(raw.canonical_to || "").trim();
       const addWwwAlias = Boolean(raw.add_www_alias);
 
-      if (!host || !root || !poolName) {
-        sendJson(res, 400, { ok: false, message: "Each host row requires host, root, and pool_name" });
+      if (!host || !root || (phpEnabled && !poolName)) {
+        sendJson(res, 400, { ok: false, message: "Each host row requires host, root, and a pool when PHP is enabled" });
         return true;
       }
 
-      const section = poolsParsed.sections[poolName];
-      if (!section || !section.listen) {
-        sendJson(res, 400, { ok: false, message: `Pool '${poolName}' not found` });
-        return true;
-      }
-      const port = Number(section.listen);
-      if (!Number.isInteger(port)) {
-        sendJson(res, 400, { ok: false, message: `Pool '${poolName}' has invalid listen port` });
-        return true;
+      let port = null;
+      if (phpEnabled) {
+        const section = poolsParsed.sections[poolName];
+        if (!section || !section.listen) {
+          sendJson(res, 400, { ok: false, message: `Pool '${poolName}' not found` });
+          return true;
+        }
+        port = Number(section.listen);
+        if (!Number.isInteger(port)) {
+          sendJson(res, 400, { ok: false, message: `Pool '${poolName}' has invalid listen port` });
+          return true;
+        }
       }
 
       const canonicalTarget = canonicalTo && canonicalTo !== host ? canonicalTo : "";
@@ -2904,7 +2935,8 @@ async function handleApi(req, res) {
         host,
         root,
         port,
-        upstream: `hosting-php-fpm:${port}`,
+        upstream: phpEnabled ? `hosting-php-fpm:${port}` : "",
+        phpEnabled,
         canonicalTo: canonicalTarget,
       };
 
@@ -2914,7 +2946,8 @@ async function handleApi(req, res) {
           host: alias,
           root,
           port,
-          upstream: `hosting-php-fpm:${port}`,
+          upstream: phpEnabled ? `hosting-php-fpm:${port}` : "",
+          phpEnabled,
           canonicalTo: host,
         };
       } else if (!host.startsWith("www.")) {
@@ -2948,11 +2981,12 @@ async function handleApi(req, res) {
     const presets = readPoolPresets();
 
     const poolName = sanitizeSectionName(String(body.pool_name || "").trim());
+    const phpEnabled = body.php_enabled !== false;
     const addWwwAlias = Boolean(body.add_www_alias);
     const canonicalTo = String(body.canonical_to || "").trim();
 
-    let port = Number(body.port);
-    if (poolName) {
+    let port = phpEnabled ? Number(body.port) : null;
+    if (phpEnabled && poolName) {
       const section = poolsParsed.sections[poolName];
       if (!section || !section.listen) {
         sendJson(res, 400, { ok: false, message: `Pool '${poolName}' not found` });
@@ -2961,7 +2995,7 @@ async function handleApi(req, res) {
       port = Number(section.listen);
     }
 
-    if (!Number.isInteger(port)) {
+    if (phpEnabled && !Number.isInteger(port)) {
       sendJson(res, 400, { ok: false, message: "Select a valid pool (or send integer port)" });
       return true;
     }
@@ -2971,7 +3005,8 @@ async function handleApi(req, res) {
       host,
       root,
       port,
-      upstream: `hosting-php-fpm:${port}`,
+      upstream: phpEnabled ? `hosting-php-fpm:${port}` : "",
+      phpEnabled,
       canonicalTo: canonicalTarget,
     };
 
@@ -2981,7 +3016,8 @@ async function handleApi(req, res) {
         host: alias,
         root,
         port,
-        upstream: `hosting-php-fpm:${port}`,
+        upstream: phpEnabled ? `hosting-php-fpm:${port}` : "",
+        phpEnabled,
         canonicalTo: host,
       };
     }
@@ -2993,7 +3029,7 @@ async function handleApi(req, res) {
       }
     }
 
-    if (!poolName) {
+    if (phpEnabled && !poolName) {
       const existingPool = poolsParsed.byPort[port];
       const sectionName = existingPool ? existingPool.name : sanitizeSectionName(host);
       const incomingPool = body.pool || {};

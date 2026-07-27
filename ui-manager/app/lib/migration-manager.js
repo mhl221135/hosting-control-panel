@@ -400,8 +400,9 @@ class MigrationManager {
   primarySites() {
     const runtime = this.readRuntime();
     const groups = new Map();
-    for (const site of Object.values(runtime.map.hosts).filter((candidate) => candidate.root && candidate.port)) {
-      const key = `${site.root}\u0000${site.port}`;
+    for (const site of Object.values(runtime.map.hosts)
+      .filter((candidate) => candidate.root && (candidate.port || candidate.phpEnabled === false))) {
+      const key = `${site.root}\u0000${site.phpEnabled === false ? "static" : site.port}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(site);
     }
@@ -418,9 +419,10 @@ class MigrationManager {
           .filter((candidate) => candidate.host !== site.host && candidate.canonicalTo === site.host)
           .map((candidate) => candidate.host)
           .sort();
-        const pool = runtime.pools.byPort[site.port]?.settings || {};
+        const pool = site.port ? runtime.pools.byPort[site.port]?.settings || {} : {};
         const maxChildren = Number(pool["pm.max_children"] || 0);
-        const poolTier = maxChildren <= 3 ? "low" : maxChildren <= 6 ? "medium" : "high";
+        const poolTier = site.phpEnabled === false ? "medium"
+          : maxChildren <= 3 ? "low" : maxChildren <= 6 ? "medium" : "high";
         return { ...site, aliases, canonicalAliases, poolTier, state: this.siteState.get(site.host) };
       }).sort((left, right) => left.host.localeCompare(right.host));
   }
@@ -801,27 +803,37 @@ class MigrationManager {
       for (const domain of allDomains) {
         if (map.hosts[domain]) throw new Error(`Domain is already configured: ${domain}`);
       }
-      const port = nextPort++;
-      const poolName = sanitizeSectionName(site.domain);
-      if (pools.sections[poolName]) throw new Error(`PHP pool already exists: ${poolName}`);
-      const tier = presets[site.poolTier] || presets.medium || DEFAULT_PRESETS.medium;
       const root = `/var/www/${site.websitePath}`;
-      pools.sections[poolName] = setPoolOpcache({
-        user: "www-data", group: "www-data", listen: String(port), pm: String(tier.pm),
-        "pm.max_children": String(tier.max_children), "pm.start_servers": String(tier.start_servers),
-        "pm.min_spare_servers": String(tier.min_spare_servers), "pm.max_spare_servers": String(tier.max_spare_servers),
-        "pm.process_idle_timeout": String(tier.process_idle_timeout), "pm.max_requests": String(tier.max_requests),
-        "php_admin_value[open_basedir]": `${root}/:/global/:/tmp/`,
-        clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
-      }, adapter.opcache && site.state.opcache !== false);
-      pools.sectionOrder.push(poolName);
-      map.hosts[site.domain] = { host: site.domain, root, port, upstream: `hosting-php-fpm:${port}`, canonicalTo: "" };
+      let port = null;
+      let poolName = "";
+      if (adapter.php) {
+        port = nextPort++;
+        poolName = sanitizeSectionName(site.domain);
+        if (pools.sections[poolName]) throw new Error(`PHP pool already exists: ${poolName}`);
+        const tier = presets[site.poolTier] || presets.medium || DEFAULT_PRESETS.medium;
+        pools.sections[poolName] = setPoolOpcache({
+          user: "www-data", group: "www-data", listen: String(port), pm: String(tier.pm),
+          "pm.max_children": String(tier.max_children), "pm.start_servers": String(tier.start_servers),
+          "pm.min_spare_servers": String(tier.min_spare_servers), "pm.max_spare_servers": String(tier.max_spare_servers),
+          "pm.process_idle_timeout": String(tier.process_idle_timeout), "pm.max_requests": String(tier.max_requests),
+          "php_admin_value[open_basedir]": `${root}/:/global/:/tmp/`,
+          clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
+        }, site.state.opcache !== false);
+        pools.sectionOrder.push(poolName);
+      }
+      map.hosts[site.domain] = {
+        host: site.domain, root, port,
+        upstream: adapter.php ? `hosting-php-fpm:${port}` : "",
+        phpEnabled: adapter.php,
+        canonicalTo: "",
+      };
       for (const alias of site.aliases) {
         map.hosts[alias] = {
           host: alias,
           root,
           port,
-          upstream: `hosting-php-fpm:${port}`,
+          upstream: adapter.php ? `hosting-php-fpm:${port}` : "",
+          phpEnabled: adapter.php,
           canonicalTo: site.canonicalAliases.includes(alias) ? site.domain : "",
         };
       }

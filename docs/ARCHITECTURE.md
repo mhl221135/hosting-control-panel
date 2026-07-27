@@ -266,6 +266,13 @@ PHP has an optional state-declared database and supports OPcache and FastCGI,
 but never invokes WP-CLI. Static HTML exposes none of those controls. The API
 rejects unsupported state transitions even if a client bypasses the UI.
 
+`sites.map` carries an explicit `$site_php_enabled` capability. Static routes
+have no upstream or pool and the nginx PHP location returns 404 before
+FastCGI dispatch. Legacy maps default to PHP enabled. The idempotent
+`migrate-static-routes.js` upgrade step identifies static roots from panel
+state, includes their aliases, refuses mixed static/dynamic roots, removes only
+unreferenced pools, validates both services, and restores all files on failure.
+
 ## External Integrations
 
 NPM hosts forward managed websites to `hosting-nginx:80` and own public ACME

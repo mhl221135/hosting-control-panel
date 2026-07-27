@@ -329,6 +329,47 @@ test("round trips runtime maps and pools", () => {
   assert.equal(transferId(new Date("2026-07-19T02:00:00Z")), "export-2026-07-19_02-00-00");
 });
 
+test("configures Static HTML routes without allocating a PHP-FPM pool", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-static-runtime-"));
+  try {
+    const sitesMapPath = path.join(directory, "sites.map");
+    const poolsPath = path.join(directory, "pools.conf");
+    fs.writeFileSync(sitesMapPath, [
+      "map $host $site_root {", "  default /var/www/_default;", "}", "",
+      "map $host $php_upstream {", "  default hosting-php-fpm:9000;", "}", "",
+      "map $host $canonical_host {", '  default "";', "}", "",
+    ].join("\n"));
+    fs.writeFileSync(poolsPath, "[www]\nlisten = 9000\n");
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot: path.join(directory, "imports"),
+      websitesRoot: path.join(directory, "websites"),
+      sitesMapPath,
+      poolsPath,
+      siteState: { get: () => ({}) },
+    });
+    const result = manager.configureRuntime([{
+      domain: "static.example",
+      aliases: ["www.static.example"],
+      canonicalAliases: ["www.static.example"],
+      websitePath: "static.example",
+      siteType: "static",
+      poolTier: "medium",
+      state: { siteType: "static", opcache: false },
+    }]);
+    const map = parseSitesMap(fs.readFileSync(sitesMapPath, "utf8"));
+    const pools = parsePools(fs.readFileSync(poolsPath, "utf8"));
+    assert.equal(result.configured[0].port, null);
+    assert.equal(result.configured[0].poolName, "");
+    assert.equal(map.hosts["static.example"].phpEnabled, false);
+    assert.equal(map.hosts["www.static.example"].phpEnabled, false);
+    assert.deepEqual(pools.sectionOrder, ["www"]);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("previews primary exports and reads bounded artifact history", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-exports-"));
   try {

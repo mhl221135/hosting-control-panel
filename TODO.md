@@ -8,7 +8,7 @@ backlog only when their acceptance criteria are satisfied.
 
 1. Adopt the shared background system for remaining long operations.
 2. Production WordPress update/rollback drills.
-3. OpenCart adapter and strict Static HTML runtime isolation.
+3. OpenCart application adapter.
 4. Separate billing and hosting-entitlement service.
 5. Separate mail platform with panel API integration.
 6. Warm-standby replication and controlled failover.
@@ -118,8 +118,8 @@ editor metadata.
 
 ### Objective
 
-Extend the implemented WordPress, Generic PHP, and Static HTML capability
-registry without routing OpenCart through WordPress-specific code.
+Extend the implemented WordPress, Generic PHP, and strictly isolated Static HTML
+capability registry without routing OpenCart through WordPress-specific code.
 
 ### Target Adapters
 
@@ -135,14 +135,6 @@ Each adapter defines:
 - cache capabilities and cookie/path exclusions;
 - health checks, backup/restore, removal, and migration behavior;
 - update behavior, or an explicit unsupported state.
-
-### Static Runtime Isolation
-
-- Add an nginx route mode that cannot execute PHP even if a PHP file is later
-  placed in a Static HTML document root.
-- Stop allocating compatibility PHP-FPM pools to newly provisioned static
-  sites after the route format can represent a no-PHP upstream.
-- Migrate existing Static HTML routes only after preview and nginx validation.
 
 ### OpenCart
 
