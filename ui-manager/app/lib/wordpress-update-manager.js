@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const fs = require("fs");
+const http = require("http");
 const path = require("path");
 const { validatePackageNames } = require("./wordpress-maintenance");
 
@@ -85,6 +86,25 @@ function selectedSnapshot(inventory, selection) {
   };
 }
 
+function originRequest(url, options = {}) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(url, {
+      method: "GET",
+      headers: options.headers || {},
+      timeout: 20_000,
+    }, (response) => {
+      response.resume();
+      response.on("end", () => resolve({
+        status: Number(response.statusCode || 0),
+        url,
+      }));
+    });
+    request.on("timeout", () => request.destroy(new Error("Origin health check timed out")));
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 class WordPressUpdateManager {
   constructor(options) {
     this.dataDir = options.dataDir;
@@ -94,7 +114,7 @@ class WordPressUpdateManager {
     this.packageStore = options.packageStore;
     this.siteProvider = options.siteProvider;
     this.afterSuccess = options.afterSuccess || (async () => {});
-    this.request = options.request || fetch;
+    this.request = options.request || originRequest;
     this.historyPath = path.join(this.dataDir, "wordpress-update-history.json");
     this.pinsPath = path.join(this.dataDir, "wordpress-update-pins.json");
     this.jobManager.register("wordpress.update", (context, payload) => this.apply(payload, context));
@@ -340,7 +360,10 @@ class WordPressUpdateManager {
   async checkHttp(domain) {
     const checks = [];
     for (const [name, url, options] of [
-      ["front-page", `https://${domain}/`, { redirect: "follow" }],
+      ["front-page", "http://hosting-nginx/", {
+        redirect: "manual",
+        headers: { host: domain },
+      }],
       ["admin-route", "http://hosting-nginx/wp-admin/", {
         redirect: "manual",
         headers: { host: domain },
@@ -527,6 +550,7 @@ module.exports = {
   WordPressUpdateManager,
   emptyPins,
   normalizePins,
+  originRequest,
   packageIds,
   requestSelection,
   selectedSnapshot,

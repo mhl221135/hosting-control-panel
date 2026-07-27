@@ -137,6 +137,20 @@ test("uses allowlisted update commands and stages uploaded packages safely", asy
   assert.equal(healthCall.args.filter((argument) => argument === "eval").length, 1);
 });
 
+test("treats an already matching maintenance-mode state as idempotent", async () => {
+  const runner = new WordPressMaintenanceRunner({
+    execFile: async (_file, args) => {
+      const state = args.includes("activate") ? "activated" : "deactivated";
+      throw Object.assign(new Error(`Maintenance mode already ${state}.`), {
+        stderr: `Error: Maintenance mode already ${state}.`,
+      });
+    },
+  });
+
+  assert.equal(await runner.setMaintenanceMode({ directory: "example.com" }, true), "Maintenance mode already active");
+  assert.equal(await runner.setMaintenanceMode({ directory: "example.com" }, false), "Maintenance mode already inactive");
+});
+
 test("deletes trash in bounded batches and keeps operation failures isolated", async () => {
   const calls = [];
   const runner = new WordPressMaintenanceRunner({
