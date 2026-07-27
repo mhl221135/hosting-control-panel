@@ -82,3 +82,28 @@ test("refuses to disable PHP when a non-static primary shares the document root"
     siteState: { sites: { "static.example": { siteType: "static" }, "dynamic.example": { siteType: "wordpress" } } },
   }), /shares its document root/);
 });
+
+test("reclassifies a legacy PHP site and recovers its removed pool", () => {
+  const isolated = migrateStaticRoutes({
+    mapContent: LEGACY_MAP,
+    poolsContent: POOLS,
+    nginxContent: NGINX,
+    siteState: { sites: { "static.example": { siteType: "static" }, "dynamic.example": { siteType: "wordpress" } } },
+  });
+  const recovered = migrateStaticRoutes({
+    mapContent: isolated.mapContent,
+    poolsContent: isolated.poolsContent,
+    nginxContent: isolated.nginxContent,
+    siteState: isolated.siteState,
+    legacyPhpDomains: ["static.example"],
+  });
+  const map = parseSitesMap(recovered.mapContent);
+  const pools = parsePools(recovered.poolsContent);
+  assert.equal(recovered.siteState.sites["static.example"].siteType, "generic-php");
+  assert.equal(map.hosts["static.example"].phpEnabled, true);
+  assert.equal(map.hosts["www.static.example"].phpEnabled, true);
+  assert.ok(map.hosts["static.example"].port);
+  assert.equal(pools.sections.static_example.listen, String(map.hosts["static.example"].port));
+  assert.deepEqual(recovered.reclassified, ["static.example"]);
+  assert.deepEqual(recovered.recoveredPools, ["static_example"]);
+});
