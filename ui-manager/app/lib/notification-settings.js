@@ -73,6 +73,7 @@ class NotificationSettings {
       telegramChatIds: stringList(stored.telegramChatIds || process.env.TELEGRAM_CHAT_IDS),
       telegramCommandsEnabled: Boolean(stored.telegramCommandsEnabled),
       telegramCommandUserIds: stringList(stored.telegramCommandUserIds),
+      telegramMutationsEnabled: Boolean(stored.telegramMutationsEnabled),
       smtpEnabled: Boolean(stored.smtpEnabled),
       smtpHost: stored.smtpHost || process.env.NOTIFICATION_SMTP_HOST || "",
       smtpPort: Number(stored.smtpPort || process.env.NOTIFICATION_SMTP_PORT || 587),
@@ -106,6 +107,7 @@ class NotificationSettings {
       telegramChatIds: settings.telegramChatIds.join("\n"),
       telegramCommandsEnabled: settings.telegramCommandsEnabled,
       telegramCommandUserIds: settings.telegramCommandUserIds.join("\n"),
+      telegramMutationsEnabled: settings.telegramMutationsEnabled,
       smtpEnabled: settings.smtpEnabled,
       smtpHost: settings.smtpHost,
       smtpPort: settings.smtpPort,
@@ -145,6 +147,8 @@ class NotificationSettings {
         ? Boolean(current.telegramCommandsEnabled) : Boolean(payload.telegramCommandsEnabled),
       telegramCommandUserIds: payload.telegramCommandUserIds === undefined
         ? stringList(current.telegramCommandUserIds) : stringList(payload.telegramCommandUserIds),
+      telegramMutationsEnabled: payload.telegramMutationsEnabled === undefined
+        ? Boolean(current.telegramMutationsEnabled) : Boolean(payload.telegramMutationsEnabled),
       smtpEnabled: Boolean(payload.smtpEnabled),
       smtpHost: String(payload.smtpHost ?? current.smtpHost ?? "").trim(),
       smtpPort: Number(payload.smtpPort || current.smtpPort || 587),
@@ -202,6 +206,9 @@ class NotificationSettings {
     }
     if (next.telegramCommandsEnabled && (!next.telegramEnabled || !next.telegramCommandUserIds.length)) {
       throw validationError("Telegram commands require Telegram delivery and at least one allowed user ID");
+    }
+    if (next.telegramMutationsEnabled && !next.telegramCommandsEnabled) {
+      throw validationError("Telegram mutations require Telegram commands to be enabled");
     }
     if (next.smtpEnabled && (!next.smtpHost || !next.smtpFrom || !next.smtpRecipients.length)) {
       throw validationError("SMTP requires a host, sender, and at least one recipient");

@@ -80,17 +80,6 @@ operating a local mail server or using Telegram as backup storage.
 
 - Hosting/domain renewal reminders after the billing service exists.
 
-### Telegram Commands: Remaining Mutation Phase
-
-The read-only `/status` and `/site example.com` commands are implemented with
-separate chat and user allowlists, per-user rate limiting, a durable update
-cursor, and bounded audit history.
-
-Later, consider `/purge example.com` and `/backup example.com` only after adding
-expiring confirmation challenges. Map them to existing allowlisted panel
-operations and write every request/result to the command audit record. Never
-expose arbitrary shell, Docker, SQL, WP-CLI, or filesystem execution.
-
 ### Explicit Non-Goals
 
 - Do not send website archives to Telegram; bot file limits and restore

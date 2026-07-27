@@ -242,6 +242,19 @@ const telegramCommandManager = new TelegramCommandManager({
   healthProvider: () => healthMonitor.publicState(),
   siteProvider: () => currentSites().sites,
   jobProvider: () => jobManager.list({ limit: 250 }),
+  backupProvider: async (domain, operator) => {
+    const site = currentSites().sites.find((item) => item.host === domain && !item.isAlias);
+    if (!site) throw Object.assign(new Error(`Primary site is not configured: ${domain}`), { statusCode: 404 });
+    const job = backupManager.enqueueSite(site, operator);
+    return { message: `Backup queued for ${domain}.\nJob: ${job.id}` };
+  },
+  purgeProvider: async (domain) => {
+    const site = currentSites().sites.find((item) => item.host === domain && !item.isAlias);
+    if (!site) throw Object.assign(new Error(`Primary site is not configured: ${domain}`), { statusCode: 404 });
+    siteState.purge(domain);
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+    return { message: `FastCGI page cache purged for ${domain}.` };
+  },
   maxHistory: Number(process.env.TELEGRAM_COMMAND_HISTORY_LIMIT || 250),
 });
 const provisionImports = new ProvisionImportStore({

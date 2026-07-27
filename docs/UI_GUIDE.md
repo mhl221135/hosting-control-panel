@@ -418,7 +418,8 @@ current configuration before large edits.
 | **Installation name / Server name** | Identifies the deployment and physical host in every alert. |
 | **Public panel URL** | Adds a direct operator link; leave it empty when the panel has no safe public route. |
 | **Telegram token / Chat IDs** | Sends alerts through a BotFather-created bot only to the listed chats. Empty token fields retain the encrypted value. |
-| **Command user IDs / Enable read-only commands** | Allows `/status` and `/site example.com` only when both the sender and chat are allowlisted. Commands are disabled by default. |
+| **Command user IDs / Enable Telegram commands** | Allows `/status` and `/site example.com` only when both the sender and chat are allowlisted. Commands are disabled by default. |
+| **Enable confirmed /backup and /purge commands** | Separately enables mutation requests. Every request requires a random one-use confirmation within two minutes. |
 | **SMTP settings / Recipients** | Sends plain-text alerts through an external STARTTLS or implicit-TLS relay. |
 | **Global job severities** | Selects default delivery for failures, partial/cancelled outcomes, and optional successes. Successes are off by default. |
 | **Telegram / SMTP severities** | Inherit the global defaults or independently select failures, warnings, and successes for that channel. |
@@ -438,6 +439,13 @@ recent failed jobs, and last health-check time. `/site example.com` returns
 adapter type, pool tier, and applicable cache/automation switches. Ten commands
 per sender per minute are accepted; denied and handled commands are included in
 the bounded local audit file.
+
+`/backup example.com` queues the same durable manual backup used by the panel
+and therefore respects the global website-backup pause and job conflict locks.
+`/purge example.com` invalidates that primary site's FastCGI page cache; it does
+not flush Redis or OPcache. Reply with the exact `/confirm code` returned by the
+bot within two minutes, or use `/cancel`. Confirmation codes are held only in
+memory, consumed before execution, and invalid after a panel restart.
 
 ### DNS tools
 

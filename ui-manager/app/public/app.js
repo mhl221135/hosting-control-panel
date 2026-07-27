@@ -1717,6 +1717,7 @@ async function loadIntegrationSettings() {
     notificationForm.elements.telegramBotToken.placeholder = notifications.telegramBotTokenConfigured ? "Saved token configured" : "Enter Telegram bot token";
     notificationForm.elements.telegramChatIds.value = notifications.telegramChatIds || "";
     notificationForm.elements.telegramCommandsEnabled.checked = notifications.telegramCommandsEnabled;
+    notificationForm.elements.telegramMutationsEnabled.checked = notifications.telegramMutationsEnabled;
     notificationForm.elements.telegramCommandUserIds.value = notifications.telegramCommandUserIds || "";
     notificationForm.elements.clearTelegramBotToken.checked = false;
     const commandStatus = notificationData.commands || {};
