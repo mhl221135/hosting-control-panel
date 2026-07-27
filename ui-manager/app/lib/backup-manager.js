@@ -609,6 +609,35 @@ class BackupManager {
     return { directory, manifest };
   }
 
+  async verifySiteBackup(site, id) {
+    const relative = this.siteRelativePath(site);
+    const { directory, manifest } = this.readSiteManifest(site, id);
+    const archive = path.join(directory, "website.tar.gz");
+    const { stdout } = await execFileAsync("tar", ["-tzf", archive], {
+      timeout: 10 * 60 * 1000,
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    const entries = stdout.split("\n").filter(Boolean);
+    if (!entries.length || entries.some((entry) =>
+      entry.startsWith("/") || entry.split("/").includes("..")
+      || (entry !== relative && !entry.startsWith(`${relative}/`)))) {
+      throw new Error("Backup archive verification failed");
+    }
+    if (manifest.database) {
+      await execFileAsync("gzip", ["-t", path.join(directory, "database.sql.gz")], {
+        timeout: 10 * 60 * 1000,
+        maxBuffer: 1024 * 1024,
+      });
+    }
+    return {
+      ok: true,
+      id,
+      domain: site.host,
+      websiteEntries: entries.length,
+      database: Boolean(manifest.database),
+    };
+  }
+
   async restoreSiteBackup(site, id) {
     const relative = this.siteRelativePath(site);
     const staticSite = site.state?.siteType === "static";

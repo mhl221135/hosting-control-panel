@@ -64,6 +64,9 @@ test("collects bounded WordPress core, plugin, and theme versions without mutati
   const runner = new WordPressMaintenanceRunner({
     execFile: async (_file, args) => {
       calls.push(args);
+      if (args.includes("check-update")) {
+        return { stdout: JSON.stringify([{ version: "6.8.3", update_type: "minor" }]) };
+      }
       if (args.includes("core")) return { stdout: "6.8.2\n" };
       if (args.includes("plugin")) {
         return { stdout: JSON.stringify([{
@@ -88,6 +91,7 @@ test("collects bounded WordPress core, plugin, and theme versions without mutati
 
   const inventory = await runner.inventory({ directory: "example.com" });
   assert.equal(inventory.core, "6.8.2");
+  assert.deepEqual(inventory.coreUpdate, { available: true, version: "6.8.3", type: "minor" });
   assert.deepEqual(inventory.plugins[0], {
     name: "woocommerce",
     status: "active",
@@ -97,9 +101,40 @@ test("collects bounded WordPress core, plugin, and theme versions without mutati
     autoUpdate: "off",
   });
   assert.equal(inventory.themes[0].name, "storefront");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 4);
   assert.ok(calls.every((args) => args.includes("--skip-plugins") && args.includes("--skip-themes")));
-  assert.equal(calls.some((args) => args.includes("update")), false);
+  assert.equal(calls.some((args) => args.includes("core") && args.includes("update")), false);
+});
+
+test("uses allowlisted update commands and stages uploaded packages safely", async () => {
+  const calls = [];
+  const runner = new WordPressMaintenanceRunner({
+    execFile: async (file, args) => {
+      calls.push({ file, args });
+      return { stdout: "complete\n" };
+    },
+  });
+  const site = { directory: "example.com" };
+  await runner.setMaintenanceMode(site, true);
+  await runner.updateCore(site);
+  await runner.updatePackages(site, "plugin", ["woocommerce"]);
+  await runner.installUploadedPackage(site, {
+    kind: "themes",
+    path: "/app/data/wordpress-packages/themes/package-id.zip",
+  });
+  await runner.validateWordPress(site);
+
+  assert.ok(calls.some((call) => call.args.includes("maintenance-mode") && call.args.includes("activate")));
+  assert.ok(calls.some((call) => call.args.includes("core") && call.args.includes("update")));
+  assert.ok(calls.some((call) => call.args.includes("core") && call.args.includes("update-db")));
+  assert.ok(calls.some((call) => call.args.includes("plugin") && call.args.includes("woocommerce")));
+  assert.ok(calls.some((call) => call.args[0] === "cp"
+    && call.args[1] === "/app/data/wordpress-packages/themes/package-id.zip"));
+  assert.ok(calls.some((call) => call.args.includes("theme") && call.args.includes("install")));
+  const healthCall = calls.find((call) =>
+    call.args.includes("eval") && call.args.some((arg) => arg.includes("$wpdb->get_var('SELECT 1')")));
+  assert.ok(healthCall);
+  assert.equal(healthCall.args.filter((argument) => argument === "eval").length, 1);
 });
 
 test("deletes trash in bounded batches and keeps operation failures isolated", async () => {

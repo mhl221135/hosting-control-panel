@@ -35,6 +35,7 @@ into dedicated directories.
 - Global gzip compression and per-site or bulk WebP image generation
 - Manual and opt-in weekly WordPress cleanup with revision-retention preview, persisted progress, and per-operation results
 - Durable read-only WordPress core, plugin, and theme version inventory
+- Manual controlled WordPress updates with verified backup, health checks, and automatic rollback
 - Per-site manual and scheduled backups with retention
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
@@ -764,4 +765,5 @@ not invoked or modified by this panel.
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
 - [docs/API.md](docs/API.md): authenticated panel API route index
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics
+- [docs/WORDPRESS_UPDATES.md](docs/WORDPRESS_UPDATES.md): controlled update and rollback workflow
 - [ui-manager/README.md](ui-manager/README.md): panel-specific configuration

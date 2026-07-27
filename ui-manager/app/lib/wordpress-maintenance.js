@@ -5,6 +5,14 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const ALLOWED_OPERATIONS = new Set(["transients", "trash", "cron", "database", "revisions"]);
 
+function validatePackageNames(values) {
+  const names = [...new Set((Array.isArray(values) ? values : []).map(String))];
+  if (names.length > 200 || names.some((name) => !/^[a-z0-9][a-z0-9._-]{0,159}$/i.test(name))) {
+    throw Object.assign(new Error("WordPress package selection is invalid"), { statusCode: 400 });
+  }
+  return names;
+}
+
 function validateRevisionRetention(value) {
   const retention = Number(value ?? 5);
   if (!Number.isInteger(retention) || retention < 1 || retention > 100) {
@@ -125,15 +133,99 @@ class WordPressMaintenanceRunner {
     const core = await this.wp(site.directory, [
       "core", "version", "--skip-plugins", "--skip-themes", "--quiet",
     ], 2 * 60_000);
-    const [plugins, themes] = await Promise.all([
+    const [plugins, themes, coreUpdate] = await Promise.all([
       this.packageList(site.directory, "plugin"),
       this.packageList(site.directory, "theme"),
+      this.wp(site.directory, [
+        "core", "check-update", "--format=json", "--fields=version,update_type",
+        "--skip-plugins", "--skip-themes", "--quiet",
+      ], 5 * 60_000)
+        .then((output) => {
+          const updates = JSON.parse(output || "[]");
+          const first = Array.isArray(updates) ? updates[0] : null;
+          return first ? {
+            available: true,
+            version: String(first.version || "").slice(0, 80),
+            type: String(first.update_type || "").slice(0, 40),
+          } : { available: false, version: "", type: "" };
+        })
+        .catch((error) => ({
+          available: false,
+          version: "",
+          type: "",
+          error: String(error.stderr || error.message).replace(/[\r\n\t]+/g, " ").trim().slice(0, 300),
+        })),
     ]);
     return {
       core: String(core || "").split(/\r?\n/)[0].slice(0, 80),
+      coreUpdate,
       plugins,
       themes,
     };
+  }
+
+  async setMaintenanceMode(site, enabled) {
+    return this.wp(site.directory, [
+      "maintenance-mode", enabled ? "activate" : "deactivate",
+      "--skip-plugins", "--skip-themes", "--quiet",
+    ], 2 * 60_000);
+  }
+
+  async updateCore(site) {
+    const files = await this.wp(site.directory, [
+      "core", "update", "--skip-plugins", "--skip-themes", "--quiet",
+    ], 30 * 60_000);
+    const database = await this.wp(site.directory, [
+      "core", "update-db", "--skip-plugins", "--skip-themes", "--quiet",
+    ], 30 * 60_000);
+    return [files, database].filter(Boolean).join("\n");
+  }
+
+  async updatePackages(site, type, names) {
+    if (!["plugin", "theme"].includes(type)) throw new Error("Unsupported WordPress package type");
+    const selected = validatePackageNames(names);
+    const results = [];
+    for (const name of selected) {
+      const message = await this.wp(site.directory, [
+        type, "update", name, "--skip-plugins", "--skip-themes", "--quiet",
+      ], 30 * 60_000);
+      results.push({ name, message: String(message).slice(0, 500) });
+    }
+    return results;
+  }
+
+  async installUploadedPackage(site, item) {
+    if (!item || !["plugins", "themes"].includes(item.kind) || !item.path) {
+      throw new Error("Uploaded WordPress package is invalid");
+    }
+    const type = item.kind === "plugins" ? "plugin" : "theme";
+    const temporary = `/tmp/hosting-control-${path.basename(item.path)}`;
+    await this.execFile("docker", ["cp", item.path, `${this.phpContainer}:${temporary}`], {
+      timeout: 10 * 60_000,
+      maxBuffer: 1024 * 1024,
+    });
+    try {
+      return await this.wp(site.directory, [
+        type, "install", temporary, "--force", "--skip-plugins", "--skip-themes", "--quiet",
+      ], 30 * 60_000);
+    } finally {
+      await this.execFile("docker", ["exec", this.phpContainer, "rm", "-f", temporary], {
+        timeout: 30_000,
+        maxBuffer: 1024 * 1024,
+      }).catch(() => {});
+    }
+  }
+
+  async validateWordPress(site) {
+    await this.wp(site.directory, [
+      "core", "is-installed", "--skip-plugins", "--skip-themes", "--quiet",
+    ], 2 * 60_000);
+    await this.wp(site.directory, [
+      "eval",
+      "global $wpdb; $value = $wpdb->get_var('SELECT 1'); if ((string) $value !== '1') { WP_CLI::error('Database health query failed.'); } echo get_option('siteurl');",
+      "--skip-plugins", "--skip-themes", "--quiet",
+    ], 2 * 60_000);
+    return true;
   }
 
   async runOperation(site, operation, options = {}) {
@@ -195,4 +287,11 @@ class WordPressMaintenanceRunner {
   }
 }
 
-module.exports = { ALLOWED_OPERATIONS, WordPressMaintenanceRunner, validateOperations, validateRevisionRetention, wordpressPath };
+module.exports = {
+  ALLOWED_OPERATIONS,
+  WordPressMaintenanceRunner,
+  validateOperations,
+  validatePackageNames,
+  validateRevisionRetention,
+  wordpressPath,
+};

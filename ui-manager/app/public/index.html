@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260725-20" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-21" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -260,6 +260,28 @@
             <div class="card-head"><div><h3>WordPress version inventory</h3><p id="wordpressInventoryTime" class="muted">No inventory has run.</p></div></div>
             <div id="wordpressInventory" class="rows empty">Select websites above and run an inventory.</div>
           </article>
+
+          <div class="two-column maintenance-layout wordpress-update-layout">
+            <form id="wordpressUpdateForm" class="panel form-stack">
+              <div><h3>Controlled update</h3><p class="muted">One website per job. A verified files/database backup and automatic rollback are mandatory.</p></div>
+              <label>Website<select name="domain" id="wordpressUpdateDomain"></select></label>
+              <fieldset class="maintenance-operations">
+                <legend>Available updates</legend>
+                <div class="button-row"><button id="selectAllWordPressUpdates" class="secondary" type="button">Select all available</button><button id="clearWordPressUpdates" class="secondary" type="button">Clear</button></div>
+                <div id="wordpressUpdateSelection" class="update-selection"></div>
+              </fieldset>
+              <fieldset class="maintenance-operations">
+                <legend>Uploaded package sources</legend>
+                <div id="wordpressUpdatePackages" class="update-selection"></div>
+              </fieldset>
+              <div class="button-row"><button id="previewWordPressUpdate" class="secondary" type="button">Preview update</button><button id="applyWordPressUpdate" type="button" disabled>Apply reviewed update</button></div>
+              <div id="wordpressUpdatePreview" class="status-box compact-status">Preview is required before updates can run.</div>
+            </form>
+            <article class="panel">
+              <div class="card-head"><div><h3>Update history</h3><p class="muted">Failed jobs report whether the verified backup was restored.</p></div></div>
+              <div id="wordpressUpdateHistory" class="rows empty">No controlled updates recorded.</div>
+            </article>
+          </div>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="provision">
@@ -833,6 +855,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260725-20"></script>
+    <script src="/app.js?v=20260727-21"></script>
   </body>
 </html>
