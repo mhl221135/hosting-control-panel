@@ -134,7 +134,14 @@ function syncProvisionSourceMode() {
   const siteType = form.elements.site_type.value;
   const wordpress = siteType === "wordpress";
   const genericPhp = siteType === "generic-php";
+  const openCart = siteType === "opencart";
   const staticHtml = siteType === "static";
+  const freshSource = form.querySelector('input[name="source_mode"][value="fresh"]');
+  if (openCart && !importing) {
+    form.elements.source_mode.value = "import";
+    return syncProvisionSourceMode();
+  }
+  freshSource.disabled = openCart;
   $$('[data-provision-fresh]').forEach((element) => element.classList.toggle("hidden", importing || !wordpress));
   $$('[data-provision-import]').forEach((element) => element.classList.toggle("hidden", !importing));
   $$('[data-provision-wordpress]:not([data-provision-fresh])').forEach((element) => element.classList.toggle("hidden", !wordpress));
@@ -152,7 +159,7 @@ function syncProvisionSourceMode() {
   form.elements.redis.disabled = !wordpress;
   if (!wordpress) form.elements.redis.checked = false;
   form.elements.create_database.disabled = !genericPhp;
-  if (!genericPhp) form.elements.create_database.checked = false;
+  form.elements.create_database.checked = openCart || (genericPhp && form.elements.create_database.checked);
   form.elements.fastcgi_cache.disabled = staticHtml;
   form.elements.opcache.disabled = staticHtml;
   if (staticHtml) {
@@ -162,7 +169,7 @@ function syncProvisionSourceMode() {
   form.elements.scheduled_image_optimization.disabled = !wordpress;
   if (!wordpress) form.elements.scheduled_image_optimization.checked = false;
   $("#provisionWebsiteArchive").required = importing;
-  $("#provisionDatabaseDump").required = importing && wordpress;
+  $("#provisionDatabaseDump").required = importing && (wordpress || openCart);
   $("#provisionDatabaseDump").disabled = staticHtml || (genericPhp && !form.elements.create_database.checked);
   $("#provisionSubmit").textContent = importing
     ? "Import website"
@@ -526,7 +533,7 @@ function renderSites() {
         </label>` : ""}
       </div>
       <div class="site-flags">
-        <span class="badge on">${siteType === "static" ? "Static HTML" : siteType === "generic-php" ? "Generic PHP" : "WordPress"}</span>
+        <span class="badge on">${siteType === "static" ? "Static HTML" : siteType === "generic-php" ? "Generic PHP" : siteType === "opencart" ? "OpenCart" : "WordPress"}</span>
         ${php ? `<span class="badge ${site.state?.fastcgiCache ? "on" : ""}">FastCGI ${site.state?.fastcgiCache ? "on" : "off"}</span>` : ""}
         ${wordpress ? `<span class="badge ${site.state?.redis ? "on" : ""}">Redis ${site.state?.redis ? "on" : "off"}</span>` : ""}
         ${php ? `<span class="badge ${site.state?.opcache !== false ? "on" : ""}">OPcache ${site.state?.opcache !== false ? "on" : "off"}</span>` : ""}
@@ -1852,14 +1859,16 @@ $("#jobsList").addEventListener("click", async (event) => {
         { method: "POST" },
       ));
       const credentials = result.credentials;
-      const wordpress = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : credentials.wordpress ? `WordPress user: ${escapeHtml(credentials.wordpress.adminUser || "")}
+      const application = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : credentials.wordpress ? `WordPress user: ${escapeHtml(credentials.wordpress.adminUser || "")}
 WordPress password: ${escapeHtml(credentials.wordpress?.adminPassword || "")}
-WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}` : "Update the application database configuration manually using these one-time credentials.";
+WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}` : credentials.siteType === "opencart"
+        ? "These credentials were written to the detected OpenCart storefront and admin configuration files."
+        : "Update the application database configuration manually using these one-time credentials.";
       $("#provisionResult").innerHTML = `<h3>${escapeHtml(credentials.domain)} credentials</h3><p>These credentials have now been removed from the panel. Store them securely.</p><pre>Database: ${escapeHtml(credentials.database.name)}
 Database user: ${escapeHtml(credentials.database.user)}
 Database password: ${escapeHtml(credentials.database.password)}
 
-${wordpress}</pre>`;
+${application}</pre>`;
       $("#provisionResult").classList.remove("hidden");
       switchTab("provision");
       await loadJobs();
@@ -2311,6 +2320,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   const importing = body.source_mode === "import";
   const wordpress = body.site_type === "wordpress";
   const genericPhp = body.site_type === "generic-php";
+  const openCart = body.site_type === "opencart";
   body.plugin_packages = $$('[data-package-choice="plugins"]:checked').map((input) => input.value);
   body.theme_packages = $$('[data-package-choice="themes"]:checked').map((input) => input.value);
   if (body.create_update_dns && !body.dns_ip.trim()) return notice("Enter or select the server IPv4 address.", "warning");
@@ -2320,8 +2330,9 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   const databaseDump = $("#provisionDatabaseDump").files[0];
   if (importing && !websiteArchive) return notice("Select the website archive.", "warning");
   if (importing && wordpress && !databaseDump) return notice("Select the WordPress database dump.", "warning");
+  if (importing && openCart && !databaseDump) return notice("Select the OpenCart database dump.", "warning");
   if (genericPhp && databaseDump && !body.create_database) return notice("Enable MySQL database creation before selecting a database dump.", "warning");
-  body.import_database_dump = Boolean(importing && genericPhp && databaseDump);
+  body.import_database_dump = Boolean(importing && (genericPhp || openCart) && databaseDump);
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
   const submitButton = event.submitter || $("#provisionSubmit");
@@ -2344,7 +2355,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
       }
       return api("/api/provision", { method: "POST", body: JSON.stringify(body) });
     });
-    resultPanel.innerHTML = `<h3>Provisioning queued</h3><p>Job ${escapeHtml(result.job.id.slice(0, 8))} will continue without keeping this browser request open. Progress, warnings, cancellation, and one-time WordPress credentials are available in Jobs.</p>`;
+    resultPanel.innerHTML = `<h3>Provisioning queued</h3><p>Job ${escapeHtml(result.job.id.slice(0, 8))} will continue without keeping this browser request open. Progress, warnings, cancellation, and one-time generated credentials are available in Jobs.</p>`;
     resultPanel.classList.remove("hidden");
     importProgress.textContent = importing ? "Import queued. Uploaded staging is retained until the job succeeds." : "Provisioning queued.";
     rememberJob(result.job, importing ? "Website import queued" : "Website provisioning queued");

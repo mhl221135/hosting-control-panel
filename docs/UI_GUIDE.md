@@ -161,9 +161,10 @@ and deleted. It is disabled in both operation lists by default.
 
 ## Provision
 
-Provision creates a WordPress, Generic PHP, or Static HTML site. All receive
+Provision creates a WordPress, OpenCart, Generic PHP, or Static HTML site. All receive
 files, an internal route, optional Cloudflare DNS, NPM proxy host, and
-certificate. Generic PHP receives an isolated pool and can optionally create
+certificate. OpenCart and Generic PHP receive isolated pools. OpenCart requires
+an imported database; Generic PHP can optionally create
 and import a MySQL database. Static HTML has no managed database or cache
 controls.
 
@@ -172,10 +173,11 @@ controls.
 | Control | Function |
 | --- | --- |
 | **WordPress** | Enables fresh WordPress installation or archive-plus-database import. |
+| **OpenCart** | Imports a validated storefront/admin archive and required database, then rewrites its generated credentials, URLs, and runtime paths. |
 | **Generic PHP** | Creates or imports a PHP application with an optional generated MySQL database. |
 | **Static HTML** | Creates or imports files without a PHP pool, managed database, OPcache, Redis, or FastCGI controls. PHP requests return 404. |
 | **New website** | Downloads WordPress or creates a minimal starter for the selected adapter. |
-| **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and accepts a Generic PHP SQL dump when database creation is enabled. |
+| **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and accepts required WordPress/OpenCart or optional Generic PHP SQL dumps. |
 | **Domain** | Primary hostname used by nginx, NPM, WordPress, and optional DNS. |
 | **Website directory** | Overrides the directory name below the shared websites root; defaults to the domain. |
 | **Website title** | Sets the title during a fresh WordPress installation. |
@@ -198,6 +200,11 @@ controls.
 | **Request SSL** | Requests or attaches a Let's Encrypt certificate after the NPM host exists. DNS must already resolve to the server. |
 | **Enable comments by default** | Leaves WordPress comments enabled; the default is off. |
 | **Keep bundled WordPress plugins/themes** | Retains packages shipped with WordPress. Both are off by default so unwanted defaults are removed. |
+
+OpenCart has no fresh-download or automatic core-update mode. Its generated
+database credentials are written to both detected configuration files and
+shown once in Jobs. FastCGI caching bypasses sessions, account, cart, checkout,
+and administration traffic.
 
 ### DNS and packages
 

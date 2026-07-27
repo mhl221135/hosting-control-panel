@@ -73,3 +73,12 @@ test("allows a final file-only backup for Generic PHP without a database", () =>
   assert.equal(plan.resources.finalBackup.available, true);
   assert.equal(plan.resources.finalBackup.safe, true);
 });
+
+test("requires a database reference for an OpenCart final backup", () => {
+  const input = baseInput();
+  input.site.state = { siteType: "opencart" };
+  input.database = null;
+  input.databaseReferences = [];
+  const plan = buildSiteRemovalPlan(input);
+  assert.equal(plan.resources.finalBackup.available, false);
+});

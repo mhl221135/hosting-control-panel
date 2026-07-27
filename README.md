@@ -18,7 +18,7 @@ into dedicated directories.
 - Automatic grouping of `www` and other aliases under their primary website
 - Low, Medium, and High PHP profile selection directly from each website row
 - One-click WordPress download, configuration, installation, and admin setup
-- Capability-driven WordPress, Generic PHP, and Static HTML site adapters
+- Capability-driven WordPress, OpenCart, Generic PHP, and Static HTML site adapters
 - Generic PHP provisioning with an optional generated MySQL database and dump import
 - Provision-time website imports from ZIP/TAR archives and SQL/SQL.GZ dumps
 - Automatic MySQL database and user creation
@@ -285,7 +285,7 @@ The Settings tab contains connection tests for:
 ## Provision a Website
 
 1. Open **Provision**.
-2. Select **WordPress**, **Generic PHP**, or **Static HTML**, then enter the domain and directory.
+2. Select **WordPress**, **OpenCart**, **Generic PHP**, or **Static HTML**, then enter the domain and directory.
    WordPress fresh installs also require a title, administrator email, and user.
 3. Choose the PHP pool tier.
 4. Choose whether to create/update Cloudflare host DNS and optionally apply a
@@ -304,7 +304,15 @@ and has no PHP-FPM pool, managed database, or cache controls. Nginx returns 404
 for every PHP request on a Static HTML route, even if a PHP file is later placed
 in its document root. A single wrapper directory is flattened automatically.
 
-Panel exports preserve the adapter type. Generic PHP exports include its
+OpenCart is import-only. Upload an application archive containing storefront
+and admin `config.php` files plus a database dump. The importer detects renamed
+admin directories, generates isolated MySQL credentials, rewrites HTTP/HTTPS,
+database, and absolute directory constants, validates both PHP entry points,
+and enables commerce-safe FastCGI exclusions. OpenCart core updates remain an
+explicitly unsupported manual operation.
+
+Panel exports preserve the adapter type. OpenCart exports always include its
+declared database and configuration-bearing files. Generic PHP exports include its
 declared database when configured and otherwise remain file-only. Static HTML
 exports contain only the website archive and manifest.
 

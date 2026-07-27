@@ -1,6 +1,6 @@
 function normalizeSiteType(value) {
   const normalized = String(value || "wordpress").trim().toLowerCase();
-  return ["wordpress", "static", "generic-php"].includes(normalized) ? normalized : "wordpress";
+  return ["wordpress", "static", "generic-php", "opencart"].includes(normalized) ? normalized : "wordpress";
 }
 
 function supportsWordPressRedis(value) {
@@ -15,6 +15,11 @@ const ADAPTERS = Object.freeze({
   "generic-php": Object.freeze({
     type: "generic-php", label: "Generic PHP", database: "optional",
     php: true, opcache: true, fastcgi: true, redis: false, imageOptimization: false,
+  }),
+  opencart: Object.freeze({
+    type: "opencart", label: "OpenCart", database: "required",
+    php: true, opcache: true, fastcgi: true, redis: false, imageOptimization: false,
+    updates: false,
   }),
   static: Object.freeze({
     type: "static", label: "Static HTML", database: "none",
@@ -31,7 +36,7 @@ function siteDatabaseReference(site) {
   if (adapter.database === "none") return null;
   const name = String(site?.state?.databaseName || "").trim();
   const user = String(site?.state?.databaseUser || name).trim();
-  if (adapter.type === "generic-php" && !name) return null;
+  if (adapter.database === "optional" && !name) return null;
   return name ? { name, user } : null;
 }
 

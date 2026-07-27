@@ -53,6 +53,7 @@ const { CertificateJobManager } = require("./lib/certificate-job-manager");
 const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/provision-security");
 const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-manager");
 const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
+const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -843,7 +844,7 @@ async function createSiteRemovalPlan(domain) {
     const batch = await Promise.all(otherSites.slice(offset, offset + 4).map(async (otherSite) => {
       const otherAdapter = siteAdapter(otherSite.state?.siteType);
       if (otherAdapter.database === "none") return { domain: otherSite.host, static: true };
-      if (otherAdapter.type === "generic-php") {
+      if (otherAdapter.type !== "wordpress") {
         const reference = siteDatabaseReference(otherSite);
         return reference ? { domain: otherSite.host, ...reference } : { domain: otherSite.host, static: true };
       }
@@ -855,7 +856,7 @@ async function createSiteRemovalPlan(domain) {
     }));
     referenceResults.push(...batch);
   }
-  if (adapter.type === "generic-php") database = siteDatabaseReference(site);
+  if (adapter.type !== "wordpress" && adapter.database !== "none") database = siteDatabaseReference(site);
   for (const reference of referenceResults) {
     if (reference.static) {
       // Static/PHP sites intentionally have no database reference.
@@ -1149,6 +1150,12 @@ function validateProvisionRequest(body) {
   if (sourceMode === "import" && !body.import_upload_id) {
     throw Object.assign(new Error("Upload the website files before starting the import"), { statusCode: 400 });
   }
+  if (siteType === "opencart" && sourceMode !== "import") {
+    throw Object.assign(new Error("OpenCart requires an application archive and database dump"), { statusCode: 400 });
+  }
+  if (siteType === "opencart" && !body.import_database_dump) {
+    throw Object.assign(new Error("OpenCart requires a database dump"), { statusCode: 400 });
+  }
   if (siteType === "static" && body.create_database) {
     throw Object.assign(new Error("Static HTML websites cannot create a database"), { statusCode: 400 });
   }
@@ -1193,6 +1200,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       );
     }
     await normalizeWordPressPermissions(directory);
+    if (siteType === "opencart") inspectOpenCart(sitePath);
   }
 
   jobContext?.checkpoint("Provisioning cancelled before runtime configuration was changed");
@@ -1251,18 +1259,47 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
     });
     steps.push({ name: "wordpress", status: "complete" });
-  } else if (siteType === "generic-php" && body.create_database) {
-    database = await createDatabase(domain, integrationSettings.resolved());
-    steps.push({ name: "database", status: "complete", database: database.name });
-    if (sourceMode === "import" && body.import_database_dump) {
-      try {
+  } else if ((siteType === "generic-php" && body.create_database) || siteType === "opencart") {
+    try {
+      database = await createDatabase(domain, integrationSettings.resolved());
+      steps.push({ name: "database", status: "complete", database: database.name });
+      if (sourceMode === "import" && body.import_database_dump) {
         const dumpPath = await provisionImports.prepareDatabaseDump(String(body.import_upload_id || ""));
         await importDatabaseDump(database.name, dumpPath, integrationSettings.resolved());
         steps.push({ name: "database-import", status: "complete" });
-      } catch (error) {
-        await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
-        throw error;
+        if (siteType === "opencart") {
+          const openCart = rewriteOpenCart(sitePath, {
+            domain,
+            useHttps: false,
+            containerRoot: `/var/www/${directory}`,
+            database,
+          });
+          await execFileCommand("docker", [
+            "exec", "hosting-php-fpm", "php", "-l", `/var/www/${directory}/index.php`,
+          ]);
+          await execFileCommand("docker", [
+            "exec", "hosting-php-fpm", "php", "-l", `/var/www/${directory}/${openCart.adminDirectory}/index.php`,
+          ]);
+          for (const requestPath of ["/", `/${openCart.adminDirectory}/`]) {
+            await execFileCommand("docker", [
+              "exec", "hosting-nginx", "wget", "-q", "--spider",
+              "--header", `Host: ${domain}`, `http://127.0.0.1${requestPath}`,
+            ], 60_000);
+          }
+          steps.push({ name: "opencart-config", status: "complete" });
+        }
       }
+    } catch (error) {
+      if (database) {
+        await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+      }
+      fs.writeFileSync(SITES_MAP_PATH, mapBefore, "utf8");
+      fs.writeFileSync(POOLS_PATH, poolsBefore, "utf8");
+      await validateAndReload().catch((recoveryError) => {
+        error.message += `; runtime recovery failed: ${recoveryError.message}`;
+      });
+      fs.rmSync(sitePath, { recursive: true, force: true });
+      throw error;
     }
     steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
   } else {
@@ -1307,6 +1344,14 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       steps.push({ name: "npm", status: "complete", hostId: npmHost.id });
       if (npmHost.certificate_id) {
         if (siteType === "wordpress") await updateWordPressUrl(directory, domain, true);
+        if (siteType === "opencart") {
+          rewriteOpenCart(sitePath, {
+            domain,
+            useHttps: true,
+            containerRoot: `/var/www/${directory}`,
+            database,
+          });
+        }
         steps.push({ name: "https", status: "complete" });
       }
     } catch (error) {
@@ -1339,6 +1384,7 @@ jobManager.register("site.provision", async (context, payload) => {
     provisioningVault.put(context.id, payload.owner, {
       domain: result.domain,
       imported: result.imported,
+      siteType: result.siteType,
       database: result.database,
       wordpress: result.wordpress,
     });

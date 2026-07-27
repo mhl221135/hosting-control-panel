@@ -402,10 +402,10 @@ class BackupManager {
   async siteDatabaseName(site, relative) {
     const adapter = siteAdapter(site.state?.siteType);
     if (adapter.database === "none") return null;
-    if (adapter.type === "generic-php") {
+    if (adapter.type !== "wordpress") {
       const reference = siteDatabaseReference(site);
       if (!reference) return null;
-      if (!/^[A-Za-z0-9_$-]{1,64}$/.test(reference.name)) throw new Error("Generic PHP database name is invalid");
+      if (!/^[A-Za-z0-9_$-]{1,64}$/.test(reference.name)) throw new Error(`${adapter.label} database name is invalid`);
       return reference.name;
     }
     return this.databaseName(relative);

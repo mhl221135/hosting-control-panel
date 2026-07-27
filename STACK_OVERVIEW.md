@@ -46,7 +46,7 @@ The panel provides:
 - Global gzip and on-demand WebP generation with original-image fallback
 - Read-only WordPress inventory and manual backup-protected updates with
   persistent exclusions, health validation, and automatic rollback
-- WordPress, optional-database Generic PHP, and Static HTML adapter types
+- WordPress, required-database OpenCart, optional-database Generic PHP, and Static HTML adapter types
 - FastCGI cache purge
 - Nginx Proxy Manager host, SSL, and renewal controls
 - Cloudflare DNS record management
@@ -126,6 +126,11 @@ MySQL identifier limit are shortened with a deterministic hash suffix.
 Generic PHP can create the same isolated database/user pair and optionally
 import a dump, but never runs WP-CLI or rewrites application configuration.
 The generated credentials are exposed through the encrypted one-time vault.
+OpenCart is import-only and requires an archive plus database dump. The panel
+detects storefront and renamed admin configurations, rewrites database, URL,
+and absolute path constants, validates both PHP entry points, and applies
+commerce-safe cache bypass rules. Backups, restores, exports, imports, and
+resource deletion use the same adapter-aware managers.
 Static HTML has no managed database or PHP cache actions.
 Its route explicitly disables PHP execution and does not allocate a PHP-FPM
 pool. The upgrade migration converts legacy Static HTML routes and removes only
