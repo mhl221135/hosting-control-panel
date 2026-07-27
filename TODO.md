@@ -7,7 +7,7 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Adopt the shared background system for remaining long operations.
-2. Production WordPress update/rollback drills.
+2. Repeat production WordPress update/rollback drills before scheduling.
 3. Separate billing and hosting-entitlement service.
 4. Separate mail platform with panel API integration.
 5. Warm-standby replication and controlled failover.
@@ -109,9 +109,19 @@ editor metadata.
 
 ### Remaining
 
-- Updates remain manual initially. Do not add unattended schedules until backup
-  verification, health checks, and rollback have passed repeated production
-  drills.
+The first production plugin update and forced-rollback drill passed on
+2026-07-27 and is recorded in `docs/WORDPRESS_UPDATES.md`. Updates remain
+manual. Before adding unattended schedules:
+
+- complete at least two more production maintenance-window drills on dedicated
+  temporary sites;
+- cover WordPress core, a theme, a repository plugin, and an uploaded package
+  across the full drill set;
+- verify complete backup restoration, local-origin health, public HTTPS, cache
+  purge behavior, notification delivery, and removal of every temporary
+  external and local resource after each drill;
+- record elapsed backup/update/rollback time and resolve every warning or
+  rollback failure before counting a drill.
 
 ## 4. Separate Billing And Entitlement Service
 
