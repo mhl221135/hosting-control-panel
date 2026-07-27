@@ -583,8 +583,15 @@ Telegram can also poll for the read-only `/status` and `/site example.com`
 commands. Commands are disabled by default and require both the source chat ID
 and sender user ID to be explicitly allowlisted. Requests are rate-limited and
 recorded with a durable Bot API cursor in `telegram-command-state.json`; tokens
-and message contents are not stored there. The bot exposes no shell, Docker,
-SQL, WP-CLI, filesystem, cache-purge, or backup mutation command.
+and message contents are not stored there.
+
+A separate default-off mutation switch enables `/backup example.com` and
+`/purge example.com`. Each request returns a random one-use confirmation code
+bound to that sender and chat for two minutes. `/backup` queues the normal
+conflict-locked website backup and honors the global backup pause; `/purge`
+invalidates only the site's FastCGI page cache and reloads nginx. The code is
+consumed before execution and is not persisted. The bot exposes no arbitrary
+shell, Docker, SQL, WP-CLI, or filesystem command.
 
 ## Operational Health
 

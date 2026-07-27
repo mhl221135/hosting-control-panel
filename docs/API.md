@@ -126,7 +126,9 @@ Notification settings retain global failure/warning/success defaults and allow
 Telegram and SMTP to either inherit them or store independent channel filters.
 Omitted channel fields preserve inherited behavior for older API clients. The
 optional Telegram command fields enable `/status` and `/site domain` only with
-separate numeric chat and sender-user allowlists.
+separate numeric chat and sender-user allowlists. The independent mutation flag
+adds confirmed `/backup domain` and FastCGI-only `/purge domain`; their
+two-minute one-use challenges are never returned through the HTTP API.
 
 ### NPM and certificates
 

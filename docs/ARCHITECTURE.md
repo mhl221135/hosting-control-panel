@@ -156,7 +156,14 @@ when the event is queued so retries preserve the original delivery targets.
 operator commands. Both the chat and sender must be explicitly allowlisted.
 The manager persists only its update cursor and bounded command audit metadata,
 rate-limits each sender, and obtains status/site summaries through narrow
-providers. It does not receive an execution primitive or implement mutations.
+providers.
+
+An independently disabled mutation mode maps `/backup` and `/purge` to narrow
+callbacks owned by the server composition root. A random challenge is bound to
+one chat/user pair in memory for two minutes and deleted before invoking the
+operation. Backup uses the existing durable job path; purge performs only the
+existing per-site FastCGI cache-version update and nginx reload. No command
+manager path receives a shell, Docker, SQL, WP-CLI, or filesystem primitive.
 
 Direct certificate issuance and renewal are durable jobs, so provider failures
 reach the same terminal notification path as backups and provisioning. Renewal

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const DOMAIN_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 
@@ -20,15 +21,20 @@ class TelegramCommandManager {
     this.healthProvider = options.healthProvider;
     this.siteProvider = options.siteProvider;
     this.jobProvider = options.jobProvider;
+    this.backupProvider = options.backupProvider;
+    this.purgeProvider = options.purgeProvider;
     this.fetch = options.fetch || global.fetch;
     this.now = options.now || (() => new Date());
     this.pollIntervalMs = Number(options.pollIntervalMs || 5_000);
     this.maxHistory = Number(options.maxHistory || 250);
+    this.confirmationTtlMs = Number(options.confirmationTtlMs || 120_000);
+    this.challengeCode = options.challengeCode || (() => crypto.randomBytes(3).toString("hex"));
     this.path = path.join(this.dataDir, "telegram-command-state.json");
     this.timer = null;
     this.active = false;
     this.running = false;
     this.rateLimits = new Map();
+    this.confirmations = new Map();
     this.state = this.load();
   }
 
@@ -83,6 +89,7 @@ class TelegramCommandManager {
       enabled: settings.telegramCommandsEnabled,
       configured: Boolean(settings.telegramEnabled && settings.telegramBotToken
         && settings.telegramChatIds.length && settings.telegramCommandUserIds.length),
+      mutationsEnabled: settings.telegramMutationsEnabled,
       lastPollAt: this.state.lastPollAt,
       lastError: this.state.lastError,
       handled: this.state.history.filter((item) => item.result === "replied").length,
@@ -108,9 +115,11 @@ class TelegramCommandManager {
   }
 
   audit(input) {
+    const updateId = Number(input.updateId || 0);
+    if (updateId && this.state.history.some((item) => item.updateId === updateId)) return;
     this.state.history.unshift({
       at: this.now().toISOString(),
-      updateId: Number(input.updateId || 0),
+      updateId,
       chatId: bounded(input.chatId, 40),
       userId: bounded(input.userId, 40),
       command: bounded(input.command, 32),
@@ -118,6 +127,24 @@ class TelegramCommandManager {
       result: bounded(input.result, 80),
     });
     this.state.history = this.state.history.slice(0, this.maxHistory);
+  }
+
+  primarySite(domain) {
+    if (!DOMAIN_PATTERN.test(domain)) return null;
+    return this.siteProvider().find((item) =>
+      String(item.host).toLowerCase() === domain && !item.isAlias) || null;
+  }
+
+  confirmationKey(chatId, userId) {
+    return `${chatId}:${userId}`;
+  }
+
+  helpMessage(settings) {
+    const commands = ["Available commands:", "/status", "/site example.com"];
+    if (settings.telegramMutationsEnabled) {
+      commands.push("/backup example.com", "/purge example.com", "/confirm code", "/cancel");
+    }
+    return commands.join("\n");
   }
 
   statusMessage(settings) {
@@ -163,11 +190,78 @@ class TelegramCommandManager {
 
   response(command, settings) {
     if (!command || command.name === "help" || command.name === "start") {
-      return "Available commands:\n/status\n/site example.com";
+      return this.helpMessage(settings);
     }
     if (command.name === "status") return this.statusMessage(settings);
     if (command.name === "site") return this.siteMessage(command.argument);
-    return "Unknown command. Use /status or /site example.com";
+    return `Unknown command.\n${this.helpMessage(settings)}`;
+  }
+
+  requestMutation(command, settings, chatId, userId) {
+    if (!settings.telegramMutationsEnabled) {
+      return { text: "Telegram backup and purge commands are disabled in panel settings.", result: "mutation-disabled" };
+    }
+    const site = this.primarySite(command.argument);
+    if (!site) {
+      return { text: `Primary site not found: ${command.argument || "(missing domain)"}`, result: "site-not-found" };
+    }
+    const code = this.challengeCode().toLowerCase();
+    this.confirmations.set(this.confirmationKey(chatId, userId), {
+      code,
+      action: command.name,
+      domain: site.host,
+      expiresAt: this.now().getTime() + this.confirmationTtlMs,
+    });
+    return {
+      text: [
+        `Confirm ${command.name} for ${site.host}.`,
+        `Send /confirm ${code} within ${Math.ceil(this.confirmationTtlMs / 60_000)} minutes.`,
+        "Send /cancel to discard it.",
+      ].join("\n"),
+      result: "confirmation-issued",
+    };
+  }
+
+  async confirmMutation(command, chatId, userId) {
+    const key = this.confirmationKey(chatId, userId);
+    const pending = this.confirmations.get(key);
+    if (!pending) return { text: "No pending operation to confirm.", result: "confirmation-missing", target: "" };
+    if (pending.expiresAt <= this.now().getTime()) {
+      this.confirmations.delete(key);
+      return { text: "The confirmation expired. Submit the operation again.", result: "confirmation-expired", target: pending.domain };
+    }
+    if (!command.argument || command.argument !== pending.code) {
+      return { text: "Confirmation code does not match.", result: "confirmation-rejected", target: pending.domain };
+    }
+    this.confirmations.delete(key);
+    try {
+      const operator = `telegram:${userId}`;
+      const result = pending.action === "backup"
+        ? await this.backupProvider(pending.domain, operator)
+        : await this.purgeProvider(pending.domain, operator);
+      return {
+        text: bounded(result?.message || `${pending.action} started for ${pending.domain}`, 1000),
+        result: "executed",
+        target: pending.domain,
+      };
+    } catch (error) {
+      return {
+        text: `Operation failed: ${bounded(error.message, 500)}`,
+        result: "failed",
+        target: pending.domain,
+      };
+    }
+  }
+
+  cancelMutation(chatId, userId) {
+    const key = this.confirmationKey(chatId, userId);
+    const pending = this.confirmations.get(key);
+    this.confirmations.delete(key);
+    return {
+      text: pending ? `Cancelled ${pending.action} for ${pending.domain}.` : "No pending operation to cancel.",
+      result: pending ? "cancelled" : "confirmation-missing",
+      target: pending?.domain || "",
+    };
   }
 
   async send(settings, chatId, text) {
@@ -191,12 +285,29 @@ class TelegramCommandManager {
       return;
     }
     if (this.rateLimited(userId)) {
-      await this.send(settings, chatId, "Command rate limit reached. Try again in one minute.");
       this.audit({ updateId: update.update_id, chatId, userId, command: command.name, target: command.argument, result: "rate-limited" });
+      await this.send(settings, chatId, "Command rate limit reached. Try again in one minute.");
       return;
     }
-    await this.send(settings, chatId, this.response(command, settings));
-    this.audit({ updateId: update.update_id, chatId, userId, command: command.name, target: command.argument, result: "replied" });
+    let outcome;
+    if (command.name === "backup" || command.name === "purge") {
+      outcome = this.requestMutation(command, settings, chatId, userId);
+    } else if (command.name === "confirm") {
+      outcome = await this.confirmMutation(command, chatId, userId);
+    } else if (command.name === "cancel") {
+      outcome = this.cancelMutation(chatId, userId);
+    } else {
+      outcome = { text: this.response(command, settings), result: "replied", target: command.argument };
+    }
+    this.audit({
+      updateId: update.update_id,
+      chatId,
+      userId,
+      command: command.name,
+      target: outcome.target ?? command.argument,
+      result: outcome.result,
+    });
+    await this.send(settings, chatId, outcome.text);
   }
 
   async poll() {
