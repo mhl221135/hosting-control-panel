@@ -162,6 +162,11 @@ deliberately non-cancellable and non-retryable.
 Exact-source staging cleanup is a separate durable job sharing the
 `storage:imports` conflict. It removes only a direct manifest-bearing import
 directory and cannot reach the website or database mounts.
+Exports also create a complete TAR.GZ bundle. Browser bundle uploads use the
+existing ordered chunk protocol, can resume from the committed server offset,
+and queue `sites.import-upload-stage` for archive, symlink, manifest, checksum
+coverage, and checksum validation. Failed upload workspaces expire after 24
+hours; successful validation moves only the normalized source into `imports`.
 
 `scripts/import-websites.sh` stages an export or dump directory below
 `imports`. Manifest imports restore archives. Manual imports discover copied

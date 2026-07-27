@@ -7,12 +7,11 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Adopt the shared background system for remaining long operations.
-2. Finish resumable multi-site transfer uploads.
-3. Production WordPress update/rollback drills.
-4. Application adapters for generic PHP/MySQL and OpenCart.
-5. Separate billing and hosting-entitlement service.
-6. Separate mail platform with panel API integration.
-7. Warm-standby replication and controlled failover.
+2. Production WordPress update/rollback drills.
+3. Application adapters for generic PHP/MySQL and OpenCart.
+4. Separate billing and hosting-entitlement service.
+5. Separate mail platform with panel API integration.
+6. Warm-standby replication and controlled failover.
 
 The durable job system now handles backups, restores, maintenance, controlled
 WordPress updates, image optimization, website deletion, website
@@ -103,41 +102,7 @@ After notifications are stable, add only allowlisted commands such as
   Notifications must continue to support an independent external SMTP relay;
   mailbox hosting is a separate infrastructure product and failure domain.
 
-## 3. Import And Export In The Panel
-
-### Objective
-
-Expose the existing portable migration manager in the authenticated UI without
-duplicating the tested shell-script logic.
-
-### Implemented
-
-The Transfers workspace accepts server-staged portable manifests and
-lightweight `import-sites.json` plans. It resolves newest matching dumps,
-previews site type, paths, aliases, DNS/NPM/SSL actions and conflicts, and
-fingerprints the source. Typed `IMPORT` confirmation queues a non-retryable
-durable job that revalidates the fingerprint and refuses existing configured
-domains, databases, or non-empty archive destinations. It reuses
-`MigrationManager`, rollback, generated credentials, runtime configuration,
-Cloudflare, NPM, and the shared storage lock. Exact-source confirmation can
-queue a confined cleanup job; the shared import-storage conflict prevents
-cleanup while an import is active.
-
-### Remaining
-
-- Add resumable browser upload of a complete multi-site portable bundle.
-- Retain failed browser-upload staging for a bounded retry window.
-- Add deliberate per-resource conflict choices if overwrite/adoption modes are
-  ever needed; keep refusal as the default.
-
-### Acceptance Criteria
-
-- Shell and staged UI imports produce equivalent runtime state.
-- Progress survives navigation and panel restart through the shared job system.
-- Existing files, databases, NPM hosts, or DNS records are never overwritten
-  without a visible conflict decision and typed confirmation.
-
-## 4. WordPress Maintenance And Controlled Updates
+## 3. WordPress Maintenance And Controlled Updates
 
 ### Implemented
 
@@ -163,7 +128,7 @@ editor metadata.
   verification, health checks, and rollback have passed repeated production
   drills.
 
-## 5. Application Adapter Model
+## 4. Application Adapter Model
 
 ### Objective
 
@@ -203,7 +168,7 @@ Each adapter defines:
 - Define session/cart/checkout exclusions before allowing FastCGI caching.
 - Add OpenCart-specific backup, restore, removal, and migration tests.
 
-## 6. Separate Billing And Entitlement Service
+## 5. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -248,7 +213,7 @@ remain a later optional adapter.
   notification-only mode. Local nginx cannot suspend externally hosted sites.
 - Never delete website data because payment expired.
 
-## 7. Separate Mail Platform
+## 6. Separate Mail Platform
 
 ### Objective
 
@@ -420,7 +385,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 8. Warm Standby And Controlled Failover
+## 7. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

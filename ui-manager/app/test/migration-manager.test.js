@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -295,6 +296,42 @@ test("previews primary exports and reads bounded artifact history", async () => 
     assert.equal(manager.exportFile(id, "manifest.json").name, "manifest.json");
     assert.throws(() => manager.exportFile(id, "../manifest.json"), /Invalid export artifact/);
     assert.throws(() => manager.exportFile(id, "sites/example.tar.gz", 1), /download limit/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("packages a complete browser-ready bundle with each portable export", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-export-bundle-"));
+  try {
+    const websitesRoot = path.join(directory, "websites");
+    fs.mkdirSync(path.join(websitesRoot, "static.example.com"), { recursive: true });
+    fs.writeFileSync(path.join(websitesRoot, "static.example.com", "index.html"), "<h1>Static</h1>\n");
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot: path.join(directory, "imports"),
+      websitesRoot,
+      sitesMapPath: path.join(directory, "sites.map"),
+      poolsPath: path.join(directory, "pools.conf"),
+      siteState: { get: () => ({ siteType: "static" }) },
+    });
+    manager.selectedSites = () => [{
+      host: "static.example.com",
+      aliases: [],
+      canonicalAliases: [],
+      root: "/var/www/static.example.com",
+      poolTier: "low",
+      state: { siteType: "static", opcache: true },
+    }];
+    const result = await manager.exportAll(["static.example.com"]);
+    const bundle = path.join(result.directory, `${result.exportId}.tar.gz`);
+    assert.equal(fs.existsSync(bundle), true);
+    const entries = execFileSync("tar", ["-tzf", bundle], { encoding: "utf8" });
+    assert.match(entries, /manifest\.json/);
+    assert.match(entries, /checksums\.sha256/);
+    assert.match(entries, /sites\/static_example_com\.tar\.gz/);
+    assert.equal(result.files.some((file) => file.name === `${result.exportId}.tar.gz`), true);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

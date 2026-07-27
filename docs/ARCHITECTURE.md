@@ -223,6 +223,15 @@ revalidates that the target is a direct, real, manifest-bearing child of the
 imports root before recursive removal. Website and database mounts are outside
 that deletion boundary.
 
+Complete browser bundles reuse `ProvisionImportStore`'s ordered chunk and
+server-offset protocol. The UUID and committed offset are retained in browser
+session state so reselecting the same file resumes rather than restarts.
+Finalization is a `sites.import-upload-stage` job, not a long HTTP request. It
+path-validates archive listings, rejects symlinks after extraction, requires one
+manifest, validates every referenced artifact against `checksums.sha256`, and
+atomically publishes `upload-<uuid>` as a normal staged source. Failed upload
+workspaces expire after 24 hours.
+
 The Provision tab's single-site adapter stages raw uploads below
 `imports/ui-provision`, validates archive member paths, rejects symlinks, finds
 the sole WordPress document root, and produces the same normalized archive and

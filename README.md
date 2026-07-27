@@ -619,6 +619,7 @@ selection. It writes a directory such as:
 ```text
 exports/export-2026-07-19_02-00-00/
 |-- checksums.sha256
+|-- export-2026-07-19_02-00-00.tar.gz
 |-- manifest.json
 |-- sites/
 |   `-- example_com.tar.gz
@@ -631,6 +632,8 @@ components before it queues a durable export job. Sites run sequentially under
 the shared storage lock; a failed site is recorded without discarding successful
 site bundles. The generated history lists total size and allows authenticated
 downloads of regular artifacts up to 512 MB by default.
+Each export also packages those checksum-covered files into one complete
+`.tar.gz` bundle suitable for the Transfers browser uploader.
 
 The same **Transfers** workspace lists server-side staged directories containing
 `manifest.json` or `import-sites.json`. **Preview import** resolves the newest
@@ -641,6 +644,14 @@ Starting the import requires typing `IMPORT`; files, databases, and configured
 domains are never overwritten. The non-retryable import runs as a durable job
 under the shared storage lock, so navigation or closing the browser does not
 interrupt it.
+
+The browser uploader accepts ZIP, TAR, TAR.GZ, and TGZ bundles up to 16 GiB by
+default. It sends 16 MiB chunks, retries transient failures, stores its upload
+identifier in browser session state, and resumes from the committed server
+offset when the same file is reselected. Archive traversal, symlink, manifest,
+artifact coverage, and SHA-256 validation then run as a durable job. A valid
+bundle appears in **Staged source** after Refresh. Failed uploads remain below
+`imports/ui-provision` for at most 24 hours.
 
 **Remove staging** requires typing the exact selected source name and queues a
 separate audited cleanup job. Cleanup shares the import-storage conflict lock,

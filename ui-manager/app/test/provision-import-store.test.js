@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -18,6 +19,10 @@ function chunkRequest(buffer, start, end, total) {
   const request = requestFor(buffer.subarray(start, end));
   request.headers["content-range"] = `bytes ${start}-${end - 1}/${total}`;
   return request;
+}
+
+function checksum(file) {
+  return crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
 
 test("assembles a resumable upload from ordered chunks", async (context) => {
@@ -179,4 +184,69 @@ test("installs a static website archive without wp-config or a database", async 
   assert.equal(fs.readFileSync(path.join(destination, "index.html"), "utf8"), "<h1>Static site</h1>\n");
   assert.equal(fs.readFileSync(path.join(destination, "contact.php"), "utf8"), "<?php echo 'ok';\n");
   assert.equal(fs.readFileSync(path.join(destination, "assets", "site.css"), "utf8"), "body {}\n");
+});
+
+test("validates and stages a complete portable bundle for Transfers", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-bundle-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const portable = path.join(root, "portable", "export-2026-07-27_12-00-00");
+  fs.mkdirSync(path.join(portable, "sites"), { recursive: true });
+  fs.mkdirSync(path.join(portable, "databases"), { recursive: true });
+  fs.writeFileSync(path.join(portable, "sites", "example.tar.gz"), "website archive");
+  fs.writeFileSync(path.join(portable, "databases", "example.sql.gz"), "database dump");
+  fs.writeFileSync(path.join(portable, "manifest.json"), JSON.stringify({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "example.com",
+      websitePath: "example.com",
+      database: "example_db",
+      websiteArchive: "sites/example.tar.gz",
+      databaseDump: "databases/example.sql.gz",
+    }],
+  }));
+  const covered = ["manifest.json", "sites/example.tar.gz", "databases/example.sql.gz"];
+  fs.writeFileSync(path.join(portable, "checksums.sha256"), `${covered.map((relative) =>
+    `${checksum(path.join(portable, relative))}  ${relative}`).join("\n")}\n`);
+  const archive = path.join(root, "portable.tar.gz");
+  execFileSync("tar", ["-czf", archive, "-C", path.join(root, "portable"), path.basename(portable)]);
+
+  const importsRoot = path.join(root, "imports");
+  const store = new ProvisionImportStore({ importsRoot });
+  const id = "99999999-9999-4999-8999-999999999999";
+  await store.upload(requestFor(fs.readFileSync(archive)), id, "bundle", "portable.tar.gz");
+  assert.equal(store.bundleUploadStatus(id).complete, true);
+  const result = await store.prepareBundle(id);
+
+  assert.equal(result.source, `upload-${id}`);
+  assert.equal(fs.existsSync(path.join(importsRoot, result.source, "manifest.json")), true);
+  assert.equal(fs.existsSync(store.directory(id)), false);
+});
+
+test("retains a portable bundle upload when checksum validation fails", async (context) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-bundle-invalid-"));
+  context.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const portable = path.join(root, "portable");
+  fs.mkdirSync(path.join(portable, "sites"), { recursive: true });
+  fs.writeFileSync(path.join(portable, "sites", "static.tar.gz"), "archive");
+  fs.writeFileSync(path.join(portable, "manifest.json"), JSON.stringify({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "static.example.com",
+      siteType: "static",
+      websitePath: "static.example.com",
+      websiteArchive: "sites/static.tar.gz",
+    }],
+  }));
+  fs.writeFileSync(path.join(portable, "checksums.sha256"), `${"0".repeat(64)}  manifest.json\n${"0".repeat(64)}  sites/static.tar.gz\n`);
+  const archive = path.join(root, "portable.zip");
+  execFileSync("zip", ["-qr", archive, "."], { cwd: portable });
+  const store = new ProvisionImportStore({ importsRoot: path.join(root, "imports") });
+  const id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  await store.upload(requestFor(fs.readFileSync(archive)), id, "bundle", "portable.zip");
+
+  await assert.rejects(store.prepareBundle(id), /checksum failed/);
+  assert.equal(fs.existsSync(store.directory(id)), true);
+  assert.equal(store.bundleUploadStatus(id).complete, true);
 });

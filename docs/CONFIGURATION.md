@@ -15,6 +15,7 @@ the supported keys.
 | `UI_SETTINGS_KEY` | Stable secret-encryption material | Overrides generated key file |
 | `JOB_HISTORY_LIMIT` | Maximum durable job records | Defaults to 250; active work is never pruned |
 | `PROVISION_CREDENTIAL_TTL_HOURS` | One-time provisioning credential lifetime | Defaults to 24; bounded to 1-168 hours |
+| `TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES` | Maximum resumable portable bundle upload | Defaults to 16 GiB |
 | `NPM_API_URL` | NPM API endpoint | Environment fallback; editable in panel |
 | `NPM_IDENTITY` | Initial NPM account/panel API identity | Existing NPM database wins |
 | `NPM_SECRET` | Initial NPM password/panel API secret | Existing NPM database wins |

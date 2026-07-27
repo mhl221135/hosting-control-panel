@@ -153,6 +153,12 @@ Cancellation is honored only before archive extraction/import or runtime
 configuration mutation. WordPress credentials can be revealed once from a
 successful job and expire after 24 hours; they cannot be recovered afterward.
 
+Transfers uses the same staging root for resumable complete-bundle uploads.
+After a connection stops, reselect the same file and click **Upload and stage
+bundle**; the panel queries the committed server offset before sending more
+chunks. Archive extraction and checksum validation continue in Jobs after the
+upload. Failed validation retains the upload for up to 24 hours.
+
 ### Website returns 502
 
 1. Check the NPM host forwards to `hosting-nginx:80` over HTTP.

@@ -41,8 +41,10 @@ let imageOptimizationPollTimer = null;
 let maintenancePollTimer = null;
 let jobsPollTimer = null;
 let provisionInFlight = false;
+let transferUploadInFlight = false;
 const PROVISION_UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
 const PROVISION_UPLOAD_RETRIES = 3;
+const TRANSFER_UPLOAD_SESSION_KEY = "hosting-transfer-upload";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
@@ -159,7 +161,7 @@ function provisionUploadId() {
   });
 }
 
-function uploadProvisionChunk(file, uploadId, kind, start, end, progress) {
+function uploadProvisionChunk(file, uploadId, kind, start, end, progress, endpoint = "/api/provision/import-upload") {
   return new Promise((resolve, reject) => {
     const query = new URLSearchParams({
       upload_id: uploadId,
@@ -169,7 +171,7 @@ function uploadProvisionChunk(file, uploadId, kind, start, end, progress) {
       total_size: String(file.size),
     });
     const request = new XMLHttpRequest();
-    request.open("POST", `/api/provision/import-upload?${query}`);
+    request.open("POST", `${endpoint}?${query}`);
     request.withCredentials = true;
     request.setRequestHeader("Content-Type", "application/octet-stream");
     if (state.csrf) request.setRequestHeader("X-CSRF-Token", state.csrf);
@@ -196,19 +198,46 @@ function uploadProvisionChunk(file, uploadId, kind, start, end, progress) {
   });
 }
 
-async function uploadProvisionImport(file, uploadId, kind, progress) {
-  for (let start = 0; start < file.size; start += PROVISION_UPLOAD_CHUNK_SIZE) {
+async function uploadProvisionImport(
+  file,
+  uploadId,
+  kind,
+  progress,
+  endpoint = "/api/provision/import-upload",
+  startOffset = 0,
+  chunkComplete = () => {},
+) {
+  for (let start = startOffset; start < file.size; start += PROVISION_UPLOAD_CHUNK_SIZE) {
     const end = Math.min(start + PROVISION_UPLOAD_CHUNK_SIZE, file.size);
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await uploadProvisionChunk(file, uploadId, kind, start, end, progress);
+        await uploadProvisionChunk(file, uploadId, kind, start, end, progress, endpoint);
         progress(end, file.size);
+        chunkComplete(end);
         break;
       } catch (error) {
         if (!error.retryable || attempt >= PROVISION_UPLOAD_RETRIES) throw error;
         await new Promise((resolve) => window.setTimeout(resolve, 750 * (2 ** attempt)));
       }
     }
+  }
+}
+
+function transferUploadSession() {
+  try {
+    const stored = JSON.parse(sessionStorage.getItem(TRANSFER_UPLOAD_SESSION_KEY) || "null");
+    return stored && typeof stored === "object" ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveTransferUploadSession(session) {
+  try {
+    if (session) sessionStorage.setItem(TRANSFER_UPLOAD_SESSION_KEY, JSON.stringify(session));
+    else sessionStorage.removeItem(TRANSFER_UPLOAD_SESSION_KEY);
+  } catch {
+    // Upload still works without reload persistence when browser storage is unavailable.
   }
 }
 
@@ -795,6 +824,7 @@ function jobTypeLabel(type) {
     "sites.export": "Website export",
     "sites.import": "Website import",
     "sites.import-cleanup": "Import staging cleanup",
+    "sites.import-upload-stage": "Portable bundle staging",
   }[type] || type;
 }
 
@@ -2684,6 +2714,63 @@ $("#startExport").addEventListener("click", async (event) => {
     rememberJob(result.job, "Portable website export queued");
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
+});
+$("#uploadTransferBundle").addEventListener("click", async (event) => {
+  if (transferUploadInFlight) return notice("A portable bundle upload is already running.", "warning");
+  const file = $("#transferBundleArchive").files[0];
+  if (!file) return notice("Select a portable bundle archive.", "warning");
+  const fileKey = `${file.name}:${file.size}:${file.lastModified}`;
+  let session = transferUploadSession();
+  if (!session || session.fileKey !== fileKey) {
+    session = { id: provisionUploadId(), fileKey, uploaded: 0 };
+    saveTransferUploadSession(session);
+  }
+  const progress = $("#transferUploadProgress");
+  transferUploadInFlight = true;
+  try {
+    const result = await withButton(event.currentTarget, "Uploading bundle...", async () => {
+      const status = await api(`/api/transfers/import/upload/status?upload_id=${encodeURIComponent(session.id)}`);
+      let uploadComplete = Boolean(status.upload.complete);
+      if (status.upload.filename && status.upload.filename !== file.name) {
+        session = { id: provisionUploadId(), fileKey, uploaded: 0 };
+        saveTransferUploadSession(session);
+        uploadComplete = false;
+      } else {
+        session.uploaded = Number(status.upload.received || 0);
+      }
+      if (session.uploaded > file.size) throw new Error("Stored upload is larger than the selected file; select the bundle again");
+      progress.textContent = uploadProgress("Uploading portable bundle", session.uploaded, file.size);
+      if (!uploadComplete) {
+        await uploadProvisionImport(
+          file,
+          session.id,
+          "bundle",
+          (loaded, total) => { progress.textContent = uploadProgress("Uploading portable bundle", loaded, total); },
+          "/api/transfers/import/upload",
+          session.uploaded,
+          (uploaded) => {
+            session.uploaded = uploaded;
+            saveTransferUploadSession(session);
+          },
+        );
+      }
+      event.currentTarget.textContent = "Queuing validation...";
+      progress.textContent = "Upload complete. Queuing archive and checksum validation.";
+      return api("/api/transfers/import/upload/finalize", {
+        method: "POST",
+        body: JSON.stringify({ upload_id: session.id }),
+      });
+    });
+    saveTransferUploadSession(null);
+    rememberJob(result.job, "Portable bundle validation queued");
+    progress.textContent = "Bundle uploaded. Validation and staging continue in Jobs.";
+    switchTab("jobs");
+  } catch (error) {
+    progress.textContent = `Upload paused at ${formatBytes(session.uploaded || 0)}. Select the same file and retry to resume.`;
+    notice(error.message, "warning");
+  } finally {
+    transferUploadInFlight = false;
+  }
 });
 ["#importSource", "#importWanIp", "#importUpdateDns", "#importProxied", "#importCreateNpm", "#importIssueSsl"]
   .forEach((selector) => $(selector).addEventListener("change", invalidateImportPreview));
