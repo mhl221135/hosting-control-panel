@@ -15,6 +15,34 @@ function packageIds(values) {
   return ids;
 }
 
+function emptyPins() {
+  return {
+    site: false,
+    core: false,
+    plugins: [],
+    themes: [],
+    pluginPackageIds: [],
+    themePackageIds: [],
+    note: "",
+    updatedAt: "",
+    updatedBy: "",
+  };
+}
+
+function normalizePins(input = {}) {
+  return {
+    site: input.site === true,
+    core: input.core === true,
+    plugins: validatePackageNames(input.plugins),
+    themes: validatePackageNames(input.themes),
+    pluginPackageIds: packageIds(input.pluginPackageIds),
+    themePackageIds: packageIds(input.themePackageIds),
+    note: boundedText(input.note, 300),
+    updatedAt: boundedText(input.updatedAt, 40),
+    updatedBy: boundedText(input.updatedBy, 160),
+  };
+}
+
 function requestSelection(input = {}) {
   const selection = {
     core: input.core === true,
@@ -68,7 +96,98 @@ class WordPressUpdateManager {
     this.afterSuccess = options.afterSuccess || (async () => {});
     this.request = options.request || fetch;
     this.historyPath = path.join(this.dataDir, "wordpress-update-history.json");
+    this.pinsPath = path.join(this.dataDir, "wordpress-update-pins.json");
     this.jobManager.register("wordpress.update", (context, payload) => this.apply(payload, context));
+  }
+
+  readPins() {
+    let parsed;
+    try {
+      parsed = JSON.parse(fs.readFileSync(this.pinsPath, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return {};
+      throw new Error("WordPress update pins are unreadable; updates are blocked until the file is repaired");
+    }
+    if (!parsed || parsed.version !== 1 || !parsed.pins || typeof parsed.pins !== "object") {
+      throw new Error("WordPress update pins are invalid; updates are blocked until the file is repaired");
+    }
+    const pins = {};
+    for (const [domain, value] of Object.entries(parsed.pins).slice(0, 1000)) {
+      if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(domain)) {
+        throw new Error("WordPress update pins contain an invalid domain");
+      }
+      pins[domain.toLowerCase()] = normalizePins(value);
+    }
+    return pins;
+  }
+
+  savePins(pins) {
+    const temporary = `${this.pinsPath}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify({ version: 1, pins }, null, 2), {
+      encoding: "utf8",
+      mode: 0o600,
+    });
+    fs.renameSync(temporary, this.pinsPath);
+  }
+
+  pinsFor(domain) {
+    return this.readPins()[String(domain || "").toLowerCase()] || emptyPins();
+  }
+
+  pinsView() {
+    return this.readPins();
+  }
+
+  async updatePins(domain, input, operator) {
+    const site = await this.site(domain);
+    const activeUpdate = this.jobManager.list({ type: "wordpress.update", limit: 250 })
+      .find((job) => ["queued", "running", "cancelling"].includes(job.status)
+        && job.targets.includes(site.host));
+    if (activeUpdate) {
+      throw Object.assign(new Error("Update exclusions cannot change while this website has an active update job"), {
+        statusCode: 409,
+      });
+    }
+    const next = normalizePins({
+      ...input,
+      updatedAt: new Date().toISOString(),
+      updatedBy: operator,
+    });
+    this.packageStore.resolve("plugins", next.pluginPackageIds);
+    this.packageStore.resolve("themes", next.themePackageIds);
+    const pins = this.readPins();
+    const active = next.site || next.core || next.plugins.length || next.themes.length
+      || next.pluginPackageIds.length || next.themePackageIds.length;
+    if (active) pins[site.host] = next;
+    else delete pins[site.host];
+    this.savePins(pins);
+    return pins[site.host] || emptyPins();
+  }
+
+  assertAllowed(domain, selection) {
+    const pins = this.pinsFor(domain);
+    const blocked = [];
+    if (pins.site) blocked.push("all updates for this website");
+    if (selection.core && pins.core) blocked.push("WordPress core");
+    for (const name of selection.plugins.filter((item) => pins.plugins.includes(item))) {
+      blocked.push(`plugin ${name}`);
+    }
+    for (const name of selection.themes.filter((item) => pins.themes.includes(item))) {
+      blocked.push(`theme ${name}`);
+    }
+    for (const id of selection.pluginPackageIds.filter((item) => pins.pluginPackageIds.includes(item))) {
+      blocked.push(`uploaded plugin package ${id}`);
+    }
+    for (const id of selection.themePackageIds.filter((item) => pins.themePackageIds.includes(item))) {
+      blocked.push(`uploaded theme package ${id}`);
+    }
+    if (blocked.length) {
+      const note = pins.note ? ` Reason: ${pins.note}` : "";
+      throw Object.assign(new Error(`Update selection is pinned: ${blocked.join(", ")}.${note}`), {
+        statusCode: 409,
+      });
+    }
+    return pins;
   }
 
   history() {
@@ -134,6 +253,7 @@ class WordPressUpdateManager {
   async preview(input) {
     const site = await this.site(input.domain);
     const selection = requestSelection(input);
+    this.assertAllowed(site.host, selection);
     const before = await this.runner.inventory(site);
     const plugins = new Map(before.plugins.map((item) => [item.name, item]));
     const themes = new Map(before.themes.map((item) => [item.name, item]));
@@ -405,6 +525,8 @@ class WordPressUpdateManager {
 
 module.exports = {
   WordPressUpdateManager,
+  emptyPins,
+  normalizePins,
   packageIds,
   requestSelection,
   selectedSnapshot,

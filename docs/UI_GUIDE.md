@@ -138,6 +138,7 @@ primary WordPress websites; HTML/PHP sites are excluded.
 | **Enable weekly maintenance** | Enables the global weekly scheduler. It is off by default. |
 | **Inventory versions** | Queues a read-only core, plugin, and theme version snapshot for selected WordPress sites. |
 | **Controlled update** | Selects one inventoried website and explicit repository or uploaded-package updates. |
+| **Update exclusions** | Blocks every update for a website or pins selected core, installed package, or uploaded ZIP sources. Saves an optional reason and last editor metadata. |
 | **Preview update** | Refreshes current package state and shows exact operations plus safeguards without mutation. |
 | **Apply reviewed update** | Queues a non-cancellable update with mandatory verified backup, health checks, and automatic rollback. |
 | **Weekday / Start time** | Chooses one server-local weekly execution window. A missed start runs on the next scheduler check that day. |

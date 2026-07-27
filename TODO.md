@@ -8,7 +8,7 @@ backlog only when their acceptance criteria are satisfied.
 
 1. Adopt the shared background system for remaining long operations.
 2. Operational health notifications and import/export controls in the authenticated panel.
-3. WordPress version pins and production update/rollback drills.
+3. Production WordPress update/rollback drills.
 4. Application adapters for generic PHP/MySQL and OpenCart.
 5. Separate billing and hosting-entitlement service.
 6. Separate mail platform with panel API integration.
@@ -143,14 +143,16 @@ one-site durable job refreshes its preview, creates and verifies a complete
 files/database backup, enables maintenance mode, records before/after versions,
 checks WordPress/database/front-page/admin health, purges caches only on
 success, and automatically restores the verified backup on failure.
+Persistent per-site exclusions can block the entire site, WordPress core,
+installed plugin/theme slugs, or uploaded package-library sources. They are
+enforced during preview and execution and record an operator reason and last
+editor metadata.
 
 ### Remaining
 
 - Updates remain manual initially. Do not add unattended schedules until backup
   verification, health checks, and rollback have passed repeated production
   drills.
-- Add persistent named exclusions/pins for sites or packages that must remain
-  on a version. Until then, every operation requires explicit package selection.
 
 ## 5. Application Adapter Model
 

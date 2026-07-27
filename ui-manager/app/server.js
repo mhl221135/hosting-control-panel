@@ -2085,12 +2085,21 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "GET" && requestUrl.pathname === "/api/maintenance/status") {
+    let updatePins = {};
+    let updatePinsError = "";
+    try {
+      updatePins = wordpressUpdateManager.pinsView();
+    } catch (error) {
+      updatePinsError = error.message;
+    }
     sendJson(res, 200, {
       ok: true,
       status: maintenanceManager.getStatus(),
       settings: maintenanceManager.readSettings(),
       inventory: maintenanceManager.readInventory(),
       updateHistory: wordpressUpdateManager.publicView(),
+      updatePins,
+      updatePinsError,
     });
     return true;
   }
@@ -2186,6 +2195,27 @@ async function handleApi(req, res) {
         pluginPackageIds: body.plugin_package_ids,
         themePackageIds: body.theme_package_ids,
       }),
+    });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/maintenance/updates/pins") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const domain = validateDomain(body.domain);
+    const pin = await wordpressUpdateManager.updatePins(domain, {
+      site: body.site,
+      core: body.core,
+      plugins: body.plugins,
+      themes: body.themes,
+      pluginPackageIds: body.plugin_package_ids,
+      themePackageIds: body.theme_package_ids,
+      note: body.note,
+    }, req.auth.email);
+    sendJson(res, 200, {
+      ok: true,
+      domain,
+      pin,
+      pins: wordpressUpdateManager.pinsView(),
     });
     return true;
   }

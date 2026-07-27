@@ -197,7 +197,18 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .wordpress-update-layout { align-items: start; margin-top: 16px; }
 .update-selection { display: grid; grid-column: 1 / -1; gap: 8px; width: 100%; }
 .update-selection .check { min-width: 0; }
-.update-selection .check span { min-width: 0; overflow-wrap: anywhere; }
+.update-selection .check span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.update-selection .check small { color: var(--muted); font-weight: 450; }
+.update-selection .is-pinned { opacity: .66; }
+.update-pin-editor { border: 1px solid var(--line); border-radius: 5px; padding: 0 12px 12px; }
+.update-pin-editor > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; cursor: pointer; }
+.update-pin-editor > summary span { color: var(--muted); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+.update-pin-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; max-height: 360px; margin-bottom: 12px; padding: 2px 4px 8px 0; overflow: auto; }
+.update-pin-options .check { min-width: 0; }
+.update-pin-options .check span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.update-pin-options .check small { color: var(--muted); font-weight: 450; }
+.status-error { grid-column: 1 / -1; border: 1px solid #f4c7c2; border-radius: 5px; background: #fff0ee; color: var(--danger); padding: 10px; }
+.pin-meta { grid-column: 1 / -1; color: var(--muted); }
 .wordpress-update-history { display: grid; gap: 4px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .wordpress-update-history p { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .job-filters { display: grid; grid-template-columns: repeat(2, minmax(180px, 260px)); gap: 12px; margin-bottom: 18px; }
@@ -334,6 +345,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .site-mobile-action { display: grid; grid-column: 1 / -1; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
   .site-mobile-action select { width: 100%; font-size: 14px; }
   .maintenance-site-row { grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+  .update-pin-editor > summary, .update-pin-options { grid-template-columns: 1fr; }
+  .update-pin-editor > summary span { text-align: left; }
   .wordpress-inventory-row summary, .wordpress-package-list div { grid-template-columns: 1fr; }
   .wordpress-inventory-row summary span { text-align: left; }
   .maintenance-sites-panel .card-head .button-row { display: grid; grid-template-columns: 1fr 1fr; }
