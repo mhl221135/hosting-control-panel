@@ -579,6 +579,13 @@ failures, deduplicated per job outcome, and capped by
 latest delivery state for each originating job. Successful-job notifications
 are disabled by default to avoid noise.
 
+Telegram can also poll for the read-only `/status` and `/site example.com`
+commands. Commands are disabled by default and require both the source chat ID
+and sender user ID to be explicitly allowlisted. Requests are rate-limited and
+recorded with a durable Bot API cursor in `telegram-command-state.json`; tokens
+and message contents are not stored there. The bot exposes no shell, Docker,
+SQL, WP-CLI, filesystem, cache-purge, or backup mutation command.
+
 ## Operational Health
 
 The **Health** workspace performs low-frequency checks for required container

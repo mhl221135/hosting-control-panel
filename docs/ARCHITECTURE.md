@@ -152,6 +152,12 @@ Each delivery channel inherits global severity filters by default or applies
 its own failure, warning, and success selection. Channel eligibility is fixed
 when the event is queued so retries preserve the original delivery targets.
 
+`telegram-command-manager.js` optionally polls the same bot for read-only
+operator commands. Both the chat and sender must be explicitly allowlisted.
+The manager persists only its update cursor and bounded command audit metadata,
+rate-limits each sender, and obtains status/site summaries through narrow
+providers. It does not receive an execution primitive or implement mutations.
+
 Direct certificate issuance and renewal are durable jobs, so provider failures
 reach the same terminal notification path as backups and provisioning. Renewal
 revalidates the selected hostname/certificate relationship immediately before

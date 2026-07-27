@@ -42,6 +42,7 @@ const { WordPressMaintenanceRunner } = require("./lib/wordpress-maintenance");
 const { JobManager } = require("./lib/job-manager");
 const { NotificationSettings } = require("./lib/notification-settings");
 const { NotificationManager } = require("./lib/notification-manager");
+const { TelegramCommandManager } = require("./lib/telegram-command-manager");
 const { HealthSettings } = require("./lib/health-settings");
 const { HealthMonitor } = require("./lib/health-monitor");
 const { OneTimeVault } = require("./lib/one-time-vault");
@@ -234,6 +235,14 @@ const healthMonitor = new HealthMonitor({
   statsCollector,
   npm,
   maxHistory: Number(process.env.HEALTH_HISTORY_LIMIT || 250),
+});
+const telegramCommandManager = new TelegramCommandManager({
+  dataDir: DATA_DIR,
+  settings: notificationSettings,
+  healthProvider: () => healthMonitor.publicState(),
+  siteProvider: () => currentSites().sites,
+  jobProvider: () => jobManager.list({ limit: 250 }),
+  maxHistory: Number(process.env.TELEGRAM_COMMAND_HISTORY_LIMIT || 250),
 });
 const provisionImports = new ProvisionImportStore({
   importsRoot: IMPORTS_ROOT,
@@ -1761,7 +1770,11 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "GET" && requestUrl.pathname === "/api/settings/notifications") {
-    sendJson(res, 200, { ok: true, settings: notificationSettings.publicView() });
+    sendJson(res, 200, {
+      ok: true,
+      settings: notificationSettings.publicView(),
+      commands: telegramCommandManager.publicState(),
+    });
     return true;
   }
 
@@ -3115,6 +3128,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
   notificationManager.start(jobManager);
+  telegramCommandManager.start();
   healthMonitor.start();
   jobManager.start();
   cloudflareAutomation.start();

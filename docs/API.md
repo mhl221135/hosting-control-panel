@@ -118,11 +118,15 @@ authorization, cookie, SQL, or dump fields are rejected before persistence.
 |---|---|
 | `GET,PUT /api/settings/integrations` | public view/update encrypted settings |
 | `GET,PUT /api/settings/performance` | validate and apply resource settings |
+| `GET,PUT /api/settings/notifications` | read/update encrypted delivery settings and read-only Telegram command status |
+| `POST /api/settings/notifications/test` | send one Telegram or SMTP test through saved settings |
 | `POST /api/settings/test` | test NPM, Cloudflare, Security, or MySQL |
 
 Notification settings retain global failure/warning/success defaults and allow
 Telegram and SMTP to either inherit them or store independent channel filters.
-Omitted channel fields preserve inherited behavior for older API clients.
+Omitted channel fields preserve inherited behavior for older API clients. The
+optional Telegram command fields enable `/status` and `/site domain` only with
+separate numeric chat and sender-user allowlists.
 
 ### NPM and certificates
 

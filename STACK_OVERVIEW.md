@@ -53,7 +53,7 @@ The panel provides:
 - Dry-run Cloudflare bulk hardening, rollback, provisioning defaults, and
   expiring hostname-scoped traffic mitigations
 - Encrypted integration settings for NPM and Cloudflare
-- Encrypted Telegram and external SMTP job notifications with retries and severity filters
+- Encrypted Telegram and external SMTP job notifications with retries, severity filters, and allowlisted read-only Telegram status commands
 - Transition-based operational health checks and recovery alerts for containers,
   MySQL, NPM certificates, selected public websites, OPcache, and storage
 - MySQL installer container and database-prefix settings

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-25" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-26" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -761,8 +761,11 @@
             <div class="group-title full"><h3>Telegram</h3><p>Create a bot with BotFather, message it or add it to a private operator group, then enter the numeric chat ID.</p></div>
             <label>Bot token<input name="telegramBotToken" type="password" placeholder="Leave empty to keep saved token" /></label>
             <label>Allowed chat IDs<textarea name="telegramChatIds" rows="3" placeholder="One numeric chat ID per line"></textarea></label>
+            <label>Command user IDs<textarea name="telegramCommandUserIds" rows="3" placeholder="One numeric Telegram user ID per line"></textarea><small>Commands require both an allowed chat and an allowed sender.</small></label>
             <label class="check inline"><input name="telegramEnabled" type="checkbox" /> Enable Telegram delivery</label>
+            <label class="check inline"><input name="telegramCommandsEnabled" type="checkbox" /> Enable read-only /status and /site commands</label>
             <label class="check inline"><input name="clearTelegramBotToken" type="checkbox" /> Clear saved Telegram token</label>
+            <p id="telegramCommandStatus" class="muted full">Read-only commands are disabled.</p>
             <fieldset class="option-group full" data-channel-severity="telegram">
               <legend>Telegram severities</legend>
               <label class="check"><input name="telegramUseGlobalSeverity" type="checkbox" checked /> Inherit global job severities</label>
@@ -901,6 +904,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-25"></script>
+    <script src="/app.js?v=20260727-26"></script>
   </body>
 </html>

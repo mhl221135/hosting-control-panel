@@ -71,6 +71,8 @@ class NotificationSettings {
       telegramEnabled: Boolean(stored.telegramEnabled),
       telegramBotToken: this.decrypt(stored.telegramBotToken) || process.env.TELEGRAM_BOT_TOKEN || "",
       telegramChatIds: stringList(stored.telegramChatIds || process.env.TELEGRAM_CHAT_IDS),
+      telegramCommandsEnabled: Boolean(stored.telegramCommandsEnabled),
+      telegramCommandUserIds: stringList(stored.telegramCommandUserIds),
       smtpEnabled: Boolean(stored.smtpEnabled),
       smtpHost: stored.smtpHost || process.env.NOTIFICATION_SMTP_HOST || "",
       smtpPort: Number(stored.smtpPort || process.env.NOTIFICATION_SMTP_PORT || 587),
@@ -102,6 +104,8 @@ class NotificationSettings {
       telegramEnabled: settings.telegramEnabled,
       telegramBotTokenConfigured: Boolean(settings.telegramBotToken),
       telegramChatIds: settings.telegramChatIds.join("\n"),
+      telegramCommandsEnabled: settings.telegramCommandsEnabled,
+      telegramCommandUserIds: settings.telegramCommandUserIds.join("\n"),
       smtpEnabled: settings.smtpEnabled,
       smtpHost: settings.smtpHost,
       smtpPort: settings.smtpPort,
@@ -137,6 +141,10 @@ class NotificationSettings {
           ? this.encrypt(payload.telegramBotToken)
           : current.telegramBotToken || "",
       telegramChatIds: stringList(payload.telegramChatIds),
+      telegramCommandsEnabled: payload.telegramCommandsEnabled === undefined
+        ? Boolean(current.telegramCommandsEnabled) : Boolean(payload.telegramCommandsEnabled),
+      telegramCommandUserIds: payload.telegramCommandUserIds === undefined
+        ? stringList(current.telegramCommandUserIds) : stringList(payload.telegramCommandUserIds),
       smtpEnabled: Boolean(payload.smtpEnabled),
       smtpHost: String(payload.smtpHost ?? current.smtpHost ?? "").trim(),
       smtpPort: Number(payload.smtpPort || current.smtpPort || 587),
@@ -185,6 +193,15 @@ class NotificationSettings {
     }
     if (next.telegramEnabled && (!(this.decrypt(next.telegramBotToken) || process.env.TELEGRAM_BOT_TOKEN) || !next.telegramChatIds.length)) {
       throw validationError("Telegram requires a bot token and at least one chat ID");
+    }
+    if (next.telegramChatIds.some((value) => !/^-?\d+$/.test(value))) {
+      throw validationError("Telegram chat IDs must be numeric");
+    }
+    if (next.telegramCommandUserIds.some((value) => !/^\d+$/.test(value))) {
+      throw validationError("Telegram command user IDs must be positive numeric IDs");
+    }
+    if (next.telegramCommandsEnabled && (!next.telegramEnabled || !next.telegramCommandUserIds.length)) {
+      throw validationError("Telegram commands require Telegram delivery and at least one allowed user ID");
     }
     if (next.smtpEnabled && (!next.smtpHost || !next.smtpFrom || !next.smtpRecipients.length)) {
       throw validationError("SMTP requires a host, sender, and at least one recipient");
