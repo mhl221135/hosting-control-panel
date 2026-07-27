@@ -300,8 +300,9 @@ For Generic PHP, a fresh operation creates a minimal `index.php`. Database
 creation is optional; an import can also load one SQL, SQL.GZ, or TAR.GZ/TGZ
 dump. Generated credentials are revealed once and must be applied through the
 application's own configuration mechanism. Static HTML creates `index.html`
-and has no managed database or cache controls. A single wrapper directory is
-flattened automatically.
+and has no PHP-FPM pool, managed database, or cache controls. Nginx returns 404
+for every PHP request on a Static HTML route, even if a PHP file is later placed
+in its document root. A single wrapper directory is flattened automatically.
 
 Panel exports preserve the adapter type. Generic PHP exports include its
 declared database when configured and otherwise remain file-only. Static HTML

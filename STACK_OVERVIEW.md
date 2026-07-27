@@ -127,6 +127,9 @@ Generic PHP can create the same isolated database/user pair and optionally
 import a dump, but never runs WP-CLI or rewrites application configuration.
 The generated credentials are exposed through the encrypted one-time vault.
 Static HTML has no managed database or PHP cache actions.
+Its route explicitly disables PHP execution and does not allocate a PHP-FPM
+pool. The upgrade migration converts legacy Static HTML routes and removes only
+their now-unreferenced pools after nginx and PHP-FPM validation.
 
 ## Caching
 

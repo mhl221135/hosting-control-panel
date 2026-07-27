@@ -6,6 +6,10 @@ map $host $php_upstream {
   default hosting-php-fpm:9000;
 }
 
+map $host $site_php_enabled {
+  default 1;
+}
+
 map $host $canonical_host {
   default "";
 }

@@ -52,7 +52,7 @@ test("marks shared pools, roots, databases, NPM hosts, and certificates unsafe",
   assert.equal(plan.resources.npmCertificate.safe, false);
 });
 
-test("allows a final file-only backup for a static PHP site", () => {
+test("allows a final file-only backup for a Static HTML site", () => {
   const input = baseInput();
   input.site.state = { siteType: "static" };
   input.database = null;

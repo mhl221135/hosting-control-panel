@@ -17,6 +17,18 @@ cd /media/ssdmount/websites-v2/sources
 sudo ./scripts/upgrade.sh
 ```
 
+The upgrade runs an idempotent Static HTML route migration before recreating
+services. It disables PHP for routes marked `static`, removes only PHP-FPM pools
+no longer referenced by another route, validates nginx and PHP-FPM, and rolls
+the active configuration back if validation fails.
+
+Preview that migration without writing active configuration:
+
+```bash
+docker compose run --rm --no-deps hosting-ui \
+  node /app/cli/migrate-static-routes.js --dry-run
+```
+
 The script refuses tracked local edits, fast-forwards `main`, validates Compose,
 pulls upstream images, rebuilds custom images, recreates changed services, and
 runs explicit config migrations.

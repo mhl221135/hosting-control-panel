@@ -41,6 +41,7 @@ cd "$project_dir"
 compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-files hosting-ui hosting-php-fpm hosting-npm
+compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js
 compose up -d
 sh "$project_dir/scripts/migrate-webp-cache.sh"
 

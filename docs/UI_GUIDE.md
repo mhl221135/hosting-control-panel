@@ -173,7 +173,7 @@ controls.
 | --- | --- |
 | **WordPress** | Enables fresh WordPress installation or archive-plus-database import. |
 | **Generic PHP** | Creates or imports a PHP application with an optional generated MySQL database. |
-| **Static HTML** | Creates or imports files without a managed database, OPcache, Redis, or FastCGI controls. |
+| **Static HTML** | Creates or imports files without a PHP pool, managed database, OPcache, Redis, or FastCGI controls. PHP requests return 404. |
 | **New website** | Downloads WordPress or creates a minimal starter for the selected adapter. |
 | **Import website** | Accepts a ZIP/TAR website archive, flattens a single wrapper directory, and accepts a Generic PHP SQL dump when database creation is enabled. |
 | **Domain** | Primary hostname used by nginx, NPM, WordPress, and optional DNS. |
