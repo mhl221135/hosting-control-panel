@@ -8,23 +8,24 @@ backlog only when their acceptance criteria are satisfied.
 
 1. Adopt the shared background system for remaining long operations.
 2. Operational health notifications and import/export controls in the authenticated panel.
-3. Controlled WordPress updates and remaining maintenance options.
+3. WordPress version pins and production update/rollback drills.
 4. Application adapters for generic PHP/MySQL and OpenCart.
 5. Separate billing and hosting-entitlement service.
 6. Separate mail platform with panel API integration.
 7. Warm-standby replication and controlled failover.
 
-The durable job system now handles backups, restores, maintenance, image
-optimization, website deletion, website provisioning/import, and portable
-website exports. Remaining long operations should adopt it instead of creating
-another status file, lock, or browser-bound request.
+The durable job system now handles backups, restores, maintenance, controlled
+WordPress updates, image optimization, website deletion, website
+provisioning/import, and portable website exports. Remaining long operations
+should adopt it instead of creating another status file, lock, or browser-bound
+request.
 
 ## 1. Remaining Background-Job Adoption
 
 ### Objective
 
-Finish adopting the implemented durable job service for multi-site imports,
-WordPress updates and future bulk operations.
+Finish adopting the implemented durable job service for multi-site imports and
+future bulk operations.
 
 Website deletion now uses the durable job system with conflict locks, live
 ownership revalidation, bounded progress, notification delivery, and
@@ -39,8 +40,8 @@ Passwords never enter job payloads, results, errors, notifications, or Git.
 
 ### Requirements
 
-- Register import/export, WordPress update, and billing/mail migration handlers
-  as those features are implemented.
+- Register multi-site import and billing/mail migration handlers as those
+  features are implemented.
 - Add explicit safe cancellation checkpoints to each handler. Never interrupt a
   database import, file swap, credential update, or configuration write midway.
 - Make panel-triggered shell migration operations use the same managers and
@@ -129,34 +130,27 @@ duplicating the tested shell-script logic.
 
 ## 4. WordPress Maintenance And Controlled Updates
 
-### Implemented Inventory
+### Implemented
 
 The Maintenance workspace now queues a durable, read-only inventory across
 selected WordPress websites. It records core, plugin, and theme versions,
 cached update availability reported by WP-CLI, active/inactive state, bounded
 per-site errors, and the latest snapshot without executing update commands.
 
-### Update Workflow
+Controlled manual updates now support explicit core/plugin/theme selections,
+all currently available updates, and uploaded package-library ZIPs. Each
+one-site durable job refreshes its preview, creates and verifies a complete
+files/database backup, enables maintenance mode, records before/after versions,
+checks WordPress/database/front-page/admin health, purges caches only on
+success, and automatically restores the verified backup on failure.
 
-- Allow core, selected plugin, selected theme, or all-compatible updates.
-- Before each site update, create and verify a complete website/database backup.
-- Put only the selected site into maintenance mode, update sequentially, and
-  capture exact before/after versions.
-- Run front-page HTTP, WordPress bootstrap, database, and admin-route health
-  checks after the update.
-- Purge Redis and FastCGI only after a successful update.
-- Automatically restore the pre-update backup when update or health validation
-  fails, then report both the original failure and rollback result.
-- Support uploaded package-library ZIPs as explicit update sources without
-  silently replacing packages on unrelated sites.
-
-### Safety And Rollout
+### Remaining
 
 - Updates remain manual initially. Do not add unattended schedules until backup
   verification, health checks, and rollback have passed repeated production
   drills.
-- Never run bulk updates concurrently across websites on this shared runtime.
-- Expose exclusions/pinning for sites or packages that must remain on a version.
+- Add persistent named exclusions/pins for sites or packages that must remain
+  on a version. Until then, every operation requires explicit package selection.
 
 ## 5. Application Adapter Model
 

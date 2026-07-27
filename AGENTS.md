@@ -31,6 +31,7 @@ the active copies under `app-data/configs`.
 5. `docs/API.md`: panel HTTP API groups and authentication contract.
 6. `docs/OPERATIONS.md`: testing, deployment, rollback, and diagnostics.
 7. `STACK_OVERVIEW.md`: short runtime overview.
+8. `docs/WORDPRESS_UPDATES.md`: controlled update transaction and rollback.
 
 ## Non-Negotiable Safety Rules
 
@@ -84,6 +85,7 @@ when the corresponding active configuration does not exist.
 - Provision import staging: `ui-manager/app/lib/provision-import-store.js`
 - Cache/backup switches: `ui-manager/app/lib/site-state.js`
 - Backup and restore: `ui-manager/app/lib/backup-manager.js`
+- Controlled WordPress updates: `ui-manager/app/lib/wordpress-update-manager.js`
 - Removal ownership rules: `ui-manager/app/lib/site-removal-plan.js`
 - Export/import: `ui-manager/app/lib/migration-manager.js` and
   `ui-manager/app/cli/sites-transfer.js`

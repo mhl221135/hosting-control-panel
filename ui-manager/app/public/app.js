@@ -19,6 +19,7 @@ const state = {
   cloudflareAutomation: null,
   cloudflareAutomationPreview: null,
   incidentPreview: null,
+  wordpressUpdatePreview: null,
   wordpressPackages: { plugins: [], themes: [] },
   performance: null,
   imageOptimization: null,
@@ -568,6 +569,74 @@ function renderWordPressInventory() {
   }).join("") : "Select websites above and run an inventory.";
 }
 
+function selectedWordPressUpdateInput() {
+  return {
+    domain: $("#wordpressUpdateDomain").value,
+    core: Boolean($("[data-wordpress-update-core]")?.checked),
+    plugins: $$("[data-wordpress-update-plugin]:checked").map((input) => input.value),
+    themes: $$("[data-wordpress-update-theme]:checked").map((input) => input.value),
+    plugin_package_ids: $$("[data-wordpress-update-plugin-package]:checked").map((input) => input.value),
+    theme_package_ids: $$("[data-wordpress-update-theme-package]:checked").map((input) => input.value),
+  };
+}
+
+function renderWordPressUpdatePreview() {
+  const preview = state.wordpressUpdatePreview;
+  $("#applyWordPressUpdate").disabled = !preview;
+  $("#wordpressUpdatePreview").textContent = preview ? [
+    `Website: ${preview.domain}`,
+    ...preview.operations.map((item) =>
+      `${item.kind}: ${item.name} · ${item.from} → ${item.to} · ${item.source}`),
+    "",
+    ...preview.safeguards,
+  ].join("\n") : "Preview is required before updates can run.";
+}
+
+function renderWordPressUpdates() {
+  const inventory = state.maintenance?.inventory || { results: [] };
+  const sites = inventory.results.filter((result) => result.ok);
+  const select = $("#wordpressUpdateDomain");
+  const previous = select.value;
+  select.innerHTML = sites.length ? sites.map((site) =>
+    `<option value="${escapeHtml(site.domain)}" ${site.domain === previous ? "selected" : ""}>${escapeHtml(site.domain)}</option>`
+  ).join("") : '<option value="">Run an inventory first</option>';
+  const selected = sites.find((site) => site.domain === select.value) || sites[0];
+  const updates = [];
+  if (selected?.coreUpdate?.available) {
+    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-core /><span><strong>WordPress core</strong><small>${escapeHtml(selected.core)} → ${escapeHtml(selected.coreUpdate.version)}</small></span></label>`);
+  }
+  for (const plugin of (selected?.plugins || []).filter((item) => item.update === "available")) {
+    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-plugin value="${escapeHtml(plugin.name)}" /><span><strong>Plugin · ${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.version)} → ${escapeHtml(plugin.updateVersion)}</small></span></label>`);
+  }
+  for (const theme of (selected?.themes || []).filter((item) => item.update === "available")) {
+    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-theme value="${escapeHtml(theme.name)}" /><span><strong>Theme · ${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.version)} → ${escapeHtml(theme.updateVersion)}</small></span></label>`);
+  }
+  $("#wordpressUpdateSelection").innerHTML = updates.length
+    ? updates.join("")
+    : '<span class="muted">No repository updates are reported for this snapshot.</span>';
+  const packages = state.wordpressPackages || { plugins: [], themes: [] };
+  const packageRows = [
+    ...(packages.plugins || []).map((item) =>
+      `<label class="check"><input type="checkbox" data-wordpress-update-plugin-package value="${escapeHtml(item.id)}" /><span><strong>Plugin ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source</small></span></label>`),
+    ...(packages.themes || []).map((item) =>
+      `<label class="check"><input type="checkbox" data-wordpress-update-theme-package value="${escapeHtml(item.id)}" /><span><strong>Theme ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source</small></span></label>`),
+  ];
+  $("#wordpressUpdatePackages").innerHTML = packageRows.length
+    ? packageRows.join("")
+    : '<span class="muted">No uploaded package-library ZIPs.</span>';
+
+  const history = state.maintenance?.updateHistory || [];
+  $("#wordpressUpdateHistory").classList.toggle("empty", !history.length);
+  $("#wordpressUpdateHistory").innerHTML = history.length ? history.map((entry) => `
+    <div class="wordpress-update-history">
+      <strong>${escapeHtml(entry.domain)} · ${escapeHtml(entry.status)}</strong>
+      <p>${escapeHtml(new Date(entry.createdAt).toLocaleString())} · WordPress ${escapeHtml(entry.beforeCore || "unknown")} → ${escapeHtml(entry.afterCore || entry.beforeCore || "unknown")}</p>
+      ${entry.backupId ? `<p>Backup: ${escapeHtml(entry.backupId)}${entry.rollback ? ` · rollback ${escapeHtml(entry.rollback)}` : ""}</p>` : ""}
+      ${entry.message ? `<p>${escapeHtml(entry.message)}</p>` : ""}
+    </div>`).join("") : "No controlled updates recorded.";
+  renderWordPressUpdatePreview();
+}
+
 function renderMaintenance() {
   const data = state.maintenance || {};
   const settings = data.settings || {};
@@ -609,6 +678,7 @@ function renderMaintenance() {
       <label class="check weekly-check"><input type="checkbox" data-maintenance-weekly="${escapeHtml(site.host)}" ${site.state?.maintenanceEnabled ? "checked" : ""} /> Weekly</label>
     </div>`).join("") : '<div class="muted">No WordPress websites are configured.</div>';
   renderWordPressInventory();
+  renderWordPressUpdates();
 
   window.clearTimeout(maintenancePollTimer);
   if (status.running) {
@@ -639,6 +709,7 @@ function jobTypeLabel(type) {
     "images.optimize": "Image optimization",
     "wordpress.maintenance": "WordPress maintenance",
     "wordpress.inventory": "WordPress version inventory",
+    "wordpress.update": "Controlled WordPress update",
     "site.provision": "Website provisioning",
     "site.remove": "Website deletion",
     "npm.certificate.issue": "SSL certificate issuance",
@@ -2198,6 +2269,61 @@ $("#inventoryWordPress").addEventListener("click", async (event) => {
       body: JSON.stringify({ domains }),
     }));
     rememberJob(data.job, "WordPress inventory queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#wordpressUpdateForm").addEventListener("change", (event) => {
+  state.wordpressUpdatePreview = null;
+  if (event.target.id === "wordpressUpdateDomain") renderWordPressUpdates();
+  else renderWordPressUpdatePreview();
+});
+
+$("#selectAllWordPressUpdates").addEventListener("click", () => {
+  $$("[data-wordpress-update-core], [data-wordpress-update-plugin], [data-wordpress-update-theme]")
+    .forEach((input) => { input.checked = true; });
+  state.wordpressUpdatePreview = null;
+  renderWordPressUpdatePreview();
+});
+
+$("#clearWordPressUpdates").addEventListener("click", () => {
+  $$("[data-wordpress-update-core], [data-wordpress-update-plugin], [data-wordpress-update-theme], [data-wordpress-update-plugin-package], [data-wordpress-update-theme-package]")
+    .forEach((input) => { input.checked = false; });
+  state.wordpressUpdatePreview = null;
+  renderWordPressUpdatePreview();
+});
+
+$("#previewWordPressUpdate").addEventListener("click", async (event) => {
+  const body = selectedWordPressUpdateInput();
+  if (!body.domain) return notice("Run an inventory and select a WordPress website.", "warning");
+  if (!body.core && !body.plugins.length && !body.themes.length
+      && !body.plugin_package_ids.length && !body.theme_package_ids.length) {
+    return notice("Select at least one WordPress update.", "warning");
+  }
+  try {
+    const data = await withButton(event.currentTarget, "Inspecting...", () => api(
+      "/api/maintenance/updates/preview",
+      { method: "POST", body: JSON.stringify(body) },
+    ));
+    state.wordpressUpdatePreview = data.preview;
+    renderWordPressUpdatePreview();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#applyWordPressUpdate").addEventListener("click", async (event) => {
+  const preview = state.wordpressUpdatePreview;
+  if (!preview) return notice("Preview the WordPress update first.", "warning");
+  if (!confirm(`Update ${preview.domain} using the reviewed operations? A verified backup is mandatory.`)) return;
+  try {
+    const data = await withButton(event.currentTarget, "Queueing...", () => api(
+      "/api/maintenance/updates/apply",
+      {
+        method: "POST",
+        body: JSON.stringify({ preview, confirm: "UPDATE" }),
+      },
+    ));
+    state.wordpressUpdatePreview = null;
+    rememberJob(data.job, "Controlled WordPress update queued");
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });

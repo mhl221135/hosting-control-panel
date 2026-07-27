@@ -50,6 +50,7 @@ const { IpinfoClient } = require("./lib/ipinfo-client");
 const { CertificateJobManager } = require("./lib/certificate-job-manager");
 const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/provision-security");
 const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-manager");
+const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -186,25 +187,39 @@ const imageOptimizationManager = new ImageOptimizationManager({
     }));
   },
 });
+const wordpressMaintenanceRunner = new WordPressMaintenanceRunner({
+  phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
+});
+const afterWordPressMutation = async (domains) => {
+  for (const domain of domains) siteState.purge(domain);
+  await execCommand("docker exec hosting-nginx nginx -s reload");
+};
+const wordpressSiteProvider = async () => {
+  const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+  const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  return getSitesWithPools(mapParsed, poolsParsed)
+    .filter((site) => !site.isAlias)
+    .map((site) => ({
+      ...site,
+      directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+    }));
+};
 const maintenanceManager = new MaintenanceManager({
   dataDir: DATA_DIR,
   backupManager,
   jobManager,
-  runner: new WordPressMaintenanceRunner({ phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm" }),
-  siteProvider: async () => {
-    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
-    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
-    return getSitesWithPools(mapParsed, poolsParsed)
-      .filter((site) => !site.isAlias)
-      .map((site) => ({
-        ...site,
-        directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
-      }));
-  },
-  afterRun: async (domains) => {
-    for (const domain of domains) siteState.purge(domain);
-    await execCommand("docker exec hosting-nginx nginx -s reload");
-  },
+  runner: wordpressMaintenanceRunner,
+  siteProvider: wordpressSiteProvider,
+  afterRun: afterWordPressMutation,
+});
+const wordpressUpdateManager = new WordPressUpdateManager({
+  dataDir: DATA_DIR,
+  jobManager,
+  backupManager,
+  runner: wordpressMaintenanceRunner,
+  packageStore: wordpressPackages,
+  siteProvider: wordpressSiteProvider,
+  afterSuccess: afterWordPressMutation,
 });
 const statsCollector = new StatsCollector({
   websitesRoot: WEBSITES_ROOT,
@@ -2075,6 +2090,7 @@ async function handleApi(req, res) {
       status: maintenanceManager.getStatus(),
       settings: maintenanceManager.readSettings(),
       inventory: maintenanceManager.readInventory(),
+      updateHistory: wordpressUpdateManager.publicView(),
     });
     return true;
   }
@@ -2154,6 +2170,44 @@ async function handleApi(req, res) {
     sendJson(res, 202, {
       ok: true,
       job: maintenanceManager.enqueueInventory(sites, req.auth.email),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/maintenance/updates/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, {
+      ok: true,
+      preview: await wordpressUpdateManager.preview({
+        domain: validateDomain(body.domain),
+        core: body.core,
+        plugins: body.plugins,
+        themes: body.themes,
+        pluginPackageIds: body.plugin_package_ids,
+        themePackageIds: body.theme_package_ids,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/maintenance/updates/apply") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "UPDATE") {
+      sendJson(res, 400, { ok: false, message: "Type UPDATE to confirm the reviewed WordPress operation" });
+      return true;
+    }
+    const submitted = body.preview || {};
+    const preview = await wordpressUpdateManager.preview({
+      domain: validateDomain(submitted.domain),
+      ...submitted.selection,
+    });
+    if (preview.id !== submitted.id) {
+      sendJson(res, 409, { ok: false, message: "WordPress versions changed; create a new update preview" });
+      return true;
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: wordpressUpdateManager.enqueue(preview, req.auth.email),
     });
     return true;
   }

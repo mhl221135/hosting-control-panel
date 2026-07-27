@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
 const test = require("node:test");
 const { BackupManager } = require("../lib/backup-manager");
 
@@ -180,6 +181,42 @@ test("rejects a site restore when the manifest belongs to another host", () => {
       () => fixture.manager.readSiteManifest({ host: "example.com" }, id),
       /does not belong/,
     );
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("verifies a complete website backup archive before controlled updates", async () => {
+  const fixture = managerFixture();
+  try {
+    const site = {
+      host: "example.com",
+      root: "/var/www/example.com",
+      state: { siteType: "static" },
+    };
+    const source = path.join(fixture.websitesRoot, "example.com");
+    fs.mkdirSync(source);
+    fs.writeFileSync(path.join(source, "index.php"), "<?php echo 'ok';");
+    const id = "2026-07-20T03-00-00Z";
+    const directory = path.join(fixture.manager.safeBackupParent(site.host), id);
+    fs.mkdirSync(directory);
+    execFileSync("tar", [
+      "-czf", path.join(directory, "website.tar.gz"),
+      "-C", fixture.websitesRoot,
+      "example.com",
+    ]);
+    fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify({
+      version: 1,
+      type: "site",
+      id,
+      domain: site.host,
+      websitePath: "example.com",
+      database: null,
+    }));
+    const verification = await fixture.manager.verifySiteBackup(site, id);
+    assert.equal(verification.ok, true);
+    assert.equal(verification.database, false);
+    assert.ok(verification.websiteEntries >= 2);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
