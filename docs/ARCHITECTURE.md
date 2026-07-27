@@ -270,7 +270,8 @@ rejects unsupported state transitions even if a client bypasses the UI.
 have no upstream or pool and the nginx PHP location returns 404 before
 FastCGI dispatch. Legacy maps default to PHP enabled. The idempotent
 `migrate-static-routes.js` upgrade step identifies static roots from panel
-state, includes their aliases, refuses mixed static/dynamic roots, removes only
+state, inspects legacy roots for PHP files, reclassifies those sites as Generic
+PHP, includes aliases, refuses mixed static/dynamic roots, removes only
 unreferenced pools, validates both services, and restores all files on failure.
 
 ## External Integrations

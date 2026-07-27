@@ -18,9 +18,10 @@ sudo ./scripts/upgrade.sh
 ```
 
 The upgrade runs an idempotent Static HTML route migration before recreating
-services. It disables PHP for routes marked `static`, removes only PHP-FPM pools
-no longer referenced by another route, validates nginx and PHP-FPM, and rolls
-the active configuration back if validation fails.
+services. Legacy sites marked `static` that contain PHP files are reclassified
+as Generic PHP and retain or recover a pool. Pure static routes disable PHP and
+remove only pools no longer referenced by another route. The migration validates
+nginx and PHP-FPM and rolls active configuration back if validation fails.
 
 Preview that migration without writing active configuration:
 

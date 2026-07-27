@@ -1,4 +1,10 @@
-const { parsePools, parseSitesMap, renderPools, renderSitesMap } = require("./runtime-config");
+const {
+  parsePools,
+  parseSitesMap,
+  renderPools,
+  renderSitesMap,
+  sanitizeSectionName,
+} = require("./runtime-config");
 
 const STATIC_GATE_MARKER = "# Managed static-route isolation.";
 
@@ -12,17 +18,70 @@ function ensureStaticPhpGate(content) {
   );
 }
 
-function migrateStaticRoutes({ mapContent, poolsContent, nginxContent, siteState }) {
+function migrateStaticRoutes({
+  mapContent,
+  poolsContent,
+  nginxContent,
+  siteState,
+  legacyPhpDomains = [],
+}) {
   const map = parseSitesMap(mapContent);
   const pools = parsePools(poolsContent);
-  const states = siteState?.sites && typeof siteState.sites === "object" ? siteState.sites : {};
+  const normalizedState = JSON.parse(JSON.stringify(siteState || { sites: {} }));
+  if (!normalizedState.sites || typeof normalizedState.sites !== "object") normalizedState.sites = {};
+  const states = normalizedState.sites;
+  const legacyPhp = new Set(legacyPhpDomains);
   const staticDomains = Object.entries(states)
     .filter(([, state]) => state?.siteType === "static")
     .map(([domain]) => domain);
   const staticRoots = new Set();
   const skipped = [];
+  const reclassified = [];
+  const recoveredPools = [];
 
-  for (const domain of staticDomains) {
+  let nextPort = Math.max(
+    9000,
+    ...Object.values(pools.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger),
+  ) + 1;
+  for (const domain of staticDomains.filter((item) => legacyPhp.has(item))) {
+    const route = map.hosts[domain];
+    if (!route?.root) {
+      skipped.push(domain);
+      continue;
+    }
+    const routes = Object.values(map.hosts).filter((candidate) => candidate.root === route.root);
+    let port = routes.find((candidate) => candidate.phpEnabled !== false && candidate.port)?.port || null;
+    if (!port) {
+      port = nextPort++;
+      const poolName = sanitizeSectionName(domain);
+      if (pools.sections[poolName]) throw new Error(`Cannot recover PHP route ${domain}: pool ${poolName} already exists`);
+      pools.sections[poolName] = {
+        user: "www-data", group: "www-data", listen: String(port), pm: "dynamic",
+        "pm.max_children": "6", "pm.start_servers": "2",
+        "pm.min_spare_servers": "1", "pm.max_spare_servers": "3",
+        "pm.process_idle_timeout": "30s", "pm.max_requests": "500",
+        "php_admin_value[open_basedir]": `${route.root}/:/global/:/tmp/`,
+        clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
+      };
+      pools.sectionOrder.push(poolName);
+      recoveredPools.push(poolName);
+    }
+    for (const candidate of routes) {
+      candidate.port = port;
+      candidate.upstream = `hosting-php-fpm:${port}`;
+      candidate.phpEnabled = true;
+    }
+    states[domain] = {
+      ...states[domain],
+      siteType: "generic-php",
+      redis: false,
+      imageOptimizationEnabled: false,
+      updatedAt: new Date().toISOString(),
+    };
+    reclassified.push(domain);
+  }
+
+  for (const domain of staticDomains.filter((item) => !legacyPhp.has(item))) {
     const route = map.hosts[domain];
     if (!route?.root) {
       skipped.push(domain);
@@ -63,8 +122,11 @@ function migrateStaticRoutes({ mapContent, poolsContent, nginxContent, siteState
     mapContent: renderSitesMap(map),
     poolsContent: renderPools(pools),
     nginxContent: ensureStaticPhpGate(nginxContent),
+    siteState: normalizedState,
     converted: converted.sort(),
     removedPools: removedPools.sort(),
+    recoveredPools: recoveredPools.sort(),
+    reclassified: reclassified.sort(),
     skipped: skipped.sort(),
   };
 }
