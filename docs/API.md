@@ -67,12 +67,22 @@ encrypted value. Jobs contain no repository credentials or encryption material.
 | `POST /api/transfers/export` | queue a durable portable export job |
 | `GET /api/transfers/exports` | list completed export bundles and artifact metadata |
 | `GET /api/transfers/exports/:id?file=` | download one bounded regular artifact |
+| `GET /api/transfers/import/sources` | list staged directories with a manifest or lightweight plan |
+| `POST /api/transfers/import/preview` | resolve and fingerprint a staged import without mutation |
+| `POST /api/transfers/import` | revalidate and queue a typed-confirmed durable import |
 
 The export request accepts a non-empty `domains` array. Aliases resolve to their
 primary site. Export jobs share the backup storage lock, continue after
 individual site failures, and can be cancelled only between complete site
 bundles. Downloads are confined to completed export directories and default to
 a 512 MB per-file limit.
+
+Import preview accepts `source`, `wan_ip`, `update_dns`, `proxied`,
+`create_npm_host`, and `issue_ssl`. Apply additionally requires the unchanged
+`preview_id` and `confirm: "IMPORT"`. Sources are confined below `/srv/imports`.
+Blocking file, database, or configured-domain conflicts return `409`; existing
+exact-host DNS records and NPM hosts are visible in preview before their
+create-or-update actions. Import jobs are non-cancellable and non-retryable.
 
 ### Background jobs
 

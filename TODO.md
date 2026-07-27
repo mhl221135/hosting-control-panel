@@ -7,7 +7,7 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Adopt the shared background system for remaining long operations.
-2. Operational health notifications and import/export controls in the authenticated panel.
+2. Finish resumable multi-site transfer uploads and staging cleanup.
 3. Production WordPress update/rollback drills.
 4. Application adapters for generic PHP/MySQL and OpenCart.
 5. Separate billing and hosting-entitlement service.
@@ -16,7 +16,8 @@ backlog only when their acceptance criteria are satisfied.
 
 The durable job system now handles backups, restores, maintenance, controlled
 WordPress updates, image optimization, website deletion, website
-provisioning/import, and portable website exports. Remaining long operations
+provisioning/import, portable website exports, and staged multi-site imports.
+Remaining long operations
 should adopt it instead of creating another status file, lock, or browser-bound
 request.
 
@@ -24,8 +25,7 @@ request.
 
 ### Objective
 
-Finish adopting the implemented durable job service for multi-site imports and
-future bulk operations.
+Finish adopting the implemented durable job service for future bulk operations.
 
 Website deletion now uses the durable job system with conflict locks, live
 ownership revalidation, bounded progress, notification delivery, and
@@ -40,8 +40,7 @@ Passwords never enter job payloads, results, errors, notifications, or Git.
 
 ### Requirements
 
-- Register multi-site import and billing/mail migration handlers as those
-  features are implemented.
+- Register billing/mail migration handlers as those features are implemented.
 - Add explicit safe cancellation checkpoints to each handler. Never interrupt a
   database import, file swap, credential update, or configuration write midway.
 - Make panel-triggered shell migration operations use the same managers and
@@ -111,19 +110,28 @@ After notifications are stable, add only allowlisted commands such as
 Expose the existing portable migration manager in the authenticated UI without
 duplicating the tested shell-script logic.
 
-### Import Workflow
+### Implemented
 
-- Accept a portable export manifest or lightweight `import-sites.json`.
-- Support server-side staged directories as well as resumable browser uploads.
-- Preview source paths, selected newest database dump, detected site type,
-  aliases, DNS changes, NPM host/certificate actions, and conflicts.
-- Reuse `MigrationManager`, archive validation, rollback, generated database
-  credentials, runtime configuration, Cloudflare, and NPM integration.
-- Retain failed staging for a bounded retry window and provide explicit cleanup.
+The Transfers workspace accepts server-staged portable manifests and
+lightweight `import-sites.json` plans. It resolves newest matching dumps,
+previews site type, paths, aliases, DNS/NPM/SSL actions and conflicts, and
+fingerprints the source. Typed `IMPORT` confirmation queues a non-retryable
+durable job that revalidates the fingerprint and refuses existing configured
+domains, databases, or non-empty archive destinations. It reuses
+`MigrationManager`, rollback, generated credentials, runtime configuration,
+Cloudflare, NPM, and the shared storage lock.
+
+### Remaining
+
+- Add resumable browser upload of a complete multi-site portable bundle.
+- Retain failed multi-site upload staging for a bounded retry window and expose
+  explicit authenticated cleanup.
+- Add deliberate per-resource conflict choices if overwrite/adoption modes are
+  ever needed; keep refusal as the default.
 
 ### Acceptance Criteria
 
-- Shell and future UI imports produce equivalent runtime state.
+- Shell and staged UI imports produce equivalent runtime state.
 - Progress survives navigation and panel restart through the shared job system.
 - Existing files, databases, NPM hosts, or DNS records are never overwritten
   without a visible conflict decision and typed confirmation.

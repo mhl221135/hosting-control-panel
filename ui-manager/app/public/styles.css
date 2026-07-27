@@ -236,6 +236,10 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .transfer-preview-row, .export-history-row { display: grid; gap: 5px; padding: 11px 0; border-bottom: 1px solid var(--line); }
 .transfer-preview-row:last-child, .export-history-row:last-child { border-bottom: 0; }
 .transfer-preview-row p, .export-history-row p { margin: 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.transfer-import-layout { margin-top: 16px; }
+.transfer-import-summary { padding: 12px; border-left: 3px solid var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.transfer-import-summary.has-conflicts { border-left-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.transfer-import-summary p { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .export-files { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 4px; }
 .export-files a { display: inline-flex; align-items: center; min-height: 32px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; color: var(--text); font-size: 11px; font-weight: 700; text-decoration: none; }
 .export-files a:hover { border-color: var(--accent); color: var(--accent); }

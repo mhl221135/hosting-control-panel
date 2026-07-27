@@ -243,6 +243,7 @@ const provisioningVault = new OneTimeVault({
 const migrationManager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
+  importsRoot: IMPORTS_ROOT,
   websitesRoot: WEBSITES_ROOT,
   sitesMapPath: SITES_MAP_PATH,
   poolsPath: POOLS_PATH,
@@ -267,6 +268,29 @@ jobManager.register("sites.export", async (context, payload) =>
       message: result.message,
     };
   }));
+jobManager.register("sites.import", async (context, payload) =>
+  backupManager.withLock({ type: "import", label: "Portable website import" }, async () => {
+    const preview = await migrationManager.previewImport(payload.source, payload.options);
+    if (preview.previewId !== payload.previewId) {
+      throw new Error("Import source or runtime changed after confirmation; create a new preview");
+    }
+    if (preview.blockingConflicts.length) {
+      throw new Error("Import is blocked by conflicts; create a new preview after resolving them");
+    }
+    return migrationManager.importSites({
+      sourceDirectory: migrationManager.importSource(payload.source),
+      manifest: preview.manifest,
+      useExistingFiles: preview.useExistingFiles,
+      ...preview.options,
+      includeCredentials: false,
+      onProgress: context.update,
+    });
+  }));
+
+function publicImportPreview(preview) {
+  const { manifest, ...safe } = preview;
+  return safe;
+}
 
 function decorateJob(job, operator) {
   return job ? { ...job, oneTimeAccessAvailable: provisioningVault.has(job.id, operator) } : null;
@@ -1375,6 +1399,78 @@ async function handleApi(req, res) {
 
   if (req.method === "GET" && requestUrl.pathname === "/api/transfers/exports") {
     sendJson(res, 200, { ok: true, exports: migrationManager.listExports() });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/transfers/import/sources") {
+    sendJson(res, 200, { ok: true, sources: migrationManager.listImportSources() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/import/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const preview = await migrationManager.previewImport(body.source, {
+      wanIp: body.wan_ip,
+      updateDns: body.update_dns !== false,
+      proxied: body.proxied !== false,
+      createNpmHost: body.create_npm_host !== false,
+      issueSsl: body.issue_ssl !== false,
+    });
+    sendJson(res, 200, publicImportPreview(preview));
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/import") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "IMPORT") {
+      sendJson(res, 400, { ok: false, message: "Type IMPORT to confirm this migration" });
+      return true;
+    }
+    const preview = await migrationManager.previewImport(body.source, {
+      wanIp: body.wan_ip,
+      updateDns: body.update_dns !== false,
+      proxied: body.proxied !== false,
+      createNpmHost: body.create_npm_host !== false,
+      issueSsl: body.issue_ssl !== false,
+    });
+    if (preview.previewId !== String(body.preview_id || "")) {
+      sendJson(res, 409, { ok: false, message: "Import preview is stale; preview the source again" });
+      return true;
+    }
+    if (preview.blockingConflicts.length) {
+      sendJson(res, 409, {
+        ok: false,
+        message: "Resolve all blocking import conflicts before continuing",
+        conflicts: preview.blockingConflicts,
+      });
+      return true;
+    }
+    const domains = preview.sites.map((site) => site.domain);
+    sendJson(res, 202, {
+      ok: true,
+      job: jobManager.create({
+        type: "sites.import",
+        label: `Import ${domains.length} website${domains.length === 1 ? "" : "s"}`,
+        operator: req.auth.email,
+        trigger: "manual",
+        payload: {
+          source: preview.source,
+          previewId: preview.previewId,
+          options: preview.options,
+        },
+        targets: domains,
+        conflicts: [
+          "server-heavy",
+          "runtime:config",
+          "storage:imports",
+          ...domains.map((domain) => `site:${domain}`),
+          ...preview.sites.filter((site) => site.database).map((site) => `database:${site.database}`),
+        ],
+        total: domains.length,
+        cancellable: false,
+        retryable: false,
+      }),
+    });
     return true;
   }
 

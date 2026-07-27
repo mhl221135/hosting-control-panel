@@ -6,7 +6,7 @@ const readline = require("readline/promises");
 const { stdin, stdout } = require("process");
 const { IntegrationSettings } = require("../lib/integration-settings");
 const { CloudflareClient, NpmClient } = require("../lib/integrations");
-const { MigrationManager, newestDatabaseDump, validateImportPlan, validateIpv4, validateManifest } = require("../lib/migration-manager");
+const { MigrationManager, newestDatabaseDump, validateIpv4, validateManifest } = require("../lib/migration-manager");
 const { SiteState } = require("../lib/site-state");
 const { validateDomain } = require("../lib/provisioner");
 
@@ -25,6 +25,7 @@ const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 const manager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
+  importsRoot: IMPORTS_ROOT,
   websitesRoot: WEBSITES_ROOT,
   sitesMapPath: SITES_MAP_PATH,
   poolsPath: POOLS_PATH,
@@ -116,26 +117,7 @@ async function manualManifest(sourceDirectory) {
 }
 
 async function manifestFromImportPlan(sourceDirectory, importPlan) {
-  const plan = validateImportPlan(importPlan);
-  const sites = [];
-  for (const site of plan.sites) {
-    const configuredDatabase = await manager.wordpressDatabase(site.websitePath);
-    const dump = newestDatabaseDump(sourceDirectory, configuredDatabase);
-    if (!dump) {
-      throw new Error(`No .sql.gz dump found for ${site.domain} database ${configuredDatabase}`);
-    }
-    sites.push({
-      ...site,
-      database: configuredDatabase,
-      databaseDump: path.basename(dump),
-    });
-  }
-  return validateManifest({
-    version: 1,
-    type: "hosting-sites-export",
-    createdAt: new Date().toISOString(),
-    sites,
-  });
+  return manager.manifestFromImportPlan(sourceDirectory, importPlan);
 }
 
 async function importSites(sourceArgument) {

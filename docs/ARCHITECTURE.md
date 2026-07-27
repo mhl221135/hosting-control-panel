@@ -208,6 +208,15 @@ Imports support a full manifest, a lightweight `import-sites.json`, or discovery
 from existing `wp-config.php` files. Import generates new database credentials
 and rewrites `wp-config.php`; source credentials are never required.
 
+The authenticated Transfers adapter lists manifest-bearing staged directories
+under `imports`, resolves lightweight plans through the same manager used by the
+CLI, and returns a read-only fingerprinted preview. It reports destination and
+database blockers plus existing exact-host Cloudflare records and NPM hosts.
+Execution requires a matching fingerprint and typed confirmation, then runs as
+a non-retryable `sites.import` job under the shared storage lock. The job
+revalidates the source and refuses any existing configured domain, non-empty
+archive destination, or database before mutation.
+
 The Provision tab's single-site adapter stages raw uploads below
 `imports/ui-provision`, validates archive member paths, rejects symlinks, finds
 the sole WordPress document root, and produces the same normalized archive and

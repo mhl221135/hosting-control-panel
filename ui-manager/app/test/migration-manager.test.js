@@ -68,6 +68,7 @@ test("validates lightweight import JSON and applies safe defaults", () => {
     redis: false,
     fastcgiCache: false,
     backupEnabled: true,
+    siteType: "wordpress",
   });
   assert.throws(() => validateImportPlan({
     version: 1,
@@ -82,6 +83,108 @@ test("validates lightweight import JSON and applies safe defaults", () => {
       { websitePath: "two", domain: "www.example.com" },
     ],
   }), /Duplicate domain/);
+});
+
+test("previews a staged lightweight import without changing runtime state", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-import-preview-"));
+  try {
+    const importsRoot = path.join(directory, "imports");
+    const websitesRoot = path.join(directory, "websites");
+    const source = path.join(importsRoot, "import-2026-07-27");
+    const website = path.join(websitesRoot, "example.com");
+    fs.mkdirSync(source, { recursive: true });
+    fs.mkdirSync(website, { recursive: true });
+    fs.writeFileSync(path.join(website, "wp-config.php"), "<?php");
+    fs.writeFileSync(path.join(source, "example_db_2026-07-27_02-00.sql.gz"), "dump");
+    fs.writeFileSync(path.join(source, "import-sites.json"), JSON.stringify({
+      version: 1,
+      type: "hosting-sites-import",
+      sites: [{ domain: "example.com", aliases: ["www.example.com"], websitePath: "example.com" }],
+    }));
+    const sitesMapPath = path.join(directory, "sites.map");
+    const poolsPath = path.join(directory, "pools.conf");
+    fs.writeFileSync(sitesMapPath, "map $host $site_root {\n default /var/www/_default;\n}\nmap $host $php_upstream {\n default hosting-php-fpm:9000;\n}\nmap $host $canonical_host {\n default \"\";\n}\n");
+    fs.writeFileSync(poolsPath, "[www]\nlisten = 9000\n");
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot,
+      websitesRoot,
+      sitesMapPath,
+      poolsPath,
+      npm: { configured: () => false },
+      cloudflare: { configured: () => false },
+      siteState: { get: () => ({}) },
+    });
+    manager.wordpressDatabase = async () => "example_db";
+    manager.databaseExists = async () => false;
+
+    const preview = await manager.previewImport("import-2026-07-27", {
+      updateDns: false,
+      createNpmHost: false,
+      issueSsl: false,
+    });
+    assert.equal(preview.sourceType, "import-plan");
+    assert.equal(preview.useExistingFiles, true);
+    assert.equal(preview.sites[0].databaseDump, "example_db_2026-07-27_02-00.sql.gz");
+    assert.equal(preview.blockingConflicts.length, 0);
+    assert.equal((await manager.previewImport("import-2026-07-27", {
+      updateDns: false,
+      createNpmHost: false,
+      issueSsl: false,
+    })).previewId, preview.previewId);
+    assert.deepEqual(manager.listImportSources().map((item) => item.source), ["import-2026-07-27"]);
+    assert.throws(() => manager.importSource("../outside"), /Invalid import source/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("blocks staged imports that would reuse a configured domain or database", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-import-conflict-"));
+  try {
+    const importsRoot = path.join(directory, "imports");
+    const websitesRoot = path.join(directory, "websites");
+    const source = path.join(importsRoot, "portable");
+    fs.mkdirSync(path.join(source, "sites"), { recursive: true });
+    fs.mkdirSync(path.join(source, "databases"), { recursive: true });
+    fs.mkdirSync(websitesRoot, { recursive: true });
+    fs.writeFileSync(path.join(source, "sites", "example.tar.gz"), "archive");
+    fs.writeFileSync(path.join(source, "databases", "example.sql.gz"), "dump");
+    fs.writeFileSync(path.join(source, "manifest.json"), JSON.stringify({
+      version: 1,
+      type: "hosting-sites-export",
+      sites: [{
+        domain: "example.com",
+        websitePath: "example.com",
+        database: "example_db",
+        websiteArchive: "sites/example.tar.gz",
+        databaseDump: "databases/example.sql.gz",
+      }],
+    }));
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot,
+      websitesRoot,
+      sitesMapPath: path.join(directory, "sites.map"),
+      poolsPath: path.join(directory, "pools.conf"),
+      npm: { configured: () => false },
+      cloudflare: { configured: () => false },
+      siteState: { get: () => ({}) },
+    });
+    manager.primarySites = () => [{ host: "example.com", aliases: [] }];
+    manager.databaseExists = async () => true;
+    const preview = await manager.previewImport("portable", {
+      updateDns: false,
+      createNpmHost: false,
+      issueSsl: false,
+    });
+    assert.match(preview.blockingConflicts.map((item) => item.message).join(" "), /already configured/);
+    assert.match(preview.blockingConflicts.map((item) => item.message).join(" "), /Database already exists/);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("selects the newest timestamped dump matching wp-config DB_NAME", () => {

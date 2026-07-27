@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-22" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-23" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -573,8 +573,8 @@
 
         <section class="tab-panel hidden" data-tab-panel="transfers">
           <div class="section-head">
-            <div><h2>Portable exports</h2><p>Create password-free migration bundles for selected primary websites.</p></div>
-            <button id="refreshExports" class="secondary" type="button">Refresh</button>
+            <div><h2>Website transfers</h2><p>Create portable exports or adopt a migration staged on the server.</p></div>
+            <button id="refreshTransfers" class="secondary" type="button">Refresh</button>
           </div>
 
           <div class="two-column transfer-layout">
@@ -603,6 +603,36 @@
             <div class="card-head"><div><h3>Generated exports</h3><p class="muted">Large artifacts remain available in the configured exports directory.</p></div></div>
             <div id="exportHistory" class="rows empty">No exports loaded.</div>
           </article>
+
+          <div class="two-column transfer-layout transfer-import-layout">
+            <form id="importTransferForm" class="panel form-stack">
+              <div class="card-head"><div><h3>Staged import</h3><p class="muted">Sources are read from the configured imports directory.</p></div></div>
+              <label>Staged source
+                <select id="importSource" required><option value="">No staged sources loaded</option></select>
+              </label>
+              <label>Server WAN IPv4
+                <input id="importWanIp" type="text" inputmode="decimal" placeholder="203.0.113.10" />
+              </label>
+              <div class="check-grid">
+                <label class="check"><input id="importUpdateDns" type="checkbox" checked /><span>Update Cloudflare DNS</span></label>
+                <label class="check"><input id="importProxied" type="checkbox" checked /><span>Enable Cloudflare proxy</span></label>
+                <label class="check"><input id="importCreateNpm" type="checkbox" checked /><span>Create or update NPM hosts</span></label>
+                <label class="check"><input id="importIssueSsl" type="checkbox" checked /><span>Request SSL certificates</span></label>
+              </div>
+              <label>Confirmation
+                <input id="importConfirmation" type="text" autocomplete="off" placeholder="Type IMPORT after preview" />
+              </label>
+              <div class="form-actions transfer-actions">
+                <button id="previewImport" class="secondary" type="button">Preview import</button>
+                <button id="startImport" type="submit" disabled>Start import</button>
+              </div>
+            </form>
+
+            <article class="panel">
+              <div class="card-head"><div><h3>Import preview</h3><p class="muted">No files, databases, DNS, or proxy hosts are changed by preview.</p></div></div>
+              <div id="importPreview" class="rows empty">Select a staged source and preview it.</div>
+            </article>
+          </div>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="removal">
@@ -861,6 +891,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-22"></script>
+    <script src="/app.js?v=20260727-23"></script>
   </body>
 </html>

@@ -152,8 +152,13 @@ The existing `backup_websites.sh` is unchanged and is not part of this flow.
 `scripts/export-websites.sh` runs the migration CLI inside `hosting-ui`, groups
 hosts by document root and PHP pool, archives each website, dumps its WordPress
 database, and writes a password-free JSON manifest with SHA-256 checksums. The
-Transfers workspace uses the same manager through a durable `sites.export` job,
-shares the backup storage lock, and preserves independent per-site results.
+Transfers workspace uses the same manager through durable `sites.export` and
+`sites.import` jobs, shares the backup storage lock, and preserves independent
+per-site results. Import preview accepts only real staged directories below
+`imports`, fingerprints the source, exposes blocking file/database/runtime
+conflicts and exact-host DNS/NPM matches, and requires typed confirmation. The
+import job revalidates the fingerprint and conflicts before mutation and is
+deliberately non-cancellable and non-retryable.
 
 `scripts/import-websites.sh` stages an export or dump directory below
 `imports`. Manifest imports restore archives. Manual imports discover copied
