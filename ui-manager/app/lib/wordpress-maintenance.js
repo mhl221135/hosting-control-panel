@@ -165,10 +165,17 @@ class WordPressMaintenanceRunner {
   }
 
   async setMaintenanceMode(site, enabled) {
-    return this.wp(site.directory, [
-      "maintenance-mode", enabled ? "activate" : "deactivate",
-      "--skip-plugins", "--skip-themes", "--quiet",
-    ], 2 * 60_000);
+    try {
+      return await this.wp(site.directory, [
+        "maintenance-mode", enabled ? "activate" : "deactivate",
+        "--skip-plugins", "--skip-themes", "--quiet",
+      ], 2 * 60_000);
+    } catch (error) {
+      const detail = `${error.stderr || ""} ${error.message || ""}`;
+      const expected = enabled ? /already activated/i : /already deactivated/i;
+      if (expected.test(detail)) return enabled ? "Maintenance mode already active" : "Maintenance mode already inactive";
+      throw error;
+    }
   }
 
   async updateCore(site) {

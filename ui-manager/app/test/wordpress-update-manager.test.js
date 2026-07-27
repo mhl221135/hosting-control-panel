@@ -94,7 +94,10 @@ function fixture(options = {}) {
       calls.push(["purge", ...domains]);
       if (options.failPurge) throw new Error("nginx reload failed");
     },
-    request: async (url) => ({ status: 200, url }),
+    request: async (url, requestOptions) => {
+      calls.push(["http", url, requestOptions.headers.host]);
+      return { status: 200, url };
+    },
   });
   return { calls, created, dataDir, manager, registered };
 }
@@ -263,6 +266,10 @@ test("backs up, verifies, updates, validates, and purges only after success", as
     assert.ok(fixtureValue.calls.some((call) => call[0] === "validate"));
     assert.ok(fixtureValue.calls.some((call) => call[0] === "purge"));
     assert.equal(fixtureValue.calls.some((call) => call[0] === "restore"), false);
+    assert.deepEqual(fixtureValue.calls.filter((call) => call[0] === "http"), [
+      ["http", "http://hosting-nginx/", "example.test"],
+      ["http", "http://hosting-nginx/wp-admin/", "example.test"],
+    ]);
     assert.equal(fixtureValue.manager.history()[0].status, "complete");
   } finally {
     fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
