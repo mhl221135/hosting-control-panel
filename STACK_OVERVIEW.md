@@ -159,6 +159,9 @@ per-site results. Import preview accepts only real staged directories below
 conflicts and exact-host DNS/NPM matches, and requires typed confirmation. The
 import job revalidates the fingerprint and conflicts before mutation and is
 deliberately non-cancellable and non-retryable.
+Exact-source staging cleanup is a separate durable job sharing the
+`storage:imports` conflict. It removes only a direct manifest-bearing import
+directory and cannot reach the website or database mounts.
 
 `scripts/import-websites.sh` stages an export or dump directory below
 `imports`. Manifest imports restore archives. Manual imports discover copied

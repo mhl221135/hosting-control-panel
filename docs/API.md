@@ -70,6 +70,7 @@ encrypted value. Jobs contain no repository credentials or encryption material.
 | `GET /api/transfers/import/sources` | list staged directories with a manifest or lightweight plan |
 | `POST /api/transfers/import/preview` | resolve and fingerprint a staged import without mutation |
 | `POST /api/transfers/import` | revalidate and queue a typed-confirmed durable import |
+| `POST /api/transfers/import/cleanup` | queue confined cleanup after exact-source confirmation |
 
 The export request accepts a non-empty `domains` array. Aliases resolve to their
 primary site. Export jobs share the backup storage lock, continue after
@@ -83,6 +84,8 @@ Import preview accepts `source`, `wan_ip`, `update_dns`, `proxied`,
 Blocking file, database, or configured-domain conflicts return `409`; existing
 exact-host DNS records and NPM hosts are visible in preview before their
 create-or-update actions. Import jobs are non-cancellable and non-retryable.
+Cleanup requires `confirm` to equal `source`, accepts only a listed direct
+manifest-bearing directory, and shares the `storage:imports` job conflict.
 
 ### Background jobs
 

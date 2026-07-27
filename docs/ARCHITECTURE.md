@@ -217,6 +217,12 @@ a non-retryable `sites.import` job under the shared storage lock. The job
 revalidates the source and refuses any existing configured domain, non-empty
 archive destination, or database before mutation.
 
+Staging cleanup is a separate `sites.import-cleanup` job with the same
+`storage:imports` conflict key. It requires exact-source typed confirmation and
+revalidates that the target is a direct, real, manifest-bearing child of the
+imports root before recursive removal. Website and database mounts are outside
+that deletion boundary.
+
 The Provision tab's single-site adapter stages raw uploads below
 `imports/ui-provision`, validates archive member paths, rejects symlinks, finds
 the sole WordPress document root, and produces the same normalized archive and

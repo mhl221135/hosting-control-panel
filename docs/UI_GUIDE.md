@@ -326,6 +326,7 @@ source or generated passwords.
 | DNS / proxy / NPM / SSL controls | Select the external actions included in the fingerprinted import plan. |
 | `IMPORT` confirmation | Authorizes only the current preview; changing a source or option invalidates it. |
 | **Start import** | Queues a non-cancellable, non-retryable durable import job after revalidation. |
+| **Remove staging** | Requires the exact source name and queues confined cleanup after active import work releases the storage lock. |
 
 Every completed export includes `manifest.json` and `checksums.sha256`.
 Individual site failures appear in the job and manifest without deleting
@@ -335,6 +336,8 @@ Staged imports never overwrite an existing database, configured domain, or
 non-empty archive destination. Existing DNS records and NPM hosts are shown
 before typed confirmation because those integrations use create-or-update
 behavior. Follow execution and integration warnings in **Jobs**.
+Removing staging does not remove adopted website files, databases, runtime
+configuration, DNS, NPM hosts, or certificates.
 
 ## Delete
 
