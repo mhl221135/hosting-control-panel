@@ -5,12 +5,16 @@ const SAFE_FIELDS = new Set([
   "plugin_packages", "theme_packages", "create_update_dns", "dns_ip", "apply_dns_preset",
   "dns_preset_id", "add_www", "create_npm_host", "issue_ssl", "notes", "import_upload_id",
   "apply_security_preset", "security_preset", "apply_security_defaults",
-  "create_database", "import_database_dump",
+  "create_database", "import_database_archive",
 ]);
 
 function safeProvisionPayload(body = {}) {
   const payload = {};
   for (const [key, value] of Object.entries(body)) {
+    if (key === "import_database_dump") {
+      payload.import_database_archive = Boolean(value);
+      continue;
+    }
     if (SAFE_FIELDS.has(key)) payload[key] = value;
   }
   return payload;

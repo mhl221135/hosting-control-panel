@@ -1153,7 +1153,7 @@ function validateProvisionRequest(body) {
   if (siteType === "opencart" && sourceMode !== "import") {
     throw Object.assign(new Error("OpenCart requires an application archive and database dump"), { statusCode: 400 });
   }
-  if (siteType === "opencart" && !body.import_database_dump) {
+  if (siteType === "opencart" && !body.import_database_archive) {
     throw Object.assign(new Error("OpenCart requires a database dump"), { statusCode: 400 });
   }
   if (siteType === "static" && body.create_database) {
@@ -1263,7 +1263,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     try {
       database = await createDatabase(domain, integrationSettings.resolved());
       steps.push({ name: "database", status: "complete", database: database.name });
-      if (sourceMode === "import" && body.import_database_dump) {
+      if (sourceMode === "import" && body.import_database_archive) {
         const dumpPath = await provisionImports.prepareDatabaseDump(String(body.import_upload_id || ""));
         await importDatabaseDump(database.name, dumpPath, integrationSettings.resolved());
         steps.push({ name: "database-import", status: "complete" });
