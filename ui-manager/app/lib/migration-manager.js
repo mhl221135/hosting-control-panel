@@ -7,6 +7,7 @@ const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
 const { migrateWordPressUrl, normalizeWordPressPermissions, validateDomain } = require("./provisioner");
 const { normalizeSiteType, siteAdapter, siteDatabaseReference } = require("./site-capabilities");
+const { inspectOpenCart, rewriteOpenCart } = require("./opencart");
 const {
   parsePools,
   parseSitesMap,
@@ -105,7 +106,7 @@ function validateManifest(payload) {
     const domain = validateDomain(raw.domain);
     const siteType = normalizeSiteType(raw.siteType || raw.state?.siteType);
     const adapter = siteAdapter(siteType);
-    const database = siteType === "wordpress"
+    const database = siteType === "wordpress" || siteType === "opencart"
       ? validateDatabaseName(raw.database)
       : siteType === "generic-php" && raw.database ? validateDatabaseName(raw.database) : "";
     if (domains.has(domain)) throw new Error(`Duplicate domain in manifest: ${domain}`);
@@ -168,9 +169,9 @@ function validateImportPlan(payload) {
         redis: adapter.redis && Boolean(raw.state?.redis),
         fastcgiCache: adapter.fastcgi && Boolean(raw.state?.fastcgiCache),
         backupEnabled: raw.state?.backupEnabled !== false,
-        databaseName: siteType === "generic-php" && raw.state?.databaseName
+        databaseName: ["generic-php", "opencart"].includes(siteType) && raw.state?.databaseName
           ? validateDatabaseName(raw.state.databaseName) : "",
-        databaseUser: siteType === "generic-php" && raw.state?.databaseUser
+        databaseUser: ["generic-php", "opencart"].includes(siteType) && raw.state?.databaseUser
           ? validateDatabaseName(raw.state.databaseUser) : "",
         siteType,
       },
@@ -263,7 +264,9 @@ class MigrationManager {
       }
       const configuredDatabase = site.siteType === "wordpress"
         ? await this.wordpressDatabase(site.websitePath)
-        : site.state.databaseName;
+        : site.siteType === "opencart"
+          ? this.openCartDatabase(site.websitePath)
+          : site.state.databaseName;
       const dump = newestDatabaseDump(sourceDirectory, configuredDatabase);
       if (!dump) throw new Error(`No .sql.gz dump found for ${site.domain} database ${configuredDatabase}`);
       sites.push({ ...site, database: configuredDatabase, databaseDump: path.basename(dump) });
@@ -441,6 +444,12 @@ class MigrationManager {
     return validateDatabaseName(stdout.trim());
   }
 
+  openCartDatabase(websitePath) {
+    return validateDatabaseName(inspectOpenCart(
+      resolveInside(this.websitesRoot, websitePath, "website path"),
+    ).database);
+  }
+
   selectedSites(selectedDomains = []) {
     const selected = new Set(selectedDomains.map(validateDomain));
     const primary = this.primarySites();
@@ -468,7 +477,10 @@ class MigrationManager {
           warning = error.message;
         }
       }
-      if (siteType === "generic-php") database = siteDatabaseReference(site)?.name || "";
+      if (siteType !== "wordpress" && siteType !== "static") {
+        database = siteDatabaseReference(site)?.name
+          || (siteType === "opencart" ? this.openCartDatabase(websitePath) : "");
+      }
       return {
         domain: site.host,
         aliases: site.aliases,
@@ -508,7 +520,8 @@ class MigrationManager {
           }
           const database = siteType === "wordpress"
             ? await this.wordpressDatabase(websitePath)
-            : siteDatabaseReference(site)?.name || "";
+            : siteDatabaseReference(site)?.name
+              || (siteType === "opencart" ? this.openCartDatabase(websitePath) : "");
           databaseDump = database ? `databases/${database}_${dumpTimestamp()}.sql.gz` : "";
           await execFileAsync("tar", ["-czf", path.join(partial, websiteArchive), "-C", this.websitesRoot, websitePath], {
             timeout: 4 * 60 * 60 * 1000,
@@ -710,6 +723,7 @@ class MigrationManager {
     if (site.siteType === "wordpress" && !fs.existsSync(path.join(destination, "wp-config.php"))) {
       throw new Error(`wp-config.php not found in ${site.websitePath}`);
     }
+    if (site.siteType === "opencart") inspectOpenCart(destination);
     if (!fs.existsSync(destination) || !fs.readdirSync(destination).length) {
       throw new Error(`Website directory is empty: ${site.websitePath}`);
     }
@@ -881,15 +895,38 @@ class MigrationManager {
           prepared.push({ ...site, database: "", password: "" });
           continue;
         }
-        if (site.siteType === "generic-php") {
+        if (site.siteType !== "wordpress") {
           const database = validateDatabaseName(site.database);
           if (await this.databaseExists(database)) throw new Error(`Database already exists: ${database}`);
           if (!site.databaseDump) throw new Error(`Database dump not found for ${site.domain}`);
           const dumpPath = resolveInside(sourceDirectory, site.databaseDump, "database dump");
           const password = crypto.randomBytes(24).toString("base64url");
+          let openCartConfigs = [];
+          if (site.siteType === "opencart") {
+            const inspection = inspectOpenCart(website.destination);
+            openCartConfigs = [inspection.storefrontPath, inspection.adminPath].map((configPath) => ({
+              configPath,
+              configContent: fs.readFileSync(configPath),
+              extractedDirectory: "",
+            }));
+            if (!website.extracted) preparedFiles.push(...openCartConfigs);
+          }
           await this.createDatabaseUser(database, password);
           createdDatabases.push(database);
           await this.importDatabase(database, dumpPath);
+          if (site.siteType === "opencart") {
+            const openCart = rewriteOpenCart(website.destination, {
+              domain: site.domain,
+              useHttps: false,
+              containerRoot: `/var/www/${site.websitePath}`,
+              database: { name: database, user: database, password },
+            });
+            for (const script of ["index.php", `${openCart.adminDirectory}/index.php`]) {
+              await execFileAsync("docker", [
+                "exec", this.phpContainer, "php", "-l", `/var/www/${site.websitePath}/${script}`,
+              ], { timeout: 30_000, maxBuffer: 1024 * 1024 });
+            }
+          }
           prepared.push({ ...site, database, password });
           continue;
         }
@@ -919,8 +956,29 @@ class MigrationManager {
       });
       runtimeChange = this.configureRuntime(prepared);
       await this.validateAndReload(runtimeChange);
+      for (const site of prepared.filter((item) => item.siteType === "opencart")) {
+        const openCart = inspectOpenCart(resolveInside(this.websitesRoot, site.websitePath, "website path"));
+        for (const requestPath of ["/", `/${openCart.adminDirectory}/`]) {
+          await execFileAsync("docker", [
+            "exec", "hosting-nginx", "wget", "-q", "--spider",
+            "--header", `Host: ${site.domain}`, `http://127.0.0.1${requestPath}`,
+          ], { timeout: 60_000, maxBuffer: 1024 * 1024 });
+        }
+      }
     } catch (error) {
       const cleanupErrors = [];
+      if (runtimeChange) {
+        try {
+          fs.writeFileSync(this.sitesMapPath, runtimeChange.mapBefore, "utf8");
+          fs.writeFileSync(this.poolsPath, runtimeChange.poolsBefore, "utf8");
+          await this.validateAndReload({
+            mapBefore: runtimeChange.mapBefore,
+            poolsBefore: runtimeChange.poolsBefore,
+          });
+        } catch (cleanupError) {
+          cleanupErrors.push(`runtime: ${cleanupError.message}`);
+        }
+      }
       for (const database of [...createdDatabases].reverse()) {
         try {
           await this.dropDatabaseUser(database);
@@ -973,6 +1031,18 @@ class MigrationManager {
           warnings.push(`WordPress URL: ${error.message}`);
         }
       }
+      if (site.siteType === "opencart") {
+        try {
+          rewriteOpenCart(resolveInside(this.websitesRoot, site.websitePath, "website path"), {
+            domain: site.domain,
+            useHttps: Boolean(npmHost?.certificate_id),
+            containerRoot: `/var/www/${site.websitePath}`,
+            database: { name: site.database, user: site.database, password: site.password },
+          });
+        } catch (error) {
+          warnings.push(`OpenCart configuration: ${error.message}`);
+        }
+      }
       const adapter = siteAdapter(site.siteType);
       this.siteState.update(site.domain, {
         fastcgiCache: adapter.fastcgi && Boolean(site.state.fastcgiCache),
@@ -982,8 +1052,8 @@ class MigrationManager {
         imageOptimizationEnabled: adapter.imageOptimization && Boolean(site.state.imageOptimizationEnabled),
         siteType: site.siteType,
         cacheVersion: 1,
-        databaseName: site.siteType === "generic-php" ? site.database : "",
-        databaseUser: site.siteType === "generic-php" ? site.database : "",
+        databaseName: ["generic-php", "opencart"].includes(site.siteType) ? site.database : "",
+        databaseUser: ["generic-php", "opencart"].includes(site.siteType) ? site.database : "",
       });
       results.push({
         domain: site.domain,

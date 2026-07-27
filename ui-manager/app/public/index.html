@@ -299,6 +299,7 @@
               <legend>Website type</legend>
               <label><input name="site_type" type="radio" value="wordpress" checked /><span><strong>WordPress</strong><small>Database-backed WordPress installation or import.</small></span></label>
               <label><input name="site_type" type="radio" value="generic-php" /><span><strong>Generic PHP</strong><small>PHP application with an optional generated MySQL database.</small></span></label>
+              <label><input name="site_type" type="radio" value="opencart" /><span><strong>OpenCart</strong><small>Import an OpenCart application and required MySQL database.</small></span></label>
               <label><input name="site_type" type="radio" value="static" /><span><strong>Static HTML</strong><small>HTML, CSS, JavaScript, and assets without PHP or MySQL.</small></span></label>
             </fieldset>
             <fieldset class="source-mode full">
@@ -318,8 +319,8 @@
             <label>Notes<input name="notes" placeholder="Client or project note" /></label>
             <fieldset class="option-group full import-source hidden" data-provision-import>
               <legend>Import files</legend>
-              <label>Website archive<input id="provisionWebsiteArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" /><small>ZIP, TAR, TAR.GZ, or TGZ. WordPress imports must contain one wp-config.php.</small></label>
-              <label data-provision-database>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>Required for WordPress import; optional for Generic PHP with a database.</small></label>
+              <label>Website archive<input id="provisionWebsiteArchive" type="file" accept=".zip,.tar,.tar.gz,.tgz,application/zip,application/gzip" /><small>ZIP, TAR, TAR.GZ, or TGZ. Application configuration is validated before activation.</small></label>
+              <label data-provision-database>Database dump<input id="provisionDatabaseDump" type="file" accept=".sql,.sql.gz,.tar.gz,.tgz,application/sql,application/gzip" /><small>Required for WordPress and OpenCart; optional for Generic PHP with a database.</small></label>
               <div id="provisionImportProgress" class="status-box compact-status full">Uploaded files are validated and extracted into the website directory.</div>
             </fieldset>
             <fieldset class="option-group full">

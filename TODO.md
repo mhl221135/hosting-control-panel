@@ -8,10 +8,9 @@ backlog only when their acceptance criteria are satisfied.
 
 1. Adopt the shared background system for remaining long operations.
 2. Production WordPress update/rollback drills.
-3. OpenCart application adapter.
-4. Separate billing and hosting-entitlement service.
-5. Separate mail platform with panel API integration.
-6. Warm-standby replication and controlled failover.
+3. Separate billing and hosting-entitlement service.
+4. Separate mail platform with panel API integration.
+5. Warm-standby replication and controlled failover.
 
 The durable job system now handles backups, restores, maintenance, controlled
 WordPress updates, image optimization, website deletion, website
@@ -114,37 +113,7 @@ editor metadata.
   verification, health checks, and rollback have passed repeated production
   drills.
 
-## 4. Remaining Application Adapters
-
-### Objective
-
-Extend the implemented WordPress, Generic PHP, and strictly isolated Static HTML
-capability registry without routing OpenCart through WordPress-specific code.
-
-### Target Adapters
-
-| Adapter | Database | OPcache | FastCGI | Redis |
-|---|---|---:|---:|---:|
-| `opencart` | required | yes | yes with commerce exclusions | adapter-specific |
-
-Each adapter defines:
-
-- archive/document-root detection and safe extraction;
-- database creation/discovery, credentials, dump import/export, and URL change;
-- runtime pool and nginx requirements;
-- cache capabilities and cookie/path exclusions;
-- health checks, backup/restore, removal, and migration behavior;
-- update behavior, or an explicit unsupported state.
-
-### OpenCart
-
-- Detect supported OpenCart configuration files and document root.
-- Import/create its database, rewrite canonical HTTP/HTTPS URLs, and validate
-  storefront/admin bootstrap.
-- Define session/cart/checkout exclusions before allowing FastCGI caching.
-- Add OpenCart-specific backup, restore, removal, and migration tests.
-
-## 5. Separate Billing And Entitlement Service
+## 4. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -189,7 +158,7 @@ remain a later optional adapter.
   notification-only mode. Local nginx cannot suspend externally hosted sites.
 - Never delete website data because payment expired.
 
-## 6. Separate Mail Platform
+## 5. Separate Mail Platform
 
 ### Objective
 
@@ -361,7 +330,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 7. Warm Standby And Controlled Failover
+## 6. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

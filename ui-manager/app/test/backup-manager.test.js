@@ -171,6 +171,24 @@ test("uses Generic PHP database state without invoking WordPress CLI", async () 
   }
 });
 
+test("uses required OpenCart database state without invoking WordPress CLI", async () => {
+  const fixture = managerFixture();
+  try {
+    fixture.manager.databaseName = async () => {
+      throw new Error("WordPress CLI must not run");
+    };
+    assert.equal(await fixture.manager.siteDatabaseName({
+      state: {
+        siteType: "opencart",
+        databaseName: "cart_db",
+        databaseUser: "cart_user",
+      },
+    }, "shop.example"), "cart_db");
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("allocates a different identifier when two backups start in the same second", () => {
   const fixture = managerFixture();
   try {

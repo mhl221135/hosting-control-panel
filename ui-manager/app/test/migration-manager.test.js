@@ -72,6 +72,23 @@ test("validates portable manifests and rejects paths outside the transfer direct
     }],
   });
   assert.equal(fileOnlyGeneric.sites[0].database, "");
+  const openCartManifest = validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{
+      domain: "shop.example.com",
+      siteType: "opencart",
+      websitePath: "shop.example.com",
+      database: "shop_db",
+      databaseDump: "databases/shop_db.sql.gz",
+    }],
+  });
+  assert.equal(openCartManifest.sites[0].database, "shop_db");
+  assert.throws(() => validateManifest({
+    version: 1,
+    type: "hosting-sites-export",
+    sites: [{ domain: "shop.example.com", siteType: "opencart", websitePath: "shop.example.com" }],
+  }), /Database name/);
   assert.throws(() => resolveInside("/tmp/import", "../private.sql.gz"), /Invalid path/);
   assert.throws(() => validateManifest({
     version: 1,
@@ -121,6 +138,74 @@ test("validates lightweight import JSON and applies safe defaults", () => {
   });
   assert.equal(generic.sites[0].state.databaseName, "app_db");
   assert.equal(generic.sites[0].state.databaseUser, "app_user");
+  const openCart = validateImportPlan({
+    version: 1,
+    type: "hosting-sites-import",
+    sites: [{ websitePath: "shop.example.com", domain: "shop.example.com", siteType: "opencart" }],
+  });
+  assert.equal(openCart.sites[0].siteType, "opencart");
+  assert.equal(openCart.sites[0].state.opcache, true);
+});
+
+test("discovers an OpenCart database for a lightweight staged import", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "migration-opencart-preview-"));
+  try {
+    const importsRoot = path.join(directory, "imports");
+    const websitesRoot = path.join(directory, "websites");
+    const source = path.join(importsRoot, "opencart");
+    const website = path.join(websitesRoot, "shop.example.com");
+    for (const item of [source, path.join(website, "catalog"), path.join(website, "system"), path.join(website, "admin")]) {
+      fs.mkdirSync(item, { recursive: true });
+    }
+    const storefront = `<?php
+define('DIR_APPLICATION', '/old/catalog/');
+define('DB_HOSTNAME', 'localhost');
+define('DB_USERNAME', 'shop_user');
+define('DB_PASSWORD', 'secret');
+define('DB_DATABASE', 'shop_db');
+`;
+    const admin = `<?php
+define('DIR_APPLICATION', '/old/admin/');
+define('DIR_CATALOG', '/old/catalog/');
+define('DB_HOSTNAME', 'localhost');
+define('DB_USERNAME', 'shop_user');
+define('DB_PASSWORD', 'secret');
+define('DB_DATABASE', 'shop_db');
+`;
+    fs.writeFileSync(path.join(website, "index.php"), "<?php");
+    fs.writeFileSync(path.join(website, "config.php"), storefront);
+    fs.writeFileSync(path.join(website, "admin", "index.php"), "<?php");
+    fs.writeFileSync(path.join(website, "admin", "config.php"), admin);
+    fs.writeFileSync(path.join(source, "shop_db_2026-07-27_02-00.sql.gz"), "dump");
+    fs.writeFileSync(path.join(source, "import-sites.json"), JSON.stringify({
+      version: 1,
+      type: "hosting-sites-import",
+      sites: [{ domain: "shop.example.com", websitePath: "shop.example.com", siteType: "opencart" }],
+    }));
+    const manager = new MigrationManager({
+      dataDir: directory,
+      exportsRoot: path.join(directory, "exports"),
+      importsRoot,
+      websitesRoot,
+      sitesMapPath: path.join(directory, "sites.map"),
+      poolsPath: path.join(directory, "pools.conf"),
+      npm: { configured: () => false },
+      cloudflare: { configured: () => false },
+      siteState: { get: () => ({}) },
+    });
+    manager.primarySites = () => [];
+    manager.databaseExists = async () => false;
+    const preview = await manager.previewImport("opencart", {
+      updateDns: false,
+      createNpmHost: false,
+      issueSsl: false,
+    });
+    assert.equal(preview.sites[0].siteType, "opencart");
+    assert.equal(preview.sites[0].database, "shop_db");
+    assert.equal(preview.sites[0].databaseDump, "shop_db_2026-07-27_02-00.sql.gz");
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("previews a file-only Generic PHP import without invoking WordPress CLI", async () => {

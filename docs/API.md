@@ -198,7 +198,7 @@ Deletion jobs conflict with other server-heavy and same-site work. They can be
 cancelled before the final backup or before destructive removal starts, but are
 not retryable after failure; refresh the preview and submit a new operation.
 
-### WordPress and media
+### Website provisioning, WordPress, and media
 
 | Method/path | Purpose |
 |---|---|
@@ -238,6 +238,11 @@ in a manual or scheduled maintenance job.
 normalizes and consumes staged files, and removes staging only after success.
 Generated credentials are encrypted outside job state, expire after 24 hours,
 and are deleted by the first successful reveal request.
+
+`site_type` accepts `wordpress`, `opencart`, `generic-php`, or `static`.
+OpenCart accepts import mode only and requires both staged archive and database
+objects. It validates and rewrites storefront/admin configuration without
+executing uploaded PHP; automatic OpenCart updates are unsupported.
 
 Provisioning accepts optional `apply_security_preset` and `security_preset`
 fields. Allowed presets are `suspicious-probes`, `xmlrpc-challenge`, and

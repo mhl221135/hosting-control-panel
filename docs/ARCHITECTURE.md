@@ -98,8 +98,8 @@ Provisioning validates inputs before mutation, then:
 1. prepares the website directory;
 2. allocates or updates the PHP-FPM pool and nginx map row;
 3. validates and reloads runtime services;
-4. creates the required WordPress database or an optional Generic PHP database/user;
-5. installs WordPress and applies clean-install choices, or installs validated Generic PHP/Static HTML files;
+4. creates the required WordPress/OpenCart database or an optional Generic PHP database/user;
+5. installs WordPress, imports and rewrites validated OpenCart, or installs validated Generic PHP/Static HTML files;
 6. installs selected WordPress packages and optional Redis configuration;
 7. applies optional Cloudflare DNS and DNS presets;
 8. ensures the NPM proxy host and optional certificate;
@@ -187,7 +187,8 @@ operator adds hostnames to health settings.
 The job scheduler serializes backups, restores, maintenance, and image work
 through the `server-heavy` conflict class. The backup manager retains a
 defensive internal lock for direct recovery calls. WordPress backups pair files,
-a logical database dump, and a manifest. Generic PHP does the same when its
+a logical database dump, and a manifest. OpenCart always pairs its files and
+state-declared database. Generic PHP does the same when its
 panel state declares a database, otherwise it is file-only. Static HTML backups
 are file-only sets with an explicit null database. Retention deletes complete
 sets.
@@ -261,7 +262,9 @@ Those integration warnings are failed sub-results, so the durable job resolves
 as partially succeeded and can trigger warning notifications.
 
 `site-capabilities.js` is the central adapter registry. WordPress requires a
-database and supports Redis, OPcache, FastCGI, and image optimization. Generic
+database and supports Redis, OPcache, FastCGI, and image optimization. OpenCart
+requires a database and supports OPcache plus commerce-safe FastCGI caching,
+but has no automatic update action. Generic
 PHP has an optional state-declared database and supports OPcache and FastCGI,
 but never invokes WP-CLI. Static HTML exposes none of those controls. The API
 rejects unsupported state transitions even if a client bypasses the UI.
