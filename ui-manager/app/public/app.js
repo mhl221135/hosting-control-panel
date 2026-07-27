@@ -794,6 +794,7 @@ function jobTypeLabel(type) {
     "npm.certificate.renew": "SSL certificate renewal",
     "sites.export": "Website export",
     "sites.import": "Website import",
+    "sites.import-cleanup": "Import staging cleanup",
   }[type] || type;
 }
 
@@ -871,6 +872,7 @@ function importOptions() {
 function invalidateImportPreview() {
   state.importPreview = null;
   $("#importConfirmation").value = "";
+  $("#cleanupImportSource").disabled = !$("#importSource").value;
   renderImportPreview();
 }
 
@@ -882,6 +884,7 @@ function renderImportSources() {
       `<option value="${escapeHtml(source.source)}" ${source.source === current ? "selected" : ""}>${escapeHtml(source.source)} · ${escapeHtml(source.type)}</option>`
     )].join("")
     : '<option value="">No manifest or import plan found</option>';
+  $("#cleanupImportSource").disabled = !$("#importSource").value;
 }
 
 function renderImportPreview() {
@@ -2707,6 +2710,23 @@ $("#importTransferForm").addEventListener("submit", async (event) => {
     }));
     rememberJob(result.job, "Portable website import queued");
     invalidateImportPreview();
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+$("#cleanupImportSource").addEventListener("click", async (event) => {
+  const source = $("#importSource").value;
+  if (!source) return notice("Select a staged import source.", "warning");
+  if ($("#importConfirmation").value.trim() !== source) {
+    return notice(`Type ${source} exactly to remove its staging.`, "warning");
+  }
+  try {
+    const result = await withButton(event.currentTarget, "Queuing...", () => api("/api/transfers/import/cleanup", {
+      method: "POST",
+      body: JSON.stringify({ source, confirm: source }),
+    }));
+    rememberJob(result.job, "Import staging cleanup queued");
+    state.importPreview = null;
+    $("#importConfirmation").value = "";
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });

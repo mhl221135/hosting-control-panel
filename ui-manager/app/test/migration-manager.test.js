@@ -135,6 +135,12 @@ test("previews a staged lightweight import without changing runtime state", asyn
     })).previewId, preview.previewId);
     assert.deepEqual(manager.listImportSources().map((item) => item.source), ["import-2026-07-27"]);
     assert.throws(() => manager.importSource("../outside"), /Invalid import source/);
+    assert.throws(() => manager.cleanupImportSource("nested/source"), /direct staged import/);
+    const cleanup = manager.cleanupImportSource("import-2026-07-27");
+    assert.equal(cleanup.ok, true);
+    assert.equal(cleanup.filesRemoved, 2);
+    assert.equal(fs.existsSync(source), false);
+    assert.equal(fs.existsSync(website), true);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

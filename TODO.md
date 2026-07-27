@@ -7,7 +7,7 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Adopt the shared background system for remaining long operations.
-2. Finish resumable multi-site transfer uploads and staging cleanup.
+2. Finish resumable multi-site transfer uploads.
 3. Production WordPress update/rollback drills.
 4. Application adapters for generic PHP/MySQL and OpenCart.
 5. Separate billing and hosting-entitlement service.
@@ -119,13 +119,14 @@ fingerprints the source. Typed `IMPORT` confirmation queues a non-retryable
 durable job that revalidates the fingerprint and refuses existing configured
 domains, databases, or non-empty archive destinations. It reuses
 `MigrationManager`, rollback, generated credentials, runtime configuration,
-Cloudflare, NPM, and the shared storage lock.
+Cloudflare, NPM, and the shared storage lock. Exact-source confirmation can
+queue a confined cleanup job; the shared import-storage conflict prevents
+cleanup while an import is active.
 
 ### Remaining
 
 - Add resumable browser upload of a complete multi-site portable bundle.
-- Retain failed multi-site upload staging for a bounded retry window and expose
-  explicit authenticated cleanup.
+- Retain failed browser-upload staging for a bounded retry window.
 - Add deliberate per-resource conflict choices if overwrite/adoption modes are
   ever needed; keep refusal as the default.
 

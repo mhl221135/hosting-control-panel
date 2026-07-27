@@ -211,6 +211,31 @@ class MigrationManager {
       .slice(0, Math.min(Math.max(Number(limit) || 100, 1), 100));
   }
 
+  cleanupImportSource(relative) {
+    const sourceName = safeRelative(relative, "import source");
+    if (path.posix.dirname(sourceName) !== ".") {
+      throw Object.assign(new Error("Only a direct staged import directory can be removed"), { statusCode: 400 });
+    }
+    const sourceDirectory = this.importSource(sourceName);
+    if (!fs.existsSync(path.join(sourceDirectory, "manifest.json"))
+      && !fs.existsSync(path.join(sourceDirectory, "import-sites.json"))) {
+      throw Object.assign(new Error("Cleanup is limited to a manifest-bearing staged import"), { statusCode: 400 });
+    }
+    const files = artifactFiles(sourceDirectory);
+    const bytes = files.reduce((total, file) => total + file.size, 0);
+    fs.rmSync(sourceDirectory, { recursive: true, force: false });
+    return {
+      ok: true,
+      source: sourceName,
+      filesRemoved: files.length,
+      bytesRemoved: bytes,
+      total: 1,
+      completed: 1,
+      results: [{ source: sourceName, ok: true, message: "Staged import removed" }],
+      message: `Removed staged import ${sourceName}`,
+    };
+  }
+
   async manifestFromImportPlan(sourceDirectory, payload) {
     const plan = validateImportPlan(payload);
     const sites = [];

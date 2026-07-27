@@ -286,6 +286,10 @@ jobManager.register("sites.import", async (context, payload) =>
       onProgress: context.update,
     });
   }));
+jobManager.register("sites.import-cleanup", async (context, payload) => {
+  context.update({ completed: 0, total: 1, currentStep: `Removing staged import ${payload.source}` });
+  return migrationManager.cleanupImportSource(payload.source);
+});
 
 function publicImportPreview(preview) {
   const { manifest, ...safe } = preview;
@@ -1467,6 +1471,35 @@ async function handleApi(req, res) {
           ...preview.sites.filter((site) => site.database).map((site) => `database:${site.database}`),
         ],
         total: domains.length,
+        cancellable: false,
+        retryable: false,
+      }),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/transfers/import/cleanup") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const source = safeRelative(body.source, "import source");
+    if (body.confirm !== source) {
+      sendJson(res, 400, { ok: false, message: `Type ${source} to confirm staged import cleanup` });
+      return true;
+    }
+    if (!migrationManager.listImportSources().some((item) => item.source === source)) {
+      sendJson(res, 404, { ok: false, message: "Staged import source was not found" });
+      return true;
+    }
+    sendJson(res, 202, {
+      ok: true,
+      job: jobManager.create({
+        type: "sites.import-cleanup",
+        label: `Remove staged import ${source}`,
+        operator: req.auth.email,
+        trigger: "manual",
+        payload: { source },
+        targets: [`import:${source}`],
+        conflicts: ["storage:imports"],
+        total: 1,
         cancellable: false,
         retryable: false,
       }),

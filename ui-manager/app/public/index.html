@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-23" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-24" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -620,11 +620,13 @@
                 <label class="check"><input id="importIssueSsl" type="checkbox" checked /><span>Request SSL certificates</span></label>
               </div>
               <label>Confirmation
-                <input id="importConfirmation" type="text" autocomplete="off" placeholder="Type IMPORT after preview" />
+                <input id="importConfirmation" type="text" autocomplete="off" placeholder="Type IMPORT or the staged source name" />
+                <small>Type <strong>IMPORT</strong> to start the previewed migration, or type the exact staged source name to remove its staging.</small>
               </label>
               <div class="form-actions transfer-actions">
                 <button id="previewImport" class="secondary" type="button">Preview import</button>
                 <button id="startImport" type="submit" disabled>Start import</button>
+                <button id="cleanupImportSource" class="secondary danger-button" type="button" disabled>Remove staging</button>
               </div>
             </form>
 
@@ -891,6 +893,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-23"></script>
+    <script src="/app.js?v=20260727-24"></script>
   </body>
 </html>

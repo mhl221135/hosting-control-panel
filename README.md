@@ -642,6 +642,11 @@ domains are never overwritten. The non-retryable import runs as a durable job
 under the shared storage lock, so navigation or closing the browser does not
 interrupt it.
 
+**Remove staging** requires typing the exact selected source name and queues a
+separate audited cleanup job. Cleanup shares the import-storage conflict lock,
+accepts only a direct manifest-bearing directory below `imports`, and removes
+neither adopted website files nor databases.
+
 `manifest.json` contains no passwords. For each successful site it records the primary
 domain, aliases, canonical redirects, website path, original database name,
 archive and dump paths, PHP profile, and cache/backup state.
