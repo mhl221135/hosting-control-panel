@@ -16,6 +16,19 @@ updates. It never schedules an update and never selects an update implicitly.
 Immediately before execution the job refreshes the preview again. A changed
 version or package-library entry invalidates the preview.
 
+## Persistent Exclusions
+
+**Update exclusions** can block every update for one website or pin WordPress
+core, installed plugin/theme slugs, and uploaded package-library entries. Each
+site record stores an optional operator reason plus the last editor and change
+time. Clearing every exclusion removes the record.
+
+Pins are enforced server-side before preview inventory and again when the job
+starts. The browser cannot bypass them, **Select all available** skips disabled
+choices, and pin changes are rejected while that website has a queued or
+running update. An unreadable pin file fails closed and prevents updates until
+the file is repaired.
+
 ## Transaction Boundary
 
 Each job holds the server-heavy and website conflict locks and performs:
@@ -46,5 +59,4 @@ WP-CLI `--force`, and removed from the temporary path afterward.
   application between package writes and rollback.
 - Other server-heavy or same-site work cannot overlap.
 - Passwords and database dumps are never placed in job payloads or results.
-- Persistent package pins remain future work. Until then, unselected packages
-  are excluded explicitly from every manual operation.
+- Unselected packages are excluded explicitly from every manual operation.

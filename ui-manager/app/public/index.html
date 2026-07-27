@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-21" />
+    <link rel="stylesheet" href="/styles.css?v=20260727-22" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -265,6 +265,12 @@
             <form id="wordpressUpdateForm" class="panel form-stack">
               <div><h3>Controlled update</h3><p class="muted">One website per job. A verified files/database backup and automatic rollback are mandatory.</p></div>
               <label>Website<select name="domain" id="wordpressUpdateDomain"></select></label>
+              <details class="update-pin-editor">
+                <summary><strong>Update exclusions</strong><span id="wordpressUpdatePinSummary">No exclusions</span></summary>
+                <div id="wordpressUpdatePins" class="update-pin-options"></div>
+                <label>Operator note<textarea id="wordpressUpdatePinNote" rows="2" maxlength="300" placeholder="Why these versions must remain unchanged"></textarea></label>
+                <div class="form-actions"><button id="saveWordPressUpdatePins" class="secondary" type="button">Save exclusions</button></div>
+              </details>
               <fieldset class="maintenance-operations">
                 <legend>Available updates</legend>
                 <div class="button-row"><button id="selectAllWordPressUpdates" class="secondary" type="button">Select all available</button><button id="clearWordPressUpdates" class="secondary" type="button">Clear</button></div>
@@ -855,6 +861,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-21"></script>
+    <script src="/app.js?v=20260727-22"></script>
   </body>
 </html>

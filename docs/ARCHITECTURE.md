@@ -68,7 +68,7 @@ routes. There is no Express framework or external npm dependency.
 | `cloudflare-automation-manager.js` | bulk dry-runs/jobs/rollback, provisioning defaults, temporary mitigation lifecycle |
 | `wordpress-maintenance.js` | allowlisted low-priority WP-CLI cleanup, bounded revisions, and read-only version inventory |
 | `maintenance-manager.js` | persisted manual/weekly maintenance plus durable inventory jobs |
-| `wordpress-update-manager.js` | immutable update previews, verified backups, health checks, and automatic rollback |
+| `wordpress-update-manager.js` | persistent exclusions, immutable update previews, verified backups, health checks, and automatic rollback |
 | `site-state.js` | Redis, OPcache, FastCGI, backup and image-schedule switches |
 | `backup-manager.js` | schedule, locks, archives, retention, restore |
 | `migration-manager.js` | portable export/import and runtime adoption |

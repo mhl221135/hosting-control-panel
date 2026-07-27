@@ -187,12 +187,15 @@ not retryable after failure; refresh the preview and submit a new operation.
 | `POST /api/maintenance/revisions/preview` | count revisions that exceed per-post retention for selected sites without mutation |
 | `POST /api/maintenance/run` | start maintenance for selected WordPress sites |
 | `POST /api/maintenance/inventory` | queue read-only core/plugin/theme inventory for selected WordPress sites |
+| `PUT /api/maintenance/updates/pins` | replace persistent whole-site/core/package update exclusions for one site |
 | `POST /api/maintenance/updates/preview` | refresh and preview one explicit controlled update selection |
 | `POST /api/maintenance/updates/apply` | queue a confirmed backup-protected one-site update |
 
 Update apply requires the unchanged server preview and `confirm: "UPDATE"`.
 The job is non-cancellable, conflicts with server-heavy and same-site work, and
 automatically invokes complete backup restore after update or health failure.
+Pins are enforced during every preview and again at job execution. Pin changes
+are rejected while the selected website has a queued or running update.
 
 Maintenance revision retention accepts an integer from 1 through 100 and
 defaults to five newest revisions per post. Preview runs sequentially and

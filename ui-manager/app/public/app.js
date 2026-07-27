@@ -592,6 +592,37 @@ function renderWordPressUpdatePreview() {
   ].join("\n") : "Preview is required before updates can run.";
 }
 
+function wordpressPinsFor(domain) {
+  return state.maintenance?.updatePins?.[domain] || {
+    site: false,
+    core: false,
+    plugins: [],
+    themes: [],
+    pluginPackageIds: [],
+    themePackageIds: [],
+    note: "",
+    updatedAt: "",
+    updatedBy: "",
+  };
+}
+
+function selectedWordPressPinsInput() {
+  return {
+    domain: $("#wordpressUpdateDomain").value,
+    site: Boolean($("[data-wordpress-pin-site]")?.checked),
+    core: Boolean($("[data-wordpress-pin-core]")?.checked),
+    plugins: $$("[data-wordpress-pin-plugin]:checked").map((input) => input.value),
+    themes: $$("[data-wordpress-pin-theme]:checked").map((input) => input.value),
+    plugin_package_ids: $$("[data-wordpress-pin-plugin-package]:checked").map((input) => input.value),
+    theme_package_ids: $$("[data-wordpress-pin-theme-package]:checked").map((input) => input.value),
+    note: $("#wordpressUpdatePinNote").value,
+  };
+}
+
+function pinOption(attribute, value, title, detail, checked) {
+  return `<label class="check"><input type="checkbox" ${attribute} value="${escapeHtml(value)}" ${checked ? "checked" : ""} /><span><strong>${escapeHtml(title)}</strong><small>${escapeHtml(detail)}</small></span></label>`;
+}
+
 function renderWordPressUpdates() {
   const inventory = state.maintenance?.inventory || { results: [] };
   const sites = inventory.results.filter((result) => result.ok);
@@ -601,25 +632,70 @@ function renderWordPressUpdates() {
     `<option value="${escapeHtml(site.domain)}" ${site.domain === previous ? "selected" : ""}>${escapeHtml(site.domain)}</option>`
   ).join("") : '<option value="">Run an inventory first</option>';
   const selected = sites.find((site) => site.domain === select.value) || sites[0];
+  const pins = wordpressPinsFor(selected?.domain || "");
+  const pinnedPlugins = new Set(pins.plugins || []);
+  const pinnedThemes = new Set(pins.themes || []);
+  const pinnedPluginPackages = new Set(pins.pluginPackageIds || []);
+  const pinnedThemePackages = new Set(pins.themePackageIds || []);
+  const packages = state.wordpressPackages || { plugins: [], themes: [] };
+  const pinsError = state.maintenance?.updatePinsError || "";
+  const pinCount = Number(Boolean(pins.site)) + Number(Boolean(pins.core))
+    + pinnedPlugins.size + pinnedThemes.size + pinnedPluginPackages.size + pinnedThemePackages.size;
+  let pinSummary = "No exclusions";
+  if (pinsError) pinSummary = "Exclusions unavailable";
+  else if (pins.site) pinSummary = `Website locked${pins.note ? ` · ${pins.note}` : ""}`;
+  else if (pinCount) {
+    pinSummary = `${pinCount} exclusion${pinCount === 1 ? "" : "s"}${pins.note ? ` · ${pins.note}` : ""}`;
+  }
+  $("#wordpressUpdatePinSummary").textContent = pinSummary;
+  $("#wordpressUpdatePinNote").value = pins.note || "";
+  $("#wordpressUpdatePinNote").disabled = Boolean(pinsError);
+  $("#saveWordPressUpdatePins").disabled = Boolean(pinsError);
+  const pinRows = selected && !pinsError ? [
+    pinOption("data-wordpress-pin-site", selected.domain, "Block every update", "Strongest lock, including uploaded package sources", pins.site),
+    pinOption("data-wordpress-pin-core", "wordpress", "WordPress core", `Keep ${selected.core || "current version"}`, pins.core),
+    ...(selected.plugins || []).map((item) =>
+      pinOption("data-wordpress-pin-plugin", item.name, `Plugin · ${item.name}`, `Keep ${item.version || "current version"}`, pinnedPlugins.has(item.name))),
+    ...(selected.themes || []).map((item) =>
+      pinOption("data-wordpress-pin-theme", item.name, `Theme · ${item.name}`, `Keep ${item.version || "current version"}`, pinnedThemes.has(item.name))),
+    ...(packages.plugins || []).map((item) =>
+      pinOption("data-wordpress-pin-plugin-package", item.id, `Plugin ZIP · ${item.name}`, "Block this uploaded package source", pinnedPluginPackages.has(item.id))),
+    ...(packages.themes || []).map((item) =>
+      pinOption("data-wordpress-pin-theme-package", item.id, `Theme ZIP · ${item.name}`, "Block this uploaded package source", pinnedThemePackages.has(item.id))),
+  ] : [];
+  $("#wordpressUpdatePins").innerHTML = pinRows.length
+    ? pinRows.join("")
+    : pinsError
+      ? `<span class="status-error">${escapeHtml(pinsError)}</span>`
+      : '<span class="muted">Run a WordPress inventory before managing exclusions.</span>';
+  const pinMeta = [pins.updatedBy, pins.updatedAt ? new Date(pins.updatedAt).toLocaleString() : ""].filter(Boolean).join(" · ");
+  if (pinMeta) $("#wordpressUpdatePins").insertAdjacentHTML("beforeend", `<small class="pin-meta">Last changed: ${escapeHtml(pinMeta)}</small>`);
+
   const updates = [];
   if (selected?.coreUpdate?.available) {
-    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-core /><span><strong>WordPress core</strong><small>${escapeHtml(selected.core)} → ${escapeHtml(selected.coreUpdate.version)}</small></span></label>`);
+    const blocked = Boolean(pinsError) || pins.site || pins.core;
+    updates.push(`<label class="check ${blocked ? "is-pinned" : ""}"><input type="checkbox" data-wordpress-update-core ${blocked ? "disabled" : ""} /><span><strong>WordPress core</strong><small>${escapeHtml(selected.core)} → ${escapeHtml(selected.coreUpdate.version)}${blocked ? " · pinned" : ""}</small></span></label>`);
   }
   for (const plugin of (selected?.plugins || []).filter((item) => item.update === "available")) {
-    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-plugin value="${escapeHtml(plugin.name)}" /><span><strong>Plugin · ${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.version)} → ${escapeHtml(plugin.updateVersion)}</small></span></label>`);
+    const blocked = Boolean(pinsError) || pins.site || pinnedPlugins.has(plugin.name);
+    updates.push(`<label class="check ${blocked ? "is-pinned" : ""}"><input type="checkbox" data-wordpress-update-plugin value="${escapeHtml(plugin.name)}" ${blocked ? "disabled" : ""} /><span><strong>Plugin · ${escapeHtml(plugin.name)}</strong><small>${escapeHtml(plugin.version)} → ${escapeHtml(plugin.updateVersion)}${blocked ? " · pinned" : ""}</small></span></label>`);
   }
   for (const theme of (selected?.themes || []).filter((item) => item.update === "available")) {
-    updates.push(`<label class="check"><input type="checkbox" data-wordpress-update-theme value="${escapeHtml(theme.name)}" /><span><strong>Theme · ${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.version)} → ${escapeHtml(theme.updateVersion)}</small></span></label>`);
+    const blocked = Boolean(pinsError) || pins.site || pinnedThemes.has(theme.name);
+    updates.push(`<label class="check ${blocked ? "is-pinned" : ""}"><input type="checkbox" data-wordpress-update-theme value="${escapeHtml(theme.name)}" ${blocked ? "disabled" : ""} /><span><strong>Theme · ${escapeHtml(theme.name)}</strong><small>${escapeHtml(theme.version)} → ${escapeHtml(theme.updateVersion)}${blocked ? " · pinned" : ""}</small></span></label>`);
   }
   $("#wordpressUpdateSelection").innerHTML = updates.length
     ? updates.join("")
     : '<span class="muted">No repository updates are reported for this snapshot.</span>';
-  const packages = state.wordpressPackages || { plugins: [], themes: [] };
   const packageRows = [
-    ...(packages.plugins || []).map((item) =>
-      `<label class="check"><input type="checkbox" data-wordpress-update-plugin-package value="${escapeHtml(item.id)}" /><span><strong>Plugin ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source</small></span></label>`),
-    ...(packages.themes || []).map((item) =>
-      `<label class="check"><input type="checkbox" data-wordpress-update-theme-package value="${escapeHtml(item.id)}" /><span><strong>Theme ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source</small></span></label>`),
+    ...(packages.plugins || []).map((item) => {
+      const blocked = Boolean(pinsError) || pins.site || pinnedPluginPackages.has(item.id);
+      return `<label class="check ${blocked ? "is-pinned" : ""}"><input type="checkbox" data-wordpress-update-plugin-package value="${escapeHtml(item.id)}" ${blocked ? "disabled" : ""} /><span><strong>Plugin ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source${blocked ? " · pinned" : ""}</small></span></label>`;
+    }),
+    ...(packages.themes || []).map((item) => {
+      const blocked = Boolean(pinsError) || pins.site || pinnedThemePackages.has(item.id);
+      return `<label class="check ${blocked ? "is-pinned" : ""}"><input type="checkbox" data-wordpress-update-theme-package value="${escapeHtml(item.id)}" ${blocked ? "disabled" : ""} /><span><strong>Theme ZIP · ${escapeHtml(item.name)}</strong><small>Explicit package-library source${blocked ? " · pinned" : ""}</small></span></label>`;
+    }),
   ];
   $("#wordpressUpdatePackages").innerHTML = packageRows.length
     ? packageRows.join("")
@@ -2281,7 +2357,7 @@ $("#wordpressUpdateForm").addEventListener("change", (event) => {
 
 $("#selectAllWordPressUpdates").addEventListener("click", () => {
   $$("[data-wordpress-update-core], [data-wordpress-update-plugin], [data-wordpress-update-theme]")
-    .forEach((input) => { input.checked = true; });
+    .forEach((input) => { input.checked = !input.disabled; });
   state.wordpressUpdatePreview = null;
   renderWordPressUpdatePreview();
 });
@@ -2291,6 +2367,21 @@ $("#clearWordPressUpdates").addEventListener("click", () => {
     .forEach((input) => { input.checked = false; });
   state.wordpressUpdatePreview = null;
   renderWordPressUpdatePreview();
+});
+
+$("#saveWordPressUpdatePins").addEventListener("click", async (event) => {
+  const body = selectedWordPressPinsInput();
+  if (!body.domain) return notice("Run an inventory and select a WordPress website.", "warning");
+  try {
+    const data = await withButton(event.currentTarget, "Saving...", () => api(
+      "/api/maintenance/updates/pins",
+      { method: "PUT", body: JSON.stringify(body) },
+    ));
+    state.maintenance.updatePins = data.pins;
+    state.wordpressUpdatePreview = null;
+    renderWordPressUpdates();
+    notice("WordPress update exclusions saved.");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#previewWordPressUpdate").addEventListener("click", async (event) => {

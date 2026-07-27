@@ -35,7 +35,7 @@ into dedicated directories.
 - Global gzip compression and per-site or bulk WebP image generation
 - Manual and opt-in weekly WordPress cleanup with revision-retention preview, persisted progress, and per-operation results
 - Durable read-only WordPress core, plugin, and theme version inventory
-- Manual controlled WordPress updates with verified backup, health checks, and automatic rollback
+- Manual controlled WordPress updates with persistent exclusions, verified backup, health checks, and automatic rollback
 - Per-site manual and scheduled backups with retention
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump

@@ -3,7 +3,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { WordPressUpdateManager, requestSelection } = require("../lib/wordpress-update-manager");
+const {
+  WordPressUpdateManager,
+  normalizePins,
+  requestSelection,
+} = require("../lib/wordpress-update-manager");
 
 function inventory(version = "6.8.2") {
   return {
@@ -72,6 +76,11 @@ function fixture(options = {}) {
     jobManager: {
       register(type, handler) { registered.set(type, handler); },
       create(input) { created.push(input); return { id: "job-1", ...input }; },
+      list() {
+        return options.activeJob
+          ? [{ status: "running", targets: ["example.test"], type: "wordpress.update" }]
+          : [];
+      },
     },
     backupManager,
     runner,
@@ -106,6 +115,85 @@ test("validates controlled update selections", () => {
   });
 });
 
+test("validates, persists, audits, and clears per-site update pins", async () => {
+  const fixtureValue = fixture();
+  try {
+    assert.throws(() => normalizePins({ plugins: ["bad name"] }), /invalid/);
+    const packageId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const saved = await fixtureValue.manager.updatePins("example.test", {
+      core: true,
+      plugins: ["woocommerce"],
+      pluginPackageIds: [packageId],
+      note: "Compatibility hold",
+    }, "operator@example.test");
+    assert.equal(saved.core, true);
+    assert.equal(saved.note, "Compatibility hold");
+    assert.equal(saved.updatedBy, "operator@example.test");
+    assert.match(saved.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.deepEqual(fixtureValue.manager.pinsFor("example.test").plugins, ["woocommerce"]);
+    assert.equal(fs.statSync(path.join(fixtureValue.dataDir, "wordpress-update-pins.json")).mode & 0o777, 0o600);
+
+    await fixtureValue.manager.updatePins("example.test", {}, "operator@example.test");
+    assert.deepEqual(fixtureValue.manager.pinsView(), {});
+  } finally {
+    fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when persisted update pins are unreadable", () => {
+  const fixtureValue = fixture();
+  try {
+    fs.writeFileSync(path.join(fixtureValue.dataDir, "wordpress-update-pins.json"), "{broken", "utf8");
+    assert.throws(() => fixtureValue.manager.pinsView(), /updates are blocked/);
+  } finally {
+    fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("does not change pins while the website has an active update", async () => {
+  const fixtureValue = fixture({ activeJob: true });
+  try {
+    await assert.rejects(
+      () => fixtureValue.manager.updatePins("example.test", { core: true }, "operator"),
+      /active update job/,
+    );
+    assert.equal(fs.existsSync(path.join(fixtureValue.dataDir, "wordpress-update-pins.json")), false);
+  } finally {
+    fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("rejects whole-site, core, package, and uploaded-source pins during preview", async () => {
+  const fixtureValue = fixture();
+  const packageId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+  try {
+    await fixtureValue.manager.updatePins("example.test", { site: true, note: "Site hold" }, "operator");
+    await assert.rejects(
+      () => fixtureValue.manager.preview({ domain: "example.test", core: true }),
+      /all updates for this website.*Site hold/,
+    );
+    await fixtureValue.manager.updatePins("example.test", {
+      core: true,
+      plugins: ["woocommerce"],
+      pluginPackageIds: [packageId],
+    }, "operator");
+    await assert.rejects(
+      () => fixtureValue.manager.preview({ domain: "example.test", core: true }),
+      /WordPress core/,
+    );
+    await assert.rejects(
+      () => fixtureValue.manager.preview({ domain: "example.test", plugins: ["woocommerce"] }),
+      /plugin woocommerce/,
+    );
+    await assert.rejects(
+      () => fixtureValue.manager.preview({ domain: "example.test", pluginPackageIds: [packageId] }),
+      /uploaded plugin package/,
+    );
+  } finally {
+    fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
+  }
+});
+
 test("previews current versions without mutation and queues one-site work", async () => {
   const fixtureValue = fixture();
   try {
@@ -123,6 +211,29 @@ test("previews current versions without mutation and queues one-site work", asyn
     assert.deepEqual(job.conflicts, ["server-heavy", "site:example.test"]);
     assert.equal(job.cancellable, false);
     assert.ok(fixtureValue.registered.has("wordpress.update"));
+  } finally {
+    fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
+  }
+});
+
+test("a pin created after preview blocks execution before backup", async () => {
+  const fixtureValue = fixture();
+  try {
+    const preview = await fixtureValue.manager.preview({
+      domain: "example.test",
+      core: true,
+    });
+    await fixtureValue.manager.updatePins("example.test", {
+      core: true,
+      note: "New compatibility finding",
+    }, "operator@example.test");
+    await assert.rejects(() => fixtureValue.manager.apply({
+      domain: preview.domain,
+      selection: preview.selection,
+      previewId: preview.id,
+      operator: "operator@example.test",
+    }, context()), /WordPress core/);
+    assert.equal(fixtureValue.calls.some((call) => call[0] === "backup"), false);
   } finally {
     fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
   }
