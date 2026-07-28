@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 function parseJson(value, fallback) {
   try {
@@ -111,6 +111,38 @@ class BillingDatabase {
         COMMIT;
       `);
     }
+    if (current < 2) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE payments (
+          payment_id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          token_hash TEXT NOT NULL UNIQUE,
+          nonce TEXT NOT NULL UNIQUE,
+          woo_order_id INTEGER NOT NULL UNIQUE,
+          checkout_url TEXT NOT NULL,
+          amount_minor INTEGER NOT NULL,
+          currency TEXT NOT NULL,
+          months INTEGER NOT NULL,
+          resulting_paid_through TEXT NOT NULL,
+          status TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          paid_at TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT
+        );
+        CREATE TABLE webhook_deliveries (
+          delivery_id TEXT PRIMARY KEY,
+          topic TEXT NOT NULL,
+          resource_id INTEGER NOT NULL,
+          result TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX payments_service_created ON payments(service_id, created_at DESC);
+        PRAGMA user_version=2;
+        COMMIT;
+      `);
+    }
   }
 
   transaction(operation) {
@@ -155,6 +187,11 @@ class BillingDatabase {
       ].some((value) => String(value).toLowerCase().includes(search))) return false;
       return true;
     });
+  }
+
+  service(serviceId) {
+    const row = this.db.prepare("SELECT * FROM services WHERE service_id=?").get(String(serviceId || ""));
+    return row ? rowView(row, this.reminderDays()) : null;
   }
 
   summary() {
@@ -230,6 +267,130 @@ class BillingDatabase {
         .run(fingerprint, actor, services.length, timestamp);
       this.auditEntry(actor, "inventory.import", fingerprint, { rows: services.length, inserted, updated });
       return { rows: services.length, inserted, updated };
+    });
+  }
+
+  createPayment(payment, actor) {
+    const timestamp = new Date().toISOString();
+    this.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO payments(
+          payment_id,service_id,token_hash,nonce,woo_order_id,checkout_url,
+          amount_minor,currency,months,resulting_paid_through,status,expires_at,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?, 'pending',?,?)
+      `).run(
+        payment.paymentId, payment.serviceId, payment.tokenHash, payment.nonce,
+        payment.wooOrderId, payment.checkoutUrl, payment.amountMinor, payment.currency,
+        payment.months, payment.resultingPaidThrough, payment.expiresAt, timestamp,
+      );
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), payment.serviceId, "payment.link_created", timestamp, JSON.stringify({
+        paymentId: payment.paymentId,
+        wooOrderId: payment.wooOrderId,
+        amountMinor: payment.amountMinor,
+        currency: payment.currency,
+        expiresAt: payment.expiresAt,
+      }));
+      this.auditEntry(actor, "payment.link_create", payment.serviceId, {
+        paymentId: payment.paymentId,
+        wooOrderId: payment.wooOrderId,
+        amountMinor: payment.amountMinor,
+        currency: payment.currency,
+        expiresAt: payment.expiresAt,
+      });
+    });
+  }
+
+  activePayment(serviceId, now = new Date()) {
+    this.db.prepare("UPDATE payments SET status='expired' WHERE status='pending' AND expires_at<=?")
+      .run(now.toISOString());
+    return this.db.prepare(
+      "SELECT payment_id,woo_order_id,expires_at FROM payments WHERE service_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
+    ).get(serviceId) || null;
+  }
+
+  payments(limit = 100) {
+    return this.db.prepare(`
+      SELECT p.payment_id,p.service_id,s.primary_domain,p.woo_order_id,p.amount_minor,
+             p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
+             p.paid_at,p.created_at
+      FROM payments p JOIN services s ON s.service_id=p.service_id
+      ORDER BY p.created_at DESC LIMIT ?
+    `).all(Math.min(500, Math.max(1, Number(limit) || 100)));
+  }
+
+  resolvePayment(hash, now = new Date()) {
+    const payment = this.db.prepare(
+      "SELECT payment_id,checkout_url,status,expires_at FROM payments WHERE token_hash=?",
+    ).get(hash);
+    if (!payment) throw Object.assign(new Error("Payment link was not found"), { statusCode: 404 });
+    if (payment.status !== "pending") throw Object.assign(new Error("Payment link is no longer active"), { statusCode: 410 });
+    if (Date.parse(payment.expires_at) <= now.valueOf()) {
+      this.db.prepare("UPDATE payments SET status='expired' WHERE payment_id=? AND status='pending'").run(payment.payment_id);
+      throw Object.assign(new Error("Payment link has expired"), { statusCode: 410 });
+    }
+    return payment.checkout_url;
+  }
+
+  processWebhook(delivery) {
+    return this.transaction(() => {
+      const duplicate = this.db.prepare("SELECT result FROM webhook_deliveries WHERE delivery_id=?").get(delivery.deliveryId);
+      if (duplicate) return { duplicate: true, result: duplicate.result };
+      const payment = this.db.prepare("SELECT * FROM payments WHERE woo_order_id=?").get(delivery.resourceId);
+      let result = "ignored";
+      const timestamp = new Date().toISOString();
+      if (payment && ["processing", "completed"].includes(delivery.status)) {
+        if (delivery.totalMinor !== payment.amount_minor || delivery.currency !== payment.currency) {
+          result = "amount_mismatch";
+        } else if (payment.status === "paid") {
+          result = "already_paid";
+        } else if (payment.status !== "pending") {
+          this.db.prepare(
+            "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+          ).run(crypto.randomUUID(), payment.service_id, "payment.late_completion", timestamp, JSON.stringify({
+            paymentId: payment.payment_id,
+            wooOrderId: payment.woo_order_id,
+            priorStatus: payment.status,
+            reviewRequired: true,
+          }));
+          result = "review_required";
+        } else {
+          this.db.prepare("UPDATE payments SET status='paid',paid_at=? WHERE payment_id=?")
+            .run(timestamp, payment.payment_id);
+          this.db.prepare("UPDATE services SET hosting_paid_through=?,updated_at=? WHERE service_id=?")
+            .run(payment.resulting_paid_through, timestamp, payment.service_id);
+          this.db.prepare(
+            "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+          ).run(crypto.randomUUID(), payment.service_id, "payment.completed", timestamp, JSON.stringify({
+            paymentId: payment.payment_id,
+            wooOrderId: payment.woo_order_id,
+            amountMinor: payment.amount_minor,
+            currency: payment.currency,
+            resultingPaidThrough: payment.resulting_paid_through,
+          }));
+          result = "paid";
+        }
+      } else if (payment && ["refunded", "cancelled", "failed"].includes(delivery.status)) {
+        this.db.prepare(
+          "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+        ).run(crypto.randomUUID(), payment.service_id, `payment.${delivery.status}`, timestamp, JSON.stringify({
+          paymentId: payment.payment_id,
+          wooOrderId: payment.woo_order_id,
+          reviewRequired: true,
+        }));
+        result = "review_required";
+      }
+      this.db.prepare(
+        "INSERT INTO webhook_deliveries(delivery_id,topic,resource_id,result,created_at) VALUES(?,?,?,?,?)",
+      ).run(delivery.deliveryId, delivery.topic, delivery.resourceId, result, timestamp);
+      this.auditEntry("woocommerce-webhook", "payment.webhook", String(delivery.resourceId), {
+        deliveryId: delivery.deliveryId,
+        topic: delivery.topic,
+        status: delivery.status,
+        result,
+      });
+      return { duplicate: false, result };
     });
   }
 

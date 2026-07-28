@@ -28,6 +28,7 @@
       </div>
       <nav id="desktopNav" aria-label="Billing sections">
         <button data-view="overview" class="active">Overview</button>
+        <button data-view="payments">Payments</button>
         <button data-view="import">Import</button>
         <button data-view="backups">Backups</button>
         <button data-view="audit">Audit</button>
@@ -35,6 +36,7 @@
       </nav>
       <select id="mobileNav" aria-label="Billing section">
         <option value="overview">Overview</option>
+        <option value="payments">Payments</option>
         <option value="import">Import</option>
         <option value="backups">Backups</option>
         <option value="audit">Audit</option>
@@ -66,11 +68,54 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Website</th><th>Client</th><th>Hosting through</th><th>Domain through</th><th>State</th><th>Location</th><th>Renewal</th></tr></thead>
+            <thead><tr><th>Website</th><th>Client</th><th>Hosting through</th><th>Domain through</th><th>State</th><th>Location</th><th>Renewal</th><th>Action</th></tr></thead>
             <tbody id="servicesBody"></tbody>
           </table>
         </div>
         <p id="emptyServices" class="empty" hidden>No billing services imported.</p>
+      </section>
+
+      <section data-section="payments" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">WooCommerce</p><h1>Renewal payments</h1></div>
+          <button id="testWoo" class="secondary">Test connection</button>
+        </div>
+        <div class="settings-layout">
+          <form id="wooSettingsForm" class="form-grid">
+            <h2>Integration</h2>
+            <label class="wide">WooCommerce URL<input name="site_url" type="url" placeholder="https://store.example.com" required></label>
+            <label class="wide">Public billing URL<input name="public_billing_url" type="url" placeholder="https://billing.example.com" required></label>
+            <label>Renewal product ID<input name="product_id" type="number" min="1" required></label>
+            <label>Link lifetime (hours)<input name="link_hours" type="number" min="1" max="720" required></label>
+            <label>Consumer key<input name="consumer_key" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
+            <label>Consumer secret<input name="consumer_secret" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
+            <label class="wide">Webhook secret<input name="webhook_secret" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
+            <button class="primary" type="submit">Save integration</button>
+            <p id="wooStatus" class="field-status"></p>
+          </form>
+          <form id="paymentLinkForm" class="form-grid" hidden>
+            <h2>Create payment link</h2>
+            <input name="service_id" type="hidden">
+            <p class="wide" id="paymentService"></p>
+            <label>Renewal months<input name="months" type="number" min="1" max="120" required></label>
+            <label>Amount<input name="amount" type="number" min="0.01" max="100000000" step="0.01" required></label>
+            <button class="primary" type="submit">Create WooCommerce order</button>
+            <button id="cancelPaymentLink" class="secondary" type="button">Cancel</button>
+            <div id="paymentLinkResult" class="wide payment-result" hidden>
+              <strong>Payment link</strong>
+              <a id="paymentLinkUrl" target="_blank" rel="noopener"></a>
+              <small id="paymentLinkExpiry"></small>
+            </div>
+          </form>
+        </div>
+        <h2 class="subheading">Recent payment links</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th></tr></thead>
+            <tbody id="paymentsBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyPayments" class="empty" hidden>No payment links created.</p>
       </section>
 
       <section data-section="import" hidden>
