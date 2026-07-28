@@ -103,6 +103,16 @@ case "$hosting_agent_token" in
     ;;
 esac
 
+hosting_root="$(env_value HOSTING_ROOT)"
+hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
+backups_dir="$(env_value BACKUPS_DIR)"
+backups_dir="${backups_dir:-$hosting_root/backups}"
+exports_dir="$(env_value EXPORTS_DIR)"
+exports_dir="${exports_dir:-$hosting_root/exports}"
+
+HOSTING_ROOT="$hosting_root" BACKUPS_DIR="$backups_dir" EXPORTS_DIR="$exports_dir" \
+  sh "$project_dir/scripts/migrate-ui-permissions.sh"
+
 cd "$project_dir"
 compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true

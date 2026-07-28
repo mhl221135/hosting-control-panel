@@ -41,14 +41,16 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.31
+    image: hosting-ui:2.32
     build:
       context: ./ui-manager
     container_name: hosting-ui
-    user: "0:0"
+    user: "33:33"
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     ports:
       - "8687:8687"
     environment:
@@ -93,7 +95,7 @@ services:
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/ui-manager:/app/data
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data:ro
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
       - ${EXPORTS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports}:/srv/exports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/imports:/srv/imports

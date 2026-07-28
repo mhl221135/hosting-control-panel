@@ -26,4 +26,6 @@ ENV POOLS_PATH=/srv/configs/php-fpm/pools.conf
 
 EXPOSE 8687
 
+USER 33:33
+
 CMD ["node", "/app/server.js"]

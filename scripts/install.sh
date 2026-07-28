@@ -166,10 +166,6 @@ mkdir -p \
   "$hosting_root/imports" \
   "$hosting_root/websites/_default"
 
-chown -R 33:33 \
-  "$hosting_root/app-data/filebrowser" \
-  "$hosting_root/websites"
-
 initialize_config() {
   source_path="$1"
   destination_path="$2"
@@ -184,6 +180,9 @@ initialize_config "$project_dir/global-configs-new-upd/nginx" "$hosting_root/app
 initialize_config "$project_dir/global-configs-new-upd/php-fpm" "$hosting_root/app-data/configs/php-fpm" "php-fpm.conf"
 initialize_config "$project_dir/global-configs-new-upd/php" "$hosting_root/app-data/configs/php" "global.ini"
 initialize_config "$project_dir/global-configs-new-upd/wp" "$hosting_root/app-data/configs/wp" "wp-global.php"
+
+HOSTING_ROOT="$hosting_root" BACKUPS_DIR="$backups_dir" EXPORTS_DIR="$exports_dir" \
+  sh "$project_dir/scripts/migrate-ui-permissions.sh"
 
 cd "$project_dir"
 compose config --quiet
