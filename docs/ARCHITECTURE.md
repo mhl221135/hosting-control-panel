@@ -60,6 +60,12 @@ are not presented as independent websites.
 and managers, serves `/app/public`, authenticates API calls, and dispatches API
 routes. It does not use Express; Nodemailer is the only runtime npm dependency.
 
+The container runs as UID/GID `33:33`, drops all Linux capabilities, and uses
+`no-new-privileges`. `/srv/app-data` is read-only. Writable mounts are limited
+to `/app/data`, active configuration, websites, backups, exports, and imports.
+The host-side install/upgrade migration grants ownership only to those managed
+trees and does not recursively change existing website ownership.
+
 The `docker` executable in `hosting-ui` is an RPC compatibility shim, not the
 Docker CLI. It streams requests to `hosting-agent` with
 `HOSTING_AGENT_TOKEN`. The agent validates container names, users, environment
