@@ -76,6 +76,8 @@ services:
       PHP_CONTAINER: hosting-php-fpm
       HOSTING_AGENT_URL: http://hosting-agent:8790
       HOSTING_AGENT_TOKEN: ${HOSTING_AGENT_TOKEN:?Set HOSTING_AGENT_TOKEN in .env}
+      BILLING_API_URL: http://hosting-billing:8787/internal/v1
+      BILLING_API_TOKEN: ${BILLING_API_TOKEN:?Set BILLING_API_TOKEN in .env}
       TZ: Europe/Kyiv
       UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:?Set UI_ADMIN_EMAIL in .env}
       UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:?Set UI_ADMIN_PASSWORD in .env}
@@ -108,6 +110,43 @@ services:
     depends_on:
       hosting-agent:
         condition: service_healthy
+
+  hosting-billing:
+    image: hosting-billing:1.0
+    build:
+      context: ./billing-service
+    container_name: hosting-billing
+    user: "33:33"
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: 8787
+      DATA_DIR: /app/data
+      BACKUPS_ROOT: /srv/backups
+      BILLING_ADMIN_EMAIL: ${BILLING_ADMIN_EMAIL:-${UI_ADMIN_EMAIL}}
+      BILLING_ADMIN_PASSWORD: ${BILLING_ADMIN_PASSWORD:-${UI_ADMIN_PASSWORD}}
+      BILLING_API_TOKEN: ${BILLING_API_TOKEN:?Set BILLING_API_TOKEN in .env}
+      BILLING_BACKUP_RETENTION: ${BILLING_BACKUP_RETENTION:-14}
+      TZ: Europe/Kyiv
+    volumes:
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/billing:/app/data
+      - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}/billing:/srv/backups
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    networks:
+      - hosting-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
   hosting-php-fpm:
     image: custom-php-fpm:8.4
