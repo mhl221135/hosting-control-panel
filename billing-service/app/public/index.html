@@ -29,6 +29,7 @@
       <nav id="desktopNav" aria-label="Billing sections">
         <button data-view="overview" class="active">Overview</button>
         <button data-view="payments">Payments</button>
+        <button data-view="reminders">Reminders</button>
         <button data-view="import">Import</button>
         <button data-view="backups">Backups</button>
         <button data-view="audit">Audit</button>
@@ -37,6 +38,7 @@
       <select id="mobileNav" aria-label="Billing section">
         <option value="overview">Overview</option>
         <option value="payments">Payments</option>
+        <option value="reminders">Reminders</option>
         <option value="import">Import</option>
         <option value="backups">Backups</option>
         <option value="audit">Audit</option>
@@ -116,6 +118,36 @@
           </table>
         </div>
         <p id="emptyPayments" class="empty" hidden>No payment links created.</p>
+      </section>
+
+      <section data-section="reminders" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Renewals</p><h1>Reminder delivery</h1></div>
+          <button id="runReminders" class="primary">Send due now</button>
+        </div>
+        <form id="reminderSettingsForm" class="form-grid compact-form">
+          <h2>Schedule</h2>
+          <label class="toggle-row"><input name="enabled" type="checkbox"> Enable daily reminders</label>
+          <label>Local send time<input name="time" type="time" required></label>
+          <button class="primary" type="submit">Save schedule</button>
+          <p id="reminderScheduleStatus" class="field-status"></p>
+        </form>
+        <h2 class="subheading">Due preview</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Website</th><th>State</th><th>Paid through</th><th>Timing</th><th>Delivery</th></tr></thead>
+            <tbody id="reminderPreviewBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyReminderPreview" class="empty" hidden>No renewal reminders are currently due.</p>
+        <h2 class="subheading">Reminder history</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Website</th><th>State</th><th>Paid through</th><th>Status</th><th>Attempts</th><th>Sent</th><th>Error</th></tr></thead>
+            <tbody id="reminderHistoryBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyReminderHistory" class="empty" hidden>No reminders attempted.</p>
       </section>
 
       <section data-section="import" hidden>

@@ -54,6 +54,7 @@ const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/prov
 const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-manager");
 const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
+const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -3220,6 +3221,20 @@ async function handleAuthApi(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.url === "/internal/v1/billing-reminders" && req.method === "POST") {
+      if (!billingAuthorized(req)) {
+        sendJson(res, 401, { ok: false, message: "Billing API authentication required" }, { "Cache-Control": "no-store" });
+        return;
+      }
+      const event = validatedReminder(JSON.parse((await readBody(req)) || "{}"));
+      const delivery = notificationManager.enqueueEvent(event);
+      if (!delivery) {
+        sendJson(res, 503, { ok: false, message: "No Telegram or SMTP notification channel is enabled" }, { "Cache-Control": "no-store" });
+        return;
+      }
+      sendJson(res, 202, { ok: true, delivery }, { "Cache-Control": "no-store" });
+      return;
+    }
     if (req.url.startsWith("/api/")) {
       if (req.url.startsWith("/api/auth/")) {
         const handledAuth = await handleAuthApi(req, res);

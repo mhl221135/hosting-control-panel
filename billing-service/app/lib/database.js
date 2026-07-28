@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 function parseJson(value, fallback) {
   try {
@@ -143,6 +143,31 @@ class BillingDatabase {
         COMMIT;
       `);
     }
+    if (current < 3) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE reminder_outbox (
+          reminder_key TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          state TEXT NOT NULL,
+          paid_through TEXT NOT NULL,
+          days_remaining INTEGER NOT NULL,
+          status TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          error TEXT NOT NULL DEFAULT '',
+          remote_delivery_id TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          sent_at TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT
+        );
+        INSERT INTO settings(key,value) VALUES ('reminder_enabled','false');
+        INSERT INTO settings(key,value) VALUES ('reminder_time','09:00');
+        INSERT INTO settings(key,value) VALUES ('reminder_last_run','');
+        PRAGMA user_version=3;
+        COMMIT;
+      `);
+    }
   }
 
   transaction(operation) {
@@ -172,6 +197,38 @@ class BillingDatabase {
       this.auditEntry(actor, "settings.update", "reminder_days", { reminderDays });
     });
     return reminderDays;
+  }
+
+  reminderSettings() {
+    const rows = this.db.prepare(
+      "SELECT key,value FROM settings WHERE key IN ('reminder_enabled','reminder_time','reminder_last_run')",
+    ).all();
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    return {
+      enabled: values.reminder_enabled === "true",
+      time: values.reminder_time || "09:00",
+      lastRun: values.reminder_last_run || "",
+    };
+  }
+
+  updateReminderSettings(input, actor) {
+    const time = String(input.time || "");
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw Object.assign(new Error("Reminder time must use HH:MM"), { statusCode: 400 });
+    }
+    const enabled = Boolean(input.enabled);
+    this.transaction(() => {
+      const upsert = this.db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+      upsert.run("reminder_enabled", String(enabled));
+      upsert.run("reminder_time", time);
+      this.auditEntry(actor, "reminder.settings_update", "schedule", { enabled, time });
+    });
+    return this.reminderSettings();
+  }
+
+  setReminderLastRun(date) {
+    this.db.prepare("INSERT INTO settings(key,value) VALUES('reminder_last_run',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(date);
   }
 
   services(query = {}) {
@@ -392,6 +449,80 @@ class BillingDatabase {
       });
       return { duplicate: false, result };
     });
+  }
+
+  dueReminders(now = new Date()) {
+    const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+    return this.services({ now }).filter((service) =>
+      service.hosting_paid_through && ["reminder", "grace", "suspended"].includes(service.hosting_state))
+      .map((service) => {
+        const paid = Date.parse(`${service.hosting_paid_through}T00:00:00Z`);
+        const state = service.hosting_state;
+        const reminderKey = crypto.createHash("sha256")
+          .update(`${service.service_id}\n${service.hosting_paid_through}\n${state}`).digest("hex");
+        const existing = this.db.prepare("SELECT status,attempts,error,sent_at FROM reminder_outbox WHERE reminder_key=?")
+          .get(reminderKey);
+        return {
+          reminder_key: reminderKey,
+          service_id: service.service_id,
+          domain: service.primary_domain,
+          state,
+          paid_through: service.hosting_paid_through,
+          days_remaining: Math.floor((paid - today) / 86_400_000),
+          delivery_status: existing?.status || "new",
+          attempts: Number(existing?.attempts || 0),
+          error: existing?.error || "",
+          sent_at: existing?.sent_at || "",
+        };
+      });
+  }
+
+  queueReminders(reminders) {
+    const timestamp = new Date().toISOString();
+    const insert = this.db.prepare(`
+      INSERT OR IGNORE INTO reminder_outbox(
+        reminder_key,service_id,state,paid_through,days_remaining,status,created_at,updated_at
+      ) VALUES(?,?,?,?,?,'pending',?,?)
+    `);
+    for (const item of reminders) {
+      insert.run(
+        item.reminder_key, item.service_id, item.state, item.paid_through,
+        item.days_remaining, timestamp, timestamp,
+      );
+    }
+    return this.db.prepare(`
+      SELECT o.*,s.primary_domain AS domain
+      FROM reminder_outbox o JOIN services s ON s.service_id=o.service_id
+      WHERE o.reminder_key IN (${reminders.map(() => "?").join(",") || "NULL"})
+        AND o.status IN ('pending','failed')
+      ORDER BY o.created_at
+    `).all(...reminders.map((item) => item.reminder_key));
+  }
+
+  markReminder(reminderKey, result) {
+    const timestamp = new Date().toISOString();
+    if (result.ok) {
+      this.db.prepare(`
+        UPDATE reminder_outbox
+        SET status='sent',attempts=attempts+1,error='',remote_delivery_id=?,sent_at=?,updated_at=?
+        WHERE reminder_key=?
+      `).run(String(result.deliveryId || "").slice(0, 160), timestamp, timestamp, reminderKey);
+    } else {
+      this.db.prepare(`
+        UPDATE reminder_outbox
+        SET status='failed',attempts=attempts+1,error=?,updated_at=?
+        WHERE reminder_key=?
+      `).run(String(result.error || "Notification delivery failed").slice(0, 300), timestamp, reminderKey);
+    }
+  }
+
+  reminderHistory(limit = 100) {
+    return this.db.prepare(`
+      SELECT o.reminder_key,o.service_id,s.primary_domain AS domain,o.state,o.paid_through,
+             o.days_remaining,o.status,o.attempts,o.error,o.created_at,o.sent_at
+      FROM reminder_outbox o JOIN services s ON s.service_id=o.service_id
+      ORDER BY o.created_at DESC LIMIT ?
+    `).all(Math.min(500, Math.max(1, Number(limit) || 100)));
   }
 
   integrity() {

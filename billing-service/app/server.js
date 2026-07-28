@@ -7,6 +7,7 @@ const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
 const { PaymentManager } = require("./lib/payments");
+const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
 
 const PORT = Number(process.env.PORT || 8787);
@@ -24,6 +25,7 @@ const auth = new AuthStore(DATA_DIR);
 const wooSettings = new WooCommerceSettings(DATA_DIR);
 const wooClient = new WooCommerceClient(wooSettings);
 const payments = new PaymentManager(database, wooSettings, wooClient);
+const reminderManager = new ReminderManager(database, new NotificationClient());
 
 function headers(extra = {}) {
   return {
@@ -212,6 +214,25 @@ async function api(req, res) {
     json(res, 200, { ok: true, payments: database.payments(Number(url.searchParams.get("limit") || 100)) });
     return true;
   }
+  if (req.method === "GET" && url.pathname === "/api/reminders") {
+    json(res, 200, {
+      ok: true,
+      settings: database.reminderSettings(),
+      preview: reminderManager.preview(),
+      history: database.reminderHistory(Number(url.searchParams.get("limit") || 100)),
+      running: reminderManager.running,
+    });
+    return true;
+  }
+  if (req.method === "PUT" && url.pathname === "/api/reminders/settings") {
+    const body = await readJson(req);
+    json(res, 200, { ok: true, settings: database.updateReminderSettings(body, session.email) });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/reminders/run") {
+    json(res, 200, { ok: true, result: await reminderManager.run(session.email) });
+    return true;
+  }
   if (req.method === "GET" && url.pathname === "/api/woocommerce/settings") {
     json(res, 200, { ok: true, settings: wooSettings.public() });
     return true;
@@ -351,9 +372,13 @@ const server = http.createServer(async (req, res) => {
 
 server.headersTimeout = 15_000;
 server.requestTimeout = 60_000;
-server.listen(PORT, "0.0.0.0", () => console.log(`Hosting billing listening on ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Hosting billing listening on ${PORT}`);
+  reminderManager.start();
+});
 
 function shutdown() {
+  reminderManager.stop();
   server.close(() => {
     database.close();
     process.exit(0);
