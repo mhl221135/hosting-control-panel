@@ -127,10 +127,12 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- BILLING.md
 |   |-- CONFIGURATION.md
 |   |-- HIGH_AVAILABILITY.md
+|   |-- MAIL_FEASIBILITY.md
 |   |-- OPERATIONS.md
 |   |-- SECURITY.md
 |   `-- UI_GUIDE.md
 |-- scripts/
+|   |-- mail-feasibility.sh  # Read-only host and AWS SES go/no-go checks
 |   |-- configure.sh
 |   |-- export-websites.sh
 |   |-- import-websites.sh
