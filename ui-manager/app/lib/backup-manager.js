@@ -7,6 +7,7 @@ const { promisify } = require("util");
 const { siteAdapter, siteDatabaseReference } = require("./site-capabilities");
 
 const execFileAsync = promisify(execFile);
+const MYSQL_RESTORE_SQL_MODE = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
 
 const DEFAULT_SETTINGS = {
   scheduleTime: "03:00",
@@ -567,9 +568,10 @@ class BackupManager {
       this.mysqlContainer,
       "sh",
       "-c",
-      'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot "$1"',
+      'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot --init-command="$2" "$1"',
       "backup-restore",
       database,
+      `SET SESSION sql_mode='${MYSQL_RESTORE_SQL_MODE}'`,
     ], { stdio: ["pipe", "ignore", "pipe"] });
     let stderr = "";
     process.stderr.on("data", (chunk) => {
@@ -786,4 +788,4 @@ function cryptoSafeSuffix() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-module.exports = { BackupManager, DEFAULT_SETTINGS, backupId };
+module.exports = { BackupManager, DEFAULT_SETTINGS, MYSQL_RESTORE_SQL_MODE, backupId };

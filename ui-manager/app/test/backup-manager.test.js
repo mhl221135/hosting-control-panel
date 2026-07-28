@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const test = require("node:test");
-const { BackupManager } = require("../lib/backup-manager");
+const { BackupManager, MYSQL_RESTORE_SQL_MODE } = require("../lib/backup-manager");
 
 function managerFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-backup-test-"));
@@ -24,6 +24,11 @@ function managerFixture() {
   });
   return { root, manager, backupsRoot, websitesRoot };
 }
+
+test("site restore mode accepts legacy zero-date schemas without weakening global MySQL mode", () => {
+  assert.match(MYSQL_RESTORE_SQL_MODE, /STRICT_TRANS_TABLES/);
+  assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
+});
 
 test("validates and persists backup settings", () => {
   const fixture = managerFixture();

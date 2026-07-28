@@ -126,6 +126,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- ARCHITECTURE.md
 |   |-- BILLING.md
 |   |-- CONFIGURATION.md
+|   |-- DISASTER_RECOVERY_QUALIFICATION.md
 |   |-- HIGH_AVAILABILITY.md
 |   |-- MAIL_FEASIBILITY.md
 |   |-- OPERATIONS.md
@@ -139,6 +140,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- install.sh
 |   |-- migrate-webp-cache.sh
 |   |-- offsite-recovery.sh
+|   |-- qualify-local-recovery.sh
 |   |-- rotate-credentials.sh
 |   |-- security-audit.sh
 |   `-- upgrade.sh
