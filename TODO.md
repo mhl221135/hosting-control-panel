@@ -624,6 +624,72 @@ The manual architecture and failover runbook are documented in
 - Failback rebuilds the old primary from the new primary. Never merge two
   independently writable histories.
 
+### Direct NPM And Cloudflare Tunnel Ingress
+
+- Support an explicit public-ingress mode per server:
+  - `direct_npm`: Cloudflare/DNS origin records target the public WAN address
+    and traffic enters NPM on ports 80/443;
+  - `cloudflare_tunnel`: outbound `cloudflared` connects to Cloudflare and
+    published website hostnames route directly to `hosting-nginx:80` on the
+    internal Docker network.
+- Allow a primary or promoted replica behind CGNAT/gray IP to use tunnel mode
+  without exposing inbound 80/443. The host still requires reliable outbound
+  HTTPS/QUIC connectivity to Cloudflare.
+- Run a dedicated pinned multi-architecture `hosting-cloudflared` container
+  with no host ports, no Docker socket, dropped capabilities, read-only root
+  filesystem, bounded resources, health reporting, and a separately stored
+  tunnel credential. Never commit the tunnel token or generated credentials.
+- Treat NPM and Tunnel as alternative website ingress transports, not a proxy
+  chain. Tunnel website routes should forward to `hosting-nginx:80`; they must
+  not loop through public NPM. NPM may remain available internally for
+  administration and direct-mode rollback.
+- Add **Ingress** settings showing current mode, tunnel/account identity,
+  connector health, connected replicas, routed hostnames, DNS state, and the
+  last successful reconciliation. Use a separate least-privilege Cloudflare
+  token for tunnel and DNS management.
+- Add per-site eligibility and selection. Tunnel automation is available only
+  for zones controlled by the configured Cloudflare account. External DNS
+  providers and unsupported zones require a documented manual adapter and must
+  not be silently changed.
+- Before switching a hostname to tunnel mode:
+  1. verify the local website and canonical aliases;
+  2. verify `hosting-cloudflared` is connected and healthy;
+  3. create or idempotently update the Cloudflare Tunnel public-hostname route;
+  4. test the route through a non-public qualification hostname;
+  5. preview the exact DNS replacement and ownership;
+  6. save the previous DNS type/content/proxy/TTL as a rollback record;
+  7. replace only confirmed managed `A`, `AAAA`, or `CNAME` records with the
+     proxied tunnel target;
+  8. validate public HTTP, HTTPS, redirects, WordPress admin, uploads,
+     WebSockets where used, and restored client IP handling.
+- Do not request or attach an NPM/Let's Encrypt origin certificate for a
+  tunnel-only website. Cloudflare terminates public TLS; the internal tunnel
+  transport remains private. Direct mode retains the existing NPM certificate
+  workflow.
+- Preserve the original `Host`, external HTTPS scheme, and real visitor
+  address. Qualify `CF-Connecting-IP` restoration and trusted-proxy boundaries
+  so WordPress URLs, logs, rate limits, billing enforcement, and security rules
+  behave the same in both ingress modes.
+- Provide **Preview switch**, **Switch selected hosts**, **Verify**, and
+  **Rollback** actions. Operations must be idempotent, durable, auditable, and
+  resumable after browser or panel restart.
+- Never bulk-replace unrelated DNS records. Record ownership for routes and DNS
+  changes, reject ambiguous pre-existing records, preserve MX/TXT/CAA and other
+  non-ingress records, and require explicit confirmation before taking over a
+  hostname managed by another tunnel.
+- During promotion, select the target ingress mode after local service
+  validation:
+  - public-IP replica: use reviewed direct NPM origin changes;
+  - gray-IP replica: require a healthy tunnel and switch selected hostnames to
+    their tunnel routes.
+- Keep the former primary fenced even when traffic moves through a tunnel.
+  Remove or disable its connector/routes and revoke obsolete tunnel or DNS
+  authority so two servers cannot both act as the active origin.
+- Support a later controlled switch from tunnel back to direct NPM. Restore the
+  reviewed WAN-origin records, verify NPM TLS and public traffic, then remove
+  obsolete tunnel hostname routes. Never destroy the rollback record before
+  successful verification.
+
 ### Disconnect And Permanent Promotion
 
 - Provide two explicit workflows:
@@ -686,6 +752,12 @@ The manual architecture and failover runbook are documented in
   displayed recovery point.
 - After promotion, no process can resume old incoming replication or overwrite
   the new primary with stale data.
+- A gray-IP promoted replica can serve selected Cloudflare-managed websites
+  through a healthy outbound tunnel without public host ports, and each DNS or
+  tunnel-route change has an exact tested rollback to its prior ingress mode.
+- Direct NPM and tunnel ingress preserve canonical hosts, HTTPS detection,
+  uploads, supported WebSockets, and verified real-client IP behavior without
+  exposing tunnel credentials or trusting arbitrary proxy headers.
 
 Before live replication, complete a documented restore of the current stack
 onto an isolated replacement host using local plus encrypted off-site backups.
