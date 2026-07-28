@@ -17,12 +17,14 @@ cd /media/ssdmount/websites-v2/sources
 sudo ./scripts/upgrade.sh
 ```
 
-The upgrade generates a missing private control-agent token, then runs an
-idempotent Static HTML route migration before recreating
-services. Legacy sites marked `static` that contain PHP files are reclassified
-as Generic PHP and retain or recover a pool. Pure static routes disable PHP and
-remove only pools no longer referenced by another route. The migration validates
-nginx and PHP-FPM and rolls active configuration back if validation fails.
+The upgrade generates a missing private control-agent token and runs the
+idempotent panel-storage permission migration before recreating services.
+`hosting-ui` then starts as UID/GID `33:33`. The upgrade also runs the
+idempotent Static HTML route migration. Legacy sites marked `static` that
+contain PHP files are reclassified as Generic PHP and retain or recover a pool.
+Pure static routes disable PHP and remove only pools no longer referenced by
+another route. The migration validates nginx and PHP-FPM and rolls active
+configuration back if validation fails.
 
 Preview that migration without writing active configuration:
 
@@ -87,6 +89,33 @@ docker logs --tail 100 hosting-php-fpm
 
 Test one public website through NPM and confirm `git log -1 --oneline` in the
 deployed checkout matches the intended commit.
+
+Confirm the panel sandbox after a full upgrade:
+
+```bash
+docker inspect -f \
+  'user={{.Config.User}} caps={{json .HostConfig.CapDrop}} security={{json .HostConfig.SecurityOpt}}' \
+  hosting-ui
+docker inspect -f '{{range .Mounts}}{{println .Destination .RW}}{{end}}' hosting-ui
+docker exec hosting-ui id
+```
+
+Expected values are user `33:33`, `["ALL"]` capability drop,
+`no-new-privileges:true`, no Docker socket mount, and `false` for the broad
+`/srv/app-data` mount.
+
+On a host where `testsite.mishaweb.com` is not configured and its directory
+does not exist, the qualification drill exercises authenticated provisioning,
+local-origin health, backup, restore, portable export, and complete cleanup:
+
+```bash
+docker exec -i hosting-ui node < scripts/qualify-unprivileged-panel.js
+```
+
+The drill is hard-coded to that temporary hostname, refuses pre-existing state,
+creates no DNS/NPM/certificate resources, and cleans up both completed and
+partially created local resources. It passed on the upgraded OPI5 production
+stack on 2026-07-28.
 
 ## Rollback
 

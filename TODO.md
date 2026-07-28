@@ -7,10 +7,9 @@ backlog only when their acceptance criteria are satisfied.
 ## Delivery Order
 
 1. Complete two more production WordPress update/rollback drills.
-2. Finish running `hosting-ui` as an unprivileged account.
-3. Build the separate billing and hosting-entitlement service in phases.
-4. Pass mail-platform feasibility gates, then build an isolated pilot.
-5. Prove current-stack disaster recovery before adding warm-standby failover.
+2. Build the separate billing and hosting-entitlement service in phases.
+3. Pass mail-platform feasibility gates, then build an isolated pilot.
+4. Prove current-stack disaster recovery before adding warm-standby failover.
 
 ## 1. WordPress Update Production Qualification
 
@@ -33,35 +32,7 @@ must record its tested component, backup size, update time, rollback time,
 origin/public health results, notification result, and complete resource
 cleanup.
 
-## 2. Unprivileged Panel Filesystem Access
-
-The Docker socket has been removed from `hosting-ui`; only the private,
-authenticated, allowlisted `hosting-agent` owns it. The remaining phase is to
-remove root from the panel container without breaking existing installations.
-
-### Requirements
-
-- Inventory ownership and modes for panel data, website roots, active
-  configuration, backups, exports, imports, package uploads, and NPM log reads.
-- Add an idempotent upgrade migration that grants only the required UID/GID
-  access and preserves existing website ownership.
-- Run `hosting-ui` with a fixed nonzero UID/GID and drop all Linux capabilities.
-- Keep active configuration and website writes path-confined. Do not make
-  mounted trees world-writable.
-- Move any operation that genuinely requires ownership changes behind a narrow
-  typed control-agent action rather than restoring shell or socket access.
-
-### Acceptance Criteria
-
-- `docker inspect hosting-ui` reports a nonzero user, no Docker socket mount,
-  no added capabilities, and `no-new-privileges`.
-- Provisioning, import/export, backup/restore, package upload, cache settings,
-  controlled updates, logs, and configuration rollback pass on an upgraded
-  installation containing existing sites.
-- A compromised panel process cannot create containers, mount host paths, alter
-  files outside declared mounts, or change arbitrary ownership.
-
-## 3. Separate Billing And Entitlement Service
+## 2. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -139,7 +110,7 @@ remain a later optional adapter.
 - Enforcement can be disabled globally and reverted immediately without
   deleting website data.
 
-## 4. Separate Mail Platform
+## 3. Separate Mail Platform
 
 ### Objective
 
@@ -320,7 +291,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 5. Warm Standby And Controlled Failover
+## 4. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

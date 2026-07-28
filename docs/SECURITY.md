@@ -96,11 +96,12 @@ MySQL and Redis have no host port mappings and are reachable only on
 
 ## Trust boundaries
 
-- `hosting-ui` still runs as root inside its container because existing website
-  and active-config workflows require mixed ownership, but it has no Docker
-  socket. Compromise can alter mounted websites, runtime configuration,
-  backups, imports, exports, and panel state, so keep it behind strong
-  authentication and an identity-aware access layer; do not expose port 8687.
+- `hosting-ui` runs as fixed UID/GID `33:33`, drops every Linux capability,
+  enables `no-new-privileges`, and has no Docker socket. The broad app-data
+  mount is read-only; panel state, active configuration, websites, backups,
+  imports, and exports are separate writable mounts. Compromise can still alter
+  those declared writable trees, so keep the panel behind strong authentication
+  and an identity-aware access layer; do not expose port 8687 directly.
 - `hosting-agent` is the only service with `/var/run/docker.sock`. It has no
   host port, accepts a generated bearer token, validates every operation
   server-side, uses a read-only root filesystem, drops Linux capabilities, and
@@ -120,6 +121,12 @@ MySQL and Redis have no host port mappings and are reachable only on
   use licensed, trusted packages and scan them independently; ZIP validity and
   a WordPress header are not malware verification.
 
+The rootless upgrade migration is `scripts/migrate-ui-permissions.sh`. It
+changes ownership only for panel-owned state, configuration, backup, transfer,
+and File Browser trees. It changes only the shared website-root owner and
+preserves each existing website directory's ownership. MySQL data and the
+disposable nginx cache are excluded from panel access.
+
 ## Existing controls
 
 - Panel passwords use scrypt with per-account salt.
@@ -131,6 +138,8 @@ MySQL and Redis have no host port mappings and are reachable only on
 - MySQL and Redis are not published on host ports.
 - The panel has no raw Docker socket or Docker API. Its compatibility CLI calls
   the private allowlisted control agent.
+- The panel container has no added capabilities, and its read-only app-data
+  mount prevents writes into NPM, MySQL, Redis, and other service-owned state.
 - Cloudflare DNS and security tokens are separated so permissions can be scoped
   independently.
 - Destructive site removal performs ownership checks and typed confirmation.

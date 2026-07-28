@@ -20,10 +20,11 @@ Staged imports: `/media/ssdmount/websites-v2/imports`
 4. PHP runs in the site's dedicated pool in `hosting-php-fpm`.
 5. WordPress uses `hosting-db` and may use `hosting-redis`.
 
-The control panel remains separate from PHP and has no Docker socket. It calls
-the authenticated, private `hosting-agent`, whose server-side policy permits
-only the runtime inspection, reload, WP-CLI, and database operations required
-by supported workflows.
+The control panel remains separate from PHP, runs as UID/GID `33:33` with all
+Linux capabilities dropped, and has no Docker socket. Its broad app-data view
+is read-only. It calls the authenticated, private `hosting-agent`, whose
+server-side policy permits only the runtime inspection, reload, WP-CLI, and
+database operations required by supported workflows.
 
 ## Services
 

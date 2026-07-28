@@ -463,6 +463,8 @@ WebP sidecars and defer while another storage operation is active.
 - The panel account uses scrypt password hashing.
 - NPM and Cloudflare secrets use AES-256-GCM encryption at rest.
 - Mutating panel API requests require a valid session and CSRF token.
+- `hosting-ui` runs as UID/GID `33:33`, drops all Linux capabilities, has no
+  Docker socket, and mounts broad service app-data read-only.
 - Website PHP does not receive Docker socket access.
 - Use HTTPS when publishing the panel outside a trusted local network.
 - Replace all example credentials before production use.

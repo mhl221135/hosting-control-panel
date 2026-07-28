@@ -8,7 +8,7 @@ const { spawn } = require("node:child_process");
 const test = require("node:test");
 
 const TOKEN = crypto.randomBytes(32).toString("hex");
-const PORT = 18791;
+const PORT = 18_000 + crypto.randomInt(20_000);
 
 function waitForHealth() {
   return new Promise((resolve, reject) => {
@@ -69,7 +69,7 @@ test("RPC shim streams allowed commands and rejects Docker host control", { time
   try {
     await waitForHealth();
     const allowed = await runClient(["exec", "hosting-nginx", "nginx", "-t"], { keepStdinOpen: true });
-    assert.equal(allowed.code, 0);
+    assert.equal(allowed.code, 0, allowed.stderr);
     assert.match(allowed.stdout, /hosting-nginx nginx -t/);
 
     const streamed = await runClient([
@@ -77,7 +77,7 @@ test("RPC shim streams allowed commands and rejects Docker host control", { time
       'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot "$1"',
       "backup-restore", "example_db",
     ], { input: "streamed-input" });
-    assert.equal(streamed.code, 0);
+    assert.equal(streamed.code, 0, streamed.stderr);
     assert.match(streamed.stdout, /streamed-input/);
 
     const rejected = await runClient(["run", "--privileged", "-v", "/:/host", "alpine"]);
