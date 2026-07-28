@@ -270,7 +270,13 @@ test("backs up, verifies, updates, validates, and purges only after success", as
       ["http", "http://hosting-nginx/", "example.test"],
       ["http", "http://hosting-nginx/wp-admin/", "example.test"],
     ]);
-    assert.equal(fixtureValue.manager.history()[0].status, "complete");
+    const history = fixtureValue.manager.history()[0];
+    assert.equal(history.status, "complete");
+    assert.equal(history.backupSeconds, 1);
+    assert.equal(history.updateSeconds, 1);
+    assert.equal(history.rollbackSeconds, 0);
+    assert.equal(result.results[0].backupSeconds, 1);
+    assert.equal(result.results[0].updateSeconds, 1);
   } finally {
     fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
   }
@@ -290,8 +296,12 @@ test("automatically restores the verified backup after an update failure", async
       operator: "operator@example.test",
     }, context()), /rollback complete/);
     assert.ok(fixtureValue.calls.some((call) => call[0] === "restore"));
-    assert.equal(fixtureValue.manager.history()[0].rollback, "complete");
-    assert.equal(fixtureValue.manager.history()[0].status, "failed");
+    const history = fixtureValue.manager.history()[0];
+    assert.equal(history.rollback, "complete");
+    assert.equal(history.status, "failed");
+    assert.equal(history.backupSeconds, 1);
+    assert.equal(history.updateSeconds, 1);
+    assert.equal(history.rollbackSeconds, 1);
   } finally {
     fs.rmSync(fixtureValue.dataDir, { recursive: true, force: true });
   }

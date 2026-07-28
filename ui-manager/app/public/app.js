@@ -765,6 +765,7 @@ function renderWordPressUpdates() {
       <strong>${escapeHtml(entry.domain)} · ${escapeHtml(entry.status)}</strong>
       <p>${escapeHtml(new Date(entry.createdAt).toLocaleString())} · WordPress ${escapeHtml(entry.beforeCore || "unknown")} → ${escapeHtml(entry.afterCore || entry.beforeCore || "unknown")}</p>
       ${entry.backupId ? `<p>Backup: ${escapeHtml(entry.backupId)}${entry.rollback ? ` · rollback ${escapeHtml(entry.rollback)}` : ""}</p>` : ""}
+      ${(entry.backupSeconds || entry.updateSeconds || entry.rollbackSeconds) ? `<p>Timing: backup ${escapeHtml(entry.backupSeconds || 0)}s · update ${escapeHtml(entry.updateSeconds || 0)}s${entry.rollbackSeconds ? ` · rollback ${escapeHtml(entry.rollbackSeconds)}s` : ""}</p>` : ""}
       ${entry.message ? `<p>${escapeHtml(entry.message)}</p>` : ""}
     </div>`).join("") : "No controlled updates recorded.";
   renderWordPressUpdatePreview();
