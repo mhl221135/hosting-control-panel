@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Hosting Billing</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main id="loginView" class="login-shell">
+    <form id="loginForm" class="login-panel">
+      <div>
+        <p class="eyebrow">Hosting control</p>
+        <h1>Billing</h1>
+      </div>
+      <label>Email<input name="email" type="email" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit" class="primary">Sign in</button>
+      <p id="loginError" class="notice error" hidden></p>
+    </form>
+  </main>
+
+  <div id="appView" hidden>
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark">HB</span>
+        <div><strong>Hosting Billing</strong><small id="accountEmail"></small></div>
+      </div>
+      <nav id="desktopNav" aria-label="Billing sections">
+        <button data-view="overview" class="active">Overview</button>
+        <button data-view="import">Import</button>
+        <button data-view="backups">Backups</button>
+        <button data-view="audit">Audit</button>
+        <button data-view="account">Account</button>
+      </nav>
+      <select id="mobileNav" aria-label="Billing section">
+        <option value="overview">Overview</option>
+        <option value="import">Import</option>
+        <option value="backups">Backups</option>
+        <option value="audit">Audit</option>
+        <option value="account">Account</option>
+      </select>
+      <button id="logoutButton" class="secondary">Sign out</button>
+    </header>
+
+    <main class="workspace">
+      <div id="globalNotice" class="notice" hidden></div>
+
+      <section data-section="overview">
+        <div class="section-heading">
+          <div><p class="eyebrow">Inventory</p><h1>Renewal overview</h1></div>
+          <a class="button secondary" href="/api/export.csv">Export CSV</a>
+        </div>
+        <div id="summary" class="summary-grid"></div>
+        <div class="toolbar">
+          <input id="serviceSearch" type="search" placeholder="Search domain, client, email or provider">
+          <select id="stateFilter" aria-label="Filter by state">
+            <option value="">All states</option>
+            <option value="active">Active</option>
+            <option value="reminder">Reminder</option>
+            <option value="grace">Grace</option>
+            <option value="suspended">Suspended</option>
+            <option value="exempt">Exempt</option>
+          </select>
+          <button id="refreshServices" class="secondary">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Website</th><th>Client</th><th>Hosting through</th><th>Domain through</th><th>State</th><th>Location</th><th>Renewal</th></tr></thead>
+            <tbody id="servicesBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyServices" class="empty" hidden>No billing services imported.</p>
+      </section>
+
+      <section data-section="import" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Inventory</p><h1>Import CSV</h1></div>
+        </div>
+        <form id="importForm" class="form-grid">
+          <label class="wide">CSV file<input id="csvFile" type="file" accept=".csv,text/csv" required></label>
+          <button type="submit" class="primary">Preview import</button>
+        </form>
+        <div id="importPreview" hidden>
+          <div class="review-bar"><strong id="importCount"></strong><span id="importFingerprint"></span></div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Service ID</th><th>Website</th><th>Client</th><th>Hosting through</th></tr></thead>
+              <tbody id="importBody"></tbody>
+            </table>
+          </div>
+          <form id="applyImportForm" class="confirm-row">
+            <label>Type IMPORT<input name="confirm" autocomplete="off" required></label>
+            <button class="danger" type="submit">Apply inventory</button>
+          </form>
+        </div>
+      </section>
+
+      <section data-section="backups" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Recovery</p><h1>Billing backups</h1></div>
+          <button id="createBackup" class="primary">Create backup</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Created</th><th>Services</th><th>Size</th><th>Reason</th><th>Actions</th></tr></thead>
+            <tbody id="backupsBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyBackups" class="empty" hidden>No billing backups created.</p>
+        <form id="restoreForm" class="restore-panel" hidden>
+          <strong id="restoreTitle"></strong>
+          <label>Type the backup ID<input name="confirm" autocomplete="off" required></label>
+          <div class="actions">
+            <button type="button" id="cancelRestore" class="secondary">Cancel</button>
+            <button type="submit" class="danger">Restore backup</button>
+          </div>
+        </form>
+      </section>
+
+      <section data-section="audit" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Accountability</p><h1>Audit history</h1></div>
+          <button id="refreshAudit" class="secondary">Refresh</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Summary</th></tr></thead>
+            <tbody id="auditBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section data-section="account" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Configuration</p><h1>Account and status policy</h1></div>
+        </div>
+        <div class="settings-layout">
+          <form id="policyForm" class="form-grid">
+            <h2>Renewal policy</h2>
+            <label>Reminder window (days)<input name="reminder_days" type="number" min="1" max="365" required></label>
+            <button class="primary" type="submit">Save policy</button>
+          </form>
+          <form id="accountForm" class="form-grid">
+            <h2>Administrator</h2>
+            <label>Email<input name="email" type="email" required></label>
+            <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
+            <label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="12"></label>
+            <button class="primary" type="submit">Update account</button>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/app.js" defer></script>
+</body>
+</html>

@@ -52,19 +52,20 @@ generate_secret() {
   fi
 }
 
-set_agent_token() {
-  token="$1"
-  temporary="$project_dir/.env.agent.$$"
-  awk -v token="$token" '
+set_generated_value() {
+  key="$1"
+  value="$2"
+  temporary="$project_dir/.env.generated.$$"
+  awk -v key="$key" -v value="$value" '
     BEGIN { written = 0 }
-    /^HOSTING_AGENT_TOKEN=/ {
-      if (!written) print "HOSTING_AGENT_TOKEN=" token
+    index($0, key "=") == 1 {
+      if (!written) print key "=" value
       written = 1
       next
     }
     { print }
     END {
-      if (!written) print "HOSTING_AGENT_TOKEN=" token
+      if (!written) print key "=" value
     }
   ' "$project_dir/.env" > "$temporary"
   chmod 600 "$temporary"
@@ -98,8 +99,16 @@ hosting_agent_token="$(env_value HOSTING_AGENT_TOKEN)"
 case "$hosting_agent_token" in
   ""|replace-with-*)
     umask 077
-    set_agent_token "$(generate_secret)"
+    set_generated_value HOSTING_AGENT_TOKEN "$(generate_secret)"
     echo "Generated the private hosting-agent authentication token."
+    ;;
+esac
+billing_api_token="$(env_value BILLING_API_TOKEN)"
+case "$billing_api_token" in
+  ""|replace-with-*)
+    umask 077
+    set_generated_value BILLING_API_TOKEN "$(generate_secret)"
+    echo "Generated the private billing API authentication token."
     ;;
 esac
 
@@ -110,13 +119,16 @@ backups_dir="${backups_dir:-$hosting_root/backups}"
 exports_dir="$(env_value EXPORTS_DIR)"
 exports_dir="${exports_dir:-$hosting_root/exports}"
 
+mkdir -p "$hosting_root/app-data/billing" "$backups_dir/billing"
+chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"
+
 HOSTING_ROOT="$hosting_root" BACKUPS_DIR="$backups_dir" EXPORTS_DIR="$exports_dir" \
   sh "$project_dir/scripts/migrate-ui-permissions.sh"
 
 cd "$project_dir"
 compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
-compose build --pull hosting-agent hosting-files hosting-ui hosting-php-fpm hosting-npm
+compose build --pull hosting-agent hosting-files hosting-ui hosting-billing hosting-php-fpm hosting-npm
 compose up -d hosting-agent
 compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js
 compose run --rm --no-deps hosting-ui node /app/cli/migrate-commerce-cache.js

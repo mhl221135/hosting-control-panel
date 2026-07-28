@@ -59,19 +59,20 @@ generate_secret() {
   fi
 }
 
-set_agent_token() {
-  token="$1"
-  temporary="$env_file.agent.$$"
-  awk -v token="$token" '
+set_generated_value() {
+  key="$1"
+  value="$2"
+  temporary="$env_file.generated.$$"
+  awk -v key="$key" -v value="$value" '
     BEGIN { written = 0 }
-    /^HOSTING_AGENT_TOKEN=/ {
-      if (!written) print "HOSTING_AGENT_TOKEN=" token
+    index($0, key "=") == 1 {
+      if (!written) print key "=" value
       written = 1
       next
     }
     { print }
     END {
-      if (!written) print "HOSTING_AGENT_TOKEN=" token
+      if (!written) print key "=" value
     }
   ' "$env_file" > "$temporary"
   chmod 600 "$temporary"
@@ -82,7 +83,14 @@ hosting_agent_token="$(env_value HOSTING_AGENT_TOKEN)"
 case "$hosting_agent_token" in
   ""|replace-with-*)
     umask 077
-    set_agent_token "$(generate_secret)"
+    set_generated_value HOSTING_AGENT_TOKEN "$(generate_secret)"
+    ;;
+esac
+billing_api_token="$(env_value BILLING_API_TOKEN)"
+case "$billing_api_token" in
+  ""|replace-with-*)
+    umask 077
+    set_generated_value BILLING_API_TOKEN "$(generate_secret)"
     ;;
 esac
 
@@ -106,6 +114,7 @@ required_variables="
 UI_ADMIN_EMAIL
 UI_ADMIN_PASSWORD
 HOSTING_AGENT_TOKEN
+BILLING_API_TOKEN
 NPM_IDENTITY
 NPM_SECRET
 ACME_EMAIL
@@ -127,13 +136,19 @@ for variable in $required_variables; do
   esac
 done
 
-for variable in UI_ADMIN_PASSWORD HOSTING_AGENT_TOKEN NPM_SECRET FILEBROWSER_ADMIN_PASSWORD MYSQL_ROOT_PASSWORD NPM_DB_PASSWORD; do
+for variable in UI_ADMIN_PASSWORD HOSTING_AGENT_TOKEN BILLING_API_TOKEN NPM_SECRET FILEBROWSER_ADMIN_PASSWORD MYSQL_ROOT_PASSWORD NPM_DB_PASSWORD; do
   value="$(env_value "$variable")"
   if [ "${#value}" -lt 12 ]; then
     echo "$variable must contain at least 12 characters." >&2
     exit 1
   fi
 done
+billing_admin_password="$(env_value BILLING_ADMIN_PASSWORD)"
+billing_admin_password="${billing_admin_password:-$(env_value UI_ADMIN_PASSWORD)}"
+if [ "${#billing_admin_password}" -lt 12 ]; then
+  echo "BILLING_ADMIN_PASSWORD (or its UI_ADMIN_PASSWORD fallback) must contain at least 12 characters." >&2
+  exit 1
+fi
 
 chmod 600 "$env_file"
 
@@ -152,6 +167,7 @@ fi
 
 mkdir -p \
   "$hosting_root/app-data" \
+  "$hosting_root/app-data/billing" \
   "$hosting_root/app-data/configs" \
   "$hosting_root/app-data/filebrowser/config" \
   "$hosting_root/app-data/filebrowser/database" \
@@ -162,9 +178,12 @@ mkdir -p \
   "$hosting_root/app-data/redis" \
   "$hosting_root/app-data/ui-manager" \
   "$backups_dir/app-data" \
+  "$backups_dir/billing" \
   "$exports_dir" \
   "$hosting_root/imports" \
   "$hosting_root/websites/_default"
+
+chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"
 
 initialize_config() {
   source_path="$1"

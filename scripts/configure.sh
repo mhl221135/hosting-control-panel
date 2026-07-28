@@ -110,6 +110,10 @@ prompt_required "Panel administrator email"
 ui_admin_email="$ANSWER"
 prompt_password "Panel administrator password"
 ui_admin_password="$ANSWER"
+prompt_required "Billing administrator email" "$ui_admin_email"
+billing_admin_email="$ANSWER"
+prompt_password "Billing administrator password"
+billing_admin_password="$ANSWER"
 
 prompt_required "Nginx Proxy Manager administrator email" "$ui_admin_email"
 npm_identity="$ANSWER"
@@ -144,9 +148,11 @@ cloudflare_account_id="$ANSWER"
 if command -v openssl >/dev/null 2>&1; then
   ui_settings_key="$(openssl rand -hex 32)"
   hosting_agent_token="$(openssl rand -hex 32)"
+  billing_api_token="$(openssl rand -hex 32)"
 else
   ui_settings_key="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
   hosting_agent_token="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+  billing_api_token="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 fi
 
 umask 077
@@ -159,6 +165,10 @@ temporary="$env_file.tmp.$$"
   printf "UI_ADMIN_PASSWORD=%s\n" "$(dotenv_value "$ui_admin_password")"
   printf "UI_SETTINGS_KEY=%s\n\n" "$(dotenv_value "$ui_settings_key")"
   printf "HOSTING_AGENT_TOKEN=%s\n\n" "$(dotenv_value "$hosting_agent_token")"
+  printf "BILLING_ADMIN_EMAIL=%s\n" "$(dotenv_value "$billing_admin_email")"
+  printf "BILLING_ADMIN_PASSWORD=%s\n" "$(dotenv_value "$billing_admin_password")"
+  printf "BILLING_API_TOKEN=%s\n" "$(dotenv_value "$billing_api_token")"
+  printf "BILLING_BACKUP_RETENTION=14\n\n"
   printf "NPM_API_URL='http://hosting-npm:81/api'\n"
   printf "NPM_IDENTITY=%s\n" "$(dotenv_value "$npm_identity")"
   printf "NPM_SECRET=%s\n" "$(dotenv_value "$npm_secret")"
