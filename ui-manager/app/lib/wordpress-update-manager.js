@@ -238,6 +238,9 @@ class WordPressUpdateManager {
       status: entry.status,
       backupId: entry.backupId || "",
       rollback: entry.rollback || "",
+      backupSeconds: Number(entry.backupSeconds || 0),
+      updateSeconds: Number(entry.updateSeconds || 0),
+      rollbackSeconds: Number(entry.rollbackSeconds || 0),
       beforeCore: entry.before?.core || "",
       afterCore: entry.after?.core || "",
       message: entry.message || "",
@@ -434,6 +437,9 @@ class WordPressUpdateManager {
         operations: preview.operations,
         backupId: "",
         rollback: "",
+        backupSeconds: 0,
+        updateSeconds: 0,
+        rollbackSeconds: 0,
         message: "",
       };
       const history = this.history();
@@ -442,7 +448,9 @@ class WordPressUpdateManager {
       let maintenanceActive = false;
       let backup = null;
       let applied = [];
+      let updateStartedAt = 0;
       try {
+        const backupStartedAt = Date.now();
         context.update({ completed: 0, total: 8, currentStep: "Creating complete pre-update backup" });
         backup = await this.backupManager.createSiteBackup(
           site,
@@ -451,12 +459,14 @@ class WordPressUpdateManager {
         record.backupId = backup.id;
         context.update({ completed: 1, currentStep: "Verifying pre-update backup" });
         record.backupVerification = await this.backupManager.verifySiteBackup(site, backup.id);
+        record.backupSeconds = Math.max(1, Math.round((Date.now() - backupStartedAt) / 1000));
 
         context.update({ completed: 2, currentStep: "Enabling WordPress maintenance mode" });
         await this.runner.setMaintenanceMode(site, true);
         maintenanceActive = true;
 
         context.update({ completed: 3, currentStep: "Applying selected WordPress updates" });
+        updateStartedAt = Date.now();
         applied = await this.applyOperations(site, payload.selection);
         context.update({ completed: 4, results: applied, currentStep: "Validating WordPress and database" });
         await this.runner.validateWordPress(site);
@@ -468,6 +478,7 @@ class WordPressUpdateManager {
         context.update({ completed: 6, currentStep: "Checking public website and admin route" });
         const httpChecks = await this.checkHttp(site.host);
         const after = selectedSnapshot(await this.runner.inventory(site), payload.selection);
+        record.updateSeconds = Math.max(1, Math.round((Date.now() - updateStartedAt) / 1000));
 
         context.update({ completed: 7, currentStep: "Purging website caches" });
         let cacheWarning = "";
@@ -501,14 +512,20 @@ class WordPressUpdateManager {
             beforeCore: preview.before.core,
             afterCore: after.core,
             operations: applied.map((item) => ({ kind: item.kind, name: item.name })),
+            backupSeconds: record.backupSeconds,
+            updateSeconds: record.updateSeconds,
           }],
           message: record.message,
         };
       } catch (error) {
         const original = boundedText(error.stderr || error.message, 700);
+        if (updateStartedAt) {
+          record.updateSeconds = Math.max(1, Math.round((Date.now() - updateStartedAt) / 1000));
+        }
         let rollbackMessage = "not attempted";
         let rollbackCacheWarning = "";
         if (backup?.id) {
+          const rollbackStartedAt = Date.now();
           try {
             context.update({ currentStep: "Update failed; restoring verified backup" });
             if (!maintenanceActive) {
@@ -528,6 +545,8 @@ class WordPressUpdateManager {
             rollbackMessage = "complete";
           } catch (rollbackError) {
             rollbackMessage = `failed: ${boundedText(rollbackError.stderr || rollbackError.message, 500)}`;
+          } finally {
+            record.rollbackSeconds = Math.max(1, Math.round((Date.now() - rollbackStartedAt) / 1000));
           }
         }
         record.status = "failed";
