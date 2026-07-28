@@ -238,12 +238,13 @@ async function initialize() {
 
 $("#loginForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
       const result = await api("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
       });
       state.csrf = result.csrf;
       state.email = result.email;
@@ -287,19 +288,20 @@ $("#servicesBody").addEventListener("click", (event) => {
 
 $("#wooSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
-      const values = Object.fromEntries(new FormData(event.currentTarget));
+      const values = Object.fromEntries(new FormData(form));
       const result = await api("/api/woocommerce/settings", {
         method: "PUT",
         body: JSON.stringify(values),
       });
       notice("WooCommerce integration saved with encrypted credentials.");
       $("#wooStatus").textContent = result.settings.ready ? "Configured and ready." : "Configuration is incomplete.";
-      event.currentTarget.elements.consumer_key.value = "";
-      event.currentTarget.elements.consumer_secret.value = "";
-      event.currentTarget.elements.webhook_secret.value = "";
+      form.elements.consumer_key.value = "";
+      form.elements.consumer_secret.value = "";
+      form.elements.webhook_secret.value = "";
     });
   } catch (error) {
     notice(error.message, true);
@@ -319,14 +321,15 @@ $("#testWoo").addEventListener("click", async (event) => {
 
 $("#paymentLinkForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector(".primary");
+  const form = event.currentTarget;
+  const button = form.querySelector(".primary");
   try {
     await busy(button, async () => {
-      const amount = Number(event.currentTarget.elements.amount.value);
-      const result = await api(`/api/services/${encodeURIComponent(event.currentTarget.elements.service_id.value)}/payment-link`, {
+      const amount = Number(form.elements.amount.value);
+      const result = await api(`/api/services/${encodeURIComponent(form.elements.service_id.value)}/payment-link`, {
         method: "POST",
         body: JSON.stringify({
-          months: Number(event.currentTarget.elements.months.value),
+          months: Number(form.elements.months.value),
           amount_minor: Math.round(amount * 100),
         }),
       });
@@ -351,14 +354,15 @@ $("#cancelPaymentLink").addEventListener("click", () => {
 
 $("#reminderSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
       await api("/api/reminders/settings", {
         method: "PUT",
         body: JSON.stringify({
-          enabled: event.currentTarget.elements.enabled.checked,
-          time: event.currentTarget.elements.time.value,
+          enabled: form.elements.enabled.checked,
+          time: form.elements.time.value,
         }),
       });
       notice("Reminder schedule saved.");
@@ -410,7 +414,8 @@ $("#importForm").addEventListener("submit", async (event) => {
 
 $("#applyImportForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
       const result = await api("/api/import/apply", {
@@ -418,11 +423,11 @@ $("#applyImportForm").addEventListener("submit", async (event) => {
         body: JSON.stringify({
           csv: state.csv,
           fingerprint: state.fingerprint,
-          confirm: event.currentTarget.elements.confirm.value,
+          confirm: form.elements.confirm.value,
         }),
       });
       notice(`Imported ${result.result.rows} services: ${result.result.inserted} new, ${result.result.updated} updated.`);
-      event.currentTarget.reset();
+      form.reset();
       $("#importPreview").hidden = true;
       state.csv = "";
       state.fingerprint = "";
@@ -474,17 +479,18 @@ $("#cancelRestore").addEventListener("click", () => {
 
 $("#restoreForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector(".danger");
+  const form = event.currentTarget;
+  const button = form.querySelector(".danger");
   try {
     await busy(button, async () => {
       const result = await api(`/api/backups/${encodeURIComponent(state.restoreId)}/restore`, {
         method: "POST",
-        body: JSON.stringify({ confirm: event.currentTarget.elements.confirm.value }),
+        body: JSON.stringify({ confirm: form.elements.confirm.value }),
       });
       notice(`Restored ${result.result.restored}. Safety backup: ${result.result.safetyBackup}.`);
       state.restoreId = "";
-      event.currentTarget.reset();
-      event.currentTarget.hidden = true;
+      form.reset();
+      form.hidden = true;
       await loadBackups();
     });
   } catch (error) {
@@ -496,12 +502,13 @@ $("#refreshAudit").addEventListener("click", loadAudit);
 
 $("#policyForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
       const result = await api("/api/settings", {
         method: "PUT",
-        body: JSON.stringify({ reminder_days: Number(event.currentTarget.elements.reminder_days.value) }),
+        body: JSON.stringify({ reminder_days: Number(form.elements.reminder_days.value) }),
       });
       notice(`Reminder window updated to ${result.reminderDays} days.`);
       await loadOverview();
@@ -513,18 +520,19 @@ $("#policyForm").addEventListener("submit", async (event) => {
 
 $("#accountForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  const button = event.currentTarget.querySelector("button");
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
   try {
     await busy(button, async () => {
       const result = await api("/api/auth/account", {
         method: "PUT",
-        body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget))),
+        body: JSON.stringify(Object.fromEntries(new FormData(form))),
       });
       state.csrf = result.csrf;
       state.email = result.email;
       $("#accountEmail").textContent = result.email;
-      event.currentTarget.elements.current_password.value = "";
-      event.currentTarget.elements.new_password.value = "";
+      form.elements.current_password.value = "";
+      form.elements.new_password.value = "";
       notice("Administrator account updated.");
     });
   } catch (error) {
