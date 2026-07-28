@@ -5,7 +5,7 @@ const path = require("path");
 const { AuthStore, apiAuthorized } = require("./lib/auth");
 const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
-const { BillingDatabase } = require("./lib/database");
+const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
 const { PaymentManager } = require("./lib/payments");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
 
@@ -140,7 +140,7 @@ async function api(req, res) {
     json(res, healthy ? 200 : 503, {
       ok: healthy,
       service: "hosting-billing",
-      schemaVersion: 1,
+      schemaVersion: SCHEMA_VERSION,
     });
     return true;
   }
