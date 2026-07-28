@@ -112,7 +112,10 @@ images, mount paths, or run commands in arbitrary containers.
 The billing service has a separate composition root and modules under
 `billing-service/app`. `database.js` owns schema and transactional inventory,
 `csv.js` owns migration formats, `auth.js` owns its independent account and
-sessions, and `backups.js` owns SQLite snapshot, verification, and restore.
+sessions, `woocommerce-settings.js` owns encrypted provider settings,
+`payments.js` owns link/webhook policy, and `backups.js` owns SQLite snapshot,
+verification, and restore. Provider callbacks can change only billing service
+state; there is no hosting enforcement adapter.
 
 ## Authentication And Secrets
 

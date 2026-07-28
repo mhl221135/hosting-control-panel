@@ -10,6 +10,13 @@ configuration, builds images, validates Compose, and starts the stack.
 An installation is not disposable after first start. Its state lives outside
 the source checkout under `HOSTING_ROOT`.
 
+Before enabling billing payments, route a dedicated HTTPS hostname through NPM
+to `hosting-billing:8787`, save that exact origin as the public billing URL, and
+configure the WooCommerce **Order updated** webhook at
+`/webhooks/woocommerce`. Complete the live qualification in `TODO.md` before
+issuing a client link. Billing code deployment alone leaves the integration
+inert when no provider settings are saved.
+
 ## Standard Upgrade
 
 ```bash

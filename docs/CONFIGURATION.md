@@ -18,6 +18,7 @@ the supported keys.
 | `BILLING_ADMIN_PASSWORD` | First billing account password | Hashed when billing account state is created |
 | `BILLING_API_TOKEN` | Private panel-to-billing bearer/HMAC key | Generated on install/upgrade |
 | `BILLING_BACKUP_RETENTION` | Number of verified SQLite snapshots | Defaults to 14; bounded to 1-100 |
+| `BILLING_SETTINGS_KEY` | Optional stable WooCommerce secret-encryption material | Overrides the generated billing key file |
 | `JOB_HISTORY_LIMIT` | Maximum durable job records | Defaults to 250; active work is never pruned |
 | `PROVISION_CREDENTIAL_TTL_HOURS` | One-time provisioning credential lifetime | Defaults to 24; bounded to 1-168 hours |
 | `TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES` | Maximum resumable portable bundle upload | Defaults to 16 GiB |
@@ -81,7 +82,10 @@ them.
 independent billing administrator hash. `${BACKUPS_DIR}/billing` contains
 atomic snapshot directories with `billing.sqlite` and `manifest.json`. Neither
 tree belongs in Git. The service has no access to panel state, website files, or
-the hosting MySQL database.
+the hosting MySQL database. `woocommerce-settings.json` contains only encrypted
+provider secrets; `woocommerce-settings.key` is the generated key when
+`BILLING_SETTINGS_KEY` is absent. Losing both the external and generated key
+makes those provider secrets unrecoverable.
 
 ## Active Runtime Configuration
 

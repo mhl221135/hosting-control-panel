@@ -65,7 +65,8 @@ The panel provides:
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
 - Optional encrypted Restic replication to independent S3-compatible storage
-- Independent billing CSV inventory, renewal states, audit, and verified SQLite restore points
+- Independent billing CSV inventory, renewal states, encrypted WooCommerce
+  payment links/webhooks, audit, and verified SQLite restore points
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Manual-refresh server/container statistics, per-pool PHP usage, cache health,

@@ -50,7 +50,8 @@ into dedicated directories.
 - Encrypted NPM and Cloudflare credentials at rest
 - ARM64 PHP image with WP-CLI, MySQL client tools, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
 - Isolated billing inventory with its own login, SQLite database, renewal
-  states, CSV migration, signed internal API, audit, and verified restore points
+  states, CSV migration, signed internal API, encrypted WooCommerce payment
+  links/webhooks, audit, and verified restore points
 
 ## Architecture
 

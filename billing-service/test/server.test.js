@@ -49,6 +49,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
     await waitForHealth(baseUrl, child);
+    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 2);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
 
     const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
@@ -87,6 +88,32 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     const services = await (await request("/api/services")).json();
     assert.equal(services.services.length, 1);
     assert.equal(services.services[0].primary_domain, "example.com");
+    const wooSettingsResponse = await request("/api/woocommerce/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        site_url: "https://store.example.com",
+        public_billing_url: "https://billing.example.com",
+        product_id: 99,
+        link_hours: 48,
+        consumer_key: `ck_${"a".repeat(40)}`,
+        consumer_secret: `cs_${"b".repeat(40)}`,
+        webhook_secret: "webhook-secret-with-enough-entropy",
+      }),
+    });
+    assert.equal(wooSettingsResponse.status, 200);
+    const wooSettings = (await wooSettingsResponse.json()).settings;
+    assert.equal(wooSettings.ready, true);
+    assert.equal(JSON.stringify(wooSettings).includes("aaaa"), false);
+    assert.equal((await fetch(`${baseUrl}/webhooks/woocommerce`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-WC-Webhook-Signature": "forged",
+        "X-WC-Webhook-Delivery-ID": "delivery-forged",
+        "X-WC-Webhook-Topic": "order.updated",
+      },
+      body: JSON.stringify({ id: 99, status: "completed", total: "120.00", currency: "USD" }),
+    })).status, 401);
     const exported = await request("/api/export.csv");
     assert.match(await exported.text(), /svc_[a-f0-9]+,example\.com/);
 
@@ -114,6 +141,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     fs.rmSync(root, { recursive: true, force: true });
   }
   const unexpected = stderr.split(/\r?\n/).filter((line) =>
-    line && !line.includes("ExperimentalWarning") && !line.includes("--trace-warnings"));
+    line && !line.includes("ExperimentalWarning") && !line.includes("--trace-warnings")
+      && !line.includes("POST /webhooks/woocommerce: Invalid WooCommerce webhook signature"));
   assert.deepEqual(unexpected, [], stderr);
 });

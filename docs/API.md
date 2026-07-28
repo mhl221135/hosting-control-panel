@@ -25,14 +25,20 @@ Do not expose secrets in public settings responses or error details.
 Billing uses a separate process, account, session cookie, CSRF token, database,
 and route namespace on port `8787`. Its browser endpoints include authentication,
 status, service inventory, audit, settings, transactional CSV preview/apply and
-export, plus backup create/test/restore. They do not accept a hosting-panel
-session.
+export, WooCommerce settings/test, payment-link creation and history, plus
+backup create/test/restore. They do not accept a hosting-panel session.
 
 `GET /internal/v1/entitlements` requires
 `Authorization: Bearer <BILLING_API_TOKEN>`. It returns current renewal state
 and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
 health, but returns `503` during backup or restore maintenance. The complete
 contract and recovery workflow are in `BILLING.md`.
+
+`POST /webhooks/woocommerce` is public and requires a valid WooCommerce
+HMAC-SHA256 signature, unique delivery ID, and an allowed order topic.
+`GET /pay/:token` resolves only an unexpired pending token hash and redirects to
+its fixed WooCommerce order-pay URL. Neither endpoint accepts arbitrary redirect
+targets or hosting-panel credentials.
 
 ## Route Groups
 

@@ -133,6 +133,7 @@ services:
       BILLING_ADMIN_PASSWORD: ${BILLING_ADMIN_PASSWORD:-${UI_ADMIN_PASSWORD}}
       BILLING_API_TOKEN: ${BILLING_API_TOKEN:?Set BILLING_API_TOKEN in .env}
       BILLING_BACKUP_RETENTION: ${BILLING_BACKUP_RETENTION:-14}
+      BILLING_SETTINGS_KEY: ${BILLING_SETTINGS_KEY:-}
       TZ: Europe/Kyiv
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/billing:/app/data

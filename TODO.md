@@ -20,6 +20,12 @@ verified backups, restore tests, and responsive UI are documented in
 `docs/BILLING.md`. The remaining work starts with payment integration and must
 preserve that service boundary.
 
+Phase 2 code also implements encrypted WooCommerce settings, opaque expiring
+payment links, one-active-link protection, signed topic-restricted webhooks,
+amount/currency validation, idempotent delivery processing, and manual-review
+handling without enforcement. It still requires live qualification against the
+dedicated hidden renewal product before client use.
+
 ### Data Model
 
 - Stable service ID with one primary domain and optional aliases. Domains are
@@ -71,8 +77,9 @@ remain a later optional adapter.
 
 ### Remaining Delivery Phases
 
-1. Generate expiring non-replayable payment links and ingest signed webhooks
-   without enforcement.
+1. Qualify payment links and webhooks with the real WooCommerce test product:
+   checkout, processing/completed, duplicate delivery, expiration, mismatched
+   amount/currency, refund, chargeback, and provider outage. Document rollback.
 2. Enable renewal reminders through the existing independent Telegram/SMTP
    notification system.
 3. Pilot local enforcement on dedicated test services, then selected production
