@@ -548,6 +548,52 @@ The manual architecture and failover runbook are documented in
   peer identity, and role in the panel.
 - A standby must suppress provisioning, scheduled maintenance, backups,
   certificate issuance, DNS writes, and all other mutating control-plane work.
+- Store the effective role and unique server identity in a local durable marker
+  outside every replicated path. Replication must never overwrite a standby
+  role with the primary role.
+- Keep machine-local `.env`, storage paths, backup retention, performance
+  limits, WAN addresses, and role policy separate. Do not synchronize them from
+  the primary.
+
+### Role-Aware Panel And API
+
+- In `standby` mode, replace the normal operational navigation with
+  **Overview**, **Replication**, **Received backups**, **Health**,
+  **Promotion**, **Settings**, **Account**, and bounded read-only logs.
+- Hide or visibly disable **Provision**, **Maintenance**, WordPress updates,
+  image optimization, site removal, Cloudflare changes, NPM/certificate
+  changes, cache controls, local backup scheduling, package deployment, import,
+  and every other action that can mutate hosted service state.
+- UI hiding is not an authorization boundary. Every corresponding server API,
+  background scheduler, Telegram command, startup task, and job worker must
+  check the local role and reject or suppress mutating work while the role is
+  `standby`.
+- Keep read-only website inventory, replication status, received-backup
+  verification, database lag, filesystem recovery point, source commit,
+  configuration compatibility, disk capacity, and promotion readiness visible.
+- Clearly label the standby header and browser title so an operator cannot
+  mistake it for the active primary.
+- Do not enqueue disabled jobs and do not retain primary jobs as runnable work.
+  Show replicated/interrupted jobs as historical evidence only.
+
+### Independent Retention And Resource Profiles
+
+- Configure backup retention per destination. Initial requested policy is seven
+  completed sets on the primary and three received, checksum-verified sets on
+  the replica.
+- Do not mirror backup deletions. The replica receives only completed sets into
+  staging, verifies manifests/checksums/archive integrity, atomically promotes
+  them, and applies its own retention after a newer usable set exists.
+- Add role-specific performance profiles and explicit overrides. An 8 GB
+  standby must not inherit the 16 GB primary's MySQL, Redis, OPcache, PHP-FPM,
+  or cache settings.
+- While in standby mode, run only replication, verification, health, and the
+  minimum internal services required for readiness. Redis and FastCGI cache are
+  disposable and should remain empty; PHP/public nginx may remain stopped until
+  promotion.
+- Provide a tested `standby-8gb` promotion profile with conservative initial
+  limits, then allow operator tuning after measured load. Promotion must
+  validate available memory and disk before starting the full stack.
 
 ### Replication
 
@@ -578,6 +624,51 @@ The manual architecture and failover runbook are documented in
 - Failback rebuilds the old primary from the new primary. Never merge two
   independently writable histories.
 
+### Disconnect And Permanent Promotion
+
+- Provide two explicit workflows:
+  - **Planned detach and promote** while both servers are reachable;
+  - **Emergency promote** when the primary is permanently unavailable.
+- Planned promotion must stop or fence new writes on the primary, wait for
+  MySQL GTID and filesystem replication to reach a recorded common recovery
+  point, verify local app data/NPM state, stop replication, and only then make
+  the standby writable.
+- Emergency promotion must not depend on an API response from the failed
+  primary. It uses the newest locally verified database/files/app-data recovery
+  point, displays the measured data-loss window, and requires the operator to
+  confirm that the old primary has been fenced through power, networking,
+  router, DNS, or credential revocation.
+- Before promotion, run a blocking preflight covering:
+  - local role/server identity and promotion lock;
+  - source commit and schema/config compatibility;
+  - MySQL integrity, GTID position, lag, and read-only state;
+  - filesystem sync completion and absence of partial transfers;
+  - NPM database/certificate consistency;
+  - required encryption keys and machine-local secrets;
+  - available memory, disk, ports, and the selected performance profile;
+  - nginx/PHP configuration validation;
+  - Cloudflare/router cutover authority and rollback instructions.
+- Promotion must be a durable, checkpointed job with an exact typed
+  confirmation. It atomically changes the local role, disables incoming
+  replication, makes MySQL writable, starts the selected services, validates
+  local Host-header traffic, then enables schedulers and external integrations
+  only at their designated checkpoints.
+- A promoted replica becomes an independent `primary`. It must remove the old
+  pairing, rotate/revoke replication credentials, allocate a new replication
+  epoch, stop accepting pushes from the former primary, and never automatically
+  reconnect or demote itself.
+- Public traffic cutover remains an explicit step after local validation.
+  Support reviewed Cloudflare origin changes and documented router/load-balancer
+  changes, with the previous values retained for rollback.
+- Provide **Abort before writable**, **Rollback before traffic cutover**, and
+  **Complete promotion** states. After public writes begin, rollback means
+  rebuilding another standby from the new primary; it must never reactivate the
+  stale former primary.
+- After promotion, show outstanding reconciliation: interrupted jobs, backup
+  destination ownership, scheduled-task activation, notification identity,
+  NPM/certificate checks, Cloudflare records, and the requirement to establish
+  a new standby.
+
 ### Acceptance Criteria
 
 - Define numeric per-state RPO/RTO targets before implementation. Planned
@@ -587,6 +678,14 @@ The manual architecture and failover runbook are documented in
   scheduled work are correct after promotion.
 - DNS rollback and emergency manual recovery remain possible if automation
   fails.
+- Standby mode cannot provision, maintain, update, delete, back up, issue
+  certificates, modify DNS, or execute equivalent mutations through hidden
+  APIs, schedulers, jobs, or Telegram commands.
+- A replica can be permanently promoted with the old primary completely
+  unreachable, provided the operator confirms external fencing and accepts the
+  displayed recovery point.
+- After promotion, no process can resume old incoming replication or overwrite
+  the new primary with stale data.
 
 Before live replication, complete a documented restore of the current stack
 onto an isolated replacement host using local plus encrypted off-site backups.
