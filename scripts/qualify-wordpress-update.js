@@ -171,29 +171,37 @@ async function wpValue(args) {
   return (await wp([...args, "--quiet"])).split(/\r?\n/).filter(Boolean).at(-1) || "";
 }
 
-function pluginSource(version, fatal = false) {
+function pluginSource(version) {
   return `<?php
 /**
  * Plugin Name: Hosting Qualification Plugin
  * Description: Temporary controlled-update qualification package.
  * Version: ${version}
  */
-${fatal ? "throw new RuntimeException('Intentional qualification failure');" : "add_action('init', static function () {});"}
+add_action('init', static function () {});
 `;
 }
 
-async function pluginZip(version, fatal = false) {
+async function pluginZip(version, invalid = false) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-update-drill-"));
   const directory = path.join(root, "hosting-qualification");
   const archive = path.join(root, `hosting-qualification-${version}.zip`);
   fs.mkdirSync(directory);
-  fs.writeFileSync(path.join(directory, "hosting-qualification.php"), pluginSource(version, fatal), "utf8");
+  if (invalid) {
+    fs.writeFileSync(
+      path.join(directory, "qualification.txt"),
+      "Intentional invalid WordPress package used to verify automatic rollback.\n",
+      "utf8",
+    );
+  } else {
+    fs.writeFileSync(path.join(directory, "hosting-qualification.php"), pluginSource(version), "utf8");
+  }
   await execFileAsync("zip", ["-qr", archive, "hosting-qualification"], { cwd: root });
   return { root, archive, content: fs.readFileSync(archive) };
 }
 
-async function uploadPlugin(version, fatal = false) {
-  const generated = await pluginZip(version, fatal);
+async function uploadPlugin(version, invalid = false) {
+  const generated = await pluginZip(version, invalid);
   try {
     const { body } = await api(`/api/wordpress-packages/plugins?filename=${encodeURIComponent(`hosting-qualification-${version}.zip`)}`, {
       method: "POST",
@@ -346,9 +354,9 @@ async function drillCoreTheme() {
   });
   await assertHealthy("core-theme-health");
 
-  const fatalPackage = await uploadPlugin("9.9.2-fail", true);
+  const invalidPackage = await uploadPlugin("9.9.2-fail", true);
   const failed = await applyUpdate({
-    pluginPackageIds: [fatalPackage.id],
+    pluginPackageIds: [invalidPackage.id],
   }, "forced-rollback", new Set(["failed"]));
   if (!/rollback complete/i.test(`${failed.error} ${failed.message}`)) {
     throw new Error("Forced failure did not report a complete rollback");
@@ -387,9 +395,9 @@ async function drillUploadedPackage() {
   });
   await assertHealthy("repository-uploaded-health");
 
-  const fatalPackage = await uploadPlugin("9.9.3-fail", true);
+  const invalidPackage = await uploadPlugin("9.9.3-fail", true);
   const failed = await applyUpdate({
-    pluginPackageIds: [fatalPackage.id],
+    pluginPackageIds: [invalidPackage.id],
   }, "forced-rollback", new Set(["failed"]));
   if (!/rollback complete/i.test(`${failed.error} ${failed.message}`)) {
     throw new Error("Forced failure did not report a complete rollback");
