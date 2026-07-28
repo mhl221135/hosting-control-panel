@@ -55,6 +55,9 @@ test("migrates an existing phase-one database to the payment schema", () => {
     assert.equal(value.database.db.prepare(
       "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('payments','webhook_deliveries')",
     ).get().count, 2);
+    assert.equal(value.database.db.prepare(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='reminder_outbox'",
+    ).get().count, 1);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });

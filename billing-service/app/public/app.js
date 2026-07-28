@@ -57,6 +57,7 @@ function showView(view) {
   $("#mobileNav").value = view;
   if (view === "overview") loadOverview();
   if (view === "payments") loadPayments();
+  if (view === "reminders") loadReminders();
   if (view === "backups") loadBackups();
   if (view === "audit") loadAudit();
 }
@@ -138,6 +139,46 @@ async function loadPayments() {
         <td>${escapeHtml(formatDate(payment.expires_at))}</td>
       </tr>`).join("");
     $("#emptyPayments").hidden = paymentsResult.payments.length > 0;
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function timingLabel(days) {
+  const value = Number(days);
+  if (value === 0) return "Due today";
+  return value > 0 ? `${value} days remaining` : `${Math.abs(value)} days overdue`;
+}
+
+async function loadReminders() {
+  try {
+    const result = await api("/api/reminders");
+    const form = $("#reminderSettingsForm");
+    form.elements.enabled.checked = result.settings.enabled;
+    form.elements.time.value = result.settings.time;
+    $("#reminderScheduleStatus").textContent = result.settings.enabled
+      ? `Enabled at ${result.settings.time}. Last scheduler run: ${result.settings.lastRun || "not yet"}.`
+      : "Disabled. Manual preview and Send due now remain available.";
+    $("#reminderPreviewBody").innerHTML = result.preview.map((item) => `
+      <tr>
+        <td><strong>${escapeHtml(item.domain)}</strong><small>${escapeHtml(item.service_id)}</small></td>
+        <td><span class="state state-${escapeHtml(item.state)}">${escapeHtml(item.state)}</span></td>
+        <td>${escapeHtml(formatDate(item.paid_through))}</td>
+        <td>${escapeHtml(timingLabel(item.days_remaining))}</td>
+        <td>${escapeHtml(item.delivery_status)}</td>
+      </tr>`).join("");
+    $("#emptyReminderPreview").hidden = result.preview.length > 0;
+    $("#reminderHistoryBody").innerHTML = result.history.map((item) => `
+      <tr>
+        <td><strong>${escapeHtml(item.domain)}</strong><small>${escapeHtml(item.service_id)}</small></td>
+        <td>${escapeHtml(item.state)}</td>
+        <td>${escapeHtml(formatDate(item.paid_through))}</td>
+        <td>${escapeHtml(item.status)}</td>
+        <td>${item.attempts}</td>
+        <td>${escapeHtml(formatDate(item.sent_at))}</td>
+        <td>${escapeHtml(item.error)}</td>
+      </tr>`).join("");
+    $("#emptyReminderHistory").hidden = result.history.length > 0;
   } catch (error) {
     notice(error.message, true);
   }
@@ -306,6 +347,40 @@ $("#cancelPaymentLink").addEventListener("click", () => {
   $("#paymentLinkForm").reset();
   $("#paymentLinkForm").hidden = true;
   $("#paymentLinkResult").hidden = true;
+});
+
+$("#reminderSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button");
+  try {
+    await busy(button, async () => {
+      await api("/api/reminders/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: event.currentTarget.elements.enabled.checked,
+          time: event.currentTarget.elements.time.value,
+        }),
+      });
+      notice("Reminder schedule saved.");
+      await loadReminders();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#runReminders").addEventListener("click", async (event) => {
+  try {
+    await busy(event.currentTarget, async () => {
+      const result = await api("/api/reminders/run", { method: "POST" });
+      const sent = result.result.results.filter((item) => item.ok).length;
+      const failed = result.result.results.length - sent;
+      notice(`Reminder run complete: ${sent} sent, ${failed} failed, ${result.result.due} due.`);
+      await loadReminders();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
 
 $("#importForm").addEventListener("submit", async (event) => {

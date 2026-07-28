@@ -122,6 +122,9 @@ td small { color: var(--muted); margin-top: 3px; }
 .payment-result { display: grid; gap: 5px; padding: 12px; border: 1px solid #add5c9; background: #e8f5f1; }
 .payment-result a { overflow-wrap: anywhere; color: var(--brand-dark); }
 .payment-result small { color: var(--muted); }
+.compact-form { margin-bottom: 22px; }
+.toggle-row { display: flex; align-items: center; gap: 9px; min-height: 40px; }
+.toggle-row input { width: 18px; min-height: 18px; }
 
 @media (max-width: 900px) {
   .app-header { gap: 10px; padding: 10px 14px; }
@@ -148,6 +151,7 @@ td small { color: var(--muted); margin-top: 3px; }
   .toolbar, .form-grid { grid-template-columns: 1fr; }
   .form-grid h2, .form-grid .wide { grid-column: auto; }
   .field-status { grid-column: auto; }
+  .toggle-row { align-self: center; }
   .confirm-row { align-items: stretch; flex-direction: column; }
   .confirm-row label { max-width: none; width: 100%; }
   th, td { padding: 10px; }
