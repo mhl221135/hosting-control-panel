@@ -20,6 +20,20 @@ Errors use HTTP status codes and this shape:
 
 Do not expose secrets in public settings responses or error details.
 
+## Billing API
+
+Billing uses a separate process, account, session cookie, CSRF token, database,
+and route namespace on port `8787`. Its browser endpoints include authentication,
+status, service inventory, audit, settings, transactional CSV preview/apply and
+export, plus backup create/test/restore. They do not accept a hosting-panel
+session.
+
+`GET /internal/v1/entitlements` requires
+`Authorization: Bearer <BILLING_API_TOKEN>`. It returns current renewal state
+and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
+health, but returns `503` during backup or restore maintenance. The complete
+contract and recovery workflow are in `BILLING.md`.
+
 ## Route Groups
 
 ### Status and statistics

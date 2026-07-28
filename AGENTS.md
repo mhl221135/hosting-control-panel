@@ -32,6 +32,7 @@ the active copies under `app-data/configs`.
 6. `docs/OPERATIONS.md`: testing, deployment, rollback, and diagnostics.
 7. `STACK_OVERVIEW.md`: short runtime overview.
 8. `docs/WORDPRESS_UPDATES.md`: controlled update transaction and rollback.
+9. `docs/BILLING.md`: isolated renewal inventory, API, and recovery boundary.
 
 ## Non-Negotiable Safety Rules
 
@@ -71,6 +72,8 @@ the active copies under `app-data/configs`.
 | Backup schedule | `app-data/ui-manager/backup-settings.json` |
 | Performance values | `app-data/ui-manager/performance-settings.json` |
 | Versioned initial configs | `global-configs-new-upd/` |
+| Billing inventory/account | `app-data/billing` |
+| Billing restore points | `${BACKUPS_DIR}/billing` |
 
 The panel edits active configuration. Upgrades copy versioned templates only
 when the corresponding active configuration does not exist.
@@ -96,6 +99,8 @@ when the corresponding active configuration does not exist.
 - Statistics: `ui-manager/app/lib/stats-collector.js`
 - WebP jobs: `ui-manager/app/lib/image-optimization-manager.js`
 - Browser UI: `ui-manager/app/public/{index.html,app.js,styles.css}`
+- Billing service/API/UI: `billing-service/app`
+- Billing schema/import/backups: `billing-service/app/lib`
 - Fresh setup: `bootstrap.sh`, `scripts/configure.sh`, `scripts/install.sh`
 - Non-destructive upgrade: `scripts/upgrade.sh`
 
@@ -107,6 +112,8 @@ For panel changes, run from the repository root:
 node --check ui-manager/app/server.js
 node --check ui-manager/app/public/app.js
 node --test ui-manager/app/test/*.test.js
+docker build -t hosting-billing:test billing-service
+docker run --rm hosting-billing:test npm test
 docker compose config --quiet
 git diff --check
 ```

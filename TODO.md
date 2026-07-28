@@ -6,17 +6,19 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Build the separate billing and hosting-entitlement service in phases.
+1. Extend the isolated billing inventory service with payments, reminders, and
+   carefully piloted enforcement.
 2. Pass mail-platform feasibility gates, then build an isolated pilot.
 3. Prove current-stack disaster recovery before adding warm-standby failover.
 
 ## 1. Separate Billing And Entitlement Service
 
-### Boundary
-
-Build `hosting-billing` as a separate container with its own database, API, and
-authenticated UI. `hosting-ui` remains responsible for server/site operations.
-The services communicate through a narrow authenticated internal API.
+Phase 1 is implemented as the isolated `hosting-billing` service. Its
+read-only renewal inventory, legacy/canonical CSV round trips, audit history,
+independent authentication, signed internal API, health endpoint, migrations,
+verified backups, restore tests, and responsive UI are documented in
+`docs/BILLING.md`. The remaining work starts with payment integration and must
+preserve that service boundary.
 
 ### Data Model
 
@@ -67,21 +69,17 @@ remain a later optional adapter.
   outages. Suspension requires fresh verified state and an operator-configured
   grace policy.
 
-### Delivery Phases
+### Remaining Delivery Phases
 
-1. Import inventory and provide read-only renewal status, CSV round trips, audit
-   history, backups, and restore tests.
-2. Generate expiring non-replayable payment links and ingest signed webhooks
+1. Generate expiring non-replayable payment links and ingest signed webhooks
    without enforcement.
-3. Enable renewal reminders through the existing independent Telegram/SMTP
+2. Enable renewal reminders through the existing independent Telegram/SMTP
    notification system.
-4. Pilot local enforcement on dedicated test services, then selected production
+3. Pilot local enforcement on dedicated test services, then selected production
    services with immediate operator rollback.
 
 ### Acceptance Criteria
 
-- Billing has its own database, migrations, backup/restore procedure, API
-  authentication, secrets, audit retention, and health endpoint.
 - Provider outage or stale state cannot suspend an otherwise active service.
 - Duplicate/replayed payment events cannot extend service twice.
 - Payment URLs contain no customer PII or reusable credential.
