@@ -6,8 +6,7 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Extend the isolated billing inventory service with payments, reminders, and
-   carefully piloted enforcement.
+1. Qualify live billing payments, then carefully pilot local enforcement.
 2. Pass mail-platform feasibility gates, then build an isolated pilot.
 3. Prove current-stack disaster recovery before adding warm-standby failover.
 
@@ -17,7 +16,7 @@ Phase 1 is implemented as the isolated `hosting-billing` service. Its
 read-only renewal inventory, legacy/canonical CSV round trips, audit history,
 independent authentication, signed internal API, health endpoint, migrations,
 verified backups, restore tests, and responsive UI are documented in
-`docs/BILLING.md`. The remaining work starts with payment integration and must
+`docs/BILLING.md`. Remaining payment qualification and enforcement work must
 preserve that service boundary.
 
 Phase 2 code also implements encrypted WooCommerce settings, opaque expiring
@@ -25,6 +24,11 @@ payment links, one-active-link protection, signed topic-restricted webhooks,
 amount/currency validation, idempotent delivery processing, and manual-review
 handling without enforcement. It still requires live qualification against the
 dedicated hidden renewal product before client use.
+
+Renewal reminders are implemented with a disabled-by-default daily scheduler,
+due-state preview, manual run, durable idempotent outbox, failure retry, and a
+narrow bearer-authenticated adapter to the existing Telegram/SMTP delivery
+queue. Billing has no access to notification credentials or panel data.
 
 ### Data Model
 
@@ -80,9 +84,7 @@ remain a later optional adapter.
 1. Qualify payment links and webhooks with the real WooCommerce test product:
    checkout, processing/completed, duplicate delivery, expiration, mismatched
    amount/currency, refund, chargeback, and provider outage. Document rollback.
-2. Enable renewal reminders through the existing independent Telegram/SMTP
-   notification system.
-3. Pilot local enforcement on dedicated test services, then selected production
+2. Pilot local enforcement on dedicated test services, then selected production
    services with immediate operator rollback.
 
 ### Acceptance Criteria

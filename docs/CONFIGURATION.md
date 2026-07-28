@@ -87,6 +87,12 @@ provider secrets; `woocommerce-settings.key` is the generated key when
 `BILLING_SETTINGS_KEY` is absent. Losing both the external and generated key
 makes those provider secrets unrecoverable.
 
+Reminder schedule, last-run date, delivery keys, attempts, and remote delivery
+IDs live in `billing.sqlite`. `NOTIFICATION_API_URL` is an internal Compose
+value pointing at `hosting-ui`; both services receive the same
+`BILLING_API_TOKEN`. Notification provider credentials remain only in
+`app-data/ui-manager`.
+
 ## Active Runtime Configuration
 
 Active copies live under `app-data/configs` and are bind-mounted into services.

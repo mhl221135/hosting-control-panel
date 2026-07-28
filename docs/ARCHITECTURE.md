@@ -117,6 +117,12 @@ sessions, `woocommerce-settings.js` owns encrypted provider settings,
 verification, and restore. Provider callbacks can change only billing service
 state; there is no hosting enforcement adapter.
 
+`reminders.js` owns the disabled-by-default daily scheduler and durable billing
+outbox. It sends an allowlisted contract to one bearer-authenticated internal
+`hosting-ui` endpoint. `billing-notification-api.js` reconstructs the operator
+message and passes it to the existing notification queue; billing never sees
+Telegram or SMTP credentials.
+
 ## Authentication And Secrets
 
 The first panel account is created from `UI_ADMIN_EMAIL` and

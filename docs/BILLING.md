@@ -93,6 +93,31 @@ access. Before client use, qualify it with a dedicated test product and test
 the store's real checkout, paid webhook, duplicate delivery, refund, and outage
 behavior.
 
+## Renewal Reminders
+
+**Reminders** previews services currently in `reminder`, `grace`, or
+`suspended` state. **Send due now** creates one durable outbox entry per service,
+paid-through date, and state. A successful entry is never sent twice; a failed
+entry remains retryable and preserves a bounded error and attempt count.
+
+Daily scheduling is disabled by default. When enabled, it runs once after the
+selected local time in the container timezone. The scheduler records its last
+local run date so a restart cannot resend the same reminder key.
+
+Billing sends only allowlisted fields to:
+
+```text
+http://hosting-ui:8687/internal/v1/billing-reminders
+```
+
+The request uses `BILLING_API_TOKEN`. `hosting-ui` validates the service ID,
+domain, state, date, day count, and 64-character reminder key, then constructs
+the notification text itself. Arbitrary billing-supplied messages are ignored.
+The existing notification manager owns Telegram/SMTP credentials, provider
+retries, channel state, and a second durable dedupe boundary. If no delivery
+channel is enabled, billing records a failed attempt instead of marking the
+reminder sent.
+
 ## Internal API
 
 `GET /internal/v1/entitlements` requires:
