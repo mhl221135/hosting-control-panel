@@ -421,7 +421,6 @@ function prepareSiteDirectory(websitesRoot, directory) {
     throw error;
   }
   fs.mkdirSync(target, { recursive: true, mode: 0o775 });
-  fs.chownSync(target, 33, 33);
   return target;
 }
 
