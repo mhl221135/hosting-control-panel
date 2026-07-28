@@ -255,8 +255,21 @@ For **Add mailbox**:
 
 ### Rollout
 
-1. Measure account count, total mailbox storage, growth, aliases, and source
-   migration capabilities; confirm public port 25/587/993 reachability.
+The read-only two-phase host/AWS feasibility preflight is implemented in
+`scripts/mail-feasibility.sh` and documented in `docs/MAIL_FEASIBILITY.md`.
+It intentionally does not claim inbound reachability, static IP ownership, PTR
+control, abuse readiness, or production qualification without independent
+evidence.
+
+The current target-host preflight has no hard failures: supported architecture,
+storage, local port availability, outbound SES connectivity, and clock
+synchronization pass. Static-address ownership, the final mail hostname/PTR,
+independent inbound reachability, abuse procedures, and authenticated SES
+account gates remain unresolved and therefore stay in this backlog.
+
+1. Resolve every preflight failure and warning. Measure account count, total
+   mailbox storage, growth, aliases, and source migration capabilities; confirm
+   public port 25/587/993 reachability from an independent Internet host.
 2. Build the isolated containers, secrets, API contract, DNS preview, backup,
    and restore workflow without migrating client mail.
 3. Provision a dedicated test domain and internal mailboxes.
