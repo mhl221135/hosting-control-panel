@@ -12,6 +12,7 @@ const DEFAULTS = {
   publicCheckTimeoutSeconds: 10,
   publicHosts: [],
   requiredContainers: [
+    "hosting-agent",
     "hosting-ui",
     "hosting-nginx",
     "hosting-php-fpm",
@@ -46,7 +47,10 @@ function validate(payload = {}) {
     opcacheWarningPercent: Number(payload.opcacheWarningPercent ?? DEFAULTS.opcacheWarningPercent),
     publicCheckTimeoutSeconds: Number(payload.publicCheckTimeoutSeconds ?? DEFAULTS.publicCheckTimeoutSeconds),
     publicHosts: publicHostList(payload.publicHosts ?? DEFAULTS.publicHosts),
-    requiredContainers: containerList(payload.requiredContainers ?? DEFAULTS.requiredContainers),
+    requiredContainers: containerList([
+      ...containerList(payload.requiredContainers ?? DEFAULTS.requiredContainers),
+      "hosting-agent",
+    ]),
   };
   const integer = (name, minimum, maximum) => {
     if (!Number.isInteger(settings[name]) || settings[name] < minimum || settings[name] > maximum) {

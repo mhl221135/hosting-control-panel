@@ -1,4 +1,28 @@
 services:
+  hosting-agent:
+    image: hosting-agent:1.0
+    build:
+      context: ./control-agent
+    container_name: hosting-agent
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      HOSTING_AGENT_TOKEN: ${HOSTING_AGENT_TOKEN:?Set HOSTING_AGENT_TOKEN in .env}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - hosting-net
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8790/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   hosting-files:
     image: hosting-files:2.63
     build:
@@ -17,12 +41,14 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.30
+    image: hosting-ui:2.31
     build:
       context: ./ui-manager
     container_name: hosting-ui
     user: "0:0"
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "8687:8687"
     environment:
@@ -46,6 +72,8 @@ services:
       HEALTH_HISTORY_LIMIT: ${HEALTH_HISTORY_LIMIT:-250}
       MYSQL_CONTAINER: hosting-db
       PHP_CONTAINER: hosting-php-fpm
+      HOSTING_AGENT_URL: http://hosting-agent:8790
+      HOSTING_AGENT_TOKEN: ${HOSTING_AGENT_TOKEN:?Set HOSTING_AGENT_TOKEN in .env}
       TZ: Europe/Kyiv
       UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:?Set UI_ADMIN_EMAIL in .env}
       UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:?Set UI_ADMIN_PASSWORD in .env}
@@ -64,7 +92,6 @@ services:
       CLEAR_OPCACHE_CMD: "docker exec hosting-php-fpm sh -lc 'kill -USR2 1'"
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/ui-manager:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
@@ -76,6 +103,9 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
     networks:
       - hosting-net
+    depends_on:
+      hosting-agent:
+        condition: service_healthy
 
   hosting-php-fpm:
     image: custom-php-fpm:8.4

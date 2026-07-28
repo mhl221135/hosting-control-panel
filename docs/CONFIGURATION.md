@@ -13,6 +13,7 @@ the supported keys.
 | `UI_ADMIN_EMAIL` | First panel account email | Used only if account state is absent |
 | `UI_ADMIN_PASSWORD` | First panel password | Hashed when account state is created |
 | `UI_SETTINGS_KEY` | Stable secret-encryption material | Overrides generated key file |
+| `HOSTING_AGENT_TOKEN` | Private panel-to-agent bearer token | Generated on install/upgrade; never shown in the panel |
 | `JOB_HISTORY_LIMIT` | Maximum durable job records | Defaults to 250; active work is never pruned |
 | `PROVISION_CREDENTIAL_TTL_HOURS` | One-time provisioning credential lifetime | Defaults to 24; bounded to 1-168 hours |
 | `TRANSFER_BUNDLE_UPLOAD_LIMIT_BYTES` | Maximum resumable portable bundle upload | Defaults to 16 GiB |

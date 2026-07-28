@@ -51,6 +51,41 @@ env_value() {
   ' "$env_file"
 }
 
+generate_secret() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 32
+  else
+    od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+  fi
+}
+
+set_agent_token() {
+  token="$1"
+  temporary="$env_file.agent.$$"
+  awk -v token="$token" '
+    BEGIN { written = 0 }
+    /^HOSTING_AGENT_TOKEN=/ {
+      if (!written) print "HOSTING_AGENT_TOKEN=" token
+      written = 1
+      next
+    }
+    { print }
+    END {
+      if (!written) print "HOSTING_AGENT_TOKEN=" token
+    }
+  ' "$env_file" > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$env_file"
+}
+
+hosting_agent_token="$(env_value HOSTING_AGENT_TOKEN)"
+case "$hosting_agent_token" in
+  ""|replace-with-*)
+    umask 077
+    set_agent_token "$(generate_secret)"
+    ;;
+esac
+
 hosting_root="${requested_root:-${HOSTING_ROOT:-$(env_value HOSTING_ROOT)}}"
 hosting_root="${hosting_root:-/media/ssdmount/websites-v2}"
 backups_dir="${BACKUPS_DIR:-$(env_value BACKUPS_DIR)}"
@@ -70,6 +105,7 @@ esac
 required_variables="
 UI_ADMIN_EMAIL
 UI_ADMIN_PASSWORD
+HOSTING_AGENT_TOKEN
 NPM_IDENTITY
 NPM_SECRET
 ACME_EMAIL
@@ -91,7 +127,7 @@ for variable in $required_variables; do
   esac
 done
 
-for variable in UI_ADMIN_PASSWORD NPM_SECRET FILEBROWSER_ADMIN_PASSWORD MYSQL_ROOT_PASSWORD NPM_DB_PASSWORD; do
+for variable in UI_ADMIN_PASSWORD HOSTING_AGENT_TOKEN NPM_SECRET FILEBROWSER_ADMIN_PASSWORD MYSQL_ROOT_PASSWORD NPM_DB_PASSWORD; do
   value="$(env_value "$variable")"
   if [ "${#value}" -lt 12 ]; then
     echo "$variable must contain at least 12 characters." >&2

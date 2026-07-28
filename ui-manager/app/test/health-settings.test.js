@@ -22,7 +22,7 @@ test("persists validated health thresholds and container names", () => {
       publicCheckTimeoutSeconds: 8,
       publicHosts: "Example.com\nshop.example.com example.com.",
     });
-    assert.deepEqual(saved.requiredContainers, ["hosting-ui", "hosting-db"]);
+    assert.deepEqual(saved.requiredContainers, ["hosting-ui", "hosting-db", "hosting-agent"]);
     assert.deepEqual(saved.publicHosts, ["example.com", "shop.example.com"]);
     assert.deepEqual(settings.read(), saved);
     assert.equal(fs.statSync(settings.path).mode & 0o777, 0o600);

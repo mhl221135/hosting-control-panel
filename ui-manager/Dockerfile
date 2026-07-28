@@ -4,7 +4,7 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache docker-cli tar tzdata unzip zip \
+RUN apk add --no-cache tar tzdata unzip zip \
     && mkdir -p /srv/websites /srv/configs/nginx/conf.d /srv/configs/php-fpm /app/data
 
 COPY --from=restic /usr/bin/restic /usr/local/bin/restic
@@ -16,6 +16,8 @@ COPY app/server.js /app/server.js
 COPY app/lib /app/lib
 COPY app/cli /app/cli
 COPY app/public /app/public
+COPY docker-rpc.js /usr/local/bin/docker
+RUN chmod 0555 /usr/local/bin/docker
 
 ENV PORT=8687
 ENV DATA_DIR=/app/data

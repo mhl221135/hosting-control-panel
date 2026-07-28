@@ -17,7 +17,8 @@ cd /media/ssdmount/websites-v2/sources
 sudo ./scripts/upgrade.sh
 ```
 
-The upgrade runs an idempotent Static HTML route migration before recreating
+The upgrade generates a missing private control-agent token, then runs an
+idempotent Static HTML route migration before recreating
 services. Legacy sites marked `static` that contain PHP files are reclassified
 as Generic PHP and retain or recover a pool. Pure static routes disable PHP and
 remove only pools no longer referenced by another route. The migration validates
@@ -32,14 +33,16 @@ docker compose run --rm --no-deps hosting-ui \
 
 The script refuses tracked local edits, fast-forwards `main`, validates Compose,
 pulls upstream images, rebuilds custom images, recreates changed services, and
-runs explicit config migrations.
+runs explicit config migrations. When `git pull` changes the source commit, the
+script re-executes its newly pulled version before reading new environment or
+deployment requirements.
 
 Upgrades do not replace `app-data`, `websites`, `backups`, or active copied
 configuration.
 
 ## Narrow Deployment
 
-For a tested panel-only change:
+For a tested panel-only change that does not alter the control-agent contract:
 
 ```bash
 git pull --ff-only
@@ -51,7 +54,8 @@ docker logs --tail 100 hosting-ui
 
 This signs out panel sessions but leaves website traffic and data services
 running. Use the full upgrade script when Compose, migrations, or multiple
-images change.
+images change. Changes to Docker command shapes require coordinated
+`hosting-ui` and `hosting-agent` builds and must never use this narrow path.
 
 ## Pre-Deployment Checks
 
@@ -59,6 +63,7 @@ images change.
 node --check ui-manager/app/server.js
 node --check ui-manager/app/public/app.js
 node --test ui-manager/app/test/*.test.js
+node --test control-agent/test/*.test.js
 sh -n bootstrap.sh scripts/*.sh
 docker compose config --quiet
 git diff --check
@@ -75,6 +80,7 @@ docker exec hosting-nginx nginx -t
 docker exec hosting-php-fpm php-fpm -t
 curl -I http://127.0.0.1:8687/
 docker logs --tail 100 hosting-ui
+docker logs --tail 100 hosting-agent
 docker logs --tail 100 hosting-nginx
 docker logs --tail 100 hosting-php-fpm
 ```

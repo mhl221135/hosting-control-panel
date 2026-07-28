@@ -143,8 +143,10 @@ cloudflare_account_id="$ANSWER"
 
 if command -v openssl >/dev/null 2>&1; then
   ui_settings_key="$(openssl rand -hex 32)"
+  hosting_agent_token="$(openssl rand -hex 32)"
 else
   ui_settings_key="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+  hosting_agent_token="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
 fi
 
 umask 077
@@ -156,6 +158,7 @@ temporary="$env_file.tmp.$$"
   printf "UI_ADMIN_EMAIL=%s\n" "$(dotenv_value "$ui_admin_email")"
   printf "UI_ADMIN_PASSWORD=%s\n" "$(dotenv_value "$ui_admin_password")"
   printf "UI_SETTINGS_KEY=%s\n\n" "$(dotenv_value "$ui_settings_key")"
+  printf "HOSTING_AGENT_TOKEN=%s\n\n" "$(dotenv_value "$hosting_agent_token")"
   printf "NPM_API_URL='http://hosting-npm:81/api'\n"
   printf "NPM_IDENTITY=%s\n" "$(dotenv_value "$npm_identity")"
   printf "NPM_SECRET=%s\n" "$(dotenv_value "$npm_secret")"
