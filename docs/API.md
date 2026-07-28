@@ -40,6 +40,12 @@ HMAC-SHA256 signature, unique delivery ID, and an allowed order topic.
 its fixed WooCommerce order-pay URL. Neither endpoint accepts arbitrary redirect
 targets or hosting-panel credentials.
 
+Billing's authenticated reminder routes read/update the disabled-by-default
+schedule, return due preview/history, and run the outbox manually.
+`POST /internal/v1/billing-reminders` on `hosting-ui` is not a browser API. It
+requires `BILLING_API_TOKEN`, accepts only the bounded reminder schema, and
+constructs its own notification event before enqueueing Telegram/SMTP delivery.
+
 ## Route Groups
 
 ### Status and statistics

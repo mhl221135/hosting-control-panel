@@ -51,7 +51,8 @@ into dedicated directories.
 - ARM64 PHP image with WP-CLI, MySQL client tools, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
 - Isolated billing inventory with its own login, SQLite database, renewal
   states, CSV migration, signed internal API, encrypted WooCommerce payment
-  links/webhooks, audit, and verified restore points
+  links/webhooks, durable Telegram/SMTP reminders, audit, and verified restore
+  points
 
 ## Architecture
 

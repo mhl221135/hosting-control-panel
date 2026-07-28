@@ -101,6 +101,7 @@ when the corresponding active configuration does not exist.
 - Browser UI: `ui-manager/app/public/{index.html,app.js,styles.css}`
 - Billing service/API/UI: `billing-service/app`
 - Billing schema/import/backups: `billing-service/app/lib`
+- Billing-to-notification contract: `ui-manager/app/lib/billing-notification-api.js`
 - Fresh setup: `bootstrap.sh`, `scripts/configure.sh`, `scripts/install.sh`
 - Non-destructive upgrade: `scripts/upgrade.sh`
 
