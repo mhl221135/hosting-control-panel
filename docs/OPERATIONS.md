@@ -174,6 +174,11 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
+Per-site restore uses a scoped MySQL client session that remains strict but
+omits `NO_ZERO_DATE` and `NO_ZERO_IN_DATE` so legacy WordPress/WooCommerce table
+defaults can be recreated. This does not alter the server's global SQL mode.
+Run `scripts/qualify-local-recovery.sh` after database or backup changes.
+
 ## Website Deletion
 
 Use the panel's **Delete** tab instead of manually removing files or database

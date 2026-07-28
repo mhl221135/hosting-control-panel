@@ -358,6 +358,14 @@ Verify recovery keys, websites, databases, NPM hosts/certificates, panel state,
 and an operator login. Replication is not a substitute for versioned backups
 because deletion, corruption, or compromise can replicate too.
 
+The bounded local qualification in `scripts/qualify-local-recovery.sh` now
+validates and extracts the latest app-data archive and restores one
+representative website database into a resource-limited, no-network temporary
+MySQL container. This is useful continuous evidence, but it does not satisfy
+the replacement-host requirement above; the full coordinated restore,
+application checks, NPM/certificate validation, operator login, RPO/RTO, and
+DNS rollback drill remain outstanding.
+
 ## Cross-Cutting Delivery Rules
 
 - Every long panel operation returns a durable job ID, survives browser
