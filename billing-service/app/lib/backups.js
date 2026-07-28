@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { backup, DatabaseSync } = require("node:sqlite");
-const { SCHEMA_VERSION } = require("./database");
+const { BillingDatabase, SCHEMA_VERSION } = require("./database");
 
 const BACKUP_ID = /^billing-\d{8}T\d{6}Z(?:-\d+)?$/;
 
@@ -104,20 +104,22 @@ class BillingBackups {
 
   test(id) {
     const selected = this.resolve(id);
-    const testPath = path.join(this.root, `.restore-test-${crypto.randomUUID()}.sqlite`);
+    const testDirectory = path.join(this.root, `.restore-test-${crypto.randomUUID()}`);
+    const testPath = path.join(testDirectory, "billing.sqlite");
+    fs.mkdirSync(testDirectory, { mode: 0o700 });
     fs.copyFileSync(selected.database, testPath);
     try {
-      const database = new DatabaseSync(testPath, { readOnly: true });
-      const integrity = String(database.prepare("PRAGMA integrity_check").get().integrity_check);
-      const schemaVersion = Number(database.prepare("PRAGMA user_version").get().user_version);
-      const services = Number(database.prepare("SELECT COUNT(*) AS count FROM services").get().count);
-      database.close();
+      const migrated = new BillingDatabase(testDirectory);
+      const integrity = String(migrated.db.prepare("PRAGMA integrity_check").get().integrity_check);
+      const schemaVersion = Number(migrated.db.prepare("PRAGMA user_version").get().user_version);
+      const services = Number(migrated.db.prepare("SELECT COUNT(*) AS count FROM services").get().count);
+      migrated.close();
       if (integrity.toLowerCase() !== "ok" || schemaVersion !== SCHEMA_VERSION) {
         throw new Error("Restored billing snapshot failed integrity or schema validation");
       }
       return { ok: true, integrity, schemaVersion, services };
     } finally {
-      fs.rmSync(testPath, { force: true });
+      fs.rmSync(testDirectory, { recursive: true, force: true });
     }
   }
 

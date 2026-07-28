@@ -41,6 +41,26 @@ test("migrates, imports atomically, audits, and blocks replayed inventory", () =
   }
 });
 
+test("migrates an existing phase-one database to the payment schema", () => {
+  const value = fixture();
+  try {
+    value.database.db.exec(`
+      DROP TABLE webhook_deliveries;
+      DROP TABLE payments;
+      PRAGMA user_version=1;
+    `);
+    value.database.close();
+    value.database.open();
+    assert.equal(value.database.db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
+    assert.equal(value.database.db.prepare(
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name IN ('payments','webhook_deliveries')",
+    ).get().count, 2);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("creates verified backups, tests restore, and rolls data back with a safety snapshot", async () => {
   const value = fixture();
   try {

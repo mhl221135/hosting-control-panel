@@ -5,9 +5,9 @@ administrator login, SQLite database, browser UI, authenticated internal API,
 audit history, and restore-tested backups. It does not mount website data,
 MySQL, runtime configuration, or the Docker socket.
 
-Phase 1 is intentionally read-only with respect to hosting. It calculates and
-publishes renewal state, but it cannot suspend a site, create a WooCommerce
-order, or send reminders.
+The service is intentionally unable to suspend or otherwise mutate hosted
+sites. It calculates renewal state and can create WooCommerce renewal orders,
+but reminders and enforcement remain future work.
 
 ## Storage And Network
 
@@ -53,6 +53,45 @@ Calculated states are:
 - `exempt`: missing dates or an explicit exemption.
 
 Phase 1 does not enforce the calculated state.
+
+## WooCommerce Payments
+
+Open **Payments** and configure:
+
+- the HTTPS WooCommerce store URL;
+- the public HTTPS URL that routes to `hosting-billing:8787`;
+- the ID of one hidden virtual renewal product;
+- a least-privilege WooCommerce REST API consumer key and secret;
+- a separate webhook secret and payment-link lifetime.
+
+Secrets are AES-256-GCM encrypted and are never returned by the API. Blank
+secret fields preserve their existing values. The generated key is stored as
+`app-data/billing/woocommerce-settings.key` unless
+`BILLING_SETTINGS_KEY` is supplied.
+
+Creating a link first creates one pending WooCommerce order with service ID,
+period, resulting paid-through date, and a random nonce in order metadata. The
+public link contains only a 256-bit random token; SQLite stores only its SHA-256
+hash. Only one unexpired pending link can exist for a service.
+
+Configure a WooCommerce **Order updated** webhook:
+
+```text
+Delivery URL: https://billing.example.com/webhooks/woocommerce
+Secret: the exact webhook secret saved in Billing
+```
+
+The handler accepts signed `order.created` and `order.updated` deliveries.
+`processing` or `completed` extends service state only when order ID, amount,
+and currency match. Delivery IDs and payment state make callbacks idempotent.
+Forged, replayed, mismatched, expired, refunded, cancelled, and failed cases do
+not silently extend or shorten service; ambiguous paid/refund cases are marked
+for manual review in audit history.
+
+The payment implementation has no nginx, Docker, website, or enforcement
+access. Before client use, qualify it with a dedicated test product and test
+the store's real checkout, paid webhook, duplicate delivery, refund, and outage
+behavior.
 
 ## Internal API
 
