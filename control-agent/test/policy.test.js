@@ -66,6 +66,10 @@ test("rejects host-control and command-injection paths", () => {
 });
 
 test("allows only package copies into the PHP temporary directory", () => {
+  assert.doesNotThrow(() => validateArgs([
+    "exec", "-i", "-u", "33:33", "hosting-php-fpm", "sh", "-c",
+    'umask 077; cat > "$1"', "package-copy", "/tmp/hosting-package-plugin.zip",
+  ]));
   assert.deepEqual(validateCopy("hosting-php-fpm:/tmp/hosting-control-plugin.zip"), {
     container: "hosting-php-fpm",
     path: "/tmp/hosting-control-plugin.zip",

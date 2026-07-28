@@ -80,6 +80,13 @@ test("RPC shim streams allowed commands and rejects Docker host control", { time
     assert.equal(streamed.code, 0, streamed.stderr);
     assert.match(streamed.stdout, /streamed-input/);
 
+    const packagePath = path.join(directory, "qualification.zip");
+    fs.writeFileSync(packagePath, "package-content");
+    const copied = await runClient(["cp", packagePath, "hosting-php-fpm:/tmp/hosting-control-qualification.zip"]);
+    assert.equal(copied.code, 0, copied.stderr);
+    assert.match(copied.stdout, /exec -i -u 33:33 hosting-php-fpm/);
+    assert.match(copied.stdout, /package-content/);
+
     const rejected = await runClient(["run", "--privileged", "-v", "/:/host", "alpine"]);
     assert.equal(rejected.code, 1);
     assert.match(rejected.stderr, /not allowed/);

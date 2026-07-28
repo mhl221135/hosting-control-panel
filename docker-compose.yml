@@ -1,6 +1,6 @@
 services:
   hosting-agent:
-    image: hosting-agent:1.0
+    image: hosting-agent:1.1
     build:
       context: ./control-agent
     container_name: hosting-agent
@@ -41,7 +41,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.33
+    image: hosting-ui:2.34
     build:
       context: ./ui-manager
     container_name: hosting-ui

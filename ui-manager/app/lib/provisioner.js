@@ -180,7 +180,8 @@ function outputNames(result) {
 function copyPackageToPhp(filePath, destination, timeout = 180_000) {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", [
-      "exec", "-i", "hosting-php-fpm", "sh", "-c", 'umask 077; cat > "$1"', "package-copy", destination,
+      "exec", "-i", "-u", "33:33", "hosting-php-fpm", "sh", "-c",
+      'umask 077; cat > "$1"', "package-copy", destination,
     ], { stdio: ["pipe", "pipe", "pipe"] });
     let stderr = "";
     const timer = setTimeout(() => child.kill("SIGKILL"), timeout);
