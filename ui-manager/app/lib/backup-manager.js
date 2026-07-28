@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
+const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
@@ -29,6 +30,42 @@ function directorySize(target) {
     if (entry.isFile()) return total + fs.statSync(entryPath).size;
     return total;
   }, 0);
+}
+
+async function fileArtifact(filePath) {
+  const hash = crypto.createHash("sha256");
+  await pipeline(fs.createReadStream(filePath), hash);
+  return {
+    size: fs.statSync(filePath).size,
+    sha256: hash.digest("hex"),
+  };
+}
+
+async function artifactManifest(directory, fileNames) {
+  const artifacts = {};
+  for (const fileName of fileNames) artifacts[fileName] = await fileArtifact(path.join(directory, fileName));
+  return artifacts;
+}
+
+async function verifyArtifactManifest(directory, manifest, requiredFiles) {
+  if (manifest.version === 1 && manifest.artifacts === undefined) return { checksums: false, legacy: true };
+  if (manifest.version !== 2 || !manifest.artifacts || typeof manifest.artifacts !== "object") {
+    throw new Error("Backup artifact manifest is missing or unsupported");
+  }
+  for (const fileName of requiredFiles) {
+    const expected = manifest.artifacts[fileName];
+    if (!expected
+      || !Number.isSafeInteger(expected.size)
+      || expected.size < 1
+      || !/^[a-f0-9]{64}$/.test(String(expected.sha256 || ""))) {
+      throw new Error(`Backup artifact metadata is invalid: ${fileName}`);
+    }
+    const actual = await fileArtifact(path.join(directory, fileName));
+    if (actual.size !== expected.size || actual.sha256 !== expected.sha256) {
+      throw new Error(`Backup artifact checksum failed: ${fileName}`);
+    }
+  }
+  return { checksums: true, legacy: false };
 }
 
 class BackupManager {
@@ -442,8 +479,9 @@ class BackupManager {
         relative,
       ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
       if (database) await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
+      const requiredFiles = ["website.tar.gz", ...(database ? ["database.sql.gz"] : [])];
       const manifest = {
-        version: 1,
+        version: 2,
         type: "site",
         id,
         domain: site.host,
@@ -451,6 +489,7 @@ class BackupManager {
         database,
         startedAt,
         completedAt: new Date().toISOString(),
+        artifacts: await artifactManifest(partial, requiredFiles),
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
       fs.renameSync(partial, complete);
@@ -492,12 +531,13 @@ class BackupManager {
       ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
       await this.dumpAllDatabases(path.join(partial, "databases.sql.gz"));
       const manifest = {
-        version: 1,
+        version: 2,
         type: "app-data",
         id,
         excluded: ["mysql", "nginx-cache"],
         startedAt,
         completedAt: new Date().toISOString(),
+        artifacts: await artifactManifest(partial, ["app-data.tar.gz", "databases.sql.gz"]),
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
       fs.renameSync(partial, complete);
@@ -627,6 +667,11 @@ class BackupManager {
     const relative = this.siteRelativePath(site);
     const { directory, manifest } = this.readSiteManifest(site, id);
     const archive = path.join(directory, "website.tar.gz");
+    const artifactVerification = await verifyArtifactManifest(
+      directory,
+      manifest,
+      ["website.tar.gz", ...(manifest.database ? ["database.sql.gz"] : [])],
+    );
     const { stdout } = await execFileAsync("tar", ["-tzf", archive], {
       timeout: 10 * 60 * 1000,
       maxBuffer: 16 * 1024 * 1024,
@@ -649,6 +694,7 @@ class BackupManager {
       domain: site.host,
       websiteEntries: entries.length,
       database: Boolean(manifest.database),
+      ...artifactVerification,
     };
   }
 
@@ -659,6 +705,11 @@ class BackupManager {
     if (manifest.websitePath !== relative || manifest.database !== currentDatabase) {
       throw new Error("Backup website path or database does not match the current site");
     }
+    await verifyArtifactManifest(
+      directory,
+      manifest,
+      ["website.tar.gz", ...(manifest.database ? ["database.sql.gz"] : [])],
+    );
 
     const { stdout: archiveList } = await execFileAsync("tar", [
       "-tzf",
@@ -788,4 +839,11 @@ function cryptoSafeSuffix() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-module.exports = { BackupManager, DEFAULT_SETTINGS, MYSQL_RESTORE_SQL_MODE, backupId };
+module.exports = {
+  BackupManager,
+  DEFAULT_SETTINGS,
+  MYSQL_RESTORE_SQL_MODE,
+  artifactManifest,
+  backupId,
+  verifyArtifactManifest,
+};

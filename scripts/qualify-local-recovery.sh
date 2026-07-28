@@ -104,6 +104,34 @@ print(members)
 PY
 }
 
+verify_declared_artifact() {
+  local manifest="$1" directory="$2" file_name="$3"
+  local version expected_size expected_sha actual_size actual_sha
+  version="$(jq -r .version "$manifest")"
+  if [ "$version" = "1" ]; then
+    return
+  fi
+  [ "$version" = "2" ] || { printf 'Unsupported backup manifest version.\n' >&2; exit 1; }
+  expected_size="$(jq -er --arg file "$file_name" '.artifacts[$file].size' "$manifest")" || {
+    printf 'Artifact size is missing from manifest.\n' >&2
+    exit 1
+  }
+  expected_sha="$(jq -er --arg file "$file_name" '.artifacts[$file].sha256' "$manifest")" || {
+    printf 'Artifact checksum is missing from manifest.\n' >&2
+    exit 1
+  }
+  [[ "$expected_size" =~ ^[0-9]+$ ]] && [[ "$expected_sha" =~ ^[a-f0-9]{64}$ ]] || {
+    printf 'Artifact metadata is invalid.\n' >&2
+    exit 1
+  }
+  actual_size="$(stat -c %s "$directory/$file_name")"
+  actual_sha="$(sha256sum "$directory/$file_name" | awk '{ print $1 }')"
+  [ "$actual_size" = "$expected_size" ] && [ "$actual_sha" = "$expected_sha" ] || {
+    printf 'Artifact checksum failed: %s\n' "$file_name" >&2
+    exit 1
+  }
+}
+
 latest_set() {
   find "$1" -mindepth 1 -maxdepth 1 -type d -name '20??-??-??T??-??-??Z' -print | sort | tail -n 1
 }
@@ -115,7 +143,7 @@ app_set="$(latest_set "$backups_root/app-data")"
 [ -n "$app_set" ] || { printf 'No complete app-data backup set found.\n' >&2; exit 1; }
 app_manifest="$app_set/manifest.json"
 jq -e '
-  .version == 1 and .type == "app-data"
+  (.version == 1 or .version == 2) and .type == "app-data"
   and (.id | test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$"))
   and (.excluded == ["mysql", "nginx-cache"])
 ' "$app_manifest" >/dev/null || { printf 'App-data manifest contract failed.\n' >&2; exit 1; }
@@ -127,6 +155,7 @@ for artifact in app-data.tar.gz databases.sql.gz; do
   [ -f "$app_set/$artifact" ] || { printf 'App-data set is missing %s.\n' "$artifact" >&2; exit 1; }
   gzip -t "$app_set/$artifact"
   sha256sum "$app_set/$artifact" >/dev/null
+  verify_declared_artifact "$app_manifest" "$app_set" "$artifact"
 done
 app_entries="$(safe_archive "$app_set/app-data.tar.gz")"
 
@@ -143,7 +172,7 @@ while IFS= read -r candidate; do
   [ -f "$candidate/manifest.json" ] && [ -f "$candidate/website.tar.gz" ] && [ -f "$candidate/database.sql.gz" ] || continue
   [ "$(stat -c %s "$candidate/database.sql.gz")" -le "$max_database_bytes" ] || continue
   if jq -e '
-    .version == 1 and .type == "site"
+    (.version == 1 or .version == 2) and .type == "site"
     and (.id | test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$"))
     and (.domain | type == "string" and length > 3)
     and (.websitePath | type == "string" and length > 0)
@@ -177,6 +206,8 @@ database_name="$(jq -r .database "$site_manifest")"
 gzip -t "$site_set/website.tar.gz"
 gzip -t "$site_set/database.sql.gz"
 sha256sum "$site_set/website.tar.gz" "$site_set/database.sql.gz" >/dev/null
+verify_declared_artifact "$site_manifest" "$site_set" "website.tar.gz"
+verify_declared_artifact "$site_manifest" "$site_set" "database.sql.gz"
 site_entries="$(safe_archive "$site_set/website.tar.gz" "$website_path")"
 tar --no-same-owner --no-same-permissions -xzf "$site_set/website.tar.gz" -C "$temporary/site"
 [ -d "$temporary/site/$website_path" ] || { printf 'Website root was not restored.\n' >&2; exit 1; }

@@ -38,6 +38,7 @@ into dedicated directories.
 - Durable read-only WordPress core, plugin, and theme version inventory
 - Manual controlled WordPress updates with persistent exclusions, verified backup, health checks, and automatic rollback
 - Per-site manual and scheduled backups with retention
+- Versioned artifact sizes and SHA-256 verification before site restore
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
 - Backup history and complete-set deletion from the panel
