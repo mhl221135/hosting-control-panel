@@ -174,6 +174,11 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
+New site and app-data sets use manifest version 2 and record each artifact's
+byte length and SHA-256 digest. Restore verifies these values before extracting
+files or importing SQL. Existing version-1 sets remain structurally verifiable
+and restorable until normal retention replaces them.
+
 Per-site restore uses a scoped MySQL client session that remains strict but
 omits `NO_ZERO_DATE` and `NO_ZERO_IN_DATE` so legacy WordPress/WooCommerce table
 defaults can be recreated. This does not alter the server's global SQL mode.

@@ -4,7 +4,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const test = require("node:test");
-const { BackupManager, MYSQL_RESTORE_SQL_MODE } = require("../lib/backup-manager");
+const {
+  BackupManager,
+  MYSQL_RESTORE_SQL_MODE,
+  artifactManifest,
+  verifyArtifactManifest,
+} = require("../lib/backup-manager");
 
 function managerFixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-backup-test-"));
@@ -28,6 +33,29 @@ function managerFixture() {
 test("site restore mode accepts legacy zero-date schemas without weakening global MySQL mode", () => {
   assert.match(MYSQL_RESTORE_SQL_MODE, /STRICT_TRANS_TABLES/);
   assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
+});
+
+test("version 2 backup artifacts detect truncation while version 1 remains readable", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-artifacts-"));
+  try {
+    fs.writeFileSync(path.join(directory, "website.tar.gz"), "complete archive");
+    const artifacts = await artifactManifest(directory, ["website.tar.gz"]);
+    assert.deepEqual(
+      await verifyArtifactManifest(directory, { version: 2, artifacts }, ["website.tar.gz"]),
+      { checksums: true, legacy: false },
+    );
+    fs.appendFileSync(path.join(directory, "website.tar.gz"), "tampered");
+    await assert.rejects(
+      verifyArtifactManifest(directory, { version: 2, artifacts }, ["website.tar.gz"]),
+      /checksum failed/,
+    );
+    assert.deepEqual(
+      await verifyArtifactManifest(directory, { version: 1 }, ["website.tar.gz"]),
+      { checksums: false, legacy: true },
+    );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("validates and persists backup settings", () => {

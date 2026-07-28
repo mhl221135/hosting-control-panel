@@ -13,7 +13,8 @@ It selects the newest complete app-data set and the newest database-bearing
 website set whose compressed SQL dump is below the configured bound. It then:
 
 1. validates manifest type, identifier, ownership, and expected artifacts;
-2. tests both gzip streams and calculates read-only SHA-256 digests;
+2. tests both gzip streams, calculates read-only SHA-256 digests, and verifies
+   every declared version-2 artifact size and checksum;
 3. rejects absolute/traversal paths and links that resolve outside the isolated
    restore root;
 4. extracts app-data and website files into a random temporary directory;
@@ -30,6 +31,10 @@ The restore session retains strict transactional behavior but omits
 WooCommerce schemas that MySQL can operate after an in-place migration but
 would otherwise reject while recreating tables. The production server's global
 SQL mode is not changed.
+
+New backups use manifest version 2 with artifact byte lengths and SHA-256
+digests. Version-1 backups remain eligible for structural gzip/tar validation
+so existing retention sets are not invalidated.
 
 ## Remaining Full Drill
 
