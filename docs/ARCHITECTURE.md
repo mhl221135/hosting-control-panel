@@ -23,6 +23,12 @@ Administrator
 hosting-agent (no host port)
   -> server-side command policy
   -> Docker socket
+
+Billing administrator
+  -> hosting-billing :8787
+     -> isolated SQLite inventory
+     -> signed read-only entitlement API
+     -> dedicated verified backups
 ```
 
 ## Service Ownership
@@ -31,6 +37,7 @@ hosting-agent (no host port)
 |---|---|---|---|
 | `hosting-ui` | Panel, scheduler, provisioning, integrations | `8687` | `app-data/ui-manager` |
 | `hosting-agent` | Allowlisted runtime operations over Docker | none | none |
+| `hosting-billing` | Renewal inventory, audit, signed entitlement API | `8787` | `app-data/billing`, `backups/billing` |
 | `hosting-npm` | Public reverse proxy and ACME | `80`, `81`, `443` | `app-data/npm` |
 | `hosting-nginx` | Internal site routing and FastCGI cache | none | config mounts, `app-data/nginx-cache` |
 | `hosting-php-fpm` | PHP 8.4 pools, WP-CLI, image conversion | none | website and config mounts |
@@ -41,6 +48,11 @@ hosting-agent (no host port)
 
 All stack containers use the explicit Docker bridge network `hosting-net`.
 Database and Redis ports are intentionally not published.
+
+`hosting-billing` is a separate control-plane boundary. It has no Docker
+socket, website, MySQL, nginx, or panel-data mount and cannot mutate hosting
+state. `hosting-ui` receives only its URL and bearer token for future narrow
+integration. See `BILLING.md`.
 
 ## Runtime Routing
 
@@ -96,6 +108,11 @@ images, mount paths, or run commands in arbitrary containers.
 | `provision-import-store.js` | streamed import staging and archive normalization |
 | `stats-collector.js` | on-demand runtime and traffic summaries |
 | `image-optimization-manager.js` | persistent sequential WebP job state and daily scheduler |
+
+The billing service has a separate composition root and modules under
+`billing-service/app`. `database.js` owns schema and transactional inventory,
+`csv.js` owns migration formats, `auth.js` owns its independent account and
+sessions, and `backups.js` owns SQLite snapshot, verification, and restore.
 
 ## Authentication And Secrets
 

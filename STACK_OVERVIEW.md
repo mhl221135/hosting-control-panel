@@ -30,6 +30,7 @@ database operations required by supported workflows.
 
 - `hosting-ui`: authenticated control panel on port 8687
 - `hosting-agent`: private allowlisted Docker control boundary with no host port
+- `hosting-billing`: isolated renewal inventory and signed entitlement API on port 8787
 - `hosting-nginx`: internal virtual hosts and optional FastCGI cache
 - `hosting-php-fpm`: shared PHP 8.4 runtime with per-site pools and WP-CLI
 - `hosting-npm`: public proxy hosts and Let's Encrypt certificates
@@ -64,6 +65,7 @@ The panel provides:
 - Per-site manual and scheduled backup controls
 - Global website-backup pause, schedule, retention, app-data protection, and history
 - Optional encrypted Restic replication to independent S3-compatible storage
+- Independent billing CSV inventory, renewal states, audit, and verified SQLite restore points
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Manual-refresh server/container statistics, per-pool PHP usage, cache health,
@@ -110,6 +112,8 @@ generated and persistent files include:
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
 - `app-data/ui-manager/offsite-backup-settings.json`: encrypted off-site settings and schedule state
+- `app-data/billing`: separate billing database and administrator account
+- `${BACKUPS_DIR}/billing`: checksummed billing database snapshots
 
 ## Provisioning
 

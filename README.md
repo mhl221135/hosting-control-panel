@@ -49,6 +49,8 @@ into dedicated directories.
 - Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest
 - ARM64 PHP image with WP-CLI, MySQL client tools, GD, Imagick, Intl, Redis, SOAP, Zip, and OPcache
+- Isolated billing inventory with its own login, SQLite database, renewal
+  states, CSV migration, signed internal API, audit, and verified restore points
 
 ## Architecture
 
@@ -81,6 +83,14 @@ hosting-ui :8687
 hosting-agent (Docker network only)
   +--> Docker socket
   +--> fixed runtime inspection, validation, reload, WP-CLI, and database operations
+
+Billing administrator
+  |
+  v
+hosting-billing :8787
+  +--> isolated renewal inventory and audit
+  +--> signed read-only entitlement API
+  +--> dedicated SQLite backups
 ```
 
 The panel and website PHP deliberately run in separate containers. The panel
@@ -103,9 +113,14 @@ mount host paths, pull images, or call the raw Docker API.
 |-- control-agent/
 |   |-- Dockerfile
 |   `-- app/
+|-- billing-service/
+|   |-- Dockerfile
+|   |-- app/
+|   `-- test/
 |-- docs/
 |   |-- API.md
 |   |-- ARCHITECTURE.md
+|   |-- BILLING.md
 |   |-- CONFIGURATION.md
 |   |-- HIGH_AVAILABILITY.md
 |   |-- OPERATIONS.md
@@ -169,12 +184,14 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- nginx-cache/
 |   |-- npm/
 |   |-- redis/
-|   `-- ui-manager/
+|   |-- ui-manager/
+|   `-- billing/
 |-- websites/                # Website document roots
 |-- imports/                 # Staged migration input
 `-- backups/                 # Default; BACKUPS_DIR may place this on another disk
     |-- app-data/
     |-- exports/             # Default EXPORTS_DIR for portable migrations
+    |-- billing/             # Isolated billing SQLite restore points
     `-- example.com/
 ```
 
@@ -213,6 +230,8 @@ The interactive setup requests:
 
 - `UI_ADMIN_EMAIL`
 - `UI_ADMIN_PASSWORD`
+- `BILLING_ADMIN_EMAIL`
+- `BILLING_ADMIN_PASSWORD`
 - `NPM_IDENTITY`
 - `NPM_SECRET`
 - `ACME_EMAIL`
@@ -224,8 +243,8 @@ The interactive setup requests:
 - `NPM_DB_NAME`
 - optional Cloudflare DNS token, Security token, and account ID
 
-The installer generates `UI_SETTINGS_KEY` and the private
-`HOSTING_AGENT_TOKEN` automatically. On an empty data tree,
+The installer generates `UI_SETTINGS_KEY`, `HOSTING_AGENT_TOKEN`, and the
+private `BILLING_API_TOKEN` automatically. On an empty data tree,
 NPM creates its first administrator from `NPM_IDENTITY` and `NPM_SECRET`. File
 Browser creates its first administrator from `FILEBROWSER_ADMIN_USERNAME` and
 `FILEBROWSER_ADMIN_PASSWORD`. Existing persistent databases are never

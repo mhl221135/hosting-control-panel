@@ -66,6 +66,8 @@ node --check ui-manager/app/server.js
 node --check ui-manager/app/public/app.js
 node --test ui-manager/app/test/*.test.js
 node --test control-agent/test/*.test.js
+docker build -t hosting-billing:test billing-service
+docker run --rm hosting-billing:test npm test
 sh -n bootstrap.sh scripts/*.sh
 docker compose config --quiet
 git diff --check
@@ -81,8 +83,10 @@ docker compose ps
 docker exec hosting-nginx nginx -t
 docker exec hosting-php-fpm php-fpm -t
 curl -I http://127.0.0.1:8687/
+curl -I http://127.0.0.1:8787/health
 docker logs --tail 100 hosting-ui
 docker logs --tail 100 hosting-agent
+docker logs --tail 100 hosting-billing
 docker logs --tail 100 hosting-nginx
 docker logs --tail 100 hosting-php-fpm
 ```
