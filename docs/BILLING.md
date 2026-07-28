@@ -131,6 +131,21 @@ HMAC-SHA256 signature over the unsigned JSON payload. Consumers must verify the
 signature and freshness before relying on it. Future enforcement must retain a
 last-known-good copy and fail open when state is stale or unavailable.
 
+`hosting-ui` includes that consumer as an observe-only foundation. Under
+**Settings > Billing entitlement observer**, an operator can manually refresh
+or enable scheduled verification. The observer:
+
+- uses only the internal `BILLING_API_URL` and `BILLING_API_TOKEN`;
+- verifies the exact response HMAC with a timing-safe comparison;
+- rejects stale, future, malformed, duplicated, or unsupported services;
+- atomically retains the last verified snapshot in panel data;
+- compares canonical billing domains and aliases with local primary websites;
+- reports matches and inventory drift with `Action: None (dry run)`.
+
+The observer has no nginx writer, Docker adapter, or enforcement setting.
+Failed, unavailable, or stale responses leave the last-known-good snapshot
+untouched and cannot suspend a website.
+
 ## Backups And Restore
 
 **Create backup** uses SQLite's online backup API, checks database integrity,

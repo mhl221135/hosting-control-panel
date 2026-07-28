@@ -55,6 +55,7 @@ const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-man
 const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
 const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
+const { BillingEntitlementObserver } = require("./lib/billing-entitlement-observer");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -132,6 +133,16 @@ const performanceSettings = new PerformanceSettings({
 });
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
 siteState.renderCacheMap();
+const billingEntitlementObserver = new BillingEntitlementObserver({
+  dataDir: DATA_DIR,
+  apiUrl: process.env.BILLING_API_URL,
+  token: process.env.BILLING_API_TOKEN,
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed);
+  },
+});
 const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
@@ -1898,6 +1909,23 @@ async function handleApi(req, res) {
     return true;
   }
 
+  if (req.method === "GET" && requestUrl.pathname === "/api/billing/observer") {
+    sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.view() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/billing/observer/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    billingEntitlementObserver.saveSettings(body);
+    sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.view() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/billing/observer/refresh") {
+    sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.refresh() });
+    return true;
+  }
+
   if (req.method === "PUT" && requestUrl.pathname === "/api/settings/notifications") {
     const body = JSON.parse((await readBody(req)) || "{}");
     sendJson(res, 200, { ok: true, settings: notificationSettings.update(body) });
@@ -3286,6 +3314,7 @@ server.listen(PORT, "0.0.0.0", () => {
   notificationManager.start(jobManager);
   telegramCommandManager.start();
   healthMonitor.start();
+  billingEntitlementObserver.start();
   jobManager.start();
   cloudflareAutomation.start();
   backupManager.start();

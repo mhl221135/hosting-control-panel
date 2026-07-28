@@ -28,6 +28,7 @@ const state = {
   activeTab: "sites",
   stats: null,
   health: null,
+  billingObserver: null,
   siteStats: null,
   ipinfo: {},
   removalPlan: null,
@@ -1706,12 +1707,13 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData, imageData, notificationData, healthData] = await Promise.all([
+    const [settings, performanceData, imageData, notificationData, healthData, billingData] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
       api("/api/sites/images/status"),
       api("/api/settings/notifications"),
       api("/api/health"),
+      api("/api/billing/observer"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -1812,9 +1814,42 @@ async function loadIntegrationSettings() {
     const imageForm = $("#imageOptimizationSettingsForm");
     imageForm.elements.schedule_time.value = imageData.settings?.scheduleTime || "04:00";
     imageForm.elements.enabled.checked = Boolean(imageData.settings?.enabled);
+    state.billingObserver = billingData.observer;
+    renderBillingObserver();
   } catch (error) {
     notice(error.message, "warning");
   }
+}
+
+function renderBillingObserver() {
+  const observer = state.billingObserver;
+  if (!observer) return;
+  const form = $("#billingObserverSettingsForm");
+  form.elements.enabled.checked = Boolean(observer.settings?.enabled);
+  form.elements.intervalMinutes.value = observer.settings?.intervalMinutes || 5;
+  form.elements.maxSnapshotAgeSeconds.value = observer.settings?.maxSnapshotAgeSeconds || 300;
+  const snapshot = observer.snapshot;
+  const status = [
+    `Mode: ${observer.mode}`,
+    `Enforcement: ${observer.enforcementEnabled ? "enabled" : "disabled"}`,
+    `Connection: ${observer.configured ? "configured" : "not configured"}`,
+    snapshot ? `Snapshot: ${snapshot.fresh ? "fresh" : "stale"} · ${snapshot.serviceCount} services` : "Snapshot: none",
+  ];
+  if (observer.lastError) status.push(`Last error: ${observer.lastError}`);
+  $("#billingObserverStatus").textContent = status.join("\n");
+  const rows = snapshot?.matches || [];
+  $("#billingObserverRows").innerHTML = rows.map((item) => `
+    <tr>
+      <td data-label="Local website">${escapeHtml(item.localDomain)}</td>
+      <td data-label="Billing state"><span class="badge ${item.state === "active" || item.state === "exempt" ? "on" : ""}">${escapeHtml(item.state)}</span></td>
+      <td data-label="Paid through">${escapeHtml(item.paidThrough)}</td>
+      <td data-label="Policy">${escapeHtml(item.enforcementMode)}</td>
+      <td data-label="Action">None (dry run)</td>
+    </tr>
+  `).join("") || '<tr class="empty-row"><td colspan="5" class="muted">No verified local matches.</td></tr>';
+  $("#billingObserverUnmatched").textContent = snapshot
+    ? `${snapshot.unmatchedLocal.length} local websites absent from billing · ${snapshot.unmatchedBilling.length} billing services absent locally`
+    : "Refresh to compare billing inventory with local websites.";
 }
 
 $("#loginForm").addEventListener("submit", async (event) => {
@@ -3106,6 +3141,42 @@ $("#notificationSettingsForm").addEventListener("submit", async (event) => {
 
 $("#notificationSettingsForm").addEventListener("change", (event) => {
   if (event.target.name?.endsWith("UseGlobalSeverity")) syncNotificationSeverityControls(event.currentTarget);
+});
+
+$("#billingObserverSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/billing/observer/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: form.elements.enabled.checked,
+        intervalMinutes: Number(form.elements.intervalMinutes.value),
+        maxSnapshotAgeSeconds: Number(form.elements.maxSnapshotAgeSeconds.value),
+      }),
+    }));
+    state.billingObserver = data.observer;
+    renderBillingObserver();
+    notice("Billing observer settings saved.");
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$("#refreshBillingObserver").addEventListener("click", async (event) => {
+  try {
+    const data = await withButton(event.currentTarget, "Refreshing...", () => api("/api/billing/observer/refresh", { method: "POST" }));
+    state.billingObserver = data.observer;
+    renderBillingObserver();
+    notice("Signed billing snapshot verified.");
+  } catch (error) {
+    notice(error.message, "warning");
+    const data = await api("/api/billing/observer").catch(() => null);
+    if (data) {
+      state.billingObserver = data.observer;
+      renderBillingObserver();
+    }
+  }
 });
 
 $("#healthSettingsForm").addEventListener("submit", async (event) => {

@@ -17,6 +17,12 @@ configure the WooCommerce **Order updated** webhook at
 issuing a client link. Billing code deployment alone leaves the integration
 inert when no provider settings are saved.
 
+The hosting panel billing observer is safe to test before payment
+qualification because it is read-only. Use **Settings > Billing entitlement
+observer > Refresh now** and confirm the snapshot is fresh and inventory drift
+is understood. Scheduled polling is disabled by default. An observer error or
+stale snapshot must never be treated as authorization to suspend a website.
+
 Billing reminders are also inert after deployment because their daily schedule
 defaults to disabled. Before enabling it, confirm Telegram and/or SMTP in the
 hosting panel, open Billing **Reminders**, review every due service and date,

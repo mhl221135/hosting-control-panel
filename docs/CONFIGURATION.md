@@ -93,6 +93,12 @@ value pointing at `hosting-ui`; both services receive the same
 `BILLING_API_TOKEN`. Notification provider credentials remain only in
 `app-data/ui-manager`.
 
+`app-data/ui-manager/billing-observer-settings.json` stores only the
+disabled-by-default poll interval and freshness policy.
+`billing-entitlements-lkg.json` is the atomic last verified entitlement
+response plus sanitized local matching results. Both files are mode `0600`;
+the shared API token remains only in `.env`.
+
 ## Active Runtime Configuration
 
 Active copies live under `app-data/configs` and are bind-mounted into services.

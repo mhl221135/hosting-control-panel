@@ -121,7 +121,10 @@ state; there is no hosting enforcement adapter.
 outbox. It sends an allowlisted contract to one bearer-authenticated internal
 `hosting-ui` endpoint. `billing-notification-api.js` reconstructs the operator
 message and passes it to the existing notification queue; billing never sees
-Telegram or SMTP credentials.
+notification credentials. `billing-entitlement-observer.js` is the inverse
+read-only adapter in `hosting-ui`: it verifies signed entitlement snapshots,
+retains a last-known-good copy, and reports local inventory drift. It has no
+nginx writer, Docker action, or enforcement path.
 
 ## Authentication And Secrets
 

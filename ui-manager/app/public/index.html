@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260727-27" />
+    <link rel="stylesheet" href="/styles.css?v=20260728-28" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -822,6 +822,28 @@
             <div class="form-actions full"><button type="submit">Save health settings</button></div>
           </form>
 
+          <form id="billingObserverSettingsForm" class="panel form-grid">
+            <div class="group-title full">
+              <h3>Billing entitlement observer</h3>
+              <p>Verify the signed billing inventory and compare it with local websites. This stage is observe-only and cannot suspend or modify a website.</p>
+            </div>
+            <label>Refresh interval (minutes)<input name="intervalMinutes" type="number" min="1" max="60" required /></label>
+            <label>Maximum snapshot age (seconds)<input name="maxSnapshotAgeSeconds" type="number" min="30" max="1800" required /></label>
+            <label class="check inline"><input name="enabled" type="checkbox" /> Enable scheduled signed-snapshot checks</label>
+            <div class="form-actions full button-row">
+              <button id="refreshBillingObserver" type="button" class="secondary">Refresh now</button>
+              <button type="submit">Save observer settings</button>
+            </div>
+            <pre id="billingObserverStatus" class="status-box compact-status full">Observer status unavailable.</pre>
+            <div class="table-wrap full">
+              <table>
+                <thead><tr><th>Local website</th><th>Billing state</th><th>Paid through</th><th>Policy</th><th>Action</th></tr></thead>
+                <tbody id="billingObserverRows"><tr class="empty-row"><td colspan="5">No verified local matches.</td></tr></tbody>
+              </table>
+            </div>
+            <p id="billingObserverUnmatched" class="muted full">Refresh to compare billing inventory with local websites.</p>
+          </form>
+
           <form id="performanceSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>PHP and OPcache</h3></div>
             <label>PHP memory per request (MB)<input name="phpMemoryLimitMb" type="number" min="128" max="2048" required /></label>
@@ -908,6 +930,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260727-27"></script>
+    <script src="/app.js?v=20260728-28"></script>
   </body>
 </html>
