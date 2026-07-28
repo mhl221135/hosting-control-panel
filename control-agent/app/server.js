@@ -75,7 +75,7 @@ function run(res, req, args) {
 function copy(res, req, destination) {
   const target = validateCopy(destination);
   run(res, req, [
-    "exec", "-i", target.container, "sh", "-c",
+    "exec", "-i", "-u", "33:33", target.container, "sh", "-c",
     'umask 077; cat > "$1"', "agent-copy", target.path,
   ]);
 }
