@@ -6,33 +6,11 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Complete two more production WordPress update/rollback drills.
-2. Build the separate billing and hosting-entitlement service in phases.
-3. Pass mail-platform feasibility gates, then build an isolated pilot.
-4. Prove current-stack disaster recovery before adding warm-standby failover.
+1. Build the separate billing and hosting-entitlement service in phases.
+2. Pass mail-platform feasibility gates, then build an isolated pilot.
+3. Prove current-stack disaster recovery before adding warm-standby failover.
 
-## 1. WordPress Update Production Qualification
-
-The first production plugin update and forced-rollback drill passed on
-2026-07-27 and is recorded in `docs/WORDPRESS_UPDATES.md`. Updates remain
-manual. Before adding unattended schedules:
-
-- complete at least two more production maintenance-window drills on dedicated
-  temporary sites;
-- cover WordPress core, a theme, a repository plugin, and an uploaded package
-  across the full drill set;
-- verify complete backup restoration, local-origin health, public HTTPS, cache
-  purge behavior, notification delivery, and removal of every temporary
-  external and local resource after each drill;
-- record elapsed backup/update/rollback time and resolve every warning or
-  rollback failure before counting a drill.
-
-Unattended updates remain out of scope until all three drills pass. Each drill
-must record its tested component, backup size, update time, rollback time,
-origin/public health results, notification result, and complete resource
-cleanup.
-
-## 2. Separate Billing And Entitlement Service
+## 1. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -110,7 +88,7 @@ remain a later optional adapter.
 - Enforcement can be disabled globally and reverted immediately without
   deleting website data.
 
-## 3. Separate Mail Platform
+## 2. Separate Mail Platform
 
 ### Objective
 
@@ -291,7 +269,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 4. Warm Standby And Controlled Failover
+## 3. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.

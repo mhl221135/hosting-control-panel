@@ -64,23 +64,44 @@ WP-CLI `--force`, and removed from the temporary path afterward.
 - Passwords and database dumps are never placed in job payloads or results.
 - Unselected packages are excluded explicitly from every manual operation.
 
-## Production Drill Record
+## Production Qualification
 
-The first production drill completed on 2026-07-27 using a temporary dedicated
-website:
+An initial production drill completed on 2026-07-27 using a temporary dedicated
+website. It proved the workflow and found three fail-safe defects: a
+browser-only dump flag used an unsafe durable-job field name, already-matching
+maintenance-mode state was not idempotent, and application checks depended on
+the public Cloudflare path. All three defects were corrected.
 
-- fresh WordPress provisioning, Cloudflare DNS, NPM routing, and SSL succeeded;
-- a repository plugin update completed all eight guarded stages after a
-  verified files/database backup;
-- an intentionally invalid test package failed after backup and reported
-  `rollback complete`;
-- WordPress, the restored package version, public HTTPS, internal nginx, PHP-FPM,
-  MySQL, and notifications were verified;
-- the temporary package, DNS record, NPM host and certificate, runtime route,
-  PHP pool, database/user, files, panel state, and drill backups were removed.
+Three fully instrumented production drills then passed on 2026-07-28 using only
+`testsite.mishaweb.com`. Each drill provisioned fresh WordPress, created
+Cloudflare DNS, NPM routing, and SSL, exercised a successful controlled update,
+forced a package-install failure, restored the verified backup, and removed the
+temporary site.
 
-The drill found and corrected three fail-safe defects: a browser-only dump flag
-used an unsafe durable-job field name, already-matching maintenance-mode state
-was not idempotent, and application checks depended on the public Cloudflare
-path. Unattended schedules remain disabled until the repeated-drill criteria in
-`TODO.md` are complete.
+| Drill | Successful update | Success backup | Backup | Update | Rollback backup | Failed update | Rollback |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Core/theme A | core `6.9.5` to `7.0.2`; Twenty Twenty-Four `1.3` to current | 25,097,234 B | 5s | 16s | 27,404,186 B | 2s | 10s |
+| Repository/uploaded | Akismet `5.3` to current; uploaded plugin `1.0.0` to `2.0.0` | 24,573,794 B | 5s | 9s | 24,598,176 B | 2s | 10s |
+| Core/theme B | core `6.9.5` to `7.0.2`; Twenty Twenty-Four `1.3` to current | 25,095,520 B | 5s | 17s | 27,400,555 B | 2s | 10s |
+
+For every instrumented drill:
+
+- origin front/admin checks returned `200/302` after update and rollback;
+- public HTTPS returned `200`;
+- Telegram and SMTP reported `sent` for successful and failed jobs;
+- cache purge completed as part of the guarded update and rollback paths;
+- rollback reported `complete` and restored the expected uploaded-plugin
+  version;
+- post-cleanup verification found no panel site, website directory, backup set,
+  active NPM host/certificate, exact Cloudflare DNS record, or temporary package
+  library entry.
+
+The first instrumented attempt exposed a package-staging ownership regression
+after `hosting-ui` became unprivileged. ZIP streams were created by root with
+mode `0600`, so PHP UID 33 could not read them. `hosting-agent:1.1` and
+`hosting-ui:2.34` now create temporary package files as UID `33:33`; agent and
+panel suites plus a live package-read probe passed before the drills were
+repeated.
+
+The repeated production-qualification gate is complete. Controlled updates
+remain manual; no unattended schedule was enabled as part of qualification.
