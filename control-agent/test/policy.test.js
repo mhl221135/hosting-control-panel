@@ -34,7 +34,7 @@ test("allows constrained WordPress and MySQL operations", () => {
 test("allows bounded statistics and application health probes", () => {
   assert.doesNotThrow(() => validateArgs([
     "stats", "--no-stream", "--format", "{{json .}}",
-    "hosting-agent", "hosting-ui", "hosting-php-fpm",
+    "hosting-agent", "hosting-billing", "hosting-ui", "hosting-php-fpm",
   ]));
   assert.doesNotThrow(() => validateArgs([
     "exec", "hosting-nginx", "wget", "-q", "--spider",

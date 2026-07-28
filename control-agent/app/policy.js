@@ -9,6 +9,7 @@ const CONTAINERS = new Set([
 const INSPECT_CONTAINERS = new Set([
   ...CONTAINERS,
   "hosting-agent",
+  "hosting-billing",
   "hosting-files",
   "hosting-npm",
   "hosting-phpmyadmin",
