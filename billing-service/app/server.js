@@ -6,6 +6,8 @@ const { AuthStore, apiAuthorized } = require("./lib/auth");
 const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase } = require("./lib/database");
+const { PaymentManager } = require("./lib/payments");
+const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "/app/data");
@@ -19,6 +21,9 @@ fs.mkdirSync(BACKUPS_ROOT, { recursive: true });
 const database = new BillingDatabase(DATA_DIR);
 const backups = new BillingBackups(database, BACKUPS_ROOT, process.env.BILLING_BACKUP_RETENTION || 14);
 const auth = new AuthStore(DATA_DIR);
+const wooSettings = new WooCommerceSettings(DATA_DIR);
+const wooClient = new WooCommerceClient(wooSettings);
+const payments = new PaymentManager(database, wooSettings, wooClient);
 
 function headers(extra = {}) {
   return {
@@ -203,6 +208,38 @@ async function api(req, res) {
     json(res, 200, { ok: true, audit: database.audit(Number(url.searchParams.get("limit") || 100)) });
     return true;
   }
+  if (req.method === "GET" && url.pathname === "/api/payments") {
+    json(res, 200, { ok: true, payments: database.payments(Number(url.searchParams.get("limit") || 100)) });
+    return true;
+  }
+  if (req.method === "GET" && url.pathname === "/api/woocommerce/settings") {
+    json(res, 200, { ok: true, settings: wooSettings.public() });
+    return true;
+  }
+  if (req.method === "PUT" && url.pathname === "/api/woocommerce/settings") {
+    const body = await readJson(req);
+    const settings = wooSettings.update(body);
+    database.auditEntry(session.email, "woocommerce.settings_update", settings.siteUrl, {
+      siteUrl: settings.siteUrl,
+      publicBillingUrl: settings.publicBillingUrl,
+      productId: settings.productId,
+      linkHours: settings.linkHours,
+    });
+    json(res, 200, { ok: true, settings });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/woocommerce/test") {
+    const result = await wooClient.test();
+    database.auditEntry(session.email, "woocommerce.test", String(result.productId), result);
+    json(res, 200, { ok: true, result });
+    return true;
+  }
+  const paymentLinkMatch = /^\/api\/services\/([^/]+)\/payment-link$/.exec(url.pathname);
+  if (req.method === "POST" && paymentLinkMatch) {
+    const result = await payments.create(decodeURIComponent(paymentLinkMatch[1]), await readJson(req), session.email);
+    json(res, 201, { ok: true, payment: result });
+    return true;
+  }
   if (req.method === "PUT" && url.pathname === "/api/settings") {
     const body = await readJson(req);
     json(res, 200, {
@@ -277,6 +314,24 @@ async function api(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    const url = new URL(req.url, "http://billing.local");
+    const payMatch = /^\/pay\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
+    if (req.method === "GET" && payMatch) {
+      const checkoutUrl = payments.resolve(payMatch[1]);
+      res.writeHead(302, headers({ Location: checkoutUrl, "Content-Length": 0 }));
+      res.end();
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/webhooks/woocommerce") {
+      const rawBody = await readBody(req);
+      const result = payments.webhook(rawBody, {
+        signature: req.headers["x-wc-webhook-signature"],
+        deliveryId: req.headers["x-wc-webhook-delivery-id"],
+        topic: req.headers["x-wc-webhook-topic"],
+      });
+      json(res, 200, { ok: true, ...result });
+      return;
+    }
     if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || req.url === "/health") {
       if (!await api(req, res)) json(res, 404, { ok: false, message: "Not found" });
       return;

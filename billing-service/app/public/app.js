@@ -56,6 +56,7 @@ function showView(view) {
   $$("[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $("#mobileNav").value = view;
   if (view === "overview") loadOverview();
+  if (view === "payments") loadPayments();
   if (view === "backups") loadBackups();
   if (view === "audit") loadAudit();
 }
@@ -96,9 +97,47 @@ async function loadOverview() {
         <td><span class="state state-${escapeHtml(service.hosting_state)}">${escapeHtml(service.hosting_state)}</span></td>
         <td><strong>${escapeHtml(service.location)}</strong><small>${escapeHtml(service.provider)}</small></td>
         <td><strong>${escapeHtml(formatMoney(service.hosting_price_minor, service.currency))}</strong><small>${service.renewal_months} months</small></td>
+        <td><button class="secondary" data-payment-service="${escapeHtml(service.service_id)}"
+          data-payment-domain="${escapeHtml(service.primary_domain)}"
+          data-payment-months="${service.renewal_months}"
+          data-payment-amount="${Number(service.hosting_price_minor || 0)}">Payment</button></td>
       </tr>`).join("");
     $("#emptyServices").hidden = services.services.length > 0;
     $("#policyForm").elements.reminder_days.value = status.reminderDays;
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+async function loadPayments() {
+  try {
+    const [settingsResult, paymentsResult] = await Promise.all([
+      api("/api/woocommerce/settings"),
+      api("/api/payments"),
+    ]);
+    const settings = settingsResult.settings;
+    const form = $("#wooSettingsForm");
+    form.elements.site_url.value = settings.siteUrl;
+    form.elements.public_billing_url.value = settings.publicBillingUrl;
+    form.elements.product_id.value = settings.productId || "";
+    form.elements.link_hours.value = settings.linkHours || 72;
+    form.elements.consumer_key.value = "";
+    form.elements.consumer_secret.value = "";
+    form.elements.webhook_secret.value = "";
+    $("#wooStatus").textContent = settings.ready
+      ? "Configured. Saved credentials are encrypted and never returned."
+      : "Not ready. Save URL, product, API credentials, and webhook secret.";
+    $("#paymentsBody").innerHTML = paymentsResult.payments.map((payment) => `
+      <tr>
+        <td>${escapeHtml(formatDate(payment.created_at))}</td>
+        <td><strong>${escapeHtml(payment.primary_domain)}</strong><small>${escapeHtml(payment.service_id)}</small></td>
+        <td>#${payment.woo_order_id}</td>
+        <td>${escapeHtml(formatMoney(payment.amount_minor, payment.currency))}</td>
+        <td>${payment.months} months</td>
+        <td><span class="state state-${payment.status === "paid" ? "active" : payment.status === "pending" ? "reminder" : "exempt"}">${escapeHtml(payment.status)}</span></td>
+        <td>${escapeHtml(formatDate(payment.expires_at))}</td>
+      </tr>`).join("");
+    $("#emptyPayments").hidden = paymentsResult.payments.length > 0;
   } catch (error) {
     notice(error.message, true);
   }
@@ -190,6 +229,83 @@ let searchTimer;
 $("#serviceSearch").addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(loadOverview, 250);
+});
+
+$("#servicesBody").addEventListener("click", (event) => {
+  const serviceId = event.target.dataset.paymentService;
+  if (!serviceId) return;
+  const form = $("#paymentLinkForm");
+  form.hidden = false;
+  form.elements.service_id.value = serviceId;
+  form.elements.months.value = event.target.dataset.paymentMonths;
+  form.elements.amount.value = (Number(event.target.dataset.paymentAmount) / 100).toFixed(2);
+  $("#paymentService").textContent = event.target.dataset.paymentDomain;
+  $("#paymentLinkResult").hidden = true;
+  showView("payments");
+});
+
+$("#wooSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button");
+  try {
+    await busy(button, async () => {
+      const values = Object.fromEntries(new FormData(event.currentTarget));
+      const result = await api("/api/woocommerce/settings", {
+        method: "PUT",
+        body: JSON.stringify(values),
+      });
+      notice("WooCommerce integration saved with encrypted credentials.");
+      $("#wooStatus").textContent = result.settings.ready ? "Configured and ready." : "Configuration is incomplete.";
+      event.currentTarget.elements.consumer_key.value = "";
+      event.currentTarget.elements.consumer_secret.value = "";
+      event.currentTarget.elements.webhook_secret.value = "";
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#testWoo").addEventListener("click", async (event) => {
+  try {
+    await busy(event.currentTarget, async () => {
+      const result = await api("/api/woocommerce/test", { method: "POST" });
+      notice(`WooCommerce connected. Renewal product: ${result.result.productName} (#${result.result.productId}).`);
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#paymentLinkForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector(".primary");
+  try {
+    await busy(button, async () => {
+      const amount = Number(event.currentTarget.elements.amount.value);
+      const result = await api(`/api/services/${encodeURIComponent(event.currentTarget.elements.service_id.value)}/payment-link`, {
+        method: "POST",
+        body: JSON.stringify({
+          months: Number(event.currentTarget.elements.months.value),
+          amount_minor: Math.round(amount * 100),
+        }),
+      });
+      $("#paymentLinkUrl").href = result.payment.paymentUrl;
+      $("#paymentLinkUrl").textContent = result.payment.paymentUrl;
+      $("#paymentLinkExpiry").textContent = `Expires ${formatDate(result.payment.expiresAt)} · WooCommerce order #${result.payment.orderId}`;
+      $("#paymentLinkResult").hidden = false;
+      notice("Payment link created. It is shown only in this result.");
+      await loadPayments();
+      $("#paymentLinkResult").hidden = false;
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#cancelPaymentLink").addEventListener("click", () => {
+  $("#paymentLinkForm").reset();
+  $("#paymentLinkForm").hidden = true;
+  $("#paymentLinkResult").hidden = true;
 });
 
 $("#importForm").addEventListener("submit", async (event) => {
