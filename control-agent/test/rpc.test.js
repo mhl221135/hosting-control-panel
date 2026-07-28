@@ -45,7 +45,7 @@ function runClient(args, options = {}) {
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.on("error", reject);
     child.on("close", (code) => resolve({ code, stdout, stderr }));
-    child.stdin.end(options.input || "");
+    if (options.keepStdinOpen !== true) child.stdin.end(options.input || "");
   });
 }
 
@@ -68,10 +68,17 @@ test("RPC shim streams allowed commands and rejects Docker host control", { time
   });
   try {
     await waitForHealth();
-    const allowed = await runClient(["exec", "hosting-nginx", "nginx", "-t"], { input: "streamed-input" });
+    const allowed = await runClient(["exec", "hosting-nginx", "nginx", "-t"], { keepStdinOpen: true });
     assert.equal(allowed.code, 0);
     assert.match(allowed.stdout, /hosting-nginx nginx -t/);
-    assert.match(allowed.stdout, /streamed-input/);
+
+    const streamed = await runClient([
+      "exec", "-i", "hosting-db", "sh", "-c",
+      'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec nice -n 10 mysql -uroot "$1"',
+      "backup-restore", "example_db",
+    ], { input: "streamed-input" });
+    assert.equal(streamed.code, 0);
+    assert.match(streamed.stdout, /streamed-input/);
 
     const rejected = await runClient(["run", "--privileged", "-v", "/:/host", "alpine"]);
     assert.equal(rejected.code, 1);

@@ -11,6 +11,8 @@ let cookie = "";
 let csrf = "";
 let created = false;
 let exportId = "";
+const websitesRoot = path.resolve(process.env.WEBSITES_ROOT || "/srv/websites");
+const siteDirectory = path.resolve(websitesRoot, DOMAIN);
 
 function required(name) {
   const value = String(process.env[name] || "");
@@ -98,6 +100,16 @@ async function removeSite() {
   created = false;
 }
 
+async function removeOrphanDirectory() {
+  const { body: sites } = await api("/api/sites");
+  if (sites.sites.some((site) => site.host === DOMAIN)) return;
+  if (!siteDirectory.startsWith(`${websitesRoot}${path.sep}`)) {
+    throw new Error("Qualification site path escaped the websites root");
+  }
+  fs.rmSync(siteDirectory, { recursive: true, force: true });
+  created = false;
+}
+
 async function removeExport() {
   if (!/^export-\d{4}-\d{2}-\d{2}_\d{2}-\d{2}(?:-\d{2})?$/.test(exportId)) return;
   const root = path.resolve(process.env.EXPORTS_ROOT || "/srv/exports");
@@ -112,6 +124,9 @@ async function main() {
   const { body: initial } = await api("/api/sites");
   if (initial.sites.some((site) => site.host === DOMAIN)) {
     throw new Error(`${DOMAIN} already exists; refusing to modify it`);
+  }
+  if (fs.existsSync(siteDirectory)) {
+    throw new Error(`${siteDirectory} already exists; refusing to modify an untracked directory`);
   }
   const beforeExports = new Set((await api("/api/transfers/exports")).body.exports.map((item) => item.id));
 
@@ -134,8 +149,8 @@ async function main() {
       notes: "Temporary UID 33 qualification site",
     }),
   });
-  await waitJob(provision.job.id, "provision");
   created = true;
+  await waitJob(provision.job.id, "provision");
   const status = await originStatus();
   if (status !== 200) throw new Error(`Temporary site origin returned HTTP ${status}`);
   console.log("origin: 200");
@@ -177,7 +192,10 @@ async function main() {
 main().catch(async (error) => {
   console.error(error.message);
   try {
-    if (created) await removeSite();
+    if (created) {
+      await removeSite();
+      await removeOrphanDirectory();
+    }
     await removeExport();
   } catch (cleanupError) {
     console.error(`cleanup failed: ${cleanupError.message}`);
