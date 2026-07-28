@@ -6,7 +6,7 @@ RUN mkdir -p /app/data /srv/backups \
     && chown -R 33:33 /app/data /srv/backups
 
 COPY package.json /app/
-COPY app /app/
+COPY app /app/app
 COPY test /app/test
 
 ENV PORT=8787
@@ -17,4 +17,4 @@ EXPOSE 8787
 
 USER 33:33
 
-CMD ["node", "/app/server.js"]
+CMD ["node", "/app/app/server.js"]
