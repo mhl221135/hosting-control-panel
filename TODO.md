@@ -30,6 +30,13 @@ due-state preview, manual run, durable idempotent outbox, failure retry, and a
 narrow bearer-authenticated adapter to the existing Telegram/SMTP delivery
 queue. Billing has no access to notification credentials or panel data.
 
+The hosting panel now also has a disabled-by-default, observe-only entitlement
+consumer. It verifies the HMAC and snapshot age, retains an atomic
+last-known-good copy, compares billing services with local primary websites,
+and exposes mismatches without changing nginx or website state. Enforcement
+remains unimplemented until a dedicated test-service pilot proves fail-open
+behavior and immediate rollback.
+
 ### Data Model
 
 - Stable service ID with one primary domain and optional aliases. Domains are
@@ -84,8 +91,10 @@ remain a later optional adapter.
 1. Qualify payment links and webhooks with the real WooCommerce test product:
    checkout, processing/completed, duplicate delivery, expiration, mismatched
    amount/currency, refund, chargeback, and provider outage. Document rollback.
-2. Pilot local enforcement on dedicated test services, then selected production
-   services with immediate operator rollback.
+2. Extend the verified observe-only consumer into a globally disabled local
+   enforcement pilot. Start with dedicated test services, require an explicit
+   allowlist and immediate operator rollback, then evaluate selected production
+   services only after the fail-open tests pass.
 
 ### Acceptance Criteria
 

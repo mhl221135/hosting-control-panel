@@ -53,6 +53,8 @@ into dedicated directories.
   states, CSV migration, signed internal API, encrypted WooCommerce payment
   links/webhooks, durable Telegram/SMTP reminders, audit, and verified restore
   points
+- Observe-only hosting-side entitlement verification with HMAC freshness
+  checks, an atomic last-known-good snapshot, and local inventory drift preview
 
 ## Architecture
 

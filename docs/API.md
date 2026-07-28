@@ -46,6 +46,17 @@ schedule, return due preview/history, and run the outbox manually.
 requires `BILLING_API_TOKEN`, accepts only the bounded reminder schema, and
 constructs its own notification event before enqueueing Telegram/SMTP delivery.
 
+The authenticated hosting-panel observer routes are:
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/billing/observer` | Sanitized observer settings, freshness, matches, and drift |
+| `PUT /api/billing/observer/settings` | Enable/disable polling and set bounded interval/freshness |
+| `POST /api/billing/observer/refresh` | Fetch and verify one signed snapshot immediately |
+
+These routes are observe-only. They do not expose the shared token and have no
+website mutation or enforcement capability.
+
 ## Route Groups
 
 ### Status and statistics
