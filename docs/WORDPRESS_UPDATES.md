@@ -99,7 +99,7 @@ For every instrumented drill:
 The first instrumented attempt exposed a package-staging ownership regression
 after `hosting-ui` became unprivileged. ZIP streams were created by root with
 mode `0600`, so PHP UID 33 could not read them. `hosting-agent:1.1` and
-`hosting-ui:2.34` now create temporary package files as UID `33:33`; agent and
+Current `hosting-ui` images create temporary package files as UID `33:33`; agent and
 panel suites plus a live package-read probe passed before the drills were
 repeated.
 
