@@ -452,6 +452,37 @@ async function removeOrphanDirectory() {
   created = false;
 }
 
+async function verifyCleanup() {
+  const [
+    { body: sites },
+    { body: hosts },
+    { body: certificates },
+    { body: records },
+    { body: backups },
+    { body: packages },
+  ] = await Promise.all([
+    api("/api/sites"),
+    api("/api/npm/hosts"),
+    api("/api/npm/certificates"),
+    api(`/api/cloudflare/records?domain=${encodeURIComponent(DOMAIN)}`),
+    api(`/api/backups?name=${encodeURIComponent(DOMAIN)}`),
+    api("/api/wordpress-packages"),
+  ]);
+  const failures = [];
+  if (sites.sites.some((site) => site.host === DOMAIN)) failures.push("panel site");
+  if (fs.existsSync(siteDirectory)) failures.push("website directory");
+  if (hosts.hosts.some((host) => (host.domain_names || []).includes(DOMAIN))) failures.push("NPM host");
+  if (certificates.certificates.some((certificate) =>
+    (certificate.domain_names || []).includes(DOMAIN))) failures.push("NPM certificate");
+  if (records.records.some((record) => record.name === DOMAIN)) failures.push("Cloudflare DNS");
+  if (backups.backups.length) failures.push("backup sets");
+  if ([...(packages.plugins || []), ...(packages.themes || [])]
+    .some((item) => item.name.startsWith("hosting-qualification-"))) {
+    failures.push("package library entries");
+  }
+  if (failures.length) throw new Error(`Cleanup left: ${failures.join(", ")}`);
+}
+
 async function persistReport(status, error = "") {
   report.status = status;
   report.error = String(error || "").slice(0, 1000);
@@ -478,6 +509,7 @@ async function main() {
   await removeSite();
   await deletePackages();
   await removeOrphanDirectory();
+  await verifyCleanup();
   record("cleanup-verification", { status: "complete" });
   await persistReport("passed");
 }
