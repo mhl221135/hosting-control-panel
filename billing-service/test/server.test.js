@@ -49,7 +49,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
     await waitForHealth(baseUrl, child);
-    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 2);
+    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 3);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
 
     const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {

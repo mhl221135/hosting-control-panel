@@ -45,8 +45,10 @@ test("migrates an existing phase-one database to the payment schema", () => {
   const value = fixture();
   try {
     value.database.db.exec(`
+      DROP TABLE reminder_outbox;
       DROP TABLE webhook_deliveries;
       DROP TABLE payments;
+      DELETE FROM settings WHERE key IN ('reminder_enabled','reminder_time','reminder_last_run');
       PRAGMA user_version=1;
     `);
     value.database.close();
