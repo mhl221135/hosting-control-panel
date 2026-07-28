@@ -12,7 +12,7 @@ if (token.length < 32) {
   process.exit(78);
 }
 
-function request(pathname, metadata, input) {
+function request(pathname, metadata, input = null) {
   const encoded = Buffer.from(JSON.stringify(metadata)).toString("base64url");
   const req = http.request({
     hostname: endpoint.hostname,
@@ -49,7 +49,8 @@ function request(pathname, metadata, input) {
     process.stderr.write(`Hosting agent connection failed: ${error.message}\n`);
     process.exit(1);
   });
-  input.pipe(req);
+  if (input) input.pipe(req);
+  else req.end();
 }
 
 if (args[0] === "cp") {
@@ -64,5 +65,5 @@ if (args[0] === "cp") {
   });
   request("/v1/copy", { destination: args[2] }, input);
 } else {
-  request("/v1/exec", args, process.stdin);
+  request("/v1/exec", args, args[0] === "exec" && args.includes("-i") ? process.stdin : null);
 }
