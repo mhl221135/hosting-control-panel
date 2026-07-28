@@ -74,14 +74,20 @@ Administrator
   v
 hosting-ui :8687
   +--> mounted runtime configuration
-  +--> Docker socket for controlled provisioning/reloads
+  +--> authenticated, allowlisted hosting-agent API
   +--> NPM API
   +--> Cloudflare API
+
+hosting-agent (Docker network only)
+  +--> Docker socket
+  +--> fixed runtime inspection, validation, reload, WP-CLI, and database operations
 ```
 
 The panel and website PHP deliberately run in separate containers. The panel
-needs control-plane access to Docker, while untrusted website code must not have
-that access.
+does not mount the Docker socket. A private control agent validates every
+requested container, executable, path, environment key, and command shape
+before using Docker. Neither the panel nor website PHP can create containers,
+mount host paths, pull images, or call the raw Docker API.
 
 ## Project Tree
 
@@ -94,6 +100,9 @@ that access.
 |-- STACK_OVERVIEW.md
 |-- AGENTS.md
 |-- TODO.md
+|-- control-agent/
+|   |-- Dockerfile
+|   `-- app/
 |-- docs/
 |   |-- API.md
 |   |-- ARCHITECTURE.md
@@ -108,6 +117,9 @@ that access.
 |   |-- import-websites.sh
 |   |-- install.sh
 |   |-- migrate-webp-cache.sh
+|   |-- offsite-recovery.sh
+|   |-- rotate-credentials.sh
+|   |-- security-audit.sh
 |   `-- upgrade.sh
 |-- filebrowser-custom/
 |   |-- Dockerfile
@@ -212,7 +224,8 @@ The interactive setup requests:
 - `NPM_DB_NAME`
 - optional Cloudflare DNS token, Security token, and account ID
 
-The installer generates `UI_SETTINGS_KEY` automatically. On an empty data tree,
+The installer generates `UI_SETTINGS_KEY` and the private
+`HOSTING_AGENT_TOKEN` automatically. On an empty data tree,
 NPM creates its first administrator from `NPM_IDENTITY` and `NPM_SECRET`. File
 Browser creates its first administrator from `FILEBROWSER_ADMIN_USERNAME` and
 `FILEBROWSER_ADMIN_PASSWORD`. Existing persistent databases are never

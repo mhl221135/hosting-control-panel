@@ -74,7 +74,8 @@ server addresses are rejected before contacting IPinfo.
 
 ## Background jobs
 
-Backups, restores, maintenance, and image optimization run through a durable
+Backups, restores, maintenance, updates, provisioning, migration, deletion,
+certificate actions, Cloudflare automation, and image optimization run through a durable
 queue stored in `/app/data/jobs.json`. The **Jobs** workspace shows queued and
 running work, progress, conflict blockers, bounded failures, history, retries,
 and cancellation at safe operation boundaries. Queued jobs survive a panel
@@ -164,7 +165,8 @@ never writes those secrets to an export.
 - `/srv/imports`: staged import input
 - `/srv/configs/nginx`: internal nginx configuration
 - `/srv/configs/php-fpm`: PHP-FPM pool configuration
-- `/var/run/docker.sock`: controlled provisioning and service reload operations
+- `HOSTING_AGENT_URL` and `HOSTING_AGENT_TOKEN`: private authenticated access to
+  the server-side allowlisted Docker control agent; the panel has no socket
 
 ## Deploy
 

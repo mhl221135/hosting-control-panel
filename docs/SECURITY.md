@@ -1,8 +1,8 @@
 # Security
 
-This stack is an administrative control plane for multiple WordPress sites. A
-panel or Docker-socket compromise can become a full-host compromise, so it must
-be treated as privileged infrastructure rather than as another website.
+This stack is an administrative control plane for multiple websites. A control
+agent compromise can become a full-host compromise, so it must be treated as
+privileged infrastructure rather than as another website.
 
 ## Repository policy
 
@@ -45,11 +45,16 @@ pull-request refs checked, and exposed credentials rotated.
 | WordPress database users | MySQL grant tables | each site's `wp-config.php` |
 | Cloudflare tokens | Cloudflare account plus encrypted panel settings | optional `.env` fallback |
 | Panel integration encryption key | `UI_SETTINGS_KEY` or generated key file | decrypts saved integration secrets |
+| Control-agent API | random `HOSTING_AGENT_TOKEN` in `.env` | authenticates private panel-to-agent calls |
 
 Do not casually rotate `UI_SETTINGS_KEY`. Replacing it without re-encrypting the
 stored integration settings makes the saved NPM and Cloudflare secrets
 unreadable. Cloudflare tokens must be revoked and regenerated at Cloudflare;
 then update them in **Settings** and clear obsolete `.env` fallbacks.
+
+To rotate `HOSTING_AGENT_TOKEN`, generate at least 32 random bytes, update the
+single `.env` value, and recreate `hosting-agent` and `hosting-ui` together.
+Do not restart only one side with a different token.
 
 ## Credential rotation
 
@@ -91,9 +96,16 @@ MySQL and Redis have no host port mappings and are reachable only on
 
 ## Trust boundaries
 
-- `hosting-ui` runs as root and mounts `/var/run/docker.sock`. Panel compromise
-  is equivalent to root access on the Docker host. Keep the panel behind strong
+- `hosting-ui` still runs as root inside its container because existing website
+  and active-config workflows require mixed ownership, but it has no Docker
+  socket. Compromise can alter mounted websites, runtime configuration,
+  backups, imports, exports, and panel state, so keep it behind strong
   authentication and an identity-aware access layer; do not expose port 8687.
+- `hosting-agent` is the only service with `/var/run/docker.sock`. It has no
+  host port, accepts a generated bearer token, validates every operation
+  server-side, uses a read-only root filesystem, drops Linux capabilities, and
+  rejects container creation, image, mount, and arbitrary-exec APIs. A policy or
+  agent-runtime exploit is still host-critical.
 - NPM terminates public traffic and owns TLS private keys. Protect its data and
   administration endpoint separately from WordPress.
 - NPM accepts `CF-Connecting-IP` only from its trusted CDN/LAN ranges. IPinfo
@@ -117,6 +129,8 @@ MySQL and Redis have no host port mappings and are reachable only on
   panel restarts and must not be the only Internet-facing control.
 - NPM and Cloudflare integration secrets use AES-256-GCM at rest.
 - MySQL and Redis are not published on host ports.
+- The panel has no raw Docker socket or Docker API. Its compatibility CLI calls
+  the private allowlisted control agent.
 - Cloudflare DNS and security tokens are separated so permissions can be scoped
   independently.
 - Destructive site removal performs ownership checks and typed confirmation.

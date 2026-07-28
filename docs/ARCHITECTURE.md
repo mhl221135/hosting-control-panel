@@ -16,9 +16,13 @@ Public client
 Administrator
   -> hosting-ui :8687
      -> active config mounts
-     -> Docker socket
+     -> authenticated hosting-agent API
      -> NPM HTTP API
      -> Cloudflare HTTP API
+
+hosting-agent (no host port)
+  -> server-side command policy
+  -> Docker socket
 ```
 
 ## Service Ownership
@@ -26,6 +30,7 @@ Administrator
 | Container | Responsibility | Host ports | Persistent data |
 |---|---|---|---|
 | `hosting-ui` | Panel, scheduler, provisioning, integrations | `8687` | `app-data/ui-manager` |
+| `hosting-agent` | Allowlisted runtime operations over Docker | none | none |
 | `hosting-npm` | Public reverse proxy and ACME | `80`, `81`, `443` | `app-data/npm` |
 | `hosting-nginx` | Internal site routing and FastCGI cache | none | config mounts, `app-data/nginx-cache` |
 | `hosting-php-fpm` | PHP 8.4 pools, WP-CLI, image conversion | none | website and config mounts |
@@ -53,7 +58,14 @@ are not presented as independent websites.
 
 `server.js` uses Node's built-in HTTP server. It initializes long-lived stores
 and managers, serves `/app/public`, authenticates API calls, and dispatches API
-routes. There is no Express framework or external npm dependency.
+routes. It does not use Express; Nodemailer is the only runtime npm dependency.
+
+The `docker` executable in `hosting-ui` is an RPC compatibility shim, not the
+Docker CLI. It streams requests to `hosting-agent` with
+`HOSTING_AGENT_TOKEN`. The agent validates container names, users, environment
+keys, executables, paths, and command shapes before its Docker CLI touches the
+socket. It exposes no host port and cannot be asked to create containers, pull
+images, mount paths, or run commands in arbitrary containers.
 
 | Module | Owns |
 |---|---|
@@ -131,8 +143,10 @@ and takes effect only when a handler reaches an explicit safe checkpoint.
 The public API omits private handler payloads. Payloads with sensitive field
 names are rejected before persistence, result/error text is bounded, and
 terminal history is pruned to `JOB_HISTORY_LIMIT` without removing active work.
-Backups, restores, WordPress maintenance, and image optimization use this queue;
-their legacy status files remain compatibility views for their existing tabs.
+Backups, restores, WordPress maintenance and updates, image optimization,
+website provisioning/import, exports/imports, certificate actions, Cloudflare
+bulk automation, and website deletion use this queue. Legacy status files
+remain compatibility views only where an existing workspace still reads them.
 
 Website deletion also uses the queue and recalculates live resource ownership
 inside the worker. It allows cancellation before backup and before the first
@@ -307,8 +321,9 @@ shared by multiple selected websites in one zone are changed once.
 - Statistics are sampled on demand; there is no background metrics database.
 - IPinfo enrichment is operator-triggered, accepts only an address in the current
   selected-site sample, and stores only bounded normalized fields for 24 hours.
-- Docker socket compromise of `hosting-ui` is host-level compromise. Restrict
-  panel access to administrators and publish it through HTTPS.
+- `hosting-agent` is the only stack service with the Docker socket. A defect in
+  its policy or runtime remains host-critical, so keep it private,
+  authenticated, minimal, read-only, and covered by command-policy tests.
 
 Primary/standby boundaries, replicated-state rules, fencing, and the manual
 promotion sequence are defined in [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md).

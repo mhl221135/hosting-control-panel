@@ -46,8 +46,9 @@ the active copies under `app-data/configs`.
 - Do not attach unrelated host services to `hosting-net` just to proxy them.
 - Validate nginx and PHP-FPM before reload. Configuration writers must restore
   their previous files when validation or reload fails.
-- Website PHP must never receive Docker socket access. Only `hosting-ui` owns
-  that control-plane privilege.
+- Website PHP and `hosting-ui` must never receive Docker socket access. Only the
+  private `hosting-agent` owns it, and every operation must remain server-side
+  allowlisted and covered by rejection tests.
 - Preserve unrelated working-tree changes. `import-sites.json` is local
   production input and must not be committed.
 - Backups, image optimization, website imports, and website deletion share an
@@ -77,6 +78,8 @@ when the corresponding active configuration does not exist.
 ## Change Map
 
 - Panel routes and orchestration: `ui-manager/app/server.js`
+- Privileged Docker boundary: `control-agent/app/{server.js,policy.js}` and
+  `ui-manager/docker-rpc.js`
 - Authentication/session behavior: `ui-manager/app/lib/auth.js`
 - NPM and Cloudflare APIs: `ui-manager/app/lib/integrations.js`
 - Encrypted integration settings: `ui-manager/app/lib/integration-settings.js`

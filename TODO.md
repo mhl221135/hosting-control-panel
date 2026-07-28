@@ -6,108 +6,13 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Adopt the shared background system for remaining long operations.
-2. Repeat production WordPress update/rollback drills before scheduling.
-3. Separate billing and hosting-entitlement service.
-4. Separate mail platform with panel API integration.
-5. Warm-standby replication and controlled failover.
+1. Complete two more production WordPress update/rollback drills.
+2. Finish running `hosting-ui` as an unprivileged account.
+3. Build the separate billing and hosting-entitlement service in phases.
+4. Pass mail-platform feasibility gates, then build an isolated pilot.
+5. Prove current-stack disaster recovery before adding warm-standby failover.
 
-The durable job system now handles backups, restores, maintenance, controlled
-WordPress updates, image optimization, website deletion, website
-provisioning/import, portable website exports, and staged multi-site imports.
-Remaining long operations
-should adopt it instead of creating another status file, lock, or browser-bound
-request.
-
-## 1. Remaining Background-Job Adoption
-
-### Objective
-
-Finish adopting the implemented durable job service for future bulk operations.
-
-Website deletion now uses the durable job system with conflict locks, live
-ownership revalidation, bounded progress, notification delivery, and
-cancellation only at coherent safety boundaries. Destructive deletion jobs are
-not retryable because a partially completed external deletion cannot be replayed
-without a new ownership preview.
-
-Website provisioning and single-site browser imports now return a durable job,
-retain failed upload staging for 24 hours, and expose generated WordPress/MySQL
-credentials through an encrypted 24-hour vault that removes them on first read.
-Passwords never enter job payloads, results, errors, notifications, or Git.
-
-### Requirements
-
-- Register billing/mail migration handlers as those features are implemented.
-- Add explicit safe cancellation checkpoints to each handler. Never interrupt a
-  database import, file swap, credential update, or configuration write midway.
-- Make panel-triggered shell migration operations use the same managers and
-  compatible job/result records while retaining standalone recovery scripts.
-- Remove legacy per-manager status files only after every existing screen reads
-  shared job state and an upgrade has migrated any useful history.
-
-### Acceptance Criteria
-
-- Every remaining long panel operation returns immediately with a job ID and is
-  observable without keeping the original request open.
-- New handlers use existing conflict classes and cannot mutate the same website,
-  database, runtime configuration, or external integration concurrently.
-- Provisioning credentials have an explicit short-lived one-time retrieval path
-  and never enter job payloads, results, errors, notifications, or Git.
-
-## 2. Notification Expansion
-
-### Objective
-
-The panel now sends filtered terminal background-job results through Telegram
-and external SMTP. Credentials are encrypted, tests are operator-triggered,
-delivery retries are durable and deduplicated, and channel results are attached
-to the originating job. Extend that event-driven system to service risks without
-operating a local mail server or using Telegram as backup storage.
-
-### Implemented Health Events
-
-- Lightweight scheduled checks now cover required Docker containers, MySQL,
-  the NPM API, certificates attached to enabled proxy hosts, website/backup
-  storage thresholds, OPcache capacity/restart state, and opt-in end-to-end HTTPS
-  checks for selected public websites.
-- The **Health** workspace shows active incidents, transition history, and
-  Telegram/SMTP delivery state. Alerts occur only on open, changed, and resolved
-  transitions; recovery alerts bypass successful-job filtering.
-
-### Remaining Event
-
-- Hosting/domain renewal reminders after the billing service exists.
-
-### Explicit Non-Goals
-
-- Do not send website archives to Telegram; bot file limits and restore
-  semantics make it unsuitable as backup storage.
-- Do not make panel notifications depend on the future local mail platform.
-  Notifications must continue to support an independent external SMTP relay;
-  mailbox hosting is a separate infrastructure product and failure domain.
-
-## 3. WordPress Maintenance And Controlled Updates
-
-### Implemented
-
-The Maintenance workspace now queues a durable, read-only inventory across
-selected WordPress websites. It records core, plugin, and theme versions,
-cached update availability reported by WP-CLI, active/inactive state, bounded
-per-site errors, and the latest snapshot without executing update commands.
-
-Controlled manual updates now support explicit core/plugin/theme selections,
-all currently available updates, and uploaded package-library ZIPs. Each
-one-site durable job refreshes its preview, creates and verifies a complete
-files/database backup, enables maintenance mode, records before/after versions,
-checks WordPress/database/front-page/admin health, purges caches only on
-success, and automatically restores the verified backup on failure.
-Persistent per-site exclusions can block the entire site, WordPress core,
-installed plugin/theme slugs, or uploaded package-library sources. They are
-enforced during preview and execution and record an operator reason and last
-editor metadata.
-
-### Remaining
+## 1. WordPress Update Production Qualification
 
 The first production plugin update and forced-rollback drill passed on
 2026-07-27 and is recorded in `docs/WORDPRESS_UPDATES.md`. Updates remain
@@ -123,7 +28,40 @@ manual. Before adding unattended schedules:
 - record elapsed backup/update/rollback time and resolve every warning or
   rollback failure before counting a drill.
 
-## 4. Separate Billing And Entitlement Service
+Unattended updates remain out of scope until all three drills pass. Each drill
+must record its tested component, backup size, update time, rollback time,
+origin/public health results, notification result, and complete resource
+cleanup.
+
+## 2. Unprivileged Panel Filesystem Access
+
+The Docker socket has been removed from `hosting-ui`; only the private,
+authenticated, allowlisted `hosting-agent` owns it. The remaining phase is to
+remove root from the panel container without breaking existing installations.
+
+### Requirements
+
+- Inventory ownership and modes for panel data, website roots, active
+  configuration, backups, exports, imports, package uploads, and NPM log reads.
+- Add an idempotent upgrade migration that grants only the required UID/GID
+  access and preserves existing website ownership.
+- Run `hosting-ui` with a fixed nonzero UID/GID and drop all Linux capabilities.
+- Keep active configuration and website writes path-confined. Do not make
+  mounted trees world-writable.
+- Move any operation that genuinely requires ownership changes behind a narrow
+  typed control-agent action rather than restoring shell or socket access.
+
+### Acceptance Criteria
+
+- `docker inspect hosting-ui` reports a nonzero user, no Docker socket mount,
+  no added capabilities, and `no-new-privileges`.
+- Provisioning, import/export, backup/restore, package upload, cache settings,
+  controlled updates, logs, and configuration rollback pass on an upgraded
+  installation containing existing sites.
+- A compromised panel process cannot create containers, mount host paths, alter
+  files outside declared mounts, or change arbitrary ownership.
+
+## 3. Separate Billing And Entitlement Service
 
 ### Boundary
 
@@ -133,7 +71,8 @@ The services communicate through a narrow authenticated internal API.
 
 ### Data Model
 
-- Service ID and domain.
+- Stable service ID with one primary domain and optional aliases. Domains are
+  mutable attributes, not database keys.
 - Customer/contact details.
 - Hosting location/provider: local stack, remote shared hosting, or
   notification-only.
@@ -142,6 +81,8 @@ The services communicate through a narrow authenticated internal API.
 - WooCommerce order/payment identifiers.
 - State calculated from dates: active, reminder, grace, suspended, exempt.
 - Manual override, notes, and audit history.
+- Immutable entitlement/payment events plus current materialized state. Store
+  monetary values as integer minor units with explicit currency and timezone.
 
 CSV import/export is required for migration and operator editing, but the
 billing database becomes the source of truth. Google Sheets synchronization can
@@ -154,7 +95,10 @@ remain a later optional adapter.
 - Create orders/payment links with custom metadata: service ID, domain, period,
   amount, currency, and resulting renewal date.
 - Receive signed WooCommerce webhooks, verify HMAC signatures, process
-  idempotently, and retain payment/audit references.
+  idempotently, reject expired/replayed deliveries, and retain bounded
+  payment/audit references.
+- Handle refunds, chargebacks, partial payments, duplicate callbacks, and
+  WooCommerce/API outages without silently extending or suspending service.
 - Restore service immediately after a verified successful payment when policy
   permits.
 
@@ -167,8 +111,35 @@ remain a later optional adapter.
 - Remote sites require provider adapters, a WordPress plugin, or
   notification-only mode. Local nginx cannot suspend externally hosted sites.
 - Never delete website data because payment expired.
+- Billing never writes nginx files or calls Docker directly. It publishes
+  signed entitlement state; a narrow hosting-side reconciler owns local
+  enforcement and rollback.
+- Use last-known-good entitlement state and fail open during billing-service
+  outages. Suspension requires fresh verified state and an operator-configured
+  grace policy.
 
-## 5. Separate Mail Platform
+### Delivery Phases
+
+1. Import inventory and provide read-only renewal status, CSV round trips, audit
+   history, backups, and restore tests.
+2. Generate expiring non-replayable payment links and ingest signed webhooks
+   without enforcement.
+3. Enable renewal reminders through the existing independent Telegram/SMTP
+   notification system.
+4. Pilot local enforcement on dedicated test services, then selected production
+   services with immediate operator rollback.
+
+### Acceptance Criteria
+
+- Billing has its own database, migrations, backup/restore procedure, API
+  authentication, secrets, audit retention, and health endpoint.
+- Provider outage or stale state cannot suspend an otherwise active service.
+- Duplicate/replayed payment events cannot extend service twice.
+- Payment URLs contain no customer PII or reusable credential.
+- Enforcement can be disabled globally and reverted immediately without
+  deleting website data.
+
+## 4. Separate Mail Platform
 
 ### Objective
 
@@ -200,6 +171,9 @@ multi-architecture image versions rather than using `latest`.
 
 ### Mail Flow And Public Ports
 
+- Treat inbound TCP 25 reachability, static WAN addressing, PTR/rDNS control,
+  SES production access/quota, and an abuse-response process as hard go/no-go
+  gates before building or migrating production mail.
 - Receive Internet SMTP directly on TCP 25 at Stalwart.
 - Offer authenticated submission on TCP 587 with STARTTLS; optionally support
   TCP 465 after testing.
@@ -259,6 +233,12 @@ For **Add mailbox**:
   long-lived AWS API key on the host.
 - Rate-limit sending per account/domain and expose queue, rejection, bounce,
   complaint, and SES quota health in the panel.
+- Define the SES event receiver and durable transport explicitly (for example
+  SNS to SQS consumed by `mail-control`) with signature verification,
+  deduplication, replay handling, and bounded retention.
+- Add inbound spam and malware controls, outbound anomaly limits, automatic
+  account containment, TLS/certificate rotation, and privacy-aware log
+  retention before the pilot.
 
 ### Migration, Import, And Export
 
@@ -340,7 +320,7 @@ For **Add mailbox**:
   production domains appear in Git, screenshots, logs, job summaries, or
   portable manifests.
 
-## 6. Warm Standby And Controlled Failover
+## 5. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Implementation remains future work.
@@ -361,6 +341,11 @@ The manual architecture and failover runbook are documented in
   retention sized for outages, and monitored replica lag.
 - Replicate website files and required non-database application data one way
   with snapshot/staging semantics.
+- Define and test exact replication mechanisms for NPM state/certificates,
+  panel state, encryption keys, agent secrets, and active runtime
+  configuration. Never copy live databases as ordinary files.
+- Do not replicate active/running job state as runnable work. The standby
+  records interrupted work and requires reconciliation after promotion.
 - Do not replicate Redis or FastCGI cache as authoritative state.
 - Keep source releases pinned to the same tested commit and verify compatible
   schema/config migrations before promotion.
@@ -381,12 +366,42 @@ The manual architecture and failover runbook are documented in
 
 ### Acceptance Criteria
 
-- Planned promotion and failback meet measured RPO/RTO targets without
+- Define numeric per-state RPO/RTO targets before implementation. Planned
+  promotion and failback must meet them without
   split-brain.
 - WordPress writes, NPM state/certificates, panel integrations, files, and
   scheduled work are correct after promotion.
 - DNS rollback and emergency manual recovery remain possible if automation
   fails.
+
+Before live replication, complete a documented restore of the current stack
+onto an isolated replacement host using local plus encrypted off-site backups.
+Verify recovery keys, websites, databases, NPM hosts/certificates, panel state,
+and an operator login. Replication is not a substitute for versioned backups
+because deletion, corruption, or compromise can replicate too.
+
+## Cross-Cutting Delivery Rules
+
+- Every long panel operation returns a durable job ID, survives browser
+  disconnects, uses conflict classes, and supports cancellation only at
+  coherent safety checkpoints.
+- Separate billing and mail services own their durable queues and data. The
+  hosting panel observes them through authenticated APIs rather than receiving
+  their database, filesystem, Docker, or shell privileges.
+- Keep standalone recovery scripts, but panel-triggered equivalents must use the
+  same managers and compatible result records.
+- Remove legacy per-manager status files only after every workspace reads shared
+  job state and useful history has an explicit migration.
+- Schema and state migrations are versioned, idempotent, reversible where
+  practical, and preceded by a verified backup for destructive changes.
+- Notifications continue to support independent external SMTP and Telegram.
+  The future local mail platform is not a dependency of control-plane alerts.
+- Do not send archives through Telegram or place credentials, private keys,
+  customer data, production domains, or live screenshots in Git, jobs, logs, or
+  portable manifests.
+- New containers use pinned tested multi-architecture versions, least privilege,
+  no unnecessary host ports, bounded resource usage, health checks, security
+  documentation, and restore-tested persistent state.
 
 ## Cross-Cutting Rules
 
