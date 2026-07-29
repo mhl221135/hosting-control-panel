@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const test = require("node:test");
+const { SCHEMA_VERSION } = require("../app/lib/database");
 const { PublicReference } = require("../app/lib/public-reference");
 
 function waitForHealth(baseUrl, child) {
@@ -50,7 +51,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
     await waitForHealth(baseUrl, child);
-    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 5);
+    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, SCHEMA_VERSION);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
     const registrationPayload = {
       primary_domain: "provisioned.example.com",

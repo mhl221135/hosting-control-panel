@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -236,6 +236,20 @@ class BillingDatabase {
         CREATE INDEX payments_service_selection_created
           ON payments(service_id, selection, created_at DESC);
         PRAGMA user_version=5;
+        COMMIT;
+      `);
+    }
+    if (current < 6) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        ALTER TABLE payments ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0
+          CHECK(review_required IN (0,1));
+        ALTER TABLE payments ADD COLUMN review_reason TEXT NOT NULL DEFAULT '';
+        ALTER TABLE payments ADD COLUMN review_opened_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE payments ADD COLUMN review_resolved_at TEXT NOT NULL DEFAULT '';
+        CREATE INDEX payments_review_created
+          ON payments(review_required, created_at DESC);
+        PRAGMA user_version=6;
         COMMIT;
       `);
     }
@@ -651,6 +665,7 @@ class BillingDatabase {
              p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
              p.paid_at,p.created_at,p.selection,p.hosting_months,p.domain_months,
              p.resulting_hosting_paid_through,p.resulting_domain_paid_through,
+             p.review_required,p.review_reason,p.review_opened_at,p.review_resolved_at,
              s.hosting_paid_through,s.domain_paid_through,
              s.hosting_price_minor AS service_hosting_price_minor,
              s.domain_price_minor AS service_domain_price_minor
@@ -738,6 +753,7 @@ class BillingDatabase {
              p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
              p.paid_at,p.created_at,p.selection,p.hosting_months,p.domain_months,
              p.resulting_hosting_paid_through,p.resulting_domain_paid_through,
+             p.review_required,p.review_reason,p.review_opened_at,p.review_resolved_at,
              s.hosting_paid_through,s.domain_paid_through,
              s.hosting_price_minor AS service_hosting_price_minor,
              s.domain_price_minor AS service_domain_price_minor
@@ -785,6 +801,48 @@ class BillingDatabase {
     return payment.checkout_url;
   }
 
+  resolvePaymentReview(paymentId, reason, actor) {
+    const boundedReason = String(reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
+    if (boundedReason.length < 3) {
+      throw Object.assign(new Error("A review resolution reason of at least 3 characters is required"), {
+        statusCode: 400,
+      });
+    }
+    const payment = this.payment(paymentId);
+    if (!payment) throw Object.assign(new Error("Payment record was not found"), { statusCode: 404 });
+    if (!payment.review_required) {
+      throw Object.assign(new Error("This payment no longer requires review"), { statusCode: 409 });
+    }
+    const timestamp = new Date().toISOString();
+    return this.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE payments
+        SET review_required=0,review_resolved_at=?
+        WHERE payment_id=? AND review_required=1
+      `).run(timestamp, payment.payment_id);
+      if (result.changes !== 1) {
+        throw Object.assign(new Error("Payment review state changed before resolution completed"), {
+          statusCode: 409,
+        });
+      }
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), payment.service_id, "payment.review_resolved", timestamp, JSON.stringify({
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reviewReason: payment.review_reason,
+        resolution: boundedReason,
+      }));
+      this.auditEntry(actor, "payment.review_resolve", payment.service_id, {
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reviewReason: payment.review_reason,
+        resolution: boundedReason,
+      });
+      return this.payment(payment.payment_id);
+    });
+  }
+
   processWebhook(delivery) {
     return this.transaction(() => {
       const duplicate = this.db.prepare("SELECT result FROM webhook_deliveries WHERE delivery_id=?").get(delivery.deliveryId);
@@ -792,8 +850,21 @@ class BillingDatabase {
       const payment = this.db.prepare("SELECT * FROM payments WHERE woo_order_id=?").get(delivery.resourceId);
       let result = "ignored";
       const timestamp = new Date().toISOString();
+      const requireReview = (reason, disablePending = false) => {
+        this.db.prepare(`
+          UPDATE payments
+          SET review_required=1,review_reason=?,review_opened_at=?,
+              review_resolved_at='',status=CASE WHEN ?=1 AND status='pending' THEN 'review' ELSE status END
+          WHERE payment_id=?
+        `).run(reason, timestamp, Number(disablePending), payment.payment_id);
+      };
       if (payment && ["processing", "completed"].includes(delivery.status)) {
         if (delivery.totalMinor !== payment.amount_minor || delivery.currency !== payment.currency) {
+          requireReview(
+            `WooCommerce reported ${delivery.totalMinor} ${delivery.currency || "unknown"}; expected `
+              + `${payment.amount_minor} ${payment.currency}`,
+            true,
+          );
           result = "amount_mismatch";
         } else if (payment.status === "paid") {
           result = "already_paid";
@@ -806,6 +877,7 @@ class BillingDatabase {
             priorStatus: payment.status,
             reviewRequired: true,
           }));
+          requireReview(`WooCommerce reported ${delivery.status} after local payment status ${payment.status}`);
           result = "review_required";
         } else {
           this.db.prepare("UPDATE payments SET status='paid',paid_at=? WHERE payment_id=?")
@@ -842,14 +914,20 @@ class BillingDatabase {
           result = "paid";
         }
       } else if (payment && ["refunded", "cancelled", "failed"].includes(delivery.status)) {
+        const expectedCancellation = delivery.status === "cancelled" && payment.status === "cancelled";
         this.db.prepare(
           "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
         ).run(crypto.randomUUID(), payment.service_id, `payment.${delivery.status}`, timestamp, JSON.stringify({
           paymentId: payment.payment_id,
           wooOrderId: payment.woo_order_id,
-          reviewRequired: true,
+          reviewRequired: !expectedCancellation,
         }));
-        result = "review_required";
+        if (expectedCancellation) {
+          result = "cancel_confirmed";
+        } else {
+          requireReview(`WooCommerce reported ${delivery.status} after local payment status ${payment.status}`, true);
+          result = "review_required";
+        }
       }
       this.db.prepare(
         "INSERT INTO webhook_deliveries(delivery_id,topic,resource_id,result,created_at) VALUES(?,?,?,?,?)",

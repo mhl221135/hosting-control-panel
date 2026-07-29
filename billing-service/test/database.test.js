@@ -88,6 +88,8 @@ test("migrates an existing schema-three database without changing renewal dates"
     const columns = database.db.prepare("PRAGMA table_info(payments)").all().map((column) => column.name);
     assert.equal(columns.includes("selection"), true);
     assert.equal(columns.includes("resulting_domain_paid_through"), true);
+    assert.equal(columns.includes("review_required"), true);
+    assert.equal(columns.includes("review_reason"), true);
   } finally {
     database.close();
     fs.rmSync(root, { recursive: true, force: true });

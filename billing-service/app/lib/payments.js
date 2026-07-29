@@ -230,9 +230,9 @@ class PaymentManager {
       deliveryId,
       topic,
       resourceId: Number(order.id || 0),
-      status: String(order.status || "").toLowerCase(),
+      status: String(order.status || "").trim().toLowerCase().slice(0, 40),
       totalMinor: Math.round(Number(order.total || 0) * 100),
-      currency: String(order.currency || "").toUpperCase(),
+      currency: String(order.currency || "").trim().toUpperCase().slice(0, 12),
     });
   }
 }

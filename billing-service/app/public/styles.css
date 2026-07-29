@@ -102,6 +102,7 @@ td small { color: var(--muted); margin-top: 3px; }
 .state-reminder { color: var(--blue); background: #e5eef9; }
 .state-grace { color: var(--warning); background: #fff1c7; }
 .state-suspended { color: var(--danger); background: #fee4e2; }
+.review-required { color: var(--danger); }
 .state-exempt { color: #4e5d65; background: #e9edef; }
 .form-grid { max-width: 720px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px; border: 1px solid var(--line); background: var(--surface); }
 .form-grid h2, .form-grid .wide { grid-column: 1 / -1; }

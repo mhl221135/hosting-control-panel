@@ -271,9 +271,14 @@ async function loadPayments() {
         <td>${escapeHtml(payment.selection)}</td>
         <td>${escapeHtml(formatMoney(payment.amount_minor, payment.currency))}</td>
         <td>${payment.hosting_months ? `Hosting ${payment.hosting_months}m` : ""}${payment.hosting_months && payment.domain_months ? " · " : ""}${payment.domain_months ? `Domain ${payment.domain_months}m` : ""}</td>
-        <td><span class="state state-${payment.status === "paid" ? "active" : payment.status === "pending" ? "reminder" : "exempt"}">${escapeHtml(payment.status)}</span></td>
+        <td><span class="state state-${payment.status === "paid" ? "active" : payment.status === "pending" ? "reminder" : payment.status === "review" ? "suspended" : "exempt"}">${escapeHtml(payment.status)}</span></td>
+        <td>${payment.review_required
+    ? `<strong class="review-required">Required</strong><small>${escapeHtml(payment.review_reason)}</small>`
+    : payment.review_resolved_at
+      ? `<span>Resolved</span><small>${escapeHtml(formatDateTime(payment.review_resolved_at))}</small>`
+      : "None"}</td>
         <td>${escapeHtml(formatDate(payment.expires_at))}</td>
-        <td>${payment.status === "pending" ? `<div class="row-actions">
+        <td><div class="row-actions">${payment.status === "pending" ? `
           <button class="secondary" data-cancel-payment="${escapeHtml(payment.payment_id)}"
             data-payment-domain="${escapeHtml(payment.primary_domain)}"
             data-payment-order="${payment.woo_order_id}">Cancel</button>
@@ -287,8 +292,12 @@ async function loadPayments() {
             data-payment-hosting-amount="${Number(payment.service_hosting_price_minor || 0)}"
             data-payment-domain-amount="${Number(payment.service_domain_price_minor || 0)}"
             data-payment-hosting-date="${escapeHtml(payment.hosting_paid_through)}"
-            data-payment-domain-date="${escapeHtml(payment.domain_paid_through)}">Replace</button>
-        </div>` : ""}</td>
+            data-payment-domain-date="${escapeHtml(payment.domain_paid_through)}">Replace</button>` : ""}
+          ${payment.review_required ? `<button class="primary" data-resolve-payment="${escapeHtml(payment.payment_id)}"
+            data-payment-domain="${escapeHtml(payment.primary_domain)}"
+            data-payment-order="${payment.woo_order_id}"
+            data-review-reason="${escapeHtml(payment.review_reason)}">Resolve review</button>` : ""}
+        </div></td>
       </tr>`).join("");
     $("#emptyPayments").hidden = paymentsResult.payments.length > 0;
   } catch (error) {
@@ -516,29 +525,65 @@ $("#paymentsBody").addEventListener("click", (event) => {
     return;
   }
   const replace = event.target.closest("[data-replace-payment]");
-  if (!replace) return;
-  const form = $("#paymentLinkForm");
-  form.hidden = false;
-  $("#paymentFormTitle").textContent = `Replace payment link for ${replace.dataset.paymentDomain}`;
-  form.elements.service_id.value = replace.dataset.paymentService;
-  form.elements.currency.value = replace.dataset.paymentCurrency;
-  form.elements.replace_payment_id.value = replace.dataset.replacePayment;
-  form.elements.replacement_reason.value = "";
-  form.elements.replacement_reason.required = true;
-  $("#replacementReasonField").hidden = false;
-  form.elements.selection.value = replace.dataset.paymentSelection;
-  form.elements.hosting_months.value = replace.dataset.paymentHostingMonths || 12;
-  form.elements.hosting_amount.value =
-    (Number(replace.dataset.paymentHostingAmount || 0) / 100).toFixed(2);
-  form.elements.hosting_paid_through.value = replace.dataset.paymentHostingDate || "Not set";
-  form.elements.domain_months.value = replace.dataset.paymentDomainMonths || 12;
-  form.elements.domain_amount.value =
-    (Number(replace.dataset.paymentDomainAmount || 0) / 100).toFixed(2);
-  form.elements.domain_paid_through.value = replace.dataset.paymentDomainDate || "Not set";
-  $("#paymentService").textContent = replace.dataset.paymentDomain;
-  $("#paymentLinkResult").hidden = true;
-  updatePaymentSelection();
-  form.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (replace) {
+    const form = $("#paymentLinkForm");
+    form.hidden = false;
+    $("#paymentFormTitle").textContent = `Replace payment link for ${replace.dataset.paymentDomain}`;
+    form.elements.service_id.value = replace.dataset.paymentService;
+    form.elements.currency.value = replace.dataset.paymentCurrency;
+    form.elements.replace_payment_id.value = replace.dataset.replacePayment;
+    form.elements.replacement_reason.value = "";
+    form.elements.replacement_reason.required = true;
+    $("#replacementReasonField").hidden = false;
+    form.elements.selection.value = replace.dataset.paymentSelection;
+    form.elements.hosting_months.value = replace.dataset.paymentHostingMonths || 12;
+    form.elements.hosting_amount.value =
+      (Number(replace.dataset.paymentHostingAmount || 0) / 100).toFixed(2);
+    form.elements.hosting_paid_through.value = replace.dataset.paymentHostingDate || "Not set";
+    form.elements.domain_months.value = replace.dataset.paymentDomainMonths || 12;
+    form.elements.domain_amount.value =
+      (Number(replace.dataset.paymentDomainAmount || 0) / 100).toFixed(2);
+    form.elements.domain_paid_through.value = replace.dataset.paymentDomainDate || "Not set";
+    $("#paymentService").textContent = replace.dataset.paymentDomain;
+    $("#paymentLinkResult").hidden = true;
+    updatePaymentSelection();
+    form.scrollIntoView({ behavior: "smooth", block: "start" });
+    return;
+  }
+  const resolve = event.target.closest("[data-resolve-payment]");
+  if (resolve) {
+    const form = $("#paymentReviewForm");
+    form.reset();
+    form.elements.payment_id.value = resolve.dataset.resolvePayment;
+    $("#paymentReviewTarget").textContent =
+      `${resolve.dataset.paymentDomain} · WooCommerce order #${resolve.dataset.paymentOrder}`;
+    $("#paymentReviewReason").textContent = resolve.dataset.reviewReason;
+    form.hidden = false;
+    form.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+
+$("#closePaymentReview").addEventListener("click", () => {
+  $("#paymentReviewForm").hidden = true;
+});
+
+$("#paymentReviewForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type='submit']");
+  try {
+    await busy(button, async () => {
+      await api(`/api/payments/${encodeURIComponent(form.elements.payment_id.value)}/review/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ reason: form.elements.reason.value }),
+      });
+      form.hidden = true;
+      notice("Payment review acknowledged. Renewal dates were not changed.");
+      await loadPayments();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
 
 $("#newService").addEventListener("click", () => {

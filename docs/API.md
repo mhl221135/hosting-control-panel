@@ -96,6 +96,13 @@ still belong to the same service and renewal selection. WooCommerce must
 confirm `cancelled` before the local token is invalidated or a replacement is
 created.
 
+Ambiguous WooCommerce callbacks persist a review flag and bounded display-safe
+reason on the payment. `POST /api/payments/:id/review/resolve` requires a
+3-500-character resolution note and acknowledges that flag with an audit/event
+record. It never changes payment status or renewal dates. A paid callback with
+an amount or currency mismatch moves a still-pending payment to `review`, which
+also disables its public checkout links.
+
 `GET /api/public-reference/status` returns only active/previous key
 fingerprints and overlap timestamps. `POST /api/public-reference/rotate`
 requires `ROTATE`, a reason, and a 24-2160 hour overlap. A second rotation is

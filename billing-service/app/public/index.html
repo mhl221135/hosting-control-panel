@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=11">
+  <link rel="stylesheet" href="/styles.css?v=12">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -242,7 +242,7 @@
         <h2 class="subheading">Recent payment links</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Selection</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Selection</th><th>Amount</th><th>Period</th><th>Status</th><th>Review</th><th>Expires</th><th>Actions</th></tr></thead>
             <tbody id="paymentsBody"></tbody>
           </table>
         </div>
@@ -254,6 +254,16 @@
           <label class="wide">Cancellation reason<input name="reason" minlength="3" maxlength="500" required></label>
           <button class="danger" type="submit">Cancel WooCommerce order</button>
           <button id="closePaymentCancel" class="secondary" type="button">Keep order</button>
+        </form>
+        <form id="paymentReviewForm" class="form-grid compact-form" hidden>
+          <h2>Resolve payment review</h2>
+          <input name="payment_id" type="hidden">
+          <p id="paymentReviewTarget" class="wide"></p>
+          <p id="paymentReviewReason" class="wide field-status"></p>
+          <label class="wide">Resolution note<input name="reason" minlength="3" maxlength="500" required></label>
+          <button class="primary" type="submit">Acknowledge review</button>
+          <button id="closePaymentReview" class="secondary" type="button">Keep open</button>
+          <small class="wide">This closes only the review flag. It does not change renewal dates or payment status.</small>
         </form>
       </section>
 
