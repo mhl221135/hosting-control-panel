@@ -40,6 +40,8 @@ transition. The command is read-only and fails unless the allowlist contains
 exactly the selected local website, the signed snapshot is fresh, and the
 public/map behavior matches the expected state. Never paste its domain argument
 into committed documentation or support logs.
+Follow `docs/BILLING_PILOT_RUNBOOK.md` for the complete state, payment, outage,
+rollback, and completion sequence.
 
 Billing reminders are also inert after deployment because their daily schedule
 defaults to disabled. Before enabling it, confirm Telegram and/or SMTP in the

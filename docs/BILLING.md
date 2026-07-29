@@ -330,4 +330,5 @@ Repeat it with `active`, `reminder`, `grace`, and `exempt` during the state
 drill. Those states must be absent from the nginx map and must remain publicly
 unblocked. Passing this script is bounded evidence for one state; it does not
 replace the completed-payment, duplicate-callback, outage, rollback, and
-automatic-restoration drills in `TODO.md`.
+automatic-restoration drills in `TODO.md`. Follow
+`docs/BILLING_PILOT_RUNBOOK.md` for their ordered pass/fail checklist.

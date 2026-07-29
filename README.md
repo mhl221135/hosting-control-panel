@@ -127,6 +127,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- API.md
 |   |-- ARCHITECTURE.md
 |   |-- BILLING.md
+|   |-- BILLING_PILOT_RUNBOOK.md
 |   |-- CONFIGURATION.md
 |   |-- DISASTER_RECOVERY_QUALIFICATION.md
 |   |-- HIGH_AVAILABILITY.md
@@ -858,6 +859,8 @@ not invoked or modified by this panel.
 - [AGENTS.md](AGENTS.md): engineering handoff, safety rules, and change map
 - [STACK_OVERVIEW.md](STACK_OVERVIEW.md): runtime ownership and provisioning flow
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): service and module design
+- [docs/BILLING.md](docs/BILLING.md): billing service, payments, reminders, and local enforcement
+- [docs/BILLING_PILOT_RUNBOOK.md](docs/BILLING_PILOT_RUNBOOK.md): safe payment and enforcement qualification
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): environment and persistent state
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
 - [docs/API.md](docs/API.md): authenticated panel API route index
