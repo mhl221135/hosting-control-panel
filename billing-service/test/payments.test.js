@@ -331,7 +331,7 @@ test("rejects forged webhooks and does not apply mismatched amounts or refunds",
       createOrder: async () => ({ id: 4321, order_key: "wc_order_second" }),
     });
     const serviceId = value.database.services()[0].service_id;
-    await manager.create(serviceId, {}, "admin@example.com");
+    const created = await manager.create(serviceId, {}, "admin@example.com");
     const secret = value.settings.private().webhookSecret;
     const mismatchBody = JSON.stringify({ id: 4321, status: "completed", total: "1.00", currency: "USD" });
     const mismatchSignature = crypto.createHmac("sha256", secret).update(mismatchBody).digest("base64");
@@ -341,6 +341,11 @@ test("rejects forged webhooks and does not apply mismatched amounts or refunds",
       topic: "order.updated",
     }).result, "amount_mismatch");
     assert.equal(value.database.service(serviceId).hosting_paid_through, "2026-12-31");
+    const mismatched = value.database.payments()[0];
+    assert.equal(mismatched.status, "review");
+    assert.equal(mismatched.review_required, 1);
+    assert.match(mismatched.review_reason, /expected 12000 USD/);
+    assert.throws(() => manager.resolve(created.paymentUrl.split("/").pop()), /no longer active/);
 
     const refundBody = JSON.stringify({ id: 4321, status: "refunded", total: "120.00", currency: "USD" });
     const refundSignature = crypto.createHmac("sha256", secret).update(refundBody).digest("base64");
@@ -350,11 +355,50 @@ test("rejects forged webhooks and does not apply mismatched amounts or refunds",
       topic: "order.updated",
     }).result, "review_required");
     assert.equal(value.database.service(serviceId).hosting_paid_through, "2026-12-31");
+    assert.match(value.database.payment(mismatched.payment_id).review_reason, /reported refunded/);
+    const resolved = value.database.resolvePaymentReview(
+      mismatched.payment_id,
+      "Refund verified and service dates reviewed",
+      "admin@example.com",
+    );
+    assert.equal(resolved.review_required, 0);
+    assert.notEqual(resolved.review_resolved_at, "");
+    assert.equal(value.database.audit()[0].action, "payment.review_resolve");
+    assert.throws(
+      () => value.database.resolvePaymentReview(mismatched.payment_id, "Already resolved", "admin@example.com"),
+      /no longer requires review/,
+    );
     assert.throws(() => manager.webhook(refundBody, {
       signature: "invalid",
       deliveryId: "forged",
       topic: "order.updated",
     }), /signature/);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("does not open a review for the expected WooCommerce cancellation callback", async () => {
+  const value = fixture();
+  try {
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async () => ({ id: 5432, order_key: "wc_order_cancelled" }),
+      cancelOrder: async () => ({ id: 5432, status: "cancelled" }),
+    });
+    const serviceId = value.database.services()[0].service_id;
+    await manager.create(serviceId, {}, "admin@example.com");
+    const payment = value.database.payments()[0];
+    await manager.cancel(payment.payment_id, "Client requested cancellation", "admin@example.com");
+    const body = JSON.stringify({ id: 5432, status: "cancelled", total: "120.00", currency: "USD" });
+    const signature = crypto.createHmac("sha256", value.settings.private().webhookSecret)
+      .update(body).digest("base64");
+    assert.equal(manager.webhook(body, {
+      signature,
+      deliveryId: "delivery-expected-cancel",
+      topic: "order.updated",
+    }).result, "cancel_confirmed");
+    assert.equal(value.database.payment(payment.payment_id).review_required, 0);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });

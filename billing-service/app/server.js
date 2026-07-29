@@ -524,6 +524,17 @@ async function api(req, res) {
     json(res, 200, { ok: true, payment });
     return true;
   }
+  const paymentReviewMatch = /^\/api\/payments\/([^/]+)\/review\/resolve$/.exec(url.pathname);
+  if (req.method === "POST" && paymentReviewMatch) {
+    const body = await readJson(req);
+    const payment = database.resolvePaymentReview(
+      decodeURIComponent(paymentReviewMatch[1]),
+      body.reason,
+      session.email,
+    );
+    json(res, 200, { ok: true, payment });
+    return true;
+  }
   if (req.method === "PUT" && url.pathname === "/api/settings") {
     const body = await readJson(req);
     json(res, 200, {

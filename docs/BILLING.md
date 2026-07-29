@@ -156,8 +156,13 @@ The handler accepts signed `order.created` and `order.updated` deliveries.
 `processing` or `completed` extends only the selected service dates when order
 ID, amount, and currency match. Delivery IDs and payment state make callbacks idempotent.
 Forged, replayed, mismatched, expired, refunded, cancelled, and failed cases do
-not silently extend or shorten service; ambiguous paid/refund cases are marked
-for manual review in audit history.
+not silently extend or shorten service. Ambiguous paid, refund, chargeback, and
+failure outcomes persist a visible manual-review reason on the payment. A
+mismatched paid callback also disables the still-pending public link. Operators
+can acknowledge the review with a required audited resolution note, but that
+action never changes payment status or renewal dates. A matching cancellation
+callback for an order already cancelled through Billing is recorded without a
+false review alert.
 
 The payment implementation has no nginx, Docker, website, or enforcement
 access. Before client use, qualify it with a dedicated test product and test

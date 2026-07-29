@@ -72,16 +72,8 @@ remain a later optional adapter.
 - Receive signed WooCommerce webhooks, verify HMAC signatures, process
   idempotently, reject expired/replayed deliveries, and retain bounded
   payment/audit references.
-- Handle refunds, chargebacks, partial payments, duplicate callbacks, and
-  WooCommerce/API outages without silently extending or suspending service.
 - Restore service immediately after a verified successful payment when policy
   permits.
-
-### Hosting And Domain Renewal Orders
-
-- Treat partial payments, changed WooCommerce totals, refunds, chargebacks,
-  deleted products, and ambiguous webhooks as manual-review states. They must
-  not automatically restore or extend a service.
 
 ### Enforcement
 
