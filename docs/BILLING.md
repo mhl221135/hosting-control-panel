@@ -300,3 +300,28 @@ The suite covers password/session behavior, bearer authentication, CSV mapping
 and replay protection, renewal states, optimistic-concurrency CRUD, archive
 and restore, migrations, transactions, audit, backup, restore, and the live
 HTTP contract.
+
+### Local enforcement pilot qualification
+
+After an operator has deliberately configured one local pilot, run the
+read-only qualification from the source directory:
+
+```bash
+sudo ./scripts/qualify-billing-pilot.sh \
+  --domain test.example.com \
+  --billing-url https://billing.example.com \
+  --expected-state suspended
+```
+
+The script requires exactly one pilot hostname. It checks container health,
+local `payment_page` policy, the expected calculated state, a fresh signed
+entitlement observation, the applied nginx map, an active payment matching the
+configured hosting price, the public renewal page, `noindex`, and the final
+WooCommerce checkout redirect. It does not print opaque renewal/payment
+references and does not mutate billing, orders, nginx, DNS, or website data.
+
+Repeat it with `active`, `reminder`, `grace`, and `exempt` during the state
+drill. Those states must be absent from the nginx map and must remain publicly
+unblocked. Passing this script is bounded evidence for one state; it does not
+replace the completed-payment, duplicate-callback, outage, rollback, and
+automatic-restoration drills in `TODO.md`.

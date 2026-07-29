@@ -35,6 +35,12 @@ reconcile, but the callback is intentionally fail-open and cannot undo a
 durable payment. Scheduled polling is the recovery path after callback or panel
 outage.
 
+Run `scripts/qualify-billing-pilot.sh` after each deliberate pilot-state
+transition. The command is read-only and fails unless the allowlist contains
+exactly the selected local website, the signed snapshot is fresh, and the
+public/map behavior matches the expected state. Never paste its domain argument
+into committed documentation or support logs.
+
 Billing reminders are also inert after deployment because their daily schedule
 defaults to disabled. Before enabling it, confirm Telegram and/or SMTP in the
 hosting panel, open Billing **Reminders**, review every due service and date,
