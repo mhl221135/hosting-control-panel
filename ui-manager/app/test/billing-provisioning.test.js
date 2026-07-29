@@ -49,6 +49,24 @@ test("persists validated billing defaults and converts per-site prices to minor 
   }
 });
 
+test("disabled registration ignores empty optional billing fields", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "billing-provisioning-disabled-"));
+  try {
+    const settings = new BillingProvisioningSettings(root);
+    assert.deepEqual(settings.registration({
+      register_billing: false,
+      billing_free_months: "",
+      billing_renewal_months: "",
+      billing_hosting_price: "",
+      billing_domain_renewal_months: "",
+      billing_currency: "",
+      billing_grace_days: "",
+    }), { enabled: false });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("registers through the narrow bearer API with an idempotency key", async () => {
   let request;
   const client = new BillingProvisioningClient({
