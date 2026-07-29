@@ -136,6 +136,7 @@ services:
       BILLING_BACKUP_RETENTION: ${BILLING_BACKUP_RETENTION:-14}
       BILLING_SETTINGS_KEY: ${BILLING_SETTINGS_KEY:-}
       NOTIFICATION_API_URL: http://hosting-ui:8687/internal/v1/billing-reminders
+      ENTITLEMENT_REFRESH_API_URL: http://hosting-ui:8687/internal/v1/billing-entitlements/refresh
       TZ: Europe/Kyiv
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/billing:/app/data

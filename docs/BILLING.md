@@ -255,6 +255,14 @@ bounded audit without payment URLs or customer data. Nginx apply or rollback
 failures enqueue a critical operator alert through the panel's configured
 Telegram and SMTP channels.
 
+On the first valid `processing` or `completed` delivery that changes a payment
+to paid, billing sends only the WooCommerce delivery ID to the internal
+`/internal/v1/billing-entitlements/refresh` panel endpoint. The panel fetches
+and verifies the complete signed feed itself, then reconciles if enforcement is
+enabled. The callback retries transient failures without changing the durable
+payment result. Scheduled observation is mandatory while enforcement is
+enabled and remains the recovery fallback if every callback attempt fails.
+
 Billing still has no nginx, Docker, website, or panel-data access. Only
 `hosting-ui` owns the narrow map and uses the allowlisted control agent for
 nginx validation/reload. The production allowlist must stay empty until the

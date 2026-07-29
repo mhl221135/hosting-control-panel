@@ -134,6 +134,10 @@ read-only adapter in `hosting-ui`: it verifies signed entitlement snapshots,
 retains a last-known-good copy, and reports local inventory drift.
 `billing-enforcement.js` consumes only that verified view, owns the narrow
 fail-open nginx map and rollback, and records bounded transition evidence.
+After a durable verified payment, billing's bounded refresh client sends only
+the provider delivery ID to `hosting-ui`; the panel independently refreshes the
+signed feed and reconciles. Scheduled observation is required while enforcement
+is armed and provides the callback-failure fallback.
 
 ## Authentication And Secrets
 

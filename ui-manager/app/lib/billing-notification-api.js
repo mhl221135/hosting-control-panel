@@ -51,4 +51,12 @@ function validatedReminder(input) {
   };
 }
 
-module.exports = { authorized, safeEqual, validatedReminder };
+function validatedEntitlementRefresh(input) {
+  const deliveryId = String(input.delivery_id || "");
+  if (!/^[A-Za-z0-9_.:-]{1,160}$/.test(deliveryId)) {
+    throw Object.assign(new Error("Invalid WooCommerce delivery ID"), { statusCode: 400 });
+  }
+  return { deliveryId };
+}
+
+module.exports = { authorized, safeEqual, validatedEntitlementRefresh, validatedReminder };

@@ -894,7 +894,7 @@
           <form id="billingEnforcementSettingsForm" class="panel form-grid">
             <div class="group-title full">
               <h3>Billing enforcement pilot</h3>
-              <p>Redirect only explicitly allowed local websites when a fresh signed entitlement is suspended and its policy is payment_page. The global switch and allowlist default to off and empty.</p>
+              <p>Redirect only explicitly allowed local websites when a fresh signed entitlement is suspended and its policy is payment_page. Scheduled entitlement observation is required for fallback recovery. The global switch and allowlist default to off and empty.</p>
             </div>
             <label class="check inline"><input name="enabled" type="checkbox" /> Enable billing enforcement globally</label>
             <label class="full">Pilot website domains<textarea name="pilotDomains" rows="4" placeholder="testsite.example.com"></textarea><small>One primary local hostname per line. Aliases are included only when the signed service owns them.</small></label>
