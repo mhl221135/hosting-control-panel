@@ -151,7 +151,9 @@ class BillingProvisioningClient {
 function registrationPayload(domain, body, registration, trialAnchor = new Date().toISOString().slice(0, 10)) {
   return {
     primary_domain: domain,
-    aliases: body.add_www && !domain.startsWith("www.") ? [`www.${domain}`] : [],
+    aliases: Array.isArray(body.aliases)
+      ? body.aliases
+      : body.add_www && !domain.startsWith("www.") ? [`www.${domain}`] : [],
     customer_name: registration.customerName,
     contact_email: registration.contactEmail || body.admin_email || "",
     grant_free_period: registration.grantFreePeriod,
@@ -170,7 +172,7 @@ function registrationPayload(domain, body, registration, trialAnchor = new Date(
 }
 
 function hasBillingWarning(job) {
-  return job?.type === "site.provision"
+  return ["site.provision", "backup.restore"].includes(job?.type)
     && ["succeeded", "partially_succeeded"].includes(job.status)
     && Array.isArray(job.results)
     && job.results.some((result) => result?.name === "billing" && result.ok === false);
@@ -200,8 +202,13 @@ function retryJobInput(source, operator) {
 
 async function retryRegistration(source, settings, client) {
   if (!hasBillingWarning(source)) throw validationError("The source job no longer has a retryable billing warning");
-  const body = source.payload?.request || {};
-  const registration = settings.registration(body);
+  const restore = source.type === "backup.restore";
+  const body = restore
+    ? { aliases: source.payload?.aliases || [] }
+    : source.payload?.request || {};
+  const registration = restore
+    ? source.payload?.billingRegistration
+    : settings.registration(body);
   if (!registration.enabled) throw validationError("Billing registration was not enabled for the source job");
   const domain = String(source.targets?.[0] || body.domain || "");
   if (!domain) throw validationError("The source job has no billing domain");

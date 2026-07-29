@@ -300,7 +300,7 @@ sets contain an app-data archive and a consistent dump of all databases.
 | **Save schedule** | Persists schedule, retention, and global switches. |
 | **Refresh** | Reloads active job progress and stored backup sets. |
 | **Backup-set selector** | Chooses application data or one website's history. |
-| **Restore** | Restores a complete website file/database set after creating a safety backup. |
+| **Restore** | Opens a review dialog, restores a complete website file/database set after a safety backup, and can optionally create/reuse its billing record. |
 | **Delete** | Deletes one complete stored set. It never removes only the archive or only the database dump. |
 
 Only one backup job runs at a time. Application-data restore is intentionally a

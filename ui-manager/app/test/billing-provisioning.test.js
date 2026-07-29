@@ -137,10 +137,54 @@ test("queues a billing-only retry only for a completed billing warning", () => {
   assert.equal(input.retryOf, source.id);
   assert.equal(input.retryable, false);
   assert.equal(JSON.stringify(input).includes("Billing unavailable"), false);
+  assert.equal(hasBillingWarning({ ...source, type: "backup.restore" }), true);
   assert.throws(
     () => retryJobInput({ ...source, results: [{ name: "npm", ok: false }] }, "admin@example.com"),
     /no retryable billing warning/,
   );
+});
+
+test("retries restore billing from its validated registration snapshot", async () => {
+  const registration = {
+    enabled: true,
+    customerName: "",
+    contactEmail: "",
+    grantFreePeriod: false,
+    freeMonths: 6,
+    renewalMonths: 12,
+    hostingPriceMinor: 8000,
+    domainRenewalMonths: 12,
+    domainPriceMinor: 0,
+    domainPaidThrough: "",
+    currency: "USD",
+    graceDays: 7,
+    timezone: "Europe/Kyiv",
+  };
+  const source = {
+    id: "33333333-3333-4333-8333-333333333333",
+    type: "backup.restore",
+    status: "partially_succeeded",
+    targets: ["example.com"],
+    finishedAt: "2026-07-29T09:00:00.000Z",
+    payload: {
+      aliases: ["www.example.com"],
+      billingRegistration: registration,
+    },
+    results: [{ name: "restore", ok: true }, { name: "billing", ok: false }],
+  };
+  let call;
+  await retryRegistration(source, {
+    registration: () => { throw new Error("Provisioning defaults must not replace the restore snapshot"); },
+  }, {
+    register: async (payload, key) => {
+      call = { payload, key };
+      return { created: false, service: { serviceId: "svc_example" } };
+    },
+  });
+  assert.equal(call.key, source.id);
+  assert.deepEqual(call.payload.aliases, ["www.example.com"]);
+  assert.equal(call.payload.hosting_price_minor, 8000);
+  assert.equal(call.payload.grant_free_period, false);
 });
 
 test("retries with the original idempotency key and trial anchor", async () => {

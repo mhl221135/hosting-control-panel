@@ -1071,7 +1071,7 @@ function renderJobs() {
       : "";
     const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
     const canRetry = terminal && job.retryable && job.status !== "succeeded";
-    const canRetryBilling = terminal && job.type === "site.provision"
+    const canRetryBilling = terminal && ["site.provision", "backup.restore"].includes(job.type)
       && !completedBillingRetries.has(job.id)
       && job.results?.some((result) => result?.name === "billing" && result.ok === false);
     const canReveal = ["succeeded", "partially_succeeded"].includes(job.status) && job.oneTimeAccessAvailable;
@@ -2980,17 +2980,24 @@ $("#cleanupImportSource").addEventListener("click", async (event) => {
 $("#backupHistory").addEventListener("click", async (event) => {
   const restoreButton = event.target.closest("[data-restore-backup]");
   if (restoreButton) {
-    const message = `Restore ${state.backupName} from ${restoreButton.dataset.restoreBackup}?\n\nThe panel will create a safety backup first, then replace the website files and database.`;
-    if (!confirm(message)) return;
     try {
-      const result = await withButton(restoreButton, "Restoring...", () => api("/api/backups/restore", {
-        method: "POST",
-        body: JSON.stringify({
-          domain: state.backupName,
-          backup_id: restoreButton.dataset.restoreBackup,
-        }),
-      }));
-      rememberJob(result.job, `Restore queued for ${state.backupName}`);
+      if (!state.billingProvisioning) {
+        state.billingProvisioning = await api("/api/billing/provisioning-settings");
+      }
+      const form = $("#restoreBackupForm");
+      form.reset();
+      form.elements.domain.value = state.backupName;
+      form.elements.backup_id.value = restoreButton.dataset.restoreBackup;
+      form.elements.register_billing.checked = false;
+      form.elements.billing_grant_free_period.checked = false;
+      form.elements.billing_grant_free_period.disabled = true;
+      $("#restoreBackupTarget").textContent =
+        `${state.backupName} · ${restoreButton.dataset.restoreBackup}`;
+      const billing = state.billingProvisioning;
+      $("#restoreBillingStatus").textContent = billing.configured
+        ? `Billing connection configured. Defaults: ${billing.settings.renewalMonths} months, ${(Number(billing.settings.hostingPriceMinor) / 100).toFixed(2)} ${billing.settings.currency}.`
+        : "Billing connection is not configured. The restore can still complete with a billing warning.";
+      $("#restoreBackupDialog").showModal();
     } catch (error) { notice(error.message, "warning"); }
     return;
   }
@@ -3003,6 +3010,31 @@ $("#backupHistory").addEventListener("click", async (event) => {
     ));
     notice("Backup set deleted.");
     await loadBackupView();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#restoreBackupForm").elements.register_billing.addEventListener("change", (event) => {
+  $("#restoreBackupForm").elements.billing_grant_free_period.disabled = !event.currentTarget.checked;
+  if (!event.currentTarget.checked) {
+    $("#restoreBackupForm").elements.billing_grant_free_period.checked = false;
+  }
+});
+
+$("#cancelBackupRestore").addEventListener("click", () => $("#restoreBackupDialog").close());
+
+$("#restoreBackupForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const domain = form.elements.domain.value;
+  try {
+    const result = await withButton(form.querySelector("button[type='submit']"), "Queuing...", () =>
+      api("/api/backups/restore", {
+        method: "POST",
+        body: JSON.stringify(formObject(form)),
+      }));
+    $("#restoreBackupDialog").close();
+    rememberJob(result.job, `Restore queued for ${domain}`);
+    switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
 });
 

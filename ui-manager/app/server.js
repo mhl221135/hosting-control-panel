@@ -187,6 +187,11 @@ const backupManager = new BackupManager({
   mysqlContainer: process.env.MYSQL_CONTAINER || "hosting-db",
   phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
   jobManager,
+  afterRestore: ({ site, registration, idempotencyKey }) =>
+    billingProvisioningClient.register(
+      registrationPayload(site.host, { aliases: site.aliases || [] }, registration),
+      idempotencyKey,
+    ),
   siteProvider: async () => {
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
@@ -1950,7 +1955,16 @@ async function handleApi(req, res) {
     }
     const backupIdValue = String(body.backup_id || "");
     backupManager.readSiteManifest(site, backupIdValue);
-    sendJson(res, 202, { ok: true, job: backupManager.enqueueRestore(site, backupIdValue, req.auth.email) });
+    const billingRegistration = body.register_billing === true
+      ? billingProvisioningSettings.registration({
+        register_billing: true,
+        billing_grant_free_period: body.billing_grant_free_period === true,
+      })
+      : null;
+    sendJson(res, 202, {
+      ok: true,
+      job: backupManager.enqueueRestore(site, backupIdValue, req.auth.email, billingRegistration),
+    });
     return true;
   }
 

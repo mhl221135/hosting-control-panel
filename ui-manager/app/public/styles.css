@@ -388,3 +388,22 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .health-row { grid-template-columns: 64px minmax(0, 1fr); gap: 9px; }
   pre { font-size: 11px; }
 }
+.restore-dialog {
+  width: min(520px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  margin: auto;
+  padding: 22px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 32%);
+}
+
+.restore-dialog::backdrop {
+  background: rgb(15 23 42 / 58%);
+}
+
+.restore-dialog .form-actions {
+  justify-content: flex-end;
+}

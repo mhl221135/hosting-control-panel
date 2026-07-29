@@ -211,8 +211,6 @@ remain a later optional adapter.
 - Add `payment_page` as a provisioning enforcement default only after global
   enforcement and the pilot allowlist pass qualification. Implemented
   registrations deliberately use `none`.
-- Restored websites still need the implemented import/provision billing choice
-  exposed in the backup-restore workflow.
 
 ### Remaining Delivery Phases
 
