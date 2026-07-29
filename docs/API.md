@@ -82,6 +82,13 @@ The authenticated hosting-panel billing integration routes are:
 | `PUT /api/billing/provisioning-settings` | Validate and persist registration defaults |
 | `POST /api/jobs/:id/retry-billing` | Queue a billing-only retry for a completed provision whose billing step warned |
 
+Billing inventory also exposes
+`POST /api/services/:id/actions/{exempt,resume,suspend}`. It requires a
+3-500-character `reason` and the current `updated_at` value. The action is
+audited and concurrency-safe. `resume` clears the override and returns to
+date-calculated state; `suspend` changes billing state only and has no website
+mutation authority.
+
 The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.

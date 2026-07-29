@@ -5,6 +5,11 @@ const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
 const SCHEMA_VERSION = 5;
+const MANUAL_ACTIONS = {
+  exempt: "exempt",
+  resume: "",
+  suspend: "suspended",
+};
 
 function parseJson(value, fallback) {
   try {
@@ -430,6 +435,56 @@ class BillingDatabase {
         "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
       ).run(crypto.randomUUID(), serviceId, action, timestamp, "{}");
       this.auditEntry(actor, action, serviceId, { primaryDomain: current.primary_domain });
+      return this.service(serviceId);
+    });
+  }
+
+  applyManualAction(serviceId, action, reason, expectedUpdatedAt, actor) {
+    const manualState = MANUAL_ACTIONS[String(action || "")];
+    if (manualState === undefined) {
+      throw Object.assign(new Error("Unsupported manual billing action"), { statusCode: 400 });
+    }
+    const boundedReason = String(reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
+    if (boundedReason.length < 3) {
+      throw Object.assign(new Error("A reason of at least 3 characters is required"), { statusCode: 400 });
+    }
+    const current = this.service(serviceId);
+    if (!current) throw Object.assign(new Error("Billing service not found"), { statusCode: 404 });
+    if (current.archived) {
+      throw Object.assign(new Error("Restore the archived service before changing its state"), { statusCode: 409 });
+    }
+    if (!expectedUpdatedAt) {
+      throw Object.assign(new Error("updated_at precondition is required"), { statusCode: 400 });
+    }
+    if (current.updated_at !== expectedUpdatedAt) {
+      throw Object.assign(new Error("This service changed in another session; reload it before applying an action"), {
+        statusCode: 409,
+      });
+    }
+    const timestamp = nextTimestamp(current.updated_at);
+    return this.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE services SET manual_state=?,updated_at=? WHERE service_id=? AND updated_at=?",
+      ).run(manualState, timestamp, serviceId, expectedUpdatedAt);
+      if (result.changes !== 1) {
+        throw Object.assign(new Error("This service changed in another session; reload it before applying an action"), {
+          statusCode: 409,
+        });
+      }
+      const eventType = `inventory.manual_${action}`;
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), serviceId, eventType, timestamp, JSON.stringify({
+        before: current.manual_state,
+        after: manualState,
+        reason: boundedReason,
+      }));
+      this.auditEntry(actor, eventType, serviceId, {
+        primaryDomain: current.primary_domain,
+        before: current.manual_state,
+        after: manualState,
+        reason: boundedReason,
+      });
       return this.service(serviceId);
     });
   }

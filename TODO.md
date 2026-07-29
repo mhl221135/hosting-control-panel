@@ -62,9 +62,6 @@ remain a later optional adapter.
 
 - Enforce local-versus-remote compatibility when automatic enforcement modes
   exist.
-- Add explicit manual actions for `exempt`, `resume`, and `suspend`, with a
-  reason and audit entry. Manual suspension must still obey the global
-  enforcement safety switch.
 
 ### WooCommerce Integration
 

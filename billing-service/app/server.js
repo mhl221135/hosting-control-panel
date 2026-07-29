@@ -382,6 +382,19 @@ async function api(req, res) {
     json(res, 200, { ok: true, service });
     return true;
   }
+  const manualActionMatch = /^\/api\/services\/([^/]+)\/actions\/(exempt|resume|suspend)$/.exec(url.pathname);
+  if (req.method === "POST" && manualActionMatch) {
+    const body = await readJson(req);
+    const service = database.applyManualAction(
+      decodeURIComponent(manualActionMatch[1]),
+      manualActionMatch[2],
+      body.reason,
+      body.updated_at,
+      session.email,
+    );
+    json(res, 200, { ok: true, service });
+    return true;
+  }
   if (req.method === "GET" && url.pathname === "/api/audit") {
     json(res, 200, { ok: true, audit: database.audit(Number(url.searchParams.get("limit") || 100)) });
     return true;

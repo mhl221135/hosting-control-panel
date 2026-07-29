@@ -172,9 +172,33 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       body: JSON.stringify({ ...created, primary_domain: "stale.example.com" }),
     });
     assert.equal(staleResponse.status, 409);
+    const invalidAction = await request(`/api/services/${created.service_id}/actions/suspend`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "x", updated_at: updated.updated_at }),
+    });
+    assert.equal(invalidAction.status, 400);
+    const suspendedResponse = await request(`/api/services/${created.service_id}/actions/suspend`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "Payment requires review", updated_at: updated.updated_at }),
+    });
+    assert.equal(suspendedResponse.status, 200);
+    const suspended = (await suspendedResponse.json()).service;
+    assert.equal(suspended.manual_state, "suspended");
+    const staleAction = await request(`/api/services/${created.service_id}/actions/exempt`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "Complimentary service", updated_at: updated.updated_at }),
+    });
+    assert.equal(staleAction.status, 409);
+    const resumedResponse = await request(`/api/services/${created.service_id}/actions/resume`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "Payment confirmed", updated_at: suspended.updated_at }),
+    });
+    assert.equal(resumedResponse.status, 200);
+    const resumed = (await resumedResponse.json()).service;
+    assert.equal(resumed.manual_state, "");
     const archivedResponse = await request(`/api/services/${created.service_id}/archive`, {
       method: "POST",
-      body: JSON.stringify({ archived: true, updated_at: updated.updated_at }),
+      body: JSON.stringify({ archived: true, updated_at: resumed.updated_at }),
     });
     assert.equal(archivedResponse.status, 200);
     assert.equal((await archivedResponse.json()).service.archived, true);
@@ -235,6 +259,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   const unexpected = stderr.split(/\r?\n/).filter((line) =>
     line && !line.includes("ExperimentalWarning") && !line.includes("--trace-warnings")
       && !line.includes("This service changed in another session")
+      && !line.includes("A reason of at least 3 characters is required")
       && !line.includes("POST /webhooks/woocommerce: Invalid WooCommerce webhook signature"));
   assert.deepEqual(unexpected, [], stderr);
 });

@@ -164,11 +164,15 @@ function resetServiceForm() {
   form.elements.currency.value = "USD";
   form.elements.grace_days.value = 7;
   form.elements.timezone.value = "UTC";
+  form.elements.manual_state.value = "";
   state.selectedServiceId = "";
   $("#serviceEditorMode").textContent = "New record";
   $("#serviceEditorTitle").textContent = "Add billing service";
   $("#serviceArchiveState").hidden = true;
   $("#archiveService").hidden = true;
+  $("#manualActions").hidden = true;
+  $("#manualActionReason").value = "";
+  $("#manualStateValue").textContent = "Calculated from renewal date";
   $$(".service-item").forEach((item) => item.classList.remove("active"));
   updateServicePreview();
 }
@@ -195,6 +199,11 @@ function editService(serviceId) {
   archiveButton.textContent = service.archived ? "Restore record" : "Archive record";
   archiveButton.classList.toggle("danger", !service.archived);
   archiveButton.classList.toggle("secondary", service.archived);
+  $("#manualActions").hidden = service.archived;
+  $("#manualActionReason").value = "";
+  $("#manualStateValue").textContent = service.manual_state
+    ? `Forced to ${service.manual_state}`
+    : "Calculated from renewal date";
   $$(".service-item").forEach((item) => item.classList.toggle("active", item.dataset.serviceId === serviceId));
   updateServicePreview();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -494,6 +503,38 @@ $("#archiveService").addEventListener("click", async (event) => {
       });
       notice(`Billing service ${archived ? "archived" : "restored"}.`);
       await loadServiceManager("");
+      await loadOverview();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#manualActions").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-manual-action]");
+  if (!button) return;
+  const service = state.services.find((item) => item.service_id === state.selectedServiceId);
+  if (!service || service.archived) return;
+  const action = button.dataset.manualAction;
+  const reason = $("#manualActionReason").value.trim();
+  if (reason.length < 3) {
+    notice("Enter a reason of at least 3 characters.", true);
+    $("#manualActionReason").focus();
+    return;
+  }
+  const labels = { exempt: "exempt", resume: "resume calculated state for", suspend: "mark as suspended" };
+  if (!window.confirm(`Apply ${labels[action]} ${service.primary_domain}?\n\nReason: ${reason}`)) return;
+  try {
+    await busy(button, async () => {
+      const result = await api(
+        `/api/services/${encodeURIComponent(service.service_id)}/actions/${encodeURIComponent(action)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ reason, updated_at: service.updated_at }),
+        },
+      );
+      notice(`${service.primary_domain} billing state updated.`);
+      await loadServiceManager(result.service.service_id);
       await loadOverview();
     });
   } catch (error) {

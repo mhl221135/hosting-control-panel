@@ -156,6 +156,10 @@ td small { color: var(--muted); margin-top: 3px; }
 .state-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 18px; padding: 12px; border: 1px solid var(--line); background: #f8f9fa; }
 .state-preview > span { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
 .state-preview strong { display: flex; align-items: center; gap: 7px; font-size: 13px; }
+.manual-actions { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--line); background: #f8f9fa; }
+.manual-actions > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.manual-actions > div:first-child span, .manual-actions > small { color: var(--muted); font-size: 13px; }
+.manual-action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .editor-actions { display: flex; gap: 9px; align-items: center; }
 .editor-actions .push-right { margin-left: auto; }
 .renewal-shell { width: min(100%, 760px); margin: 0 auto; padding: 48px 20px 72px; }
@@ -210,6 +214,9 @@ td small { color: var(--muted); margin-top: 3px; }
   .editor-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .editor-actions button { width: 100%; }
   .editor-actions .push-right { grid-column: 1 / -1; margin-left: 0; }
+  .manual-actions > div:first-child { align-items: start; flex-direction: column; }
+  .manual-action-buttons { display: grid; grid-template-columns: 1fr; }
+  .manual-action-buttons button { width: 100%; }
   .renewal-shell { padding-top: 28px; }
   .renewal-option { align-items: stretch; flex-direction: column; }
   .renewal-price { justify-items: stretch; text-align: left; }
