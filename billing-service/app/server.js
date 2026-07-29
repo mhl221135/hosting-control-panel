@@ -9,6 +9,7 @@ const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
 const { PaymentManager } = require("./lib/payments");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
+const { normalizeService } = require("./lib/validation");
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "/app/data");
@@ -202,8 +203,40 @@ async function api(req, res) {
       services: database.services({
         search: url.searchParams.get("search"),
         state: url.searchParams.get("state"),
+        archived: url.searchParams.get("archived"),
       }),
     });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/services") {
+    const service = normalizeService(await readJson(req));
+    json(res, 201, { ok: true, service: database.createService(service, session.email) });
+    return true;
+  }
+  const serviceMatch = /^\/api\/services\/([^/]+)$/.exec(url.pathname);
+  if (req.method === "PUT" && serviceMatch) {
+    const serviceId = decodeURIComponent(serviceMatch[1]);
+    const body = await readJson(req);
+    const service = normalizeService({ ...body, service_id: serviceId });
+    json(res, 200, {
+      ok: true,
+      service: database.updateService(serviceId, service, body.updated_at, session.email),
+    });
+    return true;
+  }
+  const archiveMatch = /^\/api\/services\/([^/]+)\/archive$/.exec(url.pathname);
+  if (req.method === "POST" && archiveMatch) {
+    const body = await readJson(req);
+    if (typeof body.archived !== "boolean") {
+      throw Object.assign(new Error("archived must be a boolean"), { statusCode: 400 });
+    }
+    const service = database.archiveService(
+      decodeURIComponent(archiveMatch[1]),
+      body.archived,
+      body.updated_at,
+      session.email,
+    );
+    json(res, 200, { ok: true, service });
     return true;
   }
   if (req.method === "GET" && url.pathname === "/api/audit") {
@@ -383,6 +416,7 @@ function shutdown() {
     database.close();
     process.exit(0);
   });
+  server.closeAllConnections();
 }
 process.on("SIGTERM", shutdown);
 process.on("SIGINT", shutdown);

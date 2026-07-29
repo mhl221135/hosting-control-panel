@@ -127,7 +127,7 @@ Expected values are user `33:33`, `["ALL"]` capability drop,
 `no-new-privileges:true`, no Docker socket mount, and `false` for the broad
 `/srv/app-data` mount.
 
-On a host where `testsite.mishaweb.com` is not configured and its directory
+On a host where `testsite.example.com` is not configured and its directory
 does not exist, the qualification drill exercises authenticated provisioning,
 local-origin health, backup, restore, portable export, and complete cleanup:
 

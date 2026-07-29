@@ -5,8 +5,8 @@ const { normalizeService, stateForDate } = require("../app/lib/validation");
 
 test("parses quoted CSV and maps the legacy hosting inventory", () => {
   const csv = [
-    "Order #,Client Type,Website,Hosting,Hosting Next Payment,Domain Next Payment,Hosting Months,Price Hosting,Price Domain,Email,Phone",
-    '42,Client,Example.COM,local,"Jul 1, 2026",07/15/2026,12,"$120.50",$18.25,owner@example.com,+1-555',
+    "Order #,Client Type,Website,Hosting,Hosting Next Payment,Domain Next Payment,Hosting Months,Domain Months,Price Hosting,Price Domain,Email,Phone",
+    '42,Client,Example.COM,local,"Jul 1, 2026",07/15/2026,12,24,"$120.50",$18.25,owner@example.com,+1-555',
   ].join("\r\n");
   const parsed = importCsv(csv);
   assert.equal(parsed.services.length, 1);
@@ -14,6 +14,7 @@ test("parses quoted CSV and maps the legacy hosting inventory", () => {
   assert.equal(parsed.services[0].primary_domain, "example.com");
   assert.equal(parsed.services[0].hosting_paid_through, "2026-07-01");
   assert.equal(parsed.services[0].hosting_price_minor, 12050);
+  assert.equal(parsed.services[0].domain_renewal_months, 24);
   assert.equal(parsed.services[0].source_ref, "42");
 });
 

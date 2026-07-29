@@ -73,7 +73,7 @@ maintenance-mode state was not idempotent, and application checks depended on
 the public Cloudflare path. All three defects were corrected.
 
 Three fully instrumented production drills then passed on 2026-07-28 using only
-`testsite.mishaweb.com`. Each drill provisioned fresh WordPress, created
+`testsite.example.com`. Each drill provisioned fresh WordPress, created
 Cloudflare DNS, NPM routing, and SSL, exercised a successful controlled update,
 forced a package-install failure, restored the verified backup, and removed the
 temporary site.

@@ -54,6 +54,24 @@ Calculated states are:
 
 Phase 1 does not enforce the calculated state.
 
+## Service Management
+
+Open **Services** to create, search, view, and edit the billing inventory. Each
+record keeps a stable service ID while its primary domain and aliases remain
+editable. Hosting and domain paid-through dates, renewal periods, and prices
+are independent. The editor previews both calculated states before saving.
+
+Edits require the record's current `updated_at` value. A stale browser session
+receives `409 Conflict` instead of silently overwriting a newer change.
+Archiving preserves events, payments, and audit history, removes the record
+from active summaries and entitlement output, and can be reversed from the
+archived-record filter. There is no hard-delete browser action.
+
+Schema migration v4 copies each existing `renewal_months` value to the new
+domain-renewal period without changing dates or prices. Canonical CSV exports
+include both periods and the archived state; legacy `Domain Months` is mapped
+to the domain period.
+
 ## WooCommerce Payments
 
 Open **Payments** and configure:
@@ -170,5 +188,6 @@ docker run --rm hosting-billing:test npm test
 ```
 
 The suite covers password/session behavior, bearer authentication, CSV mapping
-and replay protection, renewal states, migrations, transactions, audit, backup,
-restore, and the live HTTP contract.
+and replay protection, renewal states, optimistic-concurrency CRUD, archive
+and restore, migrations, transactions, audit, backup, restore, and the live
+HTTP contract.

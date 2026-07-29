@@ -49,7 +49,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
     await waitForHealth(baseUrl, child);
-    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 3);
+    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 4);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
 
     const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
@@ -88,6 +88,48 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     const services = await (await request("/api/services")).json();
     assert.equal(services.services.length, 1);
     assert.equal(services.services[0].primary_domain, "example.com");
+    const createdResponse = await request("/api/services", {
+      method: "POST",
+      body: JSON.stringify({
+        primary_domain: "managed.example.com",
+        customer_name: "Managed client",
+        hosting_paid_through: "2027-01-01",
+        domain_paid_through: "2027-02-01",
+        renewal_months: 12,
+        domain_renewal_months: 24,
+        hosting_price: "80.00",
+        domain_price: "18.50",
+      }),
+    });
+    assert.equal(createdResponse.status, 201);
+    const created = (await createdResponse.json()).service;
+    assert.equal(created.domain_renewal_months, 24);
+    const updatedResponse = await request(`/api/services/${created.service_id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...created,
+        primary_domain: "renamed.example.com",
+        aliases: "www.renamed.example.com",
+        hosting_price_minor: 9000,
+      }),
+    });
+    assert.equal(updatedResponse.status, 200);
+    const updated = (await updatedResponse.json()).service;
+    assert.equal(updated.primary_domain, "renamed.example.com");
+    assert.equal(updated.hosting_price_minor, 9000);
+    const staleResponse = await request(`/api/services/${created.service_id}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...created, primary_domain: "stale.example.com" }),
+    });
+    assert.equal(staleResponse.status, 409);
+    const archivedResponse = await request(`/api/services/${created.service_id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ archived: true, updated_at: updated.updated_at }),
+    });
+    assert.equal(archivedResponse.status, 200);
+    assert.equal((await archivedResponse.json()).service.archived, true);
+    assert.equal((await (await request("/api/services")).json()).services.length, 1);
+    assert.equal((await (await request("/api/services?archived=only")).json()).services.length, 1);
     const wooSettingsResponse = await request("/api/woocommerce/settings", {
       method: "PUT",
       body: JSON.stringify({
@@ -142,6 +184,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   }
   const unexpected = stderr.split(/\r?\n/).filter((line) =>
     line && !line.includes("ExperimentalWarning") && !line.includes("--trace-warnings")
+      && !line.includes("This service changed in another session")
       && !line.includes("POST /webhooks/woocommerce: Invalid WooCommerce webhook signature"));
   assert.deepEqual(unexpected, [], stderr);
 });

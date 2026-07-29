@@ -44,12 +44,10 @@ behavior and immediate rollback.
 - Customer/contact details.
 - Hosting location/provider: local stack, remote shared hosting, or
   notification-only.
-- Separate hosting and domain paid-through dates, renewal intervals, and
-  prices. A domain renewal must not silently extend hosting, and a hosting
-  renewal must not silently extend the domain.
-- Currency, grace period, enforcement mode, creation date, free-trial origin,
-  and an archived flag. Records should be archived instead of hard-deleted
-  after they have payment or audit history.
+- Add free-trial origin and explicit trial metadata. The implemented inventory
+  already stores separate hosting/domain dates, periods, and prices plus
+  currency, grace policy, enforcement mode, creation timestamps, and an
+  archived flag.
 - WooCommerce order/payment identifiers.
 - State calculated from dates: active, reminder, grace, suspended, exempt.
 - Manual override, notes, and audit history.
@@ -60,23 +58,10 @@ CSV import/export is required for migration and operator editing, but the
 billing database becomes the source of truth. Google Sheets synchronization can
 remain a later optional adapter.
 
-### Inventory Management UI And API
+### Remaining Inventory Controls
 
-- Add an authenticated **Services** workspace in `hosting-billing` with
-  responsive create, view, edit, archive, search, and state-filter workflows.
-- Allow operators to edit the primary domain, aliases, customer/contact
-  details, hosting location/provider, hosting and domain paid-through dates,
-  separate renewal periods, separate prices, currency, grace period,
-  enforcement mode, manual override, timezone, and notes.
-- Validate domain uniqueness, aliases, ISO dates, integer minor-unit prices,
-  bounded periods, supported currencies, and local-versus-remote enforcement
-  compatibility on the server. Do not trust browser validation.
-- Use optimistic concurrency or an `updated_at` precondition so two browser
-  sessions cannot silently overwrite each other.
-- Show a preview of the calculated hosting/domain state before saving a date or
-  policy change. Record old and new bounded values in audit history.
-- Do not allow a domain change to create a second billing identity. Preserve
-  the stable service ID, event history, payments, and public renewal identity.
+- Enforce local-versus-remote compatibility when automatic enforcement modes
+  exist.
 - Add explicit manual actions for `exempt`, `resume`, and `suspend`, with a
   reason and audit entry. Manual suspension must still obey the global
   enforcement safety switch.
@@ -102,9 +87,6 @@ remain a later optional adapter.
   and total before creating the WooCommerce order.
 - Extend only the dates represented by verified paid order metadata. Combined
   payments update both dates atomically after amount and currency validation.
-- Store separate hosting and domain renewal months. Migrate the existing
-  `renewal_months` value to hosting renewal months without changing imported
-  dates or prices.
 - Keep one active order per service and renewal selection, or replace it only
   through an explicit audited cancellation. Expired links may be regenerated.
 - Treat partial payments, changed WooCommerce totals, refunds, chargebacks,
@@ -290,29 +272,26 @@ remain a later optional adapter.
 
 ### Remaining Delivery Phases
 
-1. Implement and test schema migrations plus authenticated inventory CRUD.
-   Import the current CSV into the migrated model and verify that all existing
-   IDs, dates, prices, payments, and audit records remain intact.
-2. Implement separate hosting/domain order calculations and the protected
+1. Implement separate hosting/domain order calculations and the protected
    public renewal page. Keep enforcement disabled.
-3. Add configurable six-month-free provisioning defaults and idempotent
+2. Add configurable six-month-free provisioning defaults and idempotent
    internal service registration. Qualify new-record creation with a disposable
    test website.
-4. Qualify payment links and webhooks with the real hidden WooCommerce test
+3. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
    mismatched amount/currency, refund, chargeback, and provider outage.
-5. Implement the nginx map reconciler behind a global off switch. Test stale
+4. Implement the nginx map reconciler behind a global off switch. Test stale
    snapshots, invalid signatures, ambiguous aliases, nginx validation failure,
    billing outage, WooCommerce outage, panel restart, and immediate global
    rollback.
-6. Pilot only `testsite.mishaweb.com`. Exercise active, reminder, grace,
+5. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
    suspended, payment, automatic restore, manual exemption, and disable-all
    workflows before adding any production domain to the allowlist.
-7. Build the remote WordPress plugin and enrollment API after local enforcement
+6. Build the remote WordPress plugin and enrollment API after local enforcement
    passes. Pilot one disposable remote WordPress site through enrollment,
    cloning, stale-state, suspension, payment, cache purge, restoration,
    credential revoke, and plugin rollback tests.
-8. Review audit logs, notification behavior, load, and rollback evidence.
+7. Review audit logs, notification behavior, load, and rollback evidence.
    Enable selected production services individually; never bulk-enable the
    imported inventory during the pilot.
 

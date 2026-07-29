@@ -100,6 +100,15 @@ function choice(value, allowed, fallback) {
   return normalized;
 }
 
+function boolean(value, fallback = false) {
+  if (value === "" || value === null || value === undefined) return fallback;
+  if (typeof value === "boolean") return value;
+  const normalized = bounded(value, 10).toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw validationError("Expected a boolean value");
+}
+
 function normalizeService(input) {
   const primaryDomain = domain(input.primary_domain || input.website);
   const sourceRef = bounded(input.source_ref || input.order_number, 120);
@@ -117,6 +126,12 @@ function normalizeService(input) {
     hosting_paid_through: isoDate(input.hosting_paid_through || input.hosting_next_payment),
     domain_paid_through: isoDate(input.domain_paid_through || input.domain_next_payment),
     renewal_months: integer(input.renewal_months || input.hosting_months, 1, 120, 12),
+    domain_renewal_months: integer(
+      input.domain_renewal_months || input.domain_months || input.renewal_months,
+      1,
+      120,
+      12,
+    ),
     hosting_price_minor: input.hosting_price_minor !== undefined
       ? integer(input.hosting_price_minor, 0, 10_000_000_000, 0)
       : moneyMinor(input.hosting_price || input.price_hosting),
@@ -130,6 +145,7 @@ function normalizeService(input) {
     timezone: bounded(input.timezone || "UTC", 80),
     notes: bounded(input.notes, 2000),
     source_ref: sourceRef,
+    archived: boolean(input.archived, false),
   };
 }
 
