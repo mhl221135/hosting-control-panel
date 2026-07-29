@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260728-28" />
+    <link rel="stylesheet" href="/styles.css?v=20260729-29" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -355,6 +355,22 @@
                 <option value="xmlrpc-challenge">Challenge WordPress XML-RPC</option>
                 <option value="login-rate-limit">Rate limit WordPress login</option>
               </select></label>
+            </fieldset>
+            <fieldset class="option-group full billing-provision-options">
+              <legend>Billing registration</legend>
+              <label class="check"><input name="register_billing" type="checkbox" /> Create or reuse billing record</label>
+              <label class="check"><input name="billing_grant_free_period" type="checkbox" /> Grant free hosting period</label>
+              <label>Customer name<input name="billing_customer_name" autocomplete="name" /></label>
+              <label>Billing contact email<input name="billing_contact_email" type="email" autocomplete="email" /></label>
+              <label>Free hosting (months)<input name="billing_free_months" type="number" min="0" max="60" /></label>
+              <label>Hosting renewal (months)<input name="billing_renewal_months" type="number" min="1" max="120" /></label>
+              <label>Hosting renewal price<input name="billing_hosting_price" type="number" min="0" max="100000000" step="0.01" /></label>
+              <label>Currency<input name="billing_currency" maxlength="3" /></label>
+              <label>Grace period (days)<input name="billing_grace_days" type="number" min="0" max="365" /></label>
+              <label>Domain paid through<input name="billing_domain_paid_through" type="date" /></label>
+              <label>Domain renewal (months)<input name="billing_domain_renewal_months" type="number" min="1" max="120" /></label>
+              <label>Domain renewal price<input name="billing_domain_price" type="number" min="0" max="100000000" step="0.01" /></label>
+              <div id="billingProvisionPreview" class="status-box compact-status full">Billing registration is disabled for this website.</div>
             </fieldset>
             <fieldset class="option-group full package-selection" data-provision-wordpress data-provision-fresh>
               <legend>Installation packages</legend>
@@ -822,6 +838,23 @@
             <div class="form-actions full"><button type="submit">Save health settings</button></div>
           </form>
 
+          <form id="billingProvisioningSettingsForm" class="panel form-grid">
+            <div class="group-title full">
+              <h3>Billing provisioning defaults</h3>
+              <p>Create one idempotent billing record after a website is successfully provisioned. Imported sites do not receive free time unless selected.</p>
+            </div>
+            <label class="check inline"><input name="enabled" type="checkbox" /> Register new websites by default</label>
+            <label>Free hosting (months)<input name="free_months" type="number" min="0" max="60" required /></label>
+            <label>Hosting renewal (months)<input name="renewal_months" type="number" min="1" max="120" required /></label>
+            <label>Hosting renewal price<input name="hosting_price" type="number" min="0" max="100000000" step="0.01" required /></label>
+            <label>Domain renewal (months)<input name="domain_renewal_months" type="number" min="1" max="120" required /></label>
+            <label>Currency<input name="currency" maxlength="3" required /></label>
+            <label>Grace period (days)<input name="grace_days" type="number" min="0" max="365" required /></label>
+            <label>Timezone<input name="timezone" required /></label>
+            <div class="form-actions full"><button type="submit">Save billing defaults</button></div>
+            <pre id="billingProvisioningStatus" class="status-box compact-status full">Billing registration status unavailable.</pre>
+          </form>
+
           <form id="billingObserverSettingsForm" class="panel form-grid">
             <div class="group-title full">
               <h3>Billing entitlement observer</h3>
@@ -930,6 +963,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260728-28"></script>
+    <script src="/app.js?v=20260729-29"></script>
   </body>
 </html>

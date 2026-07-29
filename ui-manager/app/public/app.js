@@ -29,6 +29,7 @@ const state = {
   stats: null,
   health: null,
   billingObserver: null,
+  billingProvisioning: null,
   siteStats: null,
   ipinfo: {},
   removalPlan: null,
@@ -176,6 +177,32 @@ function syncProvisionSourceMode() {
     ? "Import website"
     : wordpress ? "Create WordPress website" : genericPhp ? "Create PHP website" : "Create static website";
   syncProvisionSecurityOptions();
+  const grant = form.elements.billing_grant_free_period;
+  if (!grant.dataset.touched) grant.checked = !importing;
+  syncProvisionBillingOptions();
+}
+
+function syncProvisionBillingOptions() {
+  const form = $("#provisionForm");
+  const enabled = form.elements.register_billing.checked;
+  $$(".billing-provision-options input:not([name='register_billing'])").forEach((input) => {
+    input.disabled = !enabled;
+  });
+  const freeMonths = Number(form.elements.billing_free_months.value || 0);
+  const paidThrough = new Date();
+  paidThrough.setHours(12, 0, 0, 0);
+  const billingDay = paidThrough.getDate();
+  paidThrough.setDate(1);
+  paidThrough.setMonth(paidThrough.getMonth() + freeMonths);
+  const finalDay = new Date(paidThrough.getFullYear(), paidThrough.getMonth() + 1, 0).getDate();
+  paidThrough.setDate(Math.min(billingDay, finalDay));
+  const paidLabel = form.elements.billing_grant_free_period.checked
+    ? paidThrough.toLocaleDateString()
+    : "not granted";
+  const price = Number(form.elements.billing_hosting_price.value || 0).toFixed(2);
+  $("#billingProvisionPreview").textContent = enabled
+    ? `First hosting paid-through: ${paidLabel} · Next renewal: ${form.elements.billing_renewal_months.value || 0} months · ${price} ${(form.elements.billing_currency.value || "USD").toUpperCase()} · Enforcement: none`
+    : "Billing registration is disabled for this website.";
 }
 
 function provisionUploadId() {
@@ -1707,13 +1734,14 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData, imageData, notificationData, healthData, billingData] = await Promise.all([
+    const [settings, performanceData, imageData, notificationData, healthData, billingData, billingProvisioningData] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
       api("/api/sites/images/status"),
       api("/api/settings/notifications"),
       api("/api/health"),
       api("/api/billing/observer"),
+      api("/api/billing/provisioning-settings"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -1815,10 +1843,43 @@ async function loadIntegrationSettings() {
     imageForm.elements.schedule_time.value = imageData.settings?.scheduleTime || "04:00";
     imageForm.elements.enabled.checked = Boolean(imageData.settings?.enabled);
     state.billingObserver = billingData.observer;
+    state.billingProvisioning = billingProvisioningData;
+    renderBillingProvisioning();
     renderBillingObserver();
   } catch (error) {
     notice(error.message, "warning");
   }
+}
+
+function renderBillingProvisioning() {
+  const data = state.billingProvisioning;
+  if (!data) return;
+  const settings = data.settings;
+  const form = $("#billingProvisioningSettingsForm");
+  form.elements.enabled.checked = settings.enabled;
+  form.elements.free_months.value = settings.freeMonths;
+  form.elements.renewal_months.value = settings.renewalMonths;
+  form.elements.hosting_price.value = (Number(settings.hostingPriceMinor) / 100).toFixed(2);
+  form.elements.domain_renewal_months.value = settings.domainRenewalMonths;
+  form.elements.currency.value = settings.currency;
+  form.elements.grace_days.value = settings.graceDays;
+  form.elements.timezone.value = settings.timezone;
+  $("#billingProvisioningStatus").textContent = data.configured
+    ? `Connection: configured · Default registration: ${settings.enabled ? "enabled" : "disabled"}`
+    : "Connection: not configured. Registration attempts will remain website warnings.";
+  const provision = $("#provisionForm");
+  if (!provision.elements.register_billing.dataset.initialized) {
+    provision.elements.register_billing.checked = settings.enabled;
+    provision.elements.billing_free_months.value = settings.freeMonths;
+    provision.elements.billing_renewal_months.value = settings.renewalMonths;
+    provision.elements.billing_hosting_price.value = (Number(settings.hostingPriceMinor) / 100).toFixed(2);
+    provision.elements.billing_domain_renewal_months.value = settings.domainRenewalMonths;
+    provision.elements.billing_domain_price.value = "0.00";
+    provision.elements.billing_currency.value = settings.currency;
+    provision.elements.billing_grace_days.value = settings.graceDays;
+    provision.elements.register_billing.dataset.initialized = "1";
+  }
+  syncProvisionBillingOptions();
 }
 
 function renderBillingObserver() {
@@ -2024,6 +2085,15 @@ $("#provisionForm").elements.apply_security_preset.addEventListener("change", sy
 $$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $$('#provisionForm input[name="site_type"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $("#provisionForm").elements.create_database.addEventListener("change", syncProvisionSourceMode);
+$("#provisionForm").elements.register_billing.addEventListener("change", syncProvisionBillingOptions);
+$("#provisionForm").elements.billing_grant_free_period.addEventListener("change", (event) => {
+  event.currentTarget.dataset.touched = "1";
+  syncProvisionBillingOptions();
+});
+[
+  "billing_free_months", "billing_renewal_months", "billing_hosting_price",
+  "billing_currency", "billing_domain_paid_through", "billing_domain_price",
+].forEach((name) => $("#provisionForm").elements[name].addEventListener("input", syncProvisionBillingOptions));
 syncProvisionDnsOptions();
 syncProvisionSourceMode();
 syncProvisionSecurityOptions();
@@ -3161,6 +3231,21 @@ $("#billingObserverSettingsForm").addEventListener("submit", async (event) => {
   } catch (error) {
     notice(error.message, "warning");
   }
+});
+
+$("#billingProvisioningSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/billing/provisioning-settings", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }));
+    state.billingProvisioning = data;
+    delete $("#provisionForm").elements.register_billing.dataset.initialized;
+    renderBillingProvisioning();
+    notice("Billing provisioning defaults saved.");
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#refreshBillingObserver").addEventListener("click", async (event) => {

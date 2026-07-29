@@ -224,55 +224,32 @@ remain a later optional adapter.
 
 ### Provisioning Billing Defaults
 
-- Add configurable billing defaults to the hosting panel rather than
-  hard-coding commercial policy in the provisioner. Initial defaults requested:
-  - create a billing record for every successfully provisioned website;
-  - six free months from the successful provisioning date;
-  - next hosting renewal: 12 months;
-  - hosting price: USD 80.00 (`8000` minor units);
-  - domain price/date empty unless the operator purchased the domain;
-  - local provider/location;
-  - enforcement mode `payment_page`, while global enforcement remains off
-    until qualification.
-- Show these values in **Settings > Billing provisioning defaults** and allow
-  changing enabled state, free months, renewal months, price, currency, grace
-  days, and default enforcement mode.
-- Add a provisioning-page checkbox, enabled from the configured default, to
-  create the billing record. Show the calculated first paid-through date,
-  future price, and period before the site job is submitted.
-- Register billing only after website provisioning has reached a successful or
-  explicitly accepted partial-success state. Use an idempotency key tied to the
-  provisioning job so retries cannot create duplicate services.
-- Add a narrow bearer-authenticated internal billing endpoint for idempotent
-  service creation. It should accept only bounded provisioning fields and must
-  not expose general billing administration.
-- A billing registration failure must not delete or roll back a working
-  website. Mark the provisioning job partially successful, notify the operator,
-  and provide a retry action.
-- Imported or restored websites should offer the same billing-registration
-  choice but must not receive a fabricated free period unless the operator
-  explicitly selects it.
+- Add a dedicated retry action for billing warnings on otherwise successful
+  provisioning jobs. The implemented registration is idempotent, so retries
+  cannot create duplicate domain records.
+- Add `payment_page` as a provisioning enforcement default only after global
+  enforcement and the pilot allowlist pass qualification. Implemented
+  registrations deliberately use `none`.
+- Restored websites still need the implemented import/provision billing choice
+  exposed in the backup-restore workflow.
 
 ### Remaining Delivery Phases
 
-1. Add configurable six-month-free provisioning defaults and idempotent
-   internal service registration. Qualify new-record creation with a disposable
-   test website.
-2. Qualify payment links and webhooks with the real hidden WooCommerce test
+1. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
    mismatched amount/currency, refund, chargeback, and provider outage.
-3. Implement the nginx map reconciler behind a global off switch. Test stale
+2. Implement the nginx map reconciler behind a global off switch. Test stale
    snapshots, invalid signatures, ambiguous aliases, nginx validation failure,
    billing outage, WooCommerce outage, panel restart, and immediate global
    rollback.
-4. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
+3. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
    suspended, payment, automatic restore, manual exemption, and disable-all
    workflows before adding any production domain to the allowlist.
-5. Build the remote WordPress plugin and enrollment API after local enforcement
+4. Build the remote WordPress plugin and enrollment API after local enforcement
    passes. Pilot one disposable remote WordPress site through enrollment,
    cloning, stale-state, suspension, payment, cache purge, restoration,
    credential revoke, and plugin rollback tests.
-6. Review audit logs, notification behavior, load, and rollback evidence.
+5. Review audit logs, notification behavior, load, and rollback evidence.
    Enable selected production services individually; never bulk-enable the
    imported inventory during the pilot.
 

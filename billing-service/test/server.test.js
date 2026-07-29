@@ -52,6 +52,40 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     await waitForHealth(baseUrl, child);
     assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 5);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
+    const registrationPayload = {
+      primary_domain: "provisioned.example.com",
+      aliases: ["www.provisioned.example.com"],
+      customer_name: "Provisioned client",
+      contact_email: "owner@provisioned.example.com",
+      grant_free_period: true,
+      free_months: 6,
+      renewal_months: 12,
+      hosting_price_minor: 8000,
+      domain_renewal_months: 12,
+      domain_price_minor: 0,
+      currency: "USD",
+      grace_days: 7,
+    };
+    const register = () => fetch(`${baseUrl}/internal/v1/services`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "job_1234567890abcdef",
+      },
+      body: JSON.stringify(registrationPayload),
+    });
+    const registered = await register();
+    assert.equal(registered.status, 201);
+    assert.equal((await registered.json()).created, true);
+    const replayed = await register();
+    assert.equal(replayed.status, 200);
+    assert.equal((await replayed.json()).created, false);
+    assert.equal((await fetch(`${baseUrl}/internal/v1/services`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": "job_1234567890abcdef" },
+      body: JSON.stringify(registrationPayload),
+    })).status, 401);
     const invalidRenewal = await fetch(`${baseUrl}/renew/r1_${"a".repeat(43)}`);
     assert.equal(invalidRenewal.status, 404);
     assert.doesNotMatch(await invalidRenewal.text(), /service_id|customer|email/i);
@@ -90,9 +124,10 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal(applyResponse.status, 200);
 
     const services = await (await request("/api/services")).json();
-    assert.equal(services.services.length, 1);
-    assert.equal(services.services[0].primary_domain, "example.com");
-    const reference = new PublicReference(path.join(root, "data")).forService(services.services[0].service_id);
+    assert.equal(services.services.length, 2);
+    const importedService = services.services.find((service) => service.primary_domain === "example.com");
+    assert.ok(importedService);
+    const reference = new PublicReference(path.join(root, "data")).forService(importedService.service_id);
     const renewalPage = await fetch(`${baseUrl}/renew/${reference}`);
     assert.equal(renewalPage.status, 200);
     const renewalHtml = await renewalPage.text();
@@ -139,7 +174,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     });
     assert.equal(archivedResponse.status, 200);
     assert.equal((await archivedResponse.json()).service.archived, true);
-    assert.equal((await (await request("/api/services")).json()).services.length, 1);
+    assert.equal((await (await request("/api/services")).json()).services.length, 2);
     assert.equal((await (await request("/api/services?archived=only")).json()).services.length, 1);
     const wooSettingsResponse = await request("/api/woocommerce/settings", {
       method: "PUT",

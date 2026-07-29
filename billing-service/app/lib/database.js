@@ -320,6 +320,12 @@ class BillingDatabase {
     return row ? rowView(row, this.reminderDays()) : null;
   }
 
+  serviceByDomain(primaryDomain) {
+    const row = this.db.prepare("SELECT * FROM services WHERE primary_domain=? COLLATE NOCASE")
+      .get(String(primaryDomain || ""));
+    return row ? rowView(row, this.reminderDays()) : null;
+  }
+
   summary() {
     const services = this.services();
     const states = Object.fromEntries(["active", "reminder", "grace", "suspended", "exempt"]
