@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=3">
+  <link rel="stylesheet" href="/styles.css?v=4">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -28,6 +28,7 @@
       </div>
       <nav id="desktopNav" aria-label="Billing sections">
         <button data-view="overview" class="active">Overview</button>
+        <button data-view="services">Services</button>
         <button data-view="payments">Payments</button>
         <button data-view="reminders">Reminders</button>
         <button data-view="import">Import</button>
@@ -37,6 +38,7 @@
       </nav>
       <select id="mobileNav" aria-label="Billing section">
         <option value="overview">Overview</option>
+        <option value="services">Services</option>
         <option value="payments">Payments</option>
         <option value="reminders">Reminders</option>
         <option value="import">Import</option>
@@ -75,6 +77,100 @@
           </table>
         </div>
         <p id="emptyServices" class="empty" hidden>No billing services imported.</p>
+      </section>
+
+      <section data-section="services" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Inventory</p><h1>Service records</h1></div>
+          <button id="newService" class="primary">Add service</button>
+        </div>
+        <div class="service-workspace">
+          <div class="service-browser">
+            <div class="service-filters">
+              <input id="managerSearch" type="search" placeholder="Search services">
+              <select id="managerState" aria-label="Service state filter">
+                <option value="">All renewal states</option>
+                <option value="active">Active</option>
+                <option value="reminder">Reminder</option>
+                <option value="grace">Grace</option>
+                <option value="suspended">Suspended</option>
+                <option value="exempt">Exempt</option>
+              </select>
+              <select id="archiveFilter" aria-label="Archive filter">
+                <option value="">Active records</option>
+                <option value="only">Archived records</option>
+                <option value="all">All records</option>
+              </select>
+            </div>
+            <div id="serviceList" class="service-list"></div>
+            <p id="emptyServiceList" class="empty" hidden>No matching services.</p>
+          </div>
+          <form id="serviceForm" class="form-grid service-editor">
+            <div class="editor-heading wide">
+              <div><p class="eyebrow" id="serviceEditorMode">New record</p><h2 id="serviceEditorTitle">Add billing service</h2></div>
+              <span id="serviceArchiveState" class="state state-exempt" hidden>Archived</span>
+            </div>
+            <input name="service_id" type="hidden">
+            <input name="updated_at" type="hidden">
+            <label>Primary domain<input name="primary_domain" inputmode="url" placeholder="example.com" required></label>
+            <label>Aliases<textarea name="aliases" rows="2" placeholder="www.example.com; shop.example.com"></textarea></label>
+            <label>Customer name<input name="customer_name" autocomplete="name"></label>
+            <label>Contact email<input name="contact_email" type="email" autocomplete="email"></label>
+            <label>Contact phone<input name="contact_phone" autocomplete="tel"></label>
+            <label>Location
+              <select name="location">
+                <option value="local">Local stack</option>
+                <option value="shared">Shared hosting</option>
+                <option value="notification">Notification only</option>
+              </select>
+            </label>
+            <label>Provider<input name="provider"></label>
+            <label>Source reference<input name="source_ref"></label>
+            <fieldset class="renewal-group wide">
+              <legend>Hosting renewal</legend>
+              <label>Paid through<input name="hosting_paid_through" type="date"></label>
+              <label>Period (months)<input name="renewal_months" type="number" min="1" max="120" value="12" required></label>
+              <label>Price<input name="hosting_price" type="number" min="0" max="100000000" step="0.01" value="0" required></label>
+            </fieldset>
+            <fieldset class="renewal-group wide">
+              <legend>Domain renewal</legend>
+              <label>Paid through<input name="domain_paid_through" type="date"></label>
+              <label>Period (months)<input name="domain_renewal_months" type="number" min="1" max="120" value="12" required></label>
+              <label>Price<input name="domain_price" type="number" min="0" max="100000000" step="0.01" value="0" required></label>
+            </fieldset>
+            <label>Currency<input name="currency" maxlength="3" value="USD" required></label>
+            <label>Grace period (days)<input name="grace_days" type="number" min="0" max="365" value="7" required></label>
+            <label>Enforcement mode
+              <select name="enforcement_mode">
+                <option value="none">None</option>
+                <option value="reminder">Reminder only</option>
+                <option value="manual">Manual</option>
+              </select>
+            </label>
+            <label>Manual state
+              <select name="manual_state">
+                <option value="">Calculated</option>
+                <option value="active">Active</option>
+                <option value="reminder">Reminder</option>
+                <option value="grace">Grace</option>
+                <option value="suspended">Suspended</option>
+                <option value="exempt">Exempt</option>
+              </select>
+            </label>
+            <label>Timezone<input name="timezone" value="UTC"></label>
+            <label class="wide">Notes<textarea name="notes" rows="3"></textarea></label>
+            <div class="state-preview wide">
+              <span>Preview</span>
+              <strong>Hosting <span id="hostingStatePreview" class="state state-exempt">exempt</span></strong>
+              <strong>Domain <span id="domainStatePreview" class="state state-exempt">exempt</span></strong>
+            </div>
+            <div class="editor-actions wide">
+              <button class="primary" type="submit">Save service</button>
+              <button id="cancelServiceEdit" class="secondary" type="button">Reset</button>
+              <button id="archiveService" class="danger push-right" type="button" hidden>Archive</button>
+            </div>
+          </form>
+        </div>
       </section>
 
       <section data-section="payments" hidden>
@@ -230,6 +326,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=4" defer></script>
+  <script src="/app.js?v=5" defer></script>
 </body>
 </html>

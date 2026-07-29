@@ -4,9 +4,9 @@ const { normalizeService, validationError } = require("./validation");
 const CANONICAL_HEADERS = [
   "service_id", "primary_domain", "aliases", "customer_name", "contact_email",
   "contact_phone", "location", "provider", "hosting_paid_through",
-  "domain_paid_through", "renewal_months", "hosting_price_minor",
+  "domain_paid_through", "renewal_months", "domain_renewal_months", "hosting_price_minor",
   "domain_price_minor", "currency", "grace_days", "enforcement_mode",
-  "manual_state", "timezone", "notes", "source_ref",
+  "manual_state", "timezone", "notes", "source_ref", "archived",
 ];
 
 const HEADER_MAP = {
@@ -20,7 +20,7 @@ const HEADER_MAP = {
   "hosting months": "renewal_months",
   "hosting next payment": "hosting_paid_through",
   "domain paid": "domain_paid",
-  "domain months": "domain_months",
+  "domain months": "domain_renewal_months",
   "domain next payment": "domain_paid_through",
   "price domain": "domain_price",
   "price hosting": "hosting_price",

@@ -5,6 +5,9 @@ const state = {
   fingerprint: "",
   restoreId: "",
   view: "overview",
+  services: [],
+  selectedServiceId: "",
+  reminderDays: 30,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -56,6 +59,7 @@ function showView(view) {
   $$("[data-view]").forEach((button) => button.classList.toggle("active", button.dataset.view === view));
   $("#mobileNav").value = view;
   if (view === "overview") loadOverview();
+  if (view === "services") loadServiceManager();
   if (view === "payments") loadPayments();
   if (view === "reminders") loadReminders();
   if (view === "backups") loadBackups();
@@ -87,6 +91,7 @@ async function loadOverview() {
     });
     const [status, services] = await Promise.all([api("/api/status"), api(`/api/services?${query}`)]);
     const values = { total: status.summary.total, ...status.summary.states };
+    state.reminderDays = status.reminderDays;
     $("#summary").innerHTML = Object.entries(values).map(([name, value]) =>
       `<div class="summary-item"><small>${escapeHtml(name)}</small><strong>${value}</strong></div>`).join("");
     $("#servicesBody").innerHTML = services.services.map((service) => `
@@ -98,13 +103,119 @@ async function loadOverview() {
         <td><span class="state state-${escapeHtml(service.hosting_state)}">${escapeHtml(service.hosting_state)}</span></td>
         <td><strong>${escapeHtml(service.location)}</strong><small>${escapeHtml(service.provider)}</small></td>
         <td><strong>${escapeHtml(formatMoney(service.hosting_price_minor, service.currency))}</strong><small>${service.renewal_months} months</small></td>
-        <td><button class="secondary" data-payment-service="${escapeHtml(service.service_id)}"
+        <td><div class="row-actions"><button class="secondary" data-edit-service="${escapeHtml(service.service_id)}">Edit</button><button class="secondary" data-payment-service="${escapeHtml(service.service_id)}"
           data-payment-domain="${escapeHtml(service.primary_domain)}"
           data-payment-months="${service.renewal_months}"
-          data-payment-amount="${Number(service.hosting_price_minor || 0)}">Payment</button></td>
+          data-payment-amount="${Number(service.hosting_price_minor || 0)}">Payment</button></div></td>
       </tr>`).join("");
     $("#emptyServices").hidden = services.services.length > 0;
     $("#policyForm").elements.reminder_days.value = status.reminderDays;
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+function previewState(paidThrough, graceDays, manualState, domainState = false) {
+  if (manualState && (!domainState || manualState === "exempt")) return manualState;
+  if (!paidThrough) return "exempt";
+  const paid = Date.parse(`${paidThrough}T23:59:59Z`);
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  if (today <= paid - state.reminderDays * 86_400_000) return "active";
+  if (today <= paid) return "reminder";
+  if (today <= paid + Number(graceDays || 0) * 86_400_000) return "grace";
+  return "suspended";
+}
+
+function setPreview(element, value) {
+  element.textContent = value;
+  element.className = `state state-${value}`;
+}
+
+function updateServicePreview() {
+  const form = $("#serviceForm");
+  setPreview($("#hostingStatePreview"), previewState(
+    form.elements.hosting_paid_through.value,
+    form.elements.grace_days.value,
+    form.elements.manual_state.value,
+  ));
+  setPreview($("#domainStatePreview"), previewState(
+    form.elements.domain_paid_through.value,
+    form.elements.grace_days.value,
+    form.elements.manual_state.value,
+    true,
+  ));
+}
+
+function resetServiceForm() {
+  const form = $("#serviceForm");
+  form.reset();
+  form.elements.service_id.value = "";
+  form.elements.updated_at.value = "";
+  form.elements.renewal_months.value = 12;
+  form.elements.domain_renewal_months.value = 12;
+  form.elements.hosting_price.value = "0";
+  form.elements.domain_price.value = "0";
+  form.elements.currency.value = "USD";
+  form.elements.grace_days.value = 7;
+  form.elements.timezone.value = "UTC";
+  state.selectedServiceId = "";
+  $("#serviceEditorMode").textContent = "New record";
+  $("#serviceEditorTitle").textContent = "Add billing service";
+  $("#serviceArchiveState").hidden = true;
+  $("#archiveService").hidden = true;
+  $$(".service-item").forEach((item) => item.classList.remove("active"));
+  updateServicePreview();
+}
+
+function editService(serviceId) {
+  const service = state.services.find((item) => item.service_id === serviceId);
+  if (!service) return;
+  const form = $("#serviceForm");
+  const values = {
+    ...service,
+    aliases: service.aliases.join("; "),
+    hosting_price: (Number(service.hosting_price_minor) / 100).toFixed(2),
+    domain_price: (Number(service.domain_price_minor) / 100).toFixed(2),
+  };
+  Object.entries(values).forEach(([name, value]) => {
+    if (form.elements[name]) form.elements[name].value = value ?? "";
+  });
+  state.selectedServiceId = serviceId;
+  $("#serviceEditorMode").textContent = "Editing record";
+  $("#serviceEditorTitle").textContent = service.primary_domain;
+  $("#serviceArchiveState").hidden = !service.archived;
+  const archiveButton = $("#archiveService");
+  archiveButton.hidden = false;
+  archiveButton.textContent = service.archived ? "Restore record" : "Archive record";
+  archiveButton.classList.toggle("danger", !service.archived);
+  archiveButton.classList.toggle("secondary", service.archived);
+  $$(".service-item").forEach((item) => item.classList.toggle("active", item.dataset.serviceId === serviceId));
+  updateServicePreview();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function loadServiceManager(preferredServiceId = state.selectedServiceId) {
+  try {
+    const query = new URLSearchParams({
+      search: $("#managerSearch").value,
+      state: $("#managerState").value,
+      archived: $("#archiveFilter").value,
+    });
+    const result = await api(`/api/services?${query}`);
+    state.services = result.services;
+    $("#serviceList").innerHTML = result.services.map((service) => `
+      <button type="button" class="service-item${service.service_id === preferredServiceId ? " active" : ""}" data-service-id="${escapeHtml(service.service_id)}">
+        <strong>${escapeHtml(service.primary_domain)}</strong>
+        <span class="service-item-meta"><small>${escapeHtml(service.customer_name || service.location)}</small>
+        <span class="state state-${service.archived ? "exempt" : escapeHtml(service.hosting_state)}">${service.archived ? "archived" : escapeHtml(service.hosting_state)}</span></span>
+      </button>`).join("");
+    $("#emptyServiceList").hidden = result.services.length > 0;
+    if (preferredServiceId && result.services.some((service) => service.service_id === preferredServiceId)) {
+      editService(preferredServiceId);
+    } else {
+      resetServiceForm();
+    }
   } catch (error) {
     notice(error.message, true);
   }
@@ -274,6 +385,12 @@ $("#serviceSearch").addEventListener("input", () => {
 });
 
 $("#servicesBody").addEventListener("click", (event) => {
+  const editId = event.target.dataset.editService;
+  if (editId) {
+    state.selectedServiceId = editId;
+    showView("services");
+    return;
+  }
   const serviceId = event.target.dataset.paymentService;
   if (!serviceId) return;
   const form = $("#paymentLinkForm");
@@ -284,6 +401,72 @@ $("#servicesBody").addEventListener("click", (event) => {
   $("#paymentService").textContent = event.target.dataset.paymentDomain;
   $("#paymentLinkResult").hidden = true;
   showView("payments");
+});
+
+$("#newService").addEventListener("click", () => {
+  resetServiceForm();
+  $("#serviceForm").elements.primary_domain.focus();
+});
+
+$("#cancelServiceEdit").addEventListener("click", resetServiceForm);
+
+$("#serviceList").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-service-id]");
+  if (item) editService(item.dataset.serviceId);
+});
+
+let managerSearchTimer;
+$("#managerSearch").addEventListener("input", () => {
+  clearTimeout(managerSearchTimer);
+  managerSearchTimer = setTimeout(() => loadServiceManager(""), 250);
+});
+$("#archiveFilter").addEventListener("change", () => loadServiceManager(""));
+$("#managerState").addEventListener("change", () => loadServiceManager(""));
+
+["hosting_paid_through", "domain_paid_through", "grace_days", "manual_state"].forEach((name) => {
+  $("#serviceForm").elements[name].addEventListener("input", updateServicePreview);
+});
+
+$("#serviceForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector(".primary");
+  try {
+    await busy(button, async () => {
+      const body = Object.fromEntries(new FormData(form));
+      const serviceId = body.service_id;
+      const result = await api(serviceId ? `/api/services/${encodeURIComponent(serviceId)}` : "/api/services", {
+        method: serviceId ? "PUT" : "POST",
+        body: JSON.stringify(body),
+      });
+      notice(serviceId ? "Billing service updated." : "Billing service created.");
+      await loadServiceManager(result.service.service_id);
+      await loadOverview();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#archiveService").addEventListener("click", async (event) => {
+  const service = state.services.find((item) => item.service_id === state.selectedServiceId);
+  if (!service) return;
+  const archived = !service.archived;
+  const action = archived ? "archive" : "restore";
+  if (!window.confirm(`${action[0].toUpperCase()}${action.slice(1)} ${service.primary_domain}? Billing and audit history will be preserved.`)) return;
+  try {
+    await busy(event.currentTarget, async () => {
+      await api(`/api/services/${encodeURIComponent(service.service_id)}/archive`, {
+        method: "POST",
+        body: JSON.stringify({ archived, updated_at: service.updated_at }),
+      });
+      notice(`Billing service ${archived ? "archived" : "restored"}.`);
+      await loadServiceManager("");
+      await loadOverview();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
 });
 
 $("#wooSettingsForm").addEventListener("submit", async (event) => {

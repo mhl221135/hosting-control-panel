@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 function parseJson(value, fallback) {
   try {
@@ -20,6 +20,7 @@ function rowView(row, reminderDays, now = new Date()) {
     aliases: parseJson(row.aliases_json, []),
   };
   delete service.aliases_json;
+  service.archived = Boolean(service.archived);
   service.hosting_state = stateForDate(service.hosting_paid_through, {
     reminderDays,
     graceDays: service.grace_days,
@@ -29,6 +30,42 @@ function rowView(row, reminderDays, now = new Date()) {
     graceDays: service.grace_days,
   }, service.manual_state === "exempt" ? "exempt" : "", now);
   return service;
+}
+
+function databaseConflict(error) {
+  if (String(error.message).includes("services.primary_domain")) {
+    return Object.assign(new Error("A billing service already uses this primary domain"), { statusCode: 409 });
+  }
+  if (String(error.message).includes("services.service_id")) {
+    return Object.assign(new Error("A billing service already uses this service ID"), { statusCode: 409 });
+  }
+  return error;
+}
+
+function nextTimestamp(previous = "") {
+  const now = Date.now();
+  const prior = Date.parse(previous);
+  return new Date(Number.isFinite(prior) ? Math.max(now, prior + 1) : now).toISOString();
+}
+
+function auditSnapshot(service) {
+  return {
+    primary_domain: service.primary_domain,
+    aliases: service.aliases,
+    location: service.location,
+    provider: service.provider,
+    hosting_paid_through: service.hosting_paid_through,
+    domain_paid_through: service.domain_paid_through,
+    renewal_months: service.renewal_months,
+    domain_renewal_months: service.domain_renewal_months,
+    hosting_price_minor: service.hosting_price_minor,
+    domain_price_minor: service.domain_price_minor,
+    currency: service.currency,
+    grace_days: service.grace_days,
+    enforcement_mode: service.enforcement_mode,
+    manual_state: service.manual_state,
+    archived: Boolean(service.archived),
+  };
 }
 
 class BillingDatabase {
@@ -168,6 +205,17 @@ class BillingDatabase {
         COMMIT;
       `);
     }
+    if (current < 4) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        ALTER TABLE services ADD COLUMN domain_renewal_months INTEGER NOT NULL DEFAULT 12;
+        ALTER TABLE services ADD COLUMN archived INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1));
+        UPDATE services SET domain_renewal_months=renewal_months;
+        CREATE INDEX services_archived_domain ON services(archived, primary_domain COLLATE NOCASE);
+        PRAGMA user_version=4;
+        COMMIT;
+      `);
+    }
   }
 
   transaction(operation) {
@@ -236,7 +284,10 @@ class BillingDatabase {
     const now = query.now || new Date();
     const search = String(query.search || "").trim().toLowerCase();
     const state = String(query.state || "");
+    const archived = String(query.archived || "");
     return rows.map((row) => rowView(row, this.reminderDays(), now)).filter((service) => {
+      if (archived === "only" && !service.archived) return false;
+      if (archived !== "all" && archived !== "only" && service.archived) return false;
       if (state && service.hosting_state !== state) return false;
       if (search && ![
         service.primary_domain, service.customer_name, service.contact_email,
@@ -256,6 +307,107 @@ class BillingDatabase {
     const states = Object.fromEntries(["active", "reminder", "grace", "suspended", "exempt"]
       .map((state) => [state, services.filter((service) => service.hosting_state === state).length]));
     return { total: services.length, states, generatedAt: new Date().toISOString() };
+  }
+
+  createService(service, actor) {
+    const timestamp = nextTimestamp();
+    try {
+      return this.transaction(() => {
+        this.db.prepare(`
+          INSERT INTO services(
+            service_id,primary_domain,aliases_json,customer_name,contact_email,contact_phone,
+            location,provider,hosting_paid_through,domain_paid_through,renewal_months,
+            domain_renewal_months,hosting_price_minor,domain_price_minor,currency,grace_days,
+            enforcement_mode,manual_state,timezone,notes,source_ref,archived,created_at,updated_at
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        `).run(
+          service.service_id, service.primary_domain, JSON.stringify(service.aliases),
+          service.customer_name, service.contact_email, service.contact_phone, service.location,
+          service.provider, service.hosting_paid_through, service.domain_paid_through,
+          service.renewal_months, service.domain_renewal_months, service.hosting_price_minor,
+          service.domain_price_minor, service.currency, service.grace_days,
+          service.enforcement_mode, service.manual_state, service.timezone, service.notes,
+          service.source_ref, Number(service.archived), timestamp, timestamp,
+        );
+        this.db.prepare(
+          "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+        ).run(crypto.randomUUID(), service.service_id, "inventory.created", timestamp, JSON.stringify({
+          primaryDomain: service.primary_domain,
+        }));
+        this.auditEntry(actor, "inventory.create", service.service_id, { after: auditSnapshot(service) });
+        return this.service(service.service_id);
+      });
+    } catch (error) {
+      throw databaseConflict(error);
+    }
+  }
+
+  updateService(serviceId, service, expectedUpdatedAt, actor) {
+    const current = this.service(serviceId);
+    if (!current) throw Object.assign(new Error("Billing service not found"), { statusCode: 404 });
+    if (!expectedUpdatedAt) throw Object.assign(new Error("updated_at precondition is required"), { statusCode: 400 });
+    if (current.updated_at !== expectedUpdatedAt) {
+      throw Object.assign(new Error("This service changed in another session; reload it before saving"), { statusCode: 409 });
+    }
+    const timestamp = nextTimestamp(current.updated_at);
+    const before = auditSnapshot(current);
+    try {
+      return this.transaction(() => {
+        const result = this.db.prepare(`
+          UPDATE services SET
+            primary_domain=?,aliases_json=?,customer_name=?,contact_email=?,contact_phone=?,
+            location=?,provider=?,hosting_paid_through=?,domain_paid_through=?,renewal_months=?,
+            domain_renewal_months=?,hosting_price_minor=?,domain_price_minor=?,currency=?,
+            grace_days=?,enforcement_mode=?,manual_state=?,timezone=?,notes=?,source_ref=?,
+            updated_at=?
+          WHERE service_id=? AND updated_at=?
+        `).run(
+          service.primary_domain, JSON.stringify(service.aliases), service.customer_name,
+          service.contact_email, service.contact_phone, service.location, service.provider,
+          service.hosting_paid_through, service.domain_paid_through, service.renewal_months,
+          service.domain_renewal_months, service.hosting_price_minor, service.domain_price_minor,
+          service.currency, service.grace_days, service.enforcement_mode, service.manual_state,
+          service.timezone, service.notes, service.source_ref, timestamp, serviceId, expectedUpdatedAt,
+        );
+        if (result.changes !== 1) {
+          throw Object.assign(new Error("This service changed in another session; reload it before saving"), { statusCode: 409 });
+        }
+        const updated = this.service(serviceId);
+        const after = auditSnapshot(updated);
+        const changedFields = Object.keys(after).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+        this.db.prepare(
+          "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+        ).run(crypto.randomUUID(), serviceId, "inventory.updated", timestamp, JSON.stringify({ changedFields }));
+        this.auditEntry(actor, "inventory.update", serviceId, { changedFields, before, after });
+        return updated;
+      });
+    } catch (error) {
+      throw databaseConflict(error);
+    }
+  }
+
+  archiveService(serviceId, archived, expectedUpdatedAt, actor) {
+    const current = this.service(serviceId);
+    if (!current) throw Object.assign(new Error("Billing service not found"), { statusCode: 404 });
+    if (!expectedUpdatedAt) throw Object.assign(new Error("updated_at precondition is required"), { statusCode: 400 });
+    if (current.updated_at !== expectedUpdatedAt) {
+      throw Object.assign(new Error("This service changed in another session; reload it before saving"), { statusCode: 409 });
+    }
+    const timestamp = nextTimestamp(current.updated_at);
+    return this.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE services SET archived=?,updated_at=? WHERE service_id=? AND updated_at=?",
+      ).run(Number(Boolean(archived)), timestamp, serviceId, expectedUpdatedAt);
+      if (result.changes !== 1) {
+        throw Object.assign(new Error("This service changed in another session; reload it before saving"), { statusCode: 409 });
+      }
+      const action = archived ? "inventory.archive" : "inventory.restore";
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), serviceId, action, timestamp, "{}");
+      this.auditEntry(actor, action, serviceId, { primaryDomain: current.primary_domain });
+      return this.service(serviceId);
+    });
   }
 
   audit(limit = 100) {
@@ -283,19 +435,20 @@ class BillingDatabase {
         INSERT INTO services(
           service_id,primary_domain,aliases_json,customer_name,contact_email,contact_phone,
           location,provider,hosting_paid_through,domain_paid_through,renewal_months,
-          hosting_price_minor,domain_price_minor,currency,grace_days,enforcement_mode,
-          manual_state,timezone,notes,source_ref,created_at,updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          domain_renewal_months,hosting_price_minor,domain_price_minor,currency,grace_days,
+          enforcement_mode,manual_state,timezone,notes,source_ref,archived,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(service_id) DO UPDATE SET
           primary_domain=excluded.primary_domain,aliases_json=excluded.aliases_json,
           customer_name=excluded.customer_name,contact_email=excluded.contact_email,
           contact_phone=excluded.contact_phone,location=excluded.location,provider=excluded.provider,
           hosting_paid_through=excluded.hosting_paid_through,domain_paid_through=excluded.domain_paid_through,
-          renewal_months=excluded.renewal_months,hosting_price_minor=excluded.hosting_price_minor,
+          renewal_months=excluded.renewal_months,domain_renewal_months=excluded.domain_renewal_months,
+          hosting_price_minor=excluded.hosting_price_minor,
           domain_price_minor=excluded.domain_price_minor,currency=excluded.currency,
           grace_days=excluded.grace_days,enforcement_mode=excluded.enforcement_mode,
           manual_state=excluded.manual_state,timezone=excluded.timezone,notes=excluded.notes,
-          source_ref=excluded.source_ref,updated_at=excluded.updated_at
+          source_ref=excluded.source_ref,archived=excluded.archived,updated_at=excluded.updated_at
       `);
       const event = this.db.prepare(
         "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
@@ -311,9 +464,10 @@ class BillingDatabase {
           service.service_id, service.primary_domain, JSON.stringify(service.aliases),
           service.customer_name, service.contact_email, service.contact_phone, service.location,
           service.provider, service.hosting_paid_through, service.domain_paid_through,
-          service.renewal_months, service.hosting_price_minor, service.domain_price_minor,
+          service.renewal_months, service.domain_renewal_months, service.hosting_price_minor, service.domain_price_minor,
           service.currency, service.grace_days, service.enforcement_mode, service.manual_state,
-          service.timezone, service.notes, service.source_ref, existing?.created_at || timestamp, timestamp,
+          service.timezone, service.notes, service.source_ref, Number(service.archived),
+          existing?.created_at || timestamp, timestamp,
         );
         event.run(crypto.randomUUID(), service.service_id, "inventory.imported", timestamp, JSON.stringify({
           fingerprint,

@@ -28,6 +28,18 @@ status, service inventory, audit, settings, transactional CSV preview/apply and
 export, WooCommerce settings/test, payment-link creation and history, plus
 backup create/test/restore. They do not accept a hosting-panel session.
 
+Service inventory routes are:
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/services` | Search/filter active, archived, or all service records |
+| `POST /api/services` | Create one validated service with a stable ID |
+| `PUT /api/services/:id` | Update a service using its `updated_at` precondition |
+| `POST /api/services/:id/archive` | Archive or restore while preserving history |
+
+Create/update values are validated server-side. A duplicate primary domain or
+stale `updated_at` value returns `409`; no service hard-delete route exists.
+
 `GET /internal/v1/entitlements` requires
 `Authorization: Bearer <BILLING_API_TOKEN>`. It returns current renewal state
 and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
