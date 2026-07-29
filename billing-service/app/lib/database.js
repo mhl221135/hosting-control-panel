@@ -302,6 +302,41 @@ class BillingDatabase {
       .run(date);
   }
 
+  paymentOptionSettings() {
+    const rows = this.db.prepare(
+      "SELECT key,value FROM settings WHERE key IN ('payment_options_enabled','payment_options_time','payment_options_last_run')",
+    ).all();
+    const values = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    return {
+      enabled: values.payment_options_enabled === "true",
+      time: values.payment_options_time || "08:30",
+      lastRun: values.payment_options_last_run || "",
+    };
+  }
+
+  updatePaymentOptionSettings(input, actor) {
+    const time = String(input.time || "");
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+      throw Object.assign(new Error("Payment option time must use HH:MM"), { statusCode: 400 });
+    }
+    if (typeof input.enabled !== "boolean") {
+      throw Object.assign(new Error("Payment option enabled must be a boolean"), { statusCode: 400 });
+    }
+    const enabled = input.enabled;
+    this.transaction(() => {
+      const upsert = this.db.prepare("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value");
+      upsert.run("payment_options_enabled", String(enabled));
+      upsert.run("payment_options_time", time);
+      this.auditEntry(actor, "payment_options.settings_update", "schedule", { enabled, time });
+    });
+    return this.paymentOptionSettings();
+  }
+
+  setPaymentOptionLastRun(date) {
+    this.db.prepare("INSERT INTO settings(key,value) VALUES('payment_options_last_run',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+      .run(date);
+  }
+
   services(query = {}) {
     const rows = this.db.prepare("SELECT * FROM services ORDER BY primary_domain COLLATE NOCASE").all();
     const now = query.now || new Date();
@@ -624,6 +659,15 @@ class BillingDatabase {
     `).get(String(paymentId || "")) || null;
   }
 
+  latestPayment(serviceId, selection) {
+    return this.db.prepare(`
+      SELECT payment_id,service_id,woo_order_id,status,selection,expires_at,created_at
+      FROM payments
+      WHERE service_id=? AND selection=?
+      ORDER BY created_at DESC LIMIT 1
+    `).get(serviceId, selection) || null;
+  }
+
   cancelPayment(paymentId, reason, actor) {
     const boundedReason = String(reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
     if (boundedReason.length < 3) {
@@ -653,6 +697,36 @@ class BillingDatabase {
         paymentId: payment.payment_id,
         wooOrderId: payment.woo_order_id,
         reason: boundedReason,
+      });
+      return this.payment(payment.payment_id);
+    });
+  }
+
+  cancelExpiredPayment(paymentId, reason, actor) {
+    const payment = this.payment(paymentId);
+    if (!payment) throw Object.assign(new Error("Payment record was not found"), { statusCode: 404 });
+    if (payment.status !== "expired") {
+      throw Object.assign(new Error("Only an expired payment can be retired"), { statusCode: 409 });
+    }
+    const timestamp = new Date().toISOString();
+    return this.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE payments SET status='cancelled' WHERE payment_id=? AND status='expired'",
+      ).run(payment.payment_id);
+      if (result.changes !== 1) {
+        throw Object.assign(new Error("Payment state changed before refresh completed"), { statusCode: 409 });
+      }
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), payment.service_id, "payment.expired_order_cancelled", timestamp, JSON.stringify({
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reason,
+      }));
+      this.auditEntry(actor, "payment.expired_order_cancel", payment.service_id, {
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reason,
       });
       return this.payment(payment.payment_id);
     });

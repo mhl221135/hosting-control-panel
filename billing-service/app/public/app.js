@@ -302,7 +302,7 @@ function timingLabel(days) {
 
 async function loadReminders() {
   try {
-    const result = await api("/api/reminders");
+    const [result, options] = await Promise.all([api("/api/reminders"), api("/api/payment-options")]);
     const form = $("#reminderSettingsForm");
     form.elements.enabled.checked = result.settings.enabled;
     form.elements.time.value = result.settings.time;
@@ -329,6 +329,21 @@ async function loadReminders() {
         <td>${escapeHtml(item.error)}</td>
       </tr>`).join("");
     $("#emptyReminderHistory").hidden = result.history.length > 0;
+    const optionForm = $("#paymentOptionSettingsForm");
+    optionForm.elements.enabled.checked = options.settings.enabled;
+    optionForm.elements.time.value = options.settings.time;
+    $("#paymentOptionScheduleStatus").textContent = options.settings.enabled
+      ? `Enabled at ${options.settings.time}. Last scheduler run: ${options.settings.lastRun || "not yet"}.`
+      : "Disabled.";
+    $("#paymentOptionPreviewBody").innerHTML = options.preview.map((item) => `
+      <tr>
+        <td><strong>${escapeHtml(item.domain)}</strong><small>${escapeHtml(item.service_id)}</small></td>
+        <td>${escapeHtml(item.selection)}</td>
+        <td>${escapeHtml(formatMoney(item.amount_minor, item.currency))}</td>
+        <td><span class="state state-${item.action === "blocked" ? "suspended" : "reminder"}">${escapeHtml(item.action)}</span></td>
+        <td>${escapeHtml(item.reason)}</td>
+      </tr>`).join("");
+    $("#emptyPaymentOptionPreview").hidden = options.preview.length > 0;
   } catch (error) {
     notice(error.message, true);
   }
@@ -750,6 +765,48 @@ $("#runReminders").addEventListener("click", async (event) => {
       const sent = result.result.results.filter((item) => item.ok).length;
       const failed = result.result.results.length - sent;
       notice(`Reminder run complete: ${sent} sent, ${failed} failed, ${result.result.due} due.`);
+      await loadReminders();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#paymentOptionSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  try {
+    await busy(button, async () => {
+      await api("/api/payment-options/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: form.elements.enabled.checked,
+          time: form.elements.time.value,
+        }),
+      });
+      notice("Payment option schedule saved.");
+      await loadReminders();
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#runPaymentOptionsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  try {
+    await busy(button, async () => {
+      const response = await api("/api/payment-options/run", {
+        method: "POST",
+        body: JSON.stringify({ confirm: form.elements.confirm.value }),
+      });
+      const created = response.result.results.filter((item) => item.ok).length;
+      const failed = response.result.results.length - created;
+      notice(`Payment option run complete: ${created} created, ${failed} failed, ${response.result.blocked} blocked, ${response.result.deferred} deferred.`);
+      form.reset();
       await loadReminders();
     });
   } catch (error) {

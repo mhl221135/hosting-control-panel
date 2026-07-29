@@ -85,9 +85,6 @@ remain a later optional adapter.
 
 ### Public Renewal Page
 
-- Add an authenticated scheduler/reconciler that creates or refreshes overdue
-  payment options. The implemented public GET is read-only and shows only
-  already-created active options.
 - If WooCommerce is unavailable or no valid order exists, show a bounded
   operator-contact message and keep retrying through the controlled scheduler.
 
