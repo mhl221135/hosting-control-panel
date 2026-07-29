@@ -19,6 +19,7 @@ test("manual overrides use reasoned actions instead of an unaudited state select
   assert.match(html, /data-manual-action="exempt"/);
   assert.match(html, /data-manual-action="resume"/);
   assert.match(html, /data-manual-action="suspend"/);
+  assert.match(html, /value="payment_page"/);
   assert.match(source, /reason, updated_at: service\.updated_at/);
 });
 

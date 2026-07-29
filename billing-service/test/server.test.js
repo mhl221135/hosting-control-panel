@@ -291,6 +291,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal(internal.status, 200);
     const feed = await internal.json();
     assert.equal(feed.services[0].primaryDomain, "example.com");
+    assert.match(feed.services[0].renewalUrl, /^https:\/\/billing\.example\.com\/renew\/[A-Za-z0-9_-]+$/);
     assert.match(feed.signature, /^[A-Za-z0-9_-]{43}$/);
 
     const backupResponse = await request("/api/backups", { method: "POST", body: "{}" });

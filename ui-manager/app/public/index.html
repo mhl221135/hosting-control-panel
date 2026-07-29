@@ -891,6 +891,28 @@
             <p id="billingObserverUnmatched" class="muted full">Refresh to compare billing inventory with local websites.</p>
           </form>
 
+          <form id="billingEnforcementSettingsForm" class="panel form-grid">
+            <div class="group-title full">
+              <h3>Billing enforcement pilot</h3>
+              <p>Redirect only explicitly allowed local websites when a fresh signed entitlement is suspended and its policy is payment_page. The global switch and allowlist default to off and empty.</p>
+            </div>
+            <label class="check inline"><input name="enabled" type="checkbox" /> Enable billing enforcement globally</label>
+            <label class="full">Pilot website domains<textarea name="pilotDomains" rows="4" placeholder="testsite.example.com"></textarea><small>One primary local hostname per line. Aliases are included only when the signed service owns them.</small></label>
+            <div class="form-actions full"><button type="submit">Save enforcement settings</button></div>
+            <pre id="billingEnforcementStatus" class="status-box compact-status full">Enforcement status unavailable.</pre>
+            <div class="table-wrap full">
+              <table>
+                <thead><tr><th>Local website</th><th>Billing state</th><th>Policy</th><th>Proposed action</th><th>Reason</th></tr></thead>
+                <tbody id="billingEnforcementRows"><tr class="empty-row"><td colspan="5">No local billing matches to evaluate.</td></tr></tbody>
+              </table>
+            </div>
+            <label class="full">Typed confirmation<input id="billingEnforcementConfirm" autocomplete="off" placeholder="RECONCILE or DISABLE" /></label>
+            <div class="form-actions full button-row">
+              <button id="reconcileBillingEnforcement" type="button">Reconcile now</button>
+              <button id="disableBillingEnforcement" type="button" class="danger">Disable and restore all</button>
+            </div>
+          </form>
+
           <form id="performanceSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>PHP and OPcache</h3></div>
             <label>PHP memory per request (MB)<input name="phpMemoryLimitMb" type="number" min="128" max="2048" required /></label>

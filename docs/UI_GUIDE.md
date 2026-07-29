@@ -413,6 +413,17 @@ current configuration before large edits.
 | **Test MySQL** | Verifies container access using the database container's existing root environment. |
 | **Save integration settings** | Encrypts and persists integration configuration. |
 
+### Billing settings
+
+| Control | Function |
+| --- | --- |
+| **Billing provisioning defaults** | Sets optional defaults used only when a provision/restore explicitly registers a billing service. |
+| **Billing entitlement observer** | Verifies signed inventory and renewal URLs, checks freshness and domain ownership, and reports local matches. |
+| **Enable billing enforcement globally** | Arms the local reconciler. It defaults off and cannot act without an explicit pilot allowlist. |
+| **Pilot website domains** | Restricts enforcement to listed local primary hosts; aliases must also be owned by the signed service. |
+| **Reconcile now** | Requires `RECONCILE`, validates nginx, and atomically applies only the displayed fresh plan. |
+| **Disable and restore all** | Requires `DISABLE`, turns off the global switch, and immediately clears every managed redirect. |
+
 ### Performance settings
 
 | Section | Managed values |

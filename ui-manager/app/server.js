@@ -56,6 +56,7 @@ const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
 const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
 const { BillingEntitlementObserver } = require("./lib/billing-entitlement-observer");
+const { BillingEnforcementManager } = require("./lib/billing-enforcement");
 const {
   BillingProvisioningClient,
   BillingProvisioningSettings,
@@ -72,6 +73,8 @@ const POOLS_PATH = process.env.POOLS_PATH || "/srv/configs/php-fpm/pools.conf";
 const DEFAULT_POOL_PATH = path.join(DATA_DIR, "default-pool.json");
 const PRESETS_PATH = path.join(DATA_DIR, "pool-presets.json");
 const CACHE_MAP_PATH = process.env.CACHE_MAP_PATH || "/srv/configs/nginx/conf.d/cache.map";
+const BILLING_ENFORCEMENT_MAP_PATH = process.env.BILLING_ENFORCEMENT_MAP_PATH
+  || "/srv/configs/nginx/conf.d/billing-enforcement.map";
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
 const APP_DATA_ROOT = process.env.APP_DATA_ROOT || "/srv/app-data";
 const BACKUPS_ROOT = process.env.BACKUPS_ROOT || "/srv/backups";
@@ -149,6 +152,21 @@ const billingEntitlementObserver = new BillingEntitlementObserver({
     const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
     return getSitesWithPools(mapParsed, poolsParsed);
+  },
+});
+const billingEnforcementManager = new BillingEnforcementManager({
+  dataDir: DATA_DIR,
+  mapPath: BILLING_ENFORCEMENT_MAP_PATH,
+  nginxDefaultPath: NGINX_DEFAULT_PATH,
+  observer: billingEntitlementObserver,
+  siteProvider: async () => {
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    return getSitesWithPools(mapParsed, poolsParsed);
+  },
+  validateReload: async () => {
+    await execCommand("docker exec hosting-nginx nginx -t", 20_000);
+    await execCommand("docker exec hosting-nginx nginx -s reload");
   },
 });
 const billingProvisioningSettings = new BillingProvisioningSettings(DATA_DIR);
@@ -2043,7 +2061,53 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/billing/observer/refresh") {
-    sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.refresh() });
+    const observer = await billingEntitlementObserver.refresh();
+    let enforcement = null;
+    if (billingEnforcementManager.readSettings().enabled) {
+      enforcement = await billingEnforcementManager.reconcile(req.auth.email);
+    }
+    sendJson(res, 200, { ok: true, observer, enforcement });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/billing/enforcement") {
+    sendJson(res, 200, { ok: true, enforcement: await billingEnforcementManager.view() });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/billing/enforcement/settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, {
+      ok: true,
+      enforcement: await billingEnforcementManager.updateSettings({
+        enabled: body.enabled === true,
+        pilotDomains: body.pilotDomains,
+      }, req.auth.email),
+    });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/billing/enforcement/reconcile") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "RECONCILE") {
+      throw Object.assign(new Error("Type RECONCILE to apply the current billing enforcement plan"), {
+        statusCode: 400,
+      });
+    }
+    const result = await billingEnforcementManager.reconcile(req.auth.email);
+    sendJson(res, 200, { ok: true, result, enforcement: await billingEnforcementManager.view() });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/billing/enforcement/disable") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "DISABLE") {
+      throw Object.assign(new Error("Type DISABLE to clear every billing enforcement entry"), {
+        statusCode: 400,
+      });
+    }
+    const result = await billingEnforcementManager.disableAll(req.auth.email);
+    sendJson(res, 200, { ok: true, result, enforcement: await billingEnforcementManager.view() });
     return true;
   }
 
@@ -3437,6 +3501,7 @@ server.listen(PORT, "0.0.0.0", () => {
   telegramCommandManager.start();
   healthMonitor.start();
   billingEntitlementObserver.start();
+  billingEnforcementManager.start();
   jobManager.start();
   cloudflareAutomation.start();
   backupManager.start();
