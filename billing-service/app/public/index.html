@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=6">
+  <link rel="stylesheet" href="/styles.css?v=7">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -147,22 +147,28 @@
                 <option value="manual">Manual</option>
               </select>
             </label>
-            <label>Manual state
-              <select name="manual_state">
-                <option value="">Calculated</option>
-                <option value="active">Active</option>
-                <option value="reminder">Reminder</option>
-                <option value="grace">Grace</option>
-                <option value="suspended">Suspended</option>
-                <option value="exempt">Exempt</option>
-              </select>
-            </label>
+            <input name="manual_state" type="hidden">
             <label>Timezone<input name="timezone" value="UTC"></label>
             <label class="wide">Notes<textarea name="notes" rows="3"></textarea></label>
             <div class="state-preview wide">
               <span>Preview</span>
               <strong>Hosting <span id="hostingStatePreview" class="state state-exempt">exempt</span></strong>
               <strong>Domain <span id="domainStatePreview" class="state state-exempt">exempt</span></strong>
+            </div>
+            <div id="manualActions" class="manual-actions wide" hidden>
+              <div>
+                <strong>Manual override</strong>
+                <span id="manualStateValue">Calculated from renewal date</span>
+              </div>
+              <label>Reason
+                <input id="manualActionReason" maxlength="500" minlength="3" placeholder="Required for the audit record">
+              </label>
+              <div class="manual-action-buttons">
+                <button class="secondary" type="button" data-manual-action="exempt">Exempt</button>
+                <button class="primary" type="button" data-manual-action="resume">Resume calculated state</button>
+                <button class="danger" type="button" data-manual-action="suspend">Suspend state</button>
+              </div>
+              <small>These actions update billing state only. Website blocking remains unavailable while enforcement is disabled.</small>
             </div>
             <div class="editor-actions wide">
               <button class="primary" type="submit">Save service</button>
@@ -347,6 +353,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=6" defer></script>
+  <script src="/app.js?v=7" defer></script>
 </body>
 </html>

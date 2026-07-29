@@ -111,10 +111,42 @@ test("creates, updates, archives, restores, and rejects stale writes", () => {
       () => value.database.updateService(created.service_id, service, created.updated_at, "admin@example.com"),
       /another session/,
     );
+    const exempted = value.database.applyManualAction(
+      created.service_id, "exempt", "Complimentary hosting", updated.updated_at, "admin@example.com",
+    );
+    assert.equal(exempted.manual_state, "exempt");
+    assert.equal(value.database.audit()[0].action, "inventory.manual_exempt");
+    assert.equal(value.database.audit()[0].summary.reason, "Complimentary hosting");
+    assert.throws(
+      () => value.database.applyManualAction(
+        created.service_id, "suspend", "Stale operator request", updated.updated_at, "admin@example.com",
+      ),
+      /another session/,
+    );
+    const suspended = value.database.applyManualAction(
+      created.service_id, "suspend", "Payment requires review", exempted.updated_at, "admin@example.com",
+    );
+    assert.equal(suspended.manual_state, "suspended");
+    const resumed = value.database.applyManualAction(
+      created.service_id, "resume", "Review completed", suspended.updated_at, "admin@example.com",
+    );
+    assert.equal(resumed.manual_state, "");
     const archived = value.database.archiveService(
-      created.service_id, true, updated.updated_at, "admin@example.com",
+      created.service_id, true, resumed.updated_at, "admin@example.com",
     );
     assert.equal(archived.archived, true);
+    assert.throws(
+      () => value.database.applyManualAction(
+        created.service_id, "exempt", "Archived record", archived.updated_at, "admin@example.com",
+      ),
+      /Restore the archived service/,
+    );
+    assert.throws(
+      () => value.database.applyManualAction(
+        created.service_id, "exempt", "x", archived.updated_at, "admin@example.com",
+      ),
+      /at least 3 characters/,
+    );
     assert.equal(value.database.services().length, 0);
     assert.equal(value.database.services({ archived: "only" }).length, 1);
     const restored = value.database.archiveService(

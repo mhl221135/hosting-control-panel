@@ -67,6 +67,14 @@ Archiving preserves events, payments, and audit history, removes the record
 from active summaries and entitlement output, and can be reversed from the
 archived-record filter. There is no hard-delete browser action.
 
+Existing active records expose explicit **Exempt**, **Resume calculated
+state**, and **Suspend state** actions. Each requires a reason and the current
+`updated_at` value, writes an immutable event, and records the before/after
+override in the audit log. The generic editor cannot bypass the reason
+requirement. Resume clears the override rather than forcing `active`.
+Suspension here is billing state only; it cannot block a website while hosting
+enforcement remains disabled.
+
 Schema migration v4 copies each existing `renewal_months` value to the new
 domain-renewal period without changing dates or prices. Canonical CSV exports
 include both periods and the archived state; legacy `Domain Months` is mapped
