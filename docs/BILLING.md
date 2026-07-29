@@ -7,7 +7,9 @@ MySQL, runtime configuration, or the Docker socket.
 
 The service is intentionally unable to suspend or otherwise mutate hosted
 sites. It calculates renewal state and can create WooCommerce renewal orders,
-but reminders and enforcement remain future work.
+queues reminders through a narrow panel adapter, and publishes signed
+entitlements. Optional local enforcement is owned by the hosting panel and
+internal nginx; billing itself has no access to either.
 
 ## Storage And Network
 
@@ -52,7 +54,9 @@ Calculated states are:
 - `suspended`: grace has elapsed;
 - `exempt`: missing dates or an explicit exemption.
 
-Phase 1 does not enforce the calculated state.
+Calculated state alone does not enforce anything. Local suspension additionally
+requires a fresh signed snapshot, scheduled observation, `payment_page` policy,
+the hosting panel's global switch, and an exact pilot allowlist entry.
 
 ## Service Management
 
@@ -72,8 +76,8 @@ state**, and **Suspend state** actions. Each requires a reason and the current
 `updated_at` value, writes an immutable event, and records the before/after
 override in the audit log. The generic editor cannot bypass the reason
 requirement. Resume clears the override rather than forcing `active`.
-Suspension here is billing state only; it cannot block a website while hosting
-enforcement remains disabled.
+Suspension here is billing state only. It blocks a local website only when
+every independent hosting-side enforcement gate is enabled and reconciled.
 
 Schema migration v4 copies each existing `renewal_months` value to the new
 domain-renewal period without changing dates or prices. Canonical CSV exports
@@ -270,8 +274,9 @@ notification-only until a separately qualified adapter exists.
 
 Billing still has no nginx, Docker, website, or panel-data access. Only
 `hosting-ui` owns the narrow map and uses the allowlisted control agent for
-nginx validation/reload. The production allowlist must stay empty until the
-dedicated test-service pilot in `TODO.md` is complete.
+nginx validation/reload. New installations retain an empty allowlist. Add only
+one explicitly reviewed local pilot at a time and complete the qualification
+and rollback work in `TODO.md` before expanding it.
 
 ## Backups And Restore
 

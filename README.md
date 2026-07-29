@@ -54,8 +54,9 @@ into dedicated directories.
   states, CSV migration, signed internal API, encrypted WooCommerce payment
   links/webhooks, durable Telegram/SMTP reminders, audit, and verified restore
   points
-- Observe-only hosting-side entitlement verification with HMAC freshness
-  checks, an atomic last-known-good snapshot, and local inventory drift preview
+- Hosting-side entitlement verification with HMAC freshness checks, an atomic
+  last-known-good snapshot, local inventory drift preview, and disabled-by-
+  default exact-site nginx enforcement with immediate rollback
 
 ## Architecture
 
@@ -141,6 +142,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- install.sh
 |   |-- migrate-webp-cache.sh
 |   |-- offsite-recovery.sh
+|   |-- qualify-billing-pilot.sh
 |   |-- qualify-local-recovery.sh
 |   |-- rotate-credentials.sh
 |   |-- security-audit.sh
