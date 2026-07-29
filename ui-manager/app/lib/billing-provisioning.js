@@ -74,11 +74,12 @@ class BillingProvisioningSettings {
   }
 
   registration(body = {}) {
+    if (body.register_billing !== true) return { enabled: false };
     const defaults = this.read();
     const currency = String(body.billing_currency || defaults.currency).trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(currency)) throw validationError("Billing currency must be a three-letter code");
     return {
-      enabled: body.register_billing === true,
+      enabled: true,
       grantFreePeriod: body.billing_grant_free_period === true,
       freeMonths: integer(body.billing_free_months ?? defaults.freeMonths, 0, 60, "Free months"),
       renewalMonths: integer(body.billing_renewal_months ?? defaults.renewalMonths, 1, 120, "Renewal months"),
