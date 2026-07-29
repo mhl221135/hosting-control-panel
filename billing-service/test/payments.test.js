@@ -151,6 +151,74 @@ test("creates domain and combined selections and updates only purchased dates", 
   }
 });
 
+test("cancels and replaces pending orders without leaving duplicate active links", async () => {
+  const value = fixture();
+  try {
+    let orderId = 5000;
+    const cancelled = [];
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async () => {
+        orderId += 1;
+        return { id: orderId, order_key: `wc_order_${orderId}` };
+      },
+      cancelOrder: async (id) => {
+        cancelled.push(id);
+        return { id, status: "cancelled" };
+      },
+    });
+    const serviceId = value.database.services()[0].service_id;
+    const first = await manager.create(serviceId, {}, "admin@example.com");
+    const firstPayment = value.database.activePayment(serviceId, "hosting");
+    await assert.rejects(
+      manager.cancel(firstPayment.payment_id, "x", "admin@example.com"),
+      /at least 3 characters/,
+    );
+    assert.deepEqual(cancelled, []);
+    const cancelledPayment = await manager.cancel(
+      firstPayment.payment_id, "Customer requested a new link", "admin@example.com",
+    );
+    assert.equal(cancelledPayment.status, "cancelled");
+    assert.throws(() => manager.resolve(first.paymentUrl.split("/").pop()), /no longer active/);
+    assert.equal(value.database.audit()[0].action, "payment.cancel");
+
+    await manager.create(serviceId, {}, "admin@example.com");
+    const secondPayment = value.database.activePayment(serviceId, "hosting");
+    const replacement = await manager.create(serviceId, {
+      selection: "hosting",
+      replace_payment_id: secondPayment.payment_id,
+      replacement_reason: "Corrected renewal order",
+    }, "admin@example.com");
+    assert.equal(replacement.orderId, 5003);
+    assert.deepEqual(cancelled, [5001, 5002]);
+    assert.equal(value.database.payment(secondPayment.payment_id).status, "cancelled");
+    assert.equal(value.database.activePayment(serviceId, "hosting").woo_order_id, 5003);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("keeps the local payment pending when WooCommerce does not confirm cancellation", async () => {
+  const value = fixture();
+  try {
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async () => ({ id: 6001, order_key: "wc_order_6001" }),
+      cancelOrder: async (id) => ({ id, status: "processing" }),
+    });
+    const serviceId = value.database.services()[0].service_id;
+    await manager.create(serviceId, {}, "admin@example.com");
+    const payment = value.database.activePayment(serviceId, "hosting");
+    await assert.rejects(
+      manager.cancel(payment.payment_id, "Operator cancellation", "admin@example.com"),
+      /did not confirm/,
+    );
+    assert.equal(value.database.payment(payment.payment_id).status, "pending");
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("uses stable opaque public references and exposes only active matching payments", async () => {
   const value = fixture();
   try {

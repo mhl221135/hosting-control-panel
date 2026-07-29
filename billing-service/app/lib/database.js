@@ -610,12 +610,63 @@ class BillingDatabase {
       ).get(serviceId) || null;
   }
 
+  payment(paymentId) {
+    return this.db.prepare(`
+      SELECT p.payment_id,p.service_id,s.primary_domain,p.woo_order_id,p.amount_minor,
+             p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
+             p.paid_at,p.created_at,p.selection,p.hosting_months,p.domain_months,
+             p.resulting_hosting_paid_through,p.resulting_domain_paid_through,
+             s.hosting_paid_through,s.domain_paid_through,
+             s.hosting_price_minor AS service_hosting_price_minor,
+             s.domain_price_minor AS service_domain_price_minor
+      FROM payments p JOIN services s ON s.service_id=p.service_id
+      WHERE p.payment_id=?
+    `).get(String(paymentId || "")) || null;
+  }
+
+  cancelPayment(paymentId, reason, actor) {
+    const boundedReason = String(reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
+    if (boundedReason.length < 3) {
+      throw Object.assign(new Error("A cancellation reason of at least 3 characters is required"), { statusCode: 400 });
+    }
+    const payment = this.payment(paymentId);
+    if (!payment) throw Object.assign(new Error("Payment record was not found"), { statusCode: 404 });
+    if (payment.status !== "pending") {
+      throw Object.assign(new Error("Only a pending payment can be cancelled"), { statusCode: 409 });
+    }
+    const timestamp = new Date().toISOString();
+    return this.transaction(() => {
+      const result = this.db.prepare(
+        "UPDATE payments SET status='cancelled' WHERE payment_id=? AND status='pending'",
+      ).run(payment.payment_id);
+      if (result.changes !== 1) {
+        throw Object.assign(new Error("Payment state changed before cancellation completed"), { statusCode: 409 });
+      }
+      this.db.prepare(
+        "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
+      ).run(crypto.randomUUID(), payment.service_id, "payment.cancelled", timestamp, JSON.stringify({
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reason: boundedReason,
+      }));
+      this.auditEntry(actor, "payment.cancel", payment.service_id, {
+        paymentId: payment.payment_id,
+        wooOrderId: payment.woo_order_id,
+        reason: boundedReason,
+      });
+      return this.payment(payment.payment_id);
+    });
+  }
+
   payments(limit = 100) {
     return this.db.prepare(`
       SELECT p.payment_id,p.service_id,s.primary_domain,p.woo_order_id,p.amount_minor,
              p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
              p.paid_at,p.created_at,p.selection,p.hosting_months,p.domain_months,
-             p.resulting_hosting_paid_through,p.resulting_domain_paid_through
+             p.resulting_hosting_paid_through,p.resulting_domain_paid_through,
+             s.hosting_paid_through,s.domain_paid_through,
+             s.hosting_price_minor AS service_hosting_price_minor,
+             s.domain_price_minor AS service_domain_price_minor
       FROM payments p JOIN services s ON s.service_id=p.service_id
       ORDER BY p.created_at DESC LIMIT ?
     `).all(Math.min(500, Math.max(1, Number(limit) || 100)));

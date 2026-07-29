@@ -39,7 +39,19 @@ class PaymentManager {
     const selection = String(input.selection || "hosting").toLowerCase();
     if (!SELECTIONS.has(selection)) throw validationError("Payment selection must be hosting, domain, or both");
     const active = this.database.activePayment(service.service_id, selection);
-    if (active) {
+    const replacePaymentId = String(input.replace_payment_id || "");
+    let replacementPayment = null;
+    if (replacePaymentId) {
+      const replacement = this.database.payment(replacePaymentId);
+      if (!replacement || replacement.service_id !== service.service_id
+          || replacement.selection !== selection || replacement.status !== "pending"
+          || active?.payment_id !== replacement.payment_id) {
+        throw Object.assign(new Error("The pending payment selected for replacement is no longer active"), {
+          statusCode: 409,
+        });
+      }
+      replacementPayment = replacement;
+    } else if (active) {
       throw Object.assign(new Error(`An active ${selection} payment link already exists until ${active.expires_at}`), {
         statusCode: 409,
       });
@@ -109,6 +121,9 @@ class PaymentManager {
         ],
       });
     }
+    if (replacementPayment) {
+      await this.cancel(replacementPayment.payment_id, input.replacement_reason, actor);
+    }
     const order = await this.woo.createOrder({
       status: "pending",
       customer_note: `${selection[0].toUpperCase()}${selection.slice(1)} renewal for ${service.primary_domain}`,
@@ -157,6 +172,21 @@ class PaymentManager {
       resultingDomainPaidThrough,
       paymentUrl: `${settings.publicBillingUrl}/pay/${token}`,
     };
+  }
+
+  async cancel(paymentId, reason, actor) {
+    const boundedReason = String(reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
+    if (boundedReason.length < 3) throw validationError("A cancellation reason of at least 3 characters is required");
+    const payment = this.database.payment(paymentId);
+    if (!payment) throw Object.assign(new Error("Payment record was not found"), { statusCode: 404 });
+    if (payment.status !== "pending") {
+      throw Object.assign(new Error("Only a pending payment can be cancelled"), { statusCode: 409 });
+    }
+    const order = await this.woo.cancelOrder(payment.woo_order_id);
+    if (Number(order.id) !== payment.woo_order_id || String(order.status || "").toLowerCase() !== "cancelled") {
+      throw new Error("WooCommerce did not confirm order cancellation");
+    }
+    return this.database.cancelPayment(payment.payment_id, boundedReason, actor);
   }
 
   resolve(token) {

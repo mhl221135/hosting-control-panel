@@ -156,6 +156,13 @@ class WooCommerceClient {
   async createOrder(payload) {
     return this.request("/orders", { method: "POST", body: JSON.stringify(payload) });
   }
+
+  async cancelOrder(orderId) {
+    return this.request(`/orders/${Number(orderId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "cancelled" }),
+    });
+  }
 }
 
 module.exports = { WooCommerceClient, WooCommerceSettings, httpsUrl };
