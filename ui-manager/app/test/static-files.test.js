@@ -30,8 +30,12 @@ test("settings expose guarded billing enforcement controls", () => {
   assert.match(html, /id="billingEnforcementSettingsForm"/);
   assert.match(html, /id="billingEnforcementHistory"/);
   assert.match(html, /Enable billing enforcement globally/);
+  assert.match(html, /id="billingPilotSites"/);
+  assert.match(html, /id="billingPilotSearch"/);
+  assert.doesNotMatch(html, /name="pilotDomains"/);
   assert.match(html, /id="reconcileBillingEnforcement"/);
   assert.match(html, /id="disableBillingEnforcement"/);
   assert.match(source, /api\/billing\/enforcement\/reconcile/);
   assert.match(source, /api\/billing\/enforcement\/disable/);
+  assert.match(source, /selectedBillingPilotDomains/);
 });

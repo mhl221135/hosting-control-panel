@@ -139,6 +139,8 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.match(renewalHtml, /example\.com/);
     assert.doesNotMatch(renewalHtml, /owner@example\.com|customer_name|service_id/);
     assert.match(renewalHtml, /No payment option is currently available/);
+    assert.match(renewalHtml, /Hosting renewal/);
+    assert.match(renewalHtml, /Secure checkout/);
     const referenceStatus = await request("/api/public-reference/status");
     assert.equal(referenceStatus.status, 200);
     assert.equal((await referenceStatus.json()).status.previous, null);
