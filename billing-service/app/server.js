@@ -199,6 +199,7 @@ function serveStatic(req, res) {
 }
 
 function entitlementPayload() {
+  const publicBillingUrl = wooSettings.public().publicBillingUrl;
   const payload = {
     version: 1,
     generatedAt: new Date().toISOString(),
@@ -210,6 +211,9 @@ function entitlementPayload() {
       paidThrough: service.hosting_paid_through,
       graceDays: service.grace_days,
       enforcementMode: service.enforcement_mode,
+      renewalUrl: publicBillingUrl
+        ? `${publicBillingUrl}/renew/${publicReference.forService(service.service_id)}`
+        : "",
     })),
   };
   const canonical = JSON.stringify(payload);

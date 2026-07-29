@@ -59,6 +59,7 @@ services:
       SITES_MAP_PATH: /srv/configs/nginx/conf.d/sites.map
       POOLS_PATH: /srv/configs/php-fpm/pools.conf
       CACHE_MAP_PATH: /srv/configs/nginx/conf.d/cache.map
+      BILLING_ENFORCEMENT_MAP_PATH: /srv/configs/nginx/conf.d/billing-enforcement.map
       WEBSITES_ROOT: /srv/websites
       APP_DATA_ROOT: /srv/app-data
       BACKUPS_ROOT: /srv/backups

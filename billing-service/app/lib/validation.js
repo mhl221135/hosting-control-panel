@@ -2,7 +2,7 @@ const crypto = require("crypto");
 
 const LOCATIONS = new Set(["local", "shared", "notification"]);
 const MANUAL_STATES = new Set(["", "active", "reminder", "grace", "suspended", "exempt"]);
-const ENFORCEMENT_MODES = new Set(["none", "reminder", "manual"]);
+const ENFORCEMENT_MODES = new Set(["none", "reminder", "manual", "payment_page"]);
 
 function validationError(message) {
   return Object.assign(new Error(message), { statusCode: 400 });

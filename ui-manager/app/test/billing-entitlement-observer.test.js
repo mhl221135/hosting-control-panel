@@ -21,6 +21,7 @@ function signed(overrides = {}) {
       paidThrough: "2026-07-25",
       graceDays: 7,
       enforcementMode: "manual",
+      renewalUrl: "https://billing.example.com/renew/opaque_reference",
     }],
     ...overrides,
   };
@@ -39,6 +40,20 @@ test("verifies the exact signed entitlement payload and freshness", () => {
     () => validatePayload(signed({ generatedAt: "2026-07-28T09:50:00.000Z" }), TOKEN, 300, NOW),
     /snapshot is stale/,
   );
+  assert.throws(() => validatePayload(signed({
+    services: [
+      signed().services[0],
+      {
+        ...signed().services[0],
+        serviceId: "svc_abcdef1234567890abcdef12",
+        primaryDomain: "other.example.com",
+        aliases: ["example.com"],
+      },
+    ],
+  }), TOKEN, 300, NOW), /ownership is ambiguous/);
+  assert.throws(() => validatePayload(signed({
+    services: [{ ...signed().services[0], renewalUrl: "http://billing.example.com/renew/reference" }],
+  }), TOKEN, 300, NOW), /renewal URL is invalid/);
 });
 
 test("stores only a verified last-known-good dry-run snapshot", async () => {

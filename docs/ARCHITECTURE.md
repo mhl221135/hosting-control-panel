@@ -61,6 +61,12 @@ target per row. `runtime-config.js` parses and renders this file. Internal nginx
 uses the host to choose both the root and PHP-FPM upstream. `pools.conf` defines
 the matching listener and process limits.
 
+`billing-enforcement.map` is an independent fail-open host-to-renewal map. It
+is empty by default and is owned only by the hosting-side billing reconciler.
+The common nginx server redirects a listed host before application routing, so
+WordPress, OpenCart, generic PHP, and static sites share one mechanism. Billing
+publishes signed state but cannot write or reload nginx.
+
 A primary site and its aliases normally share the same document root and
 PHP-FPM listener. A canonical redirect from `www` to the primary host is added
 when configured. The panel groups rows with the same root and pool so aliases

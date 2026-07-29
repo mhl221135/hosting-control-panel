@@ -29,6 +29,7 @@ const state = {
   stats: null,
   health: null,
   billingObserver: null,
+  billingEnforcement: null,
   billingProvisioning: null,
   siteStats: null,
   ipinfo: {},
@@ -1740,7 +1741,16 @@ async function loadLogs() {
 
 async function loadIntegrationSettings() {
   try {
-    const [settings, performanceData, imageData, notificationData, healthData, billingData, billingProvisioningData] = await Promise.all([
+    const [
+      settings,
+      performanceData,
+      imageData,
+      notificationData,
+      healthData,
+      billingData,
+      billingProvisioningData,
+      billingEnforcementData,
+    ] = await Promise.all([
       api("/api/settings/integrations"),
       api("/api/settings/performance"),
       api("/api/sites/images/status"),
@@ -1748,6 +1758,7 @@ async function loadIntegrationSettings() {
       api("/api/health"),
       api("/api/billing/observer"),
       api("/api/billing/provisioning-settings"),
+      api("/api/billing/enforcement"),
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
@@ -1849,9 +1860,11 @@ async function loadIntegrationSettings() {
     imageForm.elements.schedule_time.value = imageData.settings?.scheduleTime || "04:00";
     imageForm.elements.enabled.checked = Boolean(imageData.settings?.enabled);
     state.billingObserver = billingData.observer;
+    state.billingEnforcement = billingEnforcementData.enforcement;
     state.billingProvisioning = billingProvisioningData;
     renderBillingProvisioning();
     renderBillingObserver();
+    renderBillingEnforcement();
   } catch (error) {
     notice(error.message, "warning");
   }
@@ -1917,6 +1930,33 @@ function renderBillingObserver() {
   $("#billingObserverUnmatched").textContent = snapshot
     ? `${snapshot.unmatchedLocal.length} local websites absent from billing · ${snapshot.unmatchedBilling.length} billing services absent locally`
     : "Refresh to compare billing inventory with local websites.";
+}
+
+function renderBillingEnforcement() {
+  const enforcement = state.billingEnforcement;
+  if (!enforcement) return;
+  const form = $("#billingEnforcementSettingsForm");
+  form.elements.enabled.checked = Boolean(enforcement.settings.enabled);
+  form.elements.pilotDomains.value = (enforcement.settings.pilotDomains || []).join("\n");
+  const status = enforcement.status || {};
+  $("#billingEnforcementStatus").textContent = [
+    `Global switch: ${enforcement.settings.enabled ? "enabled" : "disabled"}`,
+    `Pilot allowlist: ${(enforcement.settings.pilotDomains || []).length} websites`,
+    `Applied hosts: ${(status.blockedHosts || []).length}`,
+    `Last result: ${status.result || "not-applied"}${status.appliedAt ? ` · ${new Date(status.appliedAt).toLocaleString()}` : ""}`,
+    enforcement.plan?.reason || "",
+    status.error ? `Last error: ${status.error}` : "",
+  ].filter(Boolean).join("\n");
+  const rows = enforcement.plan?.rows || [];
+  $("#billingEnforcementRows").innerHTML = rows.map((item) => `
+    <tr>
+      <td data-label="Local website">${escapeHtml(item.localDomain)}</td>
+      <td data-label="Billing state"><span class="badge ${item.state === "active" || item.state === "exempt" ? "on" : ""}">${escapeHtml(item.state)}</span></td>
+      <td data-label="Policy">${escapeHtml(item.enforcementMode)}</td>
+      <td data-label="Proposed action"><span class="badge ${item.action === "block" ? "danger" : "on"}">${escapeHtml(item.action)}</span></td>
+      <td data-label="Reason">${escapeHtml(item.reason)}</td>
+    </tr>
+  `).join("") || '<tr class="empty-row"><td colspan="5" class="muted">No local billing matches to evaluate.</td></tr>';
 }
 
 $("#loginForm").addEventListener("submit", async (event) => {
@@ -3273,6 +3313,59 @@ $("#billingObserverSettingsForm").addEventListener("submit", async (event) => {
   }
 });
 
+$("#billingEnforcementSettingsForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/billing/enforcement/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        enabled: form.elements.enabled.checked,
+        pilotDomains: form.elements.pilotDomains.value,
+      }),
+    }));
+    state.billingEnforcement = data.enforcement;
+    renderBillingEnforcement();
+    notice("Billing enforcement settings saved. Use Reconcile to apply an enabled plan.");
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$("#reconcileBillingEnforcement").addEventListener("click", async (event) => {
+  const confirm = $("#billingEnforcementConfirm").value.trim();
+  try {
+    const data = await withButton(event.currentTarget, "Reconciling...", () =>
+      api("/api/billing/enforcement/reconcile", {
+        method: "POST",
+        body: JSON.stringify({ confirm }),
+      }));
+    state.billingEnforcement = data.enforcement;
+    $("#billingEnforcementConfirm").value = "";
+    renderBillingEnforcement();
+    notice(`Billing enforcement reconciled. ${data.result.blockedHosts.length} host entries applied.`);
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
+$("#disableBillingEnforcement").addEventListener("click", async (event) => {
+  const confirm = $("#billingEnforcementConfirm").value.trim();
+  try {
+    const data = await withButton(event.currentTarget, "Disabling...", () =>
+      api("/api/billing/enforcement/disable", {
+        method: "POST",
+        body: JSON.stringify({ confirm }),
+      }));
+    state.billingEnforcement = data.enforcement;
+    $("#billingEnforcementConfirm").value = "";
+    renderBillingEnforcement();
+    notice("Billing enforcement disabled and all managed host entries cleared.");
+  } catch (error) {
+    notice(error.message, "warning");
+  }
+});
+
 $("#billingProvisioningSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const body = formObject(event.currentTarget);
@@ -3293,6 +3386,9 @@ $("#refreshBillingObserver").addEventListener("click", async (event) => {
     const data = await withButton(event.currentTarget, "Refreshing...", () => api("/api/billing/observer/refresh", { method: "POST" }));
     state.billingObserver = data.observer;
     renderBillingObserver();
+    const enforcement = await api("/api/billing/enforcement");
+    state.billingEnforcement = enforcement.enforcement;
+    renderBillingEnforcement();
     notice("Signed billing snapshot verified.");
   } catch (error) {
     notice(error.message, "warning");

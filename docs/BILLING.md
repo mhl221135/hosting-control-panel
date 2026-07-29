@@ -230,7 +230,7 @@ reuses the original provision/restore idempotency key and trial anchor, and does
 not touch website files, databases, DNS, NPM, or certificates. A successful
 linked retry removes the action from the source job.
 
-`hosting-ui` includes that consumer as an observe-only foundation. Under
+`hosting-ui` includes that consumer and a separate local reconciler. Under
 **Settings > Billing entitlement observer**, an operator can manually refresh
 or enable scheduled verification. The observer:
 
@@ -239,11 +239,23 @@ or enable scheduled verification. The observer:
 - rejects stale, future, malformed, duplicated, or unsupported services;
 - atomically retains the last verified snapshot in panel data;
 - compares canonical billing domains and aliases with local primary websites;
-- reports matches and inventory drift with `Action: None (dry run)`.
+- rejects ambiguous cross-service domain ownership and invalid renewal URLs;
+- reports matches and inventory drift before enforcement is considered.
 
-The observer has no nginx writer, Docker adapter, or enforcement setting.
-Failed, unavailable, or stale responses leave the last-known-good snapshot
-untouched and cannot suspend a website.
+**Settings > Billing enforcement pilot** owns the hosting-side nginx map. The
+global switch defaults off and its pilot allowlist defaults empty. It redirects
+only when the local site, signed ownership, fresh `suspended` state,
+`payment_page` policy, and signed HTTPS renewal URL all match. Candidate maps
+are written atomically, checked with `nginx -t`, and rolled back on reload
+failure. **Disable and restore all** turns off the switch and immediately
+empties the map without changing billing dates or website data. A one-minute
+freshness watchdog clears entries when signed state becomes stale or
+unavailable.
+
+Billing still has no nginx, Docker, website, or panel-data access. Only
+`hosting-ui` owns the narrow map and uses the allowlisted control agent for
+nginx validation/reload. The production allowlist must stay empty until the
+dedicated test-service pilot in `TODO.md` is complete.
 
 ## Backups And Restore
 

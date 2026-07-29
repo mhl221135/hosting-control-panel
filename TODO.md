@@ -30,12 +30,13 @@ due-state preview, manual run, durable idempotent outbox, failure retry, and a
 narrow bearer-authenticated adapter to the existing Telegram/SMTP delivery
 queue. Billing has no access to notification credentials or panel data.
 
-The hosting panel now also has a disabled-by-default, observe-only entitlement
-consumer. It verifies the HMAC and snapshot age, retains an atomic
-last-known-good copy, compares billing services with local primary websites,
-and exposes mismatches without changing nginx or website state. Enforcement
-remains unimplemented until a dedicated test-service pilot proves fail-open
-behavior and immediate rollback.
+The hosting panel now has a disabled-by-default entitlement consumer and local
+nginx map reconciler. It verifies HMAC, freshness, unique domain ownership, and
+opaque renewal URLs; compares billing with local primary websites; and fails
+open unless the global switch, explicit pilot allowlist, `payment_page` policy,
+fresh `suspended` state, and local ownership all agree. The switch defaults off
+and the allowlist defaults empty. Production use remains blocked on the
+dedicated test-service pilot.
 
 ### Data Model
 
@@ -60,8 +61,9 @@ remain a later optional adapter.
 
 ### Remaining Inventory Controls
 
-- Enforce local-versus-remote compatibility when automatic enforcement modes
-  exist.
+- Enforce local-versus-remote compatibility when selecting `payment_page`;
+  remote/shared services must remain notification-only until their own adapter
+  is qualified.
 
 ### WooCommerce Integration
 
@@ -91,42 +93,18 @@ remain a later optional adapter.
   outages. Suspension requires fresh verified state and an operator-configured
   grace policy.
 
-### Hosting-Side Enforcement Reconciler
+### Remaining Hosting-Side Enforcement Work
 
-- Extend the existing signed entitlement observer with a separate, narrowly
-  scoped reconciler. Billing remains unable to write nginx files, access
-  Docker, or modify websites.
-- Add a global **Enable billing enforcement** switch that defaults to off, plus
-  an explicit pilot allowlist. A service is blocked only when all of these are
-  true:
-  - the global switch is enabled;
-  - the service is on the local host and in the allowlist;
-  - its per-service enforcement mode is `payment_page`;
-  - a fresh HMAC-verified entitlement says `suspended`;
-  - a valid public renewal URL is present;
-  - the local domain maps unambiguously to that billing service.
-- Render an atomic nginx host-to-renewal map. The common website server block
-  should return a temporary redirect to the billing renewal page for blocked
-  hosts. WordPress, static, generic PHP, and OpenCart sites should use the same
-  mechanism without modifying application files or databases.
-- Validate candidate nginx configuration before promotion and reload. On
-  validation or reload failure, restore the previous map and report a critical
-  operator notification.
-- Add a freshness watchdog. If the signed snapshot becomes stale, malformed,
-  unavailable beyond the configured threshold, or ambiguous, clear affected
-  enforcement entries and reload nginx. The failure mode is always open.
-- Keep NPM, the billing hostname, WooCommerce checkout/webhook paths, panel
-  service hosts, health checks, and ACME operations outside the website
-  suspension mechanism.
-- Add **Preview changes**, **Reconcile now**, and **Disable and restore all**
-  actions. Disabling enforcement must immediately empty the managed map without
-  deleting data or changing paid-through dates.
+- Deliver a critical operator notification when nginx validation, reload, or
+  rollback fails. The current bounded status record and container log are not a
+  substitute for an alert.
 - After a verified `processing` or `completed` webhook, billing should request
   a narrow authenticated observer refresh. The hosting reconciler should
   restore the website after receiving fresh signed active state, with periodic
   polling as a fallback.
-- Log each proposed/applied block and restore with service ID, domain, state,
-  snapshot generation, reason, and result. Never log payment tokens, order
+- Expand the current last-apply status into bounded audit history for proposed
+  and applied block/restore transitions with service ID, domain, state,
+  snapshot generation, reason, and result. Never persist payment URLs, order
   keys, client details, or provider secrets.
 - Remote/shared-hosting records remain notification-only until a separately
   reviewed provider adapter exists.
@@ -209,11 +187,10 @@ remain a later optional adapter.
 1. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
    mismatched amount/currency, refund, chargeback, and provider outage.
-2. Implement the nginx map reconciler behind a global off switch. Test stale
-   snapshots, invalid signatures, ambiguous aliases, nginx validation failure,
-   billing outage, WooCommerce outage, panel restart, and immediate global
-   rollback.
-3. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
+2. Finish critical notifications and post-payment refresh, then qualify the
+   disabled-by-default reconciler through billing outage, WooCommerce outage,
+   panel restart, nginx rollback, and freshness-watchdog drills.
+3. Pilot only the dedicated test website. Exercise active, reminder, grace,
    suspended, payment, automatic restore, manual exemption, and disable-all
    workflows before adding any production domain to the allowlist.
 4. Build the remote WordPress plugin and enrollment API after local enforcement

@@ -125,6 +125,20 @@ The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.
 
+Local enforcement is a separate hosting-side boundary:
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/billing/enforcement` | Read global settings, last apply status, and the current fail-open plan |
+| `PUT /api/billing/enforcement/settings` | Save the global switch and explicit pilot-domain allowlist |
+| `POST /api/billing/enforcement/reconcile` | Require `RECONCILE`, validate nginx, and atomically apply the current plan |
+| `POST /api/billing/enforcement/disable` | Require `DISABLE`, turn off enforcement, and immediately clear the managed map |
+
+The switch defaults off and the allowlist defaults empty. A plan can redirect
+only a local unambiguous service whose fresh signed state is `suspended`, policy
+is `payment_page`, and signed renewal URL is valid HTTPS. Invalid, stale, or
+unavailable state produces an empty map.
+
 ## Route Groups
 
 ### Status and statistics

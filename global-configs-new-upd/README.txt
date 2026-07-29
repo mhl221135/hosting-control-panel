@@ -11,6 +11,7 @@ Files:
 - nginx/nginx.conf           Global internal nginx configuration
 - nginx/conf.d/sites.map     Domain roots, PHP upstreams, and canonical hosts
 - nginx/conf.d/cache.map     Per-site FastCGI cache state
+- nginx/conf.d/billing-enforcement.map  Fail-open billing redirect state
 - nginx/conf.d/default.conf  Shared website server configuration
 
 Create an empty `_default` directory under the configured websites root.

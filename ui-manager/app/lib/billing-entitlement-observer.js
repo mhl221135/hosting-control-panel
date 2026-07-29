@@ -9,7 +9,7 @@ const DEFAULTS = {
 };
 
 const STATES = new Set(["active", "reminder", "grace", "suspended", "exempt"]);
-const MODES = new Set(["none", "reminder", "manual"]);
+const MODES = new Set(["none", "reminder", "manual", "payment_page"]);
 
 function validationError(message) {
   return Object.assign(new Error(message), { statusCode: 400 });
@@ -67,6 +67,7 @@ function validatePayload(document, token, maxAgeSeconds, now = Date.now()) {
     throw Object.assign(new Error("Billing entitlement snapshot is stale"), { statusCode: 503 });
   }
   const serviceIds = new Set();
+  const domainOwners = new Map();
   const services = payload.services.map((service) => {
     const normalized = {
       serviceId: String(service?.serviceId || ""),
@@ -76,6 +77,7 @@ function validatePayload(document, token, maxAgeSeconds, now = Date.now()) {
       paidThrough: String(service?.paidThrough || ""),
       graceDays: Number(service?.graceDays),
       enforcementMode: String(service?.enforcementMode || ""),
+      renewalUrl: String(service?.renewalUrl || ""),
     };
     if (!/^[a-z0-9][a-z0-9_-]{5,79}$/.test(normalized.serviceId) || serviceIds.has(normalized.serviceId)) {
       throw validationError("Billing entitlement service ID is invalid or duplicated");
@@ -86,6 +88,19 @@ function validatePayload(document, token, maxAgeSeconds, now = Date.now()) {
     if (!STATES.has(normalized.state) || !MODES.has(normalized.enforcementMode)) {
       throw validationError("Billing entitlement state or enforcement mode is unsupported");
     }
+    if (normalized.renewalUrl) {
+      let parsed;
+      try {
+        parsed = new URL(normalized.renewalUrl);
+      } catch {
+        throw validationError("Billing entitlement renewal URL is invalid");
+      }
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password
+        || parsed.href.length > 2048 || !/^\/renew\/[A-Za-z0-9_-]+$/.test(parsed.pathname)) {
+        throw validationError("Billing entitlement renewal URL is invalid");
+      }
+      normalized.renewalUrl = parsed.href;
+    }
     if (!/^(?:|\d{4}-\d{2}-\d{2})$/.test(normalized.paidThrough)
       || (!normalized.paidThrough && normalized.state !== "exempt")
       || !Number.isInteger(normalized.graceDays)
@@ -94,6 +109,12 @@ function validatePayload(document, token, maxAgeSeconds, now = Date.now()) {
       throw validationError("Billing entitlement renewal policy is invalid");
     }
     serviceIds.add(normalized.serviceId);
+    for (const domain of [normalized.primaryDomain, ...normalized.aliases]) {
+      if (domainOwners.has(domain) && domainOwners.get(domain) !== normalized.serviceId) {
+        throw validationError("Billing entitlement domain ownership is ambiguous");
+      }
+      domainOwners.set(domain, normalized.serviceId);
+    }
     return normalized;
   });
   return {

@@ -46,6 +46,11 @@ disabled by default.
 The MySQL root password stays in the MySQL container environment and is never
 stored by the panel.
 
+The billing entitlement observer and local nginx reconciler are separate from
+provisioning. Enforcement defaults globally off with an empty pilot allowlist.
+Only a fresh signed `suspended` service using `payment_page` can enter the
+atomic host map, and **Disable and restore all** immediately empties it.
+
 ## Cloudflare security
 
 The **Security** tab applies narrowly scoped WAF and rate-limit presets to one
