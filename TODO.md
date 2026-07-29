@@ -85,8 +85,6 @@ remain a later optional adapter.
 
 ### Public Renewal Page
 
-- Add controlled public-reference key rotation with an overlap window; current
-  `r1_` references use a dedicated stable backed-up HMAC key.
 - Add an authenticated scheduler/reconciler that creates or refreshes overdue
   payment options. The implemented public GET is read-only and shows only
   already-created active options.

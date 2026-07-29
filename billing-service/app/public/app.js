@@ -64,12 +64,20 @@ function showView(view) {
   if (view === "reminders") loadReminders();
   if (view === "backups") loadBackups();
   if (view === "audit") loadAudit();
+  if (view === "account") loadReferenceStatus();
 }
 
 function formatDate(value) {
   if (!value) return "Not set";
   const parsed = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
   return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(parsed);
+}
+
+function formatDateTime(value) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf())
+    ? String(value || "Not set")
+    : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(parsed);
 }
 
 function formatMoney(minor, currency) {
@@ -357,6 +365,19 @@ async function loadAudit() {
         <td>${escapeHtml(entry.target)}</td>
         <td>${escapeHtml(JSON.stringify(entry.summary))}</td>
       </tr>`).join("");
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
+async function loadReferenceStatus() {
+  try {
+    const result = await api("/api/public-reference/status");
+    const previous = result.status.previous;
+    $("#referenceKeyStatus").textContent = previous?.active
+      ? `Active ${result.status.activeFingerprint}. Old URLs remain valid until ${formatDateTime(previous.expiresAt)}.`
+      : `Active ${result.status.activeFingerprint}. No previous key is in its overlap window.`;
+    $("#referenceRotationForm").querySelector(".danger").disabled = Boolean(previous?.active);
   } catch (error) {
     notice(error.message, true);
   }
@@ -884,6 +905,30 @@ $("#accountForm").addEventListener("submit", async (event) => {
       form.elements.new_password.value = "";
       notice("Administrator account updated.");
     });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+
+$("#referenceRotationForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector(".danger");
+  try {
+    await busy(button, async () => {
+      const result = await api("/api/public-reference/rotate", {
+        method: "POST",
+        body: JSON.stringify({
+          overlap_hours: Number(form.elements.overlap_hours.value),
+          reason: form.elements.reason.value,
+          confirm: form.elements.confirm.value,
+        }),
+      });
+      form.elements.reason.value = "";
+      form.elements.confirm.value = "";
+      notice(`Renewal key rotated. Old URLs remain valid until ${formatDateTime(result.status.previous.expiresAt)}.`);
+    });
+    await loadReferenceStatus();
   } catch (error) {
     notice(error.message, true);
   }

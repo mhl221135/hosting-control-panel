@@ -32,3 +32,14 @@ test("pending payment actions expose reasoned cancellation and replacement", () 
   assert.match(source, /data-replace-payment/);
   assert.match(source, /replace_payment_id: form\.elements\.replace_payment_id\.value/);
 });
+
+test("public renewal key rotation requires an explicit reason and confirmation", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+
+  assert.match(html, /id="referenceRotationForm"/);
+  assert.match(html, /name="overlap_hours"/);
+  assert.match(html, /Type ROTATE/);
+  assert.match(source, /api\/public-reference\/rotate/);
+  assert.match(source, /reason: form\.elements\.reason\.value/);
+});

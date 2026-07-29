@@ -248,6 +248,36 @@ test("uses stable opaque public references and exposes only active matching paym
   }
 });
 
+test("rotates public references with one bounded overlap window", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "billing-reference-"));
+  try {
+    const references = new PublicReference(root);
+    const service = { service_id: "svc_rotation_test" };
+    const started = new Date("2026-07-29T10:00:00Z");
+    const oldReference = references.forService(service.service_id);
+    const rotated = references.rotate(24, started);
+    const newReference = references.forService(service.service_id);
+    assert.notEqual(newReference, oldReference);
+    assert.equal(rotated.previous.active, true);
+    assert.equal(rotated.previous.expiresAt, "2026-07-30T10:00:00.000Z");
+    assert.equal(references.resolve(oldReference, [service], started).service_id, service.service_id);
+    assert.equal(references.resolve(newReference, [service], started).service_id, service.service_id);
+    assert.throws(() => references.rotate(24, started), /remains active/);
+
+    const restarted = new PublicReference(root);
+    assert.equal(
+      restarted.resolve(oldReference, [service], new Date("2026-07-30T09:59:59Z")).service_id,
+      service.service_id,
+    );
+    assert.equal(restarted.resolve(oldReference, [service], new Date("2026-07-30T10:00:01Z")), null);
+    const second = restarted.rotate(48, new Date("2026-07-30T10:00:01Z"));
+    assert.equal(second.previous.expiresAt, "2026-08-01T10:00:01.000Z");
+    assert.throws(() => restarted.rotate(23), /24 to 2160/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects forged webhooks and does not apply mismatched amounts or refunds", async () => {
   const value = fixture();
   try {

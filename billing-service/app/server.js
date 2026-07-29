@@ -444,6 +444,31 @@ async function api(req, res) {
     json(res, 200, { ok: true, result });
     return true;
   }
+  if (req.method === "GET" && url.pathname === "/api/public-reference/status") {
+    json(res, 200, { ok: true, status: publicReference.status() });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/public-reference/rotate") {
+    const body = await readJson(req);
+    if (body.confirm !== "ROTATE") {
+      throw Object.assign(new Error("Type ROTATE to confirm public renewal URL key rotation"), { statusCode: 400 });
+    }
+    const reason = String(body.reason || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 500);
+    if (reason.length < 3) {
+      throw Object.assign(new Error("A rotation reason of at least 3 characters is required"), { statusCode: 400 });
+    }
+    const overlapHours = integer(body.overlap_hours, 24, 2160, 720);
+    const before = publicReference.status();
+    const status = publicReference.rotate(overlapHours);
+    database.auditEntry(session.email, "public_reference.rotate", status.activeFingerprint, {
+      reason,
+      overlapHours,
+      previousFingerprint: before.activeFingerprint,
+      previousExpiresAt: status.previous.expiresAt,
+    });
+    json(res, 200, { ok: true, status });
+    return true;
+  }
   const paymentLinkMatch = /^\/api\/services\/([^/]+)\/payment-link$/.exec(url.pathname);
   if (req.method === "POST" && paymentLinkMatch) {
     const result = await payments.create(decodeURIComponent(paymentLinkMatch[1]), await readJson(req), session.email);
