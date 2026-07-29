@@ -96,6 +96,11 @@ still belong to the same service and renewal selection. WooCommerce must
 confirm `cancelled` before the local token is invalidated or a replacement is
 created.
 
+`GET /api/public-reference/status` returns only active/previous key
+fingerprints and overlap timestamps. `POST /api/public-reference/rotate`
+requires `ROTATE`, a reason, and a 24-2160 hour overlap. A second rotation is
+rejected while an old key remains active. Raw HMAC keys are never returned.
+
 The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.

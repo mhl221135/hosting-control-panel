@@ -124,6 +124,13 @@ reference and a matching active payment ID, then redirects to the fixed
 WooCommerce order-pay URL. Invalid, archived, expired, and mismatched references
 receive the same bounded unavailable page.
 
+The Account view can rotate the public-reference key with an audited reason and
+a 24-2160 hour overlap. The prior key is stored mode `0600` in
+`public-reference.previous.json` and resolves existing URLs only until its
+expiry. A second rotation is blocked during that window. The UI/API disclose
+only key fingerprints and timestamps; global app-data backups retain both key
+files.
+
 Configure a WooCommerce **Order updated** webhook:
 
 ```text

@@ -138,6 +138,31 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.match(renewalHtml, /example\.com/);
     assert.doesNotMatch(renewalHtml, /owner@example\.com|customer_name|service_id/);
     assert.match(renewalHtml, /No payment option is currently available/);
+    const referenceStatus = await request("/api/public-reference/status");
+    assert.equal(referenceStatus.status, 200);
+    assert.equal((await referenceStatus.json()).status.previous, null);
+    const invalidRotation = await request("/api/public-reference/rotate", {
+      method: "POST",
+      body: JSON.stringify({ overlap_hours: 24, reason: "Scheduled rotation", confirm: "rotate" }),
+    });
+    assert.equal(invalidRotation.status, 400);
+    const rotation = await request("/api/public-reference/rotate", {
+      method: "POST",
+      body: JSON.stringify({ overlap_hours: 24, reason: "Scheduled rotation", confirm: "ROTATE" }),
+    });
+    assert.equal(rotation.status, 200);
+    const rotationStatus = (await rotation.json()).status;
+    assert.equal(rotationStatus.previous.active, true);
+    assert.equal(JSON.stringify(rotationStatus).includes("key"), false);
+    assert.equal((await fetch(`${baseUrl}/renew/${reference}`)).status, 200);
+    const rotatedReference = new PublicReference(path.join(root, "data")).forService(importedService.service_id);
+    assert.notEqual(rotatedReference, reference);
+    assert.equal((await fetch(`${baseUrl}/renew/${rotatedReference}`)).status, 200);
+    const duplicateRotation = await request("/api/public-reference/rotate", {
+      method: "POST",
+      body: JSON.stringify({ overlap_hours: 24, reason: "Duplicate rotation", confirm: "ROTATE" }),
+    });
+    assert.equal(duplicateRotation.status, 409);
     const createdResponse = await request("/api/services", {
       method: "POST",
       body: JSON.stringify({
@@ -260,6 +285,8 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     line && !line.includes("ExperimentalWarning") && !line.includes("--trace-warnings")
       && !line.includes("This service changed in another session")
       && !line.includes("A reason of at least 3 characters is required")
+      && !line.includes("Type ROTATE to confirm public renewal URL key rotation")
+      && !line.includes("A previous key remains active until")
       && !line.includes("POST /webhooks/woocommerce: Invalid WooCommerce webhook signature"));
   assert.deepEqual(unexpected, [], stderr);
 });

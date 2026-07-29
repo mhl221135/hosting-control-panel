@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=8">
+  <link rel="stylesheet" href="/styles.css?v=9">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -360,11 +360,23 @@
             <label>New password<input name="new_password" type="password" autocomplete="new-password" minlength="12"></label>
             <button class="primary" type="submit">Update account</button>
           </form>
+          <form id="referenceRotationForm" class="form-grid">
+            <h2>Public renewal URL key</h2>
+            <p id="referenceKeyStatus" class="wide field-status"></p>
+            <label>Old URL overlap (hours)
+              <input name="overlap_hours" type="number" min="24" max="2160" value="720" required>
+            </label>
+            <label class="wide">Rotation reason
+              <input name="reason" minlength="3" maxlength="500" required>
+            </label>
+            <label>Type ROTATE<input name="confirm" autocomplete="off" required></label>
+            <button class="danger" type="submit">Rotate renewal key</button>
+          </form>
         </div>
       </section>
     </main>
   </div>
 
-  <script src="/app.js?v=8" defer></script>
+  <script src="/app.js?v=9" defer></script>
 </body>
 </html>
