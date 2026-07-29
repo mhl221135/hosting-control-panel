@@ -148,9 +148,77 @@ class BillingProvisioningClient {
   }
 }
 
+function registrationPayload(domain, body, registration, trialAnchor = new Date().toISOString().slice(0, 10)) {
+  return {
+    primary_domain: domain,
+    aliases: body.add_www && !domain.startsWith("www.") ? [`www.${domain}`] : [],
+    customer_name: registration.customerName,
+    contact_email: registration.contactEmail || body.admin_email || "",
+    grant_free_period: registration.grantFreePeriod,
+    trial_anchor: trialAnchor,
+    free_months: registration.freeMonths,
+    renewal_months: registration.renewalMonths,
+    hosting_price_minor: registration.hostingPriceMinor,
+    domain_renewal_months: registration.domainRenewalMonths,
+    domain_price_minor: registration.domainPriceMinor,
+    domain_paid_through: registration.domainPaidThrough,
+    currency: registration.currency,
+    grace_days: registration.graceDays,
+    timezone: registration.timezone,
+    notes: String(body.notes || "").slice(0, 2000),
+  };
+}
+
+function hasBillingWarning(job) {
+  return job?.type === "site.provision"
+    && ["succeeded", "partially_succeeded"].includes(job.status)
+    && Array.isArray(job.results)
+    && job.results.some((result) => result?.name === "billing" && result.ok === false);
+}
+
+function retryJobInput(source, operator) {
+  if (!hasBillingWarning(source)) {
+    throw Object.assign(new Error("This job has no retryable billing warning"), { statusCode: 409 });
+  }
+  const domain = String(source.targets?.[0] || "");
+  if (!domain) throw Object.assign(new Error("The source job has no billing domain"), { statusCode: 409 });
+  return {
+    type: "billing.provision.retry",
+    label: `Retry billing registration for ${domain}`,
+    operator,
+    trigger: "retry",
+    targets: [domain],
+    conflicts: [`site:${domain}`],
+    cancellable: false,
+    retryable: false,
+    retryOf: source.id,
+    total: 1,
+    idempotencyKey: `billing-provision-retry:${source.id}`,
+    payload: { sourceJobId: source.id },
+  };
+}
+
+async function retryRegistration(source, settings, client) {
+  if (!hasBillingWarning(source)) throw validationError("The source job no longer has a retryable billing warning");
+  const body = source.payload?.request || {};
+  const registration = settings.registration(body);
+  if (!registration.enabled) throw validationError("Billing registration was not enabled for the source job");
+  const domain = String(source.targets?.[0] || body.domain || "");
+  if (!domain) throw validationError("The source job has no billing domain");
+  const result = await client.register(
+    registrationPayload(domain, body, registration, String(source.finishedAt || "").slice(0, 10)),
+    source.id,
+  );
+  return { domain, result };
+}
+
 module.exports = {
   BillingProvisioningClient,
   BillingProvisioningSettings,
   DEFAULTS,
+  hasBillingWarning,
   normalize,
+  registrationPayload,
+  retryJobInput,
+  retryRegistration,
 };

@@ -224,9 +224,6 @@ remain a later optional adapter.
 
 ### Provisioning Billing Defaults
 
-- Add a dedicated retry action for billing warnings on otherwise successful
-  provisioning jobs. The implemented registration is idempotent, so retries
-  cannot create duplicate domain records.
 - Add `payment_page` as a provisioning enforcement default only after global
   enforcement and the pilot allowlist pass qualification. Implemented
   registrations deliberately use `none`.

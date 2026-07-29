@@ -58,6 +58,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       customer_name: "Provisioned client",
       contact_email: "owner@provisioned.example.com",
       grant_free_period: true,
+      trial_anchor: "2026-07-31",
       free_months: 6,
       renewal_months: 12,
       hosting_price_minor: 8000,
@@ -125,6 +126,9 @@ test("serves the authenticated inventory, recovery, and signed internal API work
 
     const services = await (await request("/api/services")).json();
     assert.equal(services.services.length, 2);
+    const provisionedService = services.services.find((service) =>
+      service.primary_domain === "provisioned.example.com");
+    assert.equal(provisionedService.hosting_paid_through, "2027-01-31");
     const importedService = services.services.find((service) => service.primary_domain === "example.com");
     assert.ok(importedService);
     const reference = new PublicReference(path.join(root, "data")).forService(importedService.service_id);
