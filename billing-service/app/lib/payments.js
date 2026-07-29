@@ -1,6 +1,8 @@
 const crypto = require("crypto");
 const { integer, validationError } = require("./validation");
 
+const SELECTIONS = new Set(["hosting", "domain", "both"]);
+
 function tokenHash(token) {
   return crypto.createHash("sha256").update(String(token)).digest("hex");
 }
@@ -33,42 +35,89 @@ class PaymentManager {
   async create(serviceId, input, actor) {
     const service = this.database.service(serviceId);
     if (!service) throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
-    const active = this.database.activePayment(service.service_id);
+    if (service.archived) throw validationError("Archived services cannot create payment links");
+    const selection = String(input.selection || "hosting").toLowerCase();
+    if (!SELECTIONS.has(selection)) throw validationError("Payment selection must be hosting, domain, or both");
+    const active = this.database.activePayment(service.service_id, selection);
     if (active) {
-      throw Object.assign(new Error(`An active payment link already exists until ${active.expires_at}`), {
+      throw Object.assign(new Error(`An active ${selection} payment link already exists until ${active.expires_at}`), {
         statusCode: 409,
       });
     }
-    const months = integer(input.months || service.renewal_months, 1, 120);
-    const amountMinor = integer(
-      input.amount_minor === undefined ? service.hosting_price_minor : input.amount_minor,
-      1,
-      10_000_000_000,
-    );
+    const includesHosting = selection === "hosting" || selection === "both";
+    const includesDomain = selection === "domain" || selection === "both";
+    const hostingMonths = includesHosting
+      ? integer(input.hosting_months || input.months || service.renewal_months, 1, 120)
+      : 0;
+    const domainMonths = includesDomain
+      ? integer(input.domain_months || service.domain_renewal_months, 1, 120)
+      : 0;
+    let hostingAmountMinor = includesHosting
+      ? integer(input.hosting_amount_minor ?? service.hosting_price_minor, 1, 10_000_000_000)
+      : 0;
+    let domainAmountMinor = includesDomain
+      ? integer(input.domain_amount_minor ?? service.domain_price_minor, 1, 10_000_000_000)
+      : 0;
+    if (input.amount_minor !== undefined) {
+      const override = integer(input.amount_minor, 1, 10_000_000_000);
+      if (selection === "hosting") hostingAmountMinor = override;
+      else if (selection === "domain") domainAmountMinor = override;
+      else if (override !== hostingAmountMinor + domainAmountMinor) {
+        throw validationError("Combined payment total must equal its hosting and domain line items");
+      }
+    }
+    const amountMinor = hostingAmountMinor + domainAmountMinor;
     const settings = this.settings.private();
     if (!this.settings.public().ready) throw validationError("WooCommerce integration is not configured");
     const nonce = crypto.randomUUID();
-    const paidThrough = addMonths(service.hosting_paid_through, months);
-    const total = (amountMinor / 100).toFixed(2);
-    const order = await this.woo.createOrder({
-      status: "pending",
-      customer_note: `Hosting renewal for ${service.primary_domain}`,
-      billing: service.contact_email ? { email: service.contact_email } : undefined,
-      line_items: [{
+    const resultingHostingPaidThrough = includesHosting
+      ? addMonths(service.hosting_paid_through, hostingMonths)
+      : "";
+    const resultingDomainPaidThrough = includesDomain
+      ? addMonths(service.domain_paid_through, domainMonths)
+      : "";
+    const items = [];
+    if (includesHosting) {
+      const total = (hostingAmountMinor / 100).toFixed(2);
+      items.push({
         product_id: settings.productId,
         quantity: 1,
         subtotal: total,
         total,
         meta_data: [
           { key: "_hosting_service_id", value: service.service_id },
-          { key: "_hosting_renewal_months", value: String(months) },
-          { key: "_hosting_resulting_paid_through", value: paidThrough },
+          { key: "_hosting_renewal_item", value: "hosting" },
+          { key: "_hosting_renewal_months", value: String(hostingMonths) },
+          { key: "_hosting_resulting_paid_through", value: resultingHostingPaidThrough },
           { key: "_hosting_payment_nonce", value: nonce },
         ],
-      }],
+      });
+    }
+    if (includesDomain) {
+      const total = (domainAmountMinor / 100).toFixed(2);
+      items.push({
+        product_id: settings.productId,
+        quantity: 1,
+        subtotal: total,
+        total,
+        meta_data: [
+          { key: "_hosting_service_id", value: service.service_id },
+          { key: "_hosting_renewal_item", value: "domain" },
+          { key: "_hosting_renewal_months", value: String(domainMonths) },
+          { key: "_hosting_resulting_paid_through", value: resultingDomainPaidThrough },
+          { key: "_hosting_payment_nonce", value: nonce },
+        ],
+      });
+    }
+    const order = await this.woo.createOrder({
+      status: "pending",
+      customer_note: `${selection[0].toUpperCase()}${selection.slice(1)} renewal for ${service.primary_domain}`,
+      billing: service.contact_email ? { email: service.contact_email } : undefined,
+      line_items: items,
       meta_data: [
         { key: "_hosting_service_id", value: service.service_id },
         { key: "_hosting_payment_nonce", value: nonce },
+        { key: "_hosting_renewal_selection", value: selection },
       ],
     });
     const orderId = Number(order.id);
@@ -86,14 +135,26 @@ class PaymentManager {
       checkoutUrl,
       amountMinor,
       currency: service.currency,
-      months,
-      resultingPaidThrough: paidThrough,
+      months: hostingMonths || domainMonths,
+      resultingPaidThrough: resultingHostingPaidThrough || resultingDomainPaidThrough,
+      selection,
+      hostingMonths,
+      domainMonths,
+      resultingHostingPaidThrough,
+      resultingDomainPaidThrough,
       expiresAt,
     }, actor);
     return {
       serviceId: service.service_id,
       orderId,
       expiresAt,
+      selection,
+      amountMinor,
+      currency: service.currency,
+      hostingMonths,
+      domainMonths,
+      resultingHostingPaidThrough,
+      resultingDomainPaidThrough,
       paymentUrl: `${settings.publicBillingUrl}/pay/${token}`,
     };
   }

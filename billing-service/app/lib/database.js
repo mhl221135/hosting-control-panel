@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 function parseJson(value, fallback) {
   try {
@@ -213,6 +213,24 @@ class BillingDatabase {
         UPDATE services SET domain_renewal_months=renewal_months;
         CREATE INDEX services_archived_domain ON services(archived, primary_domain COLLATE NOCASE);
         PRAGMA user_version=4;
+        COMMIT;
+      `);
+    }
+    if (current < 5) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        ALTER TABLE payments ADD COLUMN selection TEXT NOT NULL DEFAULT 'hosting';
+        ALTER TABLE payments ADD COLUMN hosting_months INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE payments ADD COLUMN domain_months INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE payments ADD COLUMN resulting_hosting_paid_through TEXT NOT NULL DEFAULT '';
+        ALTER TABLE payments ADD COLUMN resulting_domain_paid_through TEXT NOT NULL DEFAULT '';
+        UPDATE payments SET
+          selection='hosting',
+          hosting_months=months,
+          resulting_hosting_paid_through=resulting_paid_through;
+        CREATE INDEX payments_service_selection_created
+          ON payments(service_id, selection, created_at DESC);
+        PRAGMA user_version=5;
         COMMIT;
       `);
     }
@@ -487,12 +505,16 @@ class BillingDatabase {
       this.db.prepare(`
         INSERT INTO payments(
           payment_id,service_id,token_hash,nonce,woo_order_id,checkout_url,
-          amount_minor,currency,months,resulting_paid_through,status,expires_at,created_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?, 'pending',?,?)
+          amount_minor,currency,months,resulting_paid_through,selection,hosting_months,
+          domain_months,resulting_hosting_paid_through,resulting_domain_paid_through,
+          status,expires_at,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending',?,?)
       `).run(
         payment.paymentId, payment.serviceId, payment.tokenHash, payment.nonce,
         payment.wooOrderId, payment.checkoutUrl, payment.amountMinor, payment.currency,
-        payment.months, payment.resultingPaidThrough, payment.expiresAt, timestamp,
+        payment.months, payment.resultingPaidThrough, payment.selection,
+        payment.hostingMonths, payment.domainMonths, payment.resultingHostingPaidThrough,
+        payment.resultingDomainPaidThrough, payment.expiresAt, timestamp,
       );
       this.db.prepare(
         "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
@@ -501,6 +523,7 @@ class BillingDatabase {
         wooOrderId: payment.wooOrderId,
         amountMinor: payment.amountMinor,
         currency: payment.currency,
+        selection: payment.selection,
         expiresAt: payment.expiresAt,
       }));
       this.auditEntry(actor, "payment.link_create", payment.serviceId, {
@@ -508,27 +531,59 @@ class BillingDatabase {
         wooOrderId: payment.wooOrderId,
         amountMinor: payment.amountMinor,
         currency: payment.currency,
+        selection: payment.selection,
         expiresAt: payment.expiresAt,
       });
     });
   }
 
-  activePayment(serviceId, now = new Date()) {
+  activePayment(serviceId, selection = "", now = new Date()) {
     this.db.prepare("UPDATE payments SET status='expired' WHERE status='pending' AND expires_at<=?")
       .run(now.toISOString());
-    return this.db.prepare(
-      "SELECT payment_id,woo_order_id,expires_at FROM payments WHERE service_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
-    ).get(serviceId) || null;
+    return selection
+      ? this.db.prepare(
+        "SELECT payment_id,woo_order_id,expires_at,selection FROM payments WHERE service_id=? AND selection=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
+      ).get(serviceId, selection) || null
+      : this.db.prepare(
+        "SELECT payment_id,woo_order_id,expires_at,selection FROM payments WHERE service_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1",
+      ).get(serviceId) || null;
   }
 
   payments(limit = 100) {
     return this.db.prepare(`
       SELECT p.payment_id,p.service_id,s.primary_domain,p.woo_order_id,p.amount_minor,
              p.currency,p.months,p.resulting_paid_through,p.status,p.expires_at,
-             p.paid_at,p.created_at
+             p.paid_at,p.created_at,p.selection,p.hosting_months,p.domain_months,
+             p.resulting_hosting_paid_through,p.resulting_domain_paid_through
       FROM payments p JOIN services s ON s.service_id=p.service_id
       ORDER BY p.created_at DESC LIMIT ?
     `).all(Math.min(500, Math.max(1, Number(limit) || 100)));
+  }
+
+  publicPayments(serviceId, now = new Date()) {
+    this.db.prepare("UPDATE payments SET status='expired' WHERE status='pending' AND expires_at<=?")
+      .run(now.toISOString());
+    return this.db.prepare(`
+      SELECT payment_id,selection,amount_minor,currency,hosting_months,domain_months,
+             resulting_hosting_paid_through,resulting_domain_paid_through,expires_at
+      FROM payments
+      WHERE service_id=? AND status='pending'
+      ORDER BY created_at DESC
+    `).all(serviceId);
+  }
+
+  resolvePublicPayment(serviceId, paymentId, now = new Date()) {
+    const payment = this.db.prepare(
+      "SELECT payment_id,checkout_url,status,expires_at FROM payments WHERE payment_id=? AND service_id=?",
+    ).get(paymentId, serviceId);
+    if (!payment) throw Object.assign(new Error("Payment option was not found"), { statusCode: 404 });
+    if (payment.status !== "pending" || Date.parse(payment.expires_at) <= now.valueOf()) {
+      if (payment.status === "pending") {
+        this.db.prepare("UPDATE payments SET status='expired' WHERE payment_id=?").run(payment.payment_id);
+      }
+      throw Object.assign(new Error("Payment option is no longer active"), { statusCode: 410 });
+    }
+    return payment.checkout_url;
   }
 
   resolvePayment(hash, now = new Date()) {
@@ -569,8 +624,24 @@ class BillingDatabase {
         } else {
           this.db.prepare("UPDATE payments SET status='paid',paid_at=? WHERE payment_id=?")
             .run(timestamp, payment.payment_id);
-          this.db.prepare("UPDATE services SET hosting_paid_through=?,updated_at=? WHERE service_id=?")
-            .run(payment.resulting_paid_through, timestamp, payment.service_id);
+          if (payment.selection === "hosting") {
+            this.db.prepare("UPDATE services SET hosting_paid_through=?,updated_at=? WHERE service_id=?")
+              .run(payment.resulting_hosting_paid_through, timestamp, payment.service_id);
+          } else if (payment.selection === "domain") {
+            this.db.prepare("UPDATE services SET domain_paid_through=?,updated_at=? WHERE service_id=?")
+              .run(payment.resulting_domain_paid_through, timestamp, payment.service_id);
+          } else if (payment.selection === "both") {
+            this.db.prepare(
+              "UPDATE services SET hosting_paid_through=?,domain_paid_through=?,updated_at=? WHERE service_id=?",
+            ).run(
+              payment.resulting_hosting_paid_through,
+              payment.resulting_domain_paid_through,
+              timestamp,
+              payment.service_id,
+            );
+          } else {
+            throw new Error("Stored payment selection is invalid");
+          }
           this.db.prepare(
             "INSERT INTO events(event_id,service_id,event_type,happened_at,payload_json) VALUES(?,?,?,?,?)",
           ).run(crypto.randomUUID(), payment.service_id, "payment.completed", timestamp, JSON.stringify({
@@ -578,7 +649,9 @@ class BillingDatabase {
             wooOrderId: payment.woo_order_id,
             amountMinor: payment.amount_minor,
             currency: payment.currency,
-            resultingPaidThrough: payment.resulting_paid_through,
+            selection: payment.selection,
+            resultingHostingPaidThrough: payment.resulting_hosting_paid_through,
+            resultingDomainPaidThrough: payment.resulting_domain_paid_through,
           }));
           result = "paid";
         }

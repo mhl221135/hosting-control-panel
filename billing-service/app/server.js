@@ -7,6 +7,7 @@ const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
 const { PaymentManager } = require("./lib/payments");
+const { PublicReference } = require("./lib/public-reference");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
 const { normalizeService } = require("./lib/validation");
@@ -26,7 +27,9 @@ const auth = new AuthStore(DATA_DIR);
 const wooSettings = new WooCommerceSettings(DATA_DIR);
 const wooClient = new WooCommerceClient(wooSettings);
 const payments = new PaymentManager(database, wooSettings, wooClient);
+const publicReference = new PublicReference(DATA_DIR);
 const reminderManager = new ReminderManager(database, new NotificationClient());
+const publicRequests = new Map();
 
 function headers(extra = {}) {
   return {
@@ -48,6 +51,79 @@ function json(res, status, body, extra = {}) {
     ...extra,
   }));
   res.end(payload);
+}
+
+function html(res, status, body) {
+  const payload = Buffer.from(body);
+  res.writeHead(status, headers({
+    "Content-Type": "text/html; charset=utf-8",
+    "Content-Length": payload.length,
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+  }));
+  res.end(payload);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[character]));
+}
+
+function publicRateLimit(req) {
+  const key = String(req.socket.remoteAddress || "unknown");
+  const now = Date.now();
+  const current = publicRequests.get(key);
+  if (!current || now - current.startedAt >= 60_000) {
+    publicRequests.set(key, { startedAt: now, count: 1 });
+    return;
+  }
+  current.count += 1;
+  if (current.count > 300) {
+    throw Object.assign(new Error("Too many requests"), { statusCode: 429 });
+  }
+  if (publicRequests.size > 1000) {
+    for (const [address, value] of publicRequests) {
+      if (now - value.startedAt >= 60_000) publicRequests.delete(address);
+    }
+  }
+}
+
+function renewalPage(service, reference) {
+  const available = database.publicPayments(service.service_id);
+  const paymentMarkup = available.length ? available.map((payment) => {
+    const lines = [];
+    if (payment.hosting_months) {
+      lines.push(`Hosting: ${payment.hosting_months} months, through ${escapeHtml(payment.resulting_hosting_paid_through)}`);
+    }
+    if (payment.domain_months) {
+      lines.push(`Domain: ${payment.domain_months} months, through ${escapeHtml(payment.resulting_domain_paid_through)}`);
+    }
+    return `<article class="renewal-option">
+      <div><strong>${escapeHtml(payment.selection)} renewal</strong><small>${lines.join("<br>")}</small></div>
+      <div class="renewal-price"><strong>${escapeHtml((payment.amount_minor / 100).toFixed(2))} ${escapeHtml(payment.currency)}</strong>
+      <a class="button primary" href="/renew/${escapeHtml(reference)}/checkout/${escapeHtml(payment.payment_id)}">Continue to payment</a></div>
+    </article>`;
+  }).join("") : `<p class="renewal-empty">No payment option is currently available. Contact the website administrator.</p>`;
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renew ${escapeHtml(service.primary_domain)}</title><link rel="stylesheet" href="/styles.css?v=6"></head>
+<body><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HB</span>
+<div><p class="eyebrow">Website renewal</p><h1>${escapeHtml(service.primary_domain)}</h1></div></header>
+<section class="renewal-status"><span>Current hosting state</span>
+<strong class="state state-${escapeHtml(service.hosting_state)}">${escapeHtml(service.hosting_state)}</strong>
+<small>Paid through ${escapeHtml(service.hosting_paid_through || "not set")}</small></section>
+<section class="renewal-options"><h2>Available renewal options</h2>${paymentMarkup}</section>
+<p class="renewal-footnote">Payment is completed securely through the configured store.</p>
+</main></body></html>`;
+}
+
+function renewalUnavailable() {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Renewal unavailable</title><link rel="stylesheet" href="/styles.css?v=6"></head>
+<body><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HB</span>
+<div><p class="eyebrow">Website renewal</p><h1>Renewal unavailable</h1></div></header>
+<p class="renewal-empty">This renewal link is invalid or no longer available. Contact the website administrator.</p>
+</main></body></html>`;
 }
 
 function readBody(req) {
@@ -291,7 +367,14 @@ async function api(req, res) {
   const paymentLinkMatch = /^\/api\/services\/([^/]+)\/payment-link$/.exec(url.pathname);
   if (req.method === "POST" && paymentLinkMatch) {
     const result = await payments.create(decodeURIComponent(paymentLinkMatch[1]), await readJson(req), session.email);
-    json(res, 201, { ok: true, payment: result });
+    const reference = publicReference.forService(result.serviceId);
+    json(res, 201, {
+      ok: true,
+      payment: {
+        ...result,
+        renewalUrl: `${wooSettings.public().publicBillingUrl}/renew/${reference}`,
+      },
+    });
     return true;
   }
   if (req.method === "PUT" && url.pathname === "/api/settings") {
@@ -369,6 +452,39 @@ async function api(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://billing.local");
+    const renewalCheckout = /^\/renew\/(r1_[A-Za-z0-9_-]{43})\/checkout\/([0-9a-f-]{36})$/.exec(url.pathname);
+    if (req.method === "GET" && renewalCheckout) {
+      publicRateLimit(req);
+      const service = publicReference.resolve(renewalCheckout[1], database.services());
+      if (!service) {
+        html(res, 404, renewalUnavailable());
+        return;
+      }
+      let checkoutUrl;
+      try {
+        checkoutUrl = database.resolvePublicPayment(service.service_id, renewalCheckout[2]);
+      } catch (error) {
+        if ([404, 410].includes(error.statusCode)) {
+          html(res, error.statusCode, renewalUnavailable());
+          return;
+        }
+        throw error;
+      }
+      res.writeHead(302, headers({
+        Location: checkoutUrl,
+        "Content-Length": 0,
+        "X-Robots-Tag": "noindex, nofollow, noarchive",
+      }));
+      res.end();
+      return;
+    }
+    const renewalMatch = /^\/renew\/(r1_[A-Za-z0-9_-]{43})$/.exec(url.pathname);
+    if (req.method === "GET" && renewalMatch) {
+      publicRateLimit(req);
+      const service = publicReference.resolve(renewalMatch[1], database.services());
+      html(res, service ? 200 : 404, service ? renewalPage(service, renewalMatch[1]) : renewalUnavailable());
+      return;
+    }
     const payMatch = /^\/pay\/([A-Za-z0-9_-]{43})$/.exec(url.pathname);
     if (req.method === "GET" && payMatch) {
       const checkoutUrl = payments.resolve(payMatch[1]);

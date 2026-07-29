@@ -105,8 +105,13 @@ async function loadOverview() {
         <td><strong>${escapeHtml(formatMoney(service.hosting_price_minor, service.currency))}</strong><small>${service.renewal_months} months</small></td>
         <td><div class="row-actions"><button class="secondary" data-edit-service="${escapeHtml(service.service_id)}">Edit</button><button class="secondary" data-payment-service="${escapeHtml(service.service_id)}"
           data-payment-domain="${escapeHtml(service.primary_domain)}"
+          data-payment-currency="${escapeHtml(service.currency)}"
           data-payment-months="${service.renewal_months}"
-          data-payment-amount="${Number(service.hosting_price_minor || 0)}">Payment</button></div></td>
+          data-payment-amount="${Number(service.hosting_price_minor || 0)}"
+          data-payment-hosting-date="${escapeHtml(service.hosting_paid_through)}"
+          data-payment-domain-months="${service.domain_renewal_months}"
+          data-payment-domain-amount="${Number(service.domain_price_minor || 0)}"
+          data-payment-domain-date="${escapeHtml(service.domain_paid_through)}">Payment</button></div></td>
       </tr>`).join("");
     $("#emptyServices").hidden = services.services.length > 0;
     $("#policyForm").elements.reminder_days.value = status.reminderDays;
@@ -244,8 +249,9 @@ async function loadPayments() {
         <td>${escapeHtml(formatDate(payment.created_at))}</td>
         <td><strong>${escapeHtml(payment.primary_domain)}</strong><small>${escapeHtml(payment.service_id)}</small></td>
         <td>#${payment.woo_order_id}</td>
+        <td>${escapeHtml(payment.selection)}</td>
         <td>${escapeHtml(formatMoney(payment.amount_minor, payment.currency))}</td>
-        <td>${payment.months} months</td>
+        <td>${payment.hosting_months ? `Hosting ${payment.hosting_months}m` : ""}${payment.hosting_months && payment.domain_months ? " · " : ""}${payment.domain_months ? `Domain ${payment.domain_months}m` : ""}</td>
         <td><span class="state state-${payment.status === "paid" ? "active" : payment.status === "pending" ? "reminder" : "exempt"}">${escapeHtml(payment.status)}</span></td>
         <td>${escapeHtml(formatDate(payment.expires_at))}</td>
       </tr>`).join("");
@@ -396,11 +402,37 @@ $("#servicesBody").addEventListener("click", (event) => {
   const form = $("#paymentLinkForm");
   form.hidden = false;
   form.elements.service_id.value = serviceId;
-  form.elements.months.value = event.target.dataset.paymentMonths;
-  form.elements.amount.value = (Number(event.target.dataset.paymentAmount) / 100).toFixed(2);
+  form.elements.currency.value = event.target.dataset.paymentCurrency;
+  form.elements.selection.value = "hosting";
+  form.elements.hosting_months.value = event.target.dataset.paymentMonths;
+  form.elements.hosting_amount.value = (Number(event.target.dataset.paymentAmount) / 100).toFixed(2);
+  form.elements.hosting_paid_through.value = event.target.dataset.paymentHostingDate || "Not set";
+  form.elements.domain_months.value = event.target.dataset.paymentDomainMonths;
+  form.elements.domain_amount.value = (Number(event.target.dataset.paymentDomainAmount) / 100).toFixed(2);
+  form.elements.domain_paid_through.value = event.target.dataset.paymentDomainDate || "Not set";
   $("#paymentService").textContent = event.target.dataset.paymentDomain;
   $("#paymentLinkResult").hidden = true;
+  updatePaymentSelection();
   showView("payments");
+});
+
+function updatePaymentSelection() {
+  const form = $("#paymentLinkForm");
+  const selection = form.elements.selection.value;
+  const hosting = selection === "hosting" || selection === "both";
+  const domain = selection === "domain" || selection === "both";
+  $("#paymentHostingFields").hidden = !hosting;
+  $("#paymentDomainFields").hidden = !domain;
+  [...$("#paymentHostingFields").querySelectorAll("input:not([readonly])")].forEach((input) => { input.required = hosting; });
+  [...$("#paymentDomainFields").querySelectorAll("input:not([readonly])")].forEach((input) => { input.required = domain; });
+  const total = (hosting ? Number(form.elements.hosting_amount.value || 0) : 0)
+    + (domain ? Number(form.elements.domain_amount.value || 0) : 0);
+  $("#paymentTotal").textContent = formatMoney(Math.round(total * 100), form.elements.currency.value || "USD");
+}
+
+$("#paymentLinkForm").elements.selection.addEventListener("change", updatePaymentSelection);
+["hosting_amount", "domain_amount"].forEach((name) => {
+  $("#paymentLinkForm").elements[name].addEventListener("input", updatePaymentSelection);
 });
 
 $("#newService").addEventListener("click", () => {
@@ -508,16 +540,21 @@ $("#paymentLinkForm").addEventListener("submit", async (event) => {
   const button = form.querySelector(".primary");
   try {
     await busy(button, async () => {
-      const amount = Number(form.elements.amount.value);
+      const selection = form.elements.selection.value;
       const result = await api(`/api/services/${encodeURIComponent(form.elements.service_id.value)}/payment-link`, {
         method: "POST",
         body: JSON.stringify({
-          months: Number(form.elements.months.value),
-          amount_minor: Math.round(amount * 100),
+          selection,
+          hosting_months: Number(form.elements.hosting_months.value),
+          hosting_amount_minor: Math.round(Number(form.elements.hosting_amount.value) * 100),
+          domain_months: Number(form.elements.domain_months.value),
+          domain_amount_minor: Math.round(Number(form.elements.domain_amount.value) * 100),
         }),
       });
       $("#paymentLinkUrl").href = result.payment.paymentUrl;
       $("#paymentLinkUrl").textContent = result.payment.paymentUrl;
+      $("#renewalPageUrl").href = result.payment.renewalUrl;
+      $("#renewalPageUrl").textContent = result.payment.renewalUrl;
       $("#paymentLinkExpiry").textContent = `Expires ${formatDate(result.payment.expiresAt)} · WooCommerce order #${result.payment.orderId}`;
       $("#paymentLinkResult").hidden = false;
       notice("Payment link created. It is shown only in this result.");
