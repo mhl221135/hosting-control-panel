@@ -897,7 +897,15 @@
               <p>Redirect only explicitly allowed local websites when a fresh signed entitlement is suspended and its policy is payment_page. Scheduled entitlement observation is required for fallback recovery. The global switch and allowlist default to off and empty.</p>
             </div>
             <label class="check inline"><input name="enabled" type="checkbox" /> Enable billing enforcement globally</label>
-            <label class="full">Pilot website domains<textarea name="pilotDomains" rows="4" placeholder="testsite.example.com"></textarea><small>One primary local hostname per line. Aliases are included only when the signed service owns them.</small></label>
+            <div class="full pilot-picker">
+              <div class="pilot-picker-head">
+                <label>Allowed local websites<input id="billingPilotSearch" type="search" placeholder="Search websites" /></label>
+                <div class="button-row"><button id="selectMatchedBillingPilots" class="secondary" type="button">Select billing matches</button><button id="clearBillingPilots" class="secondary" type="button">Clear</button></div>
+              </div>
+              <p id="billingPilotCount" class="muted">No pilot websites selected.</p>
+              <div id="billingPilotSites" class="selection-grid pilot-sites"></div>
+              <small>Only selected primary local websites can be redirected. Signed aliases follow their primary website automatically.</small>
+            </div>
             <div class="form-actions full"><button type="submit">Save enforcement settings</button></div>
             <pre id="billingEnforcementStatus" class="status-box compact-status full">Enforcement status unavailable.</pre>
             <div class="table-wrap full">

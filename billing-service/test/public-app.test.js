@@ -41,6 +41,15 @@ test("pending payment actions expose reasoned cancellation and replacement", () 
   assert.match(source, /replace_payment_id: form\.elements\.replace_payment_id\.value/);
 });
 
+test("payment creation focuses the form and keeps detailed errors visible", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+  assert.match(html, /id="paymentLinkError"/);
+  assert.match(source, /closest\("\[data-payment-service\]"\)/);
+  assert.match(source, /form\.scrollIntoView/);
+  assert.match(source, /paymentError\(error\.message, error\.details\)/);
+});
+
 test("payment review controls expose the reason and audited resolution action", () => {
   const html = fs.readFileSync(path.join(__dirname, "../app/public/index.html"), "utf8");
   const source = fs.readFileSync(path.join(__dirname, "../app/public/app.js"), "utf8");

@@ -1937,7 +1937,7 @@ function renderBillingEnforcement() {
   if (!enforcement) return;
   const form = $("#billingEnforcementSettingsForm");
   form.elements.enabled.checked = Boolean(enforcement.settings.enabled);
-  form.elements.pilotDomains.value = (enforcement.settings.pilotDomains || []).join("\n");
+  renderBillingPilotSites();
   const status = enforcement.status || {};
   $("#billingEnforcementStatus").textContent = [
     `Global switch: ${enforcement.settings.enabled ? "enabled" : "disabled"}`,
@@ -1968,6 +1968,29 @@ function renderBillingEnforcement() {
       <td data-label="Reason">${escapeHtml(item.reason)}${item.error ? `<br><span class="danger-text">${escapeHtml(item.error)}</span>` : ""}</td>
     </tr>
   `).join("") || '<tr class="empty-row"><td colspan="6" class="muted">No enforcement transitions recorded.</td></tr>';
+}
+
+function selectedBillingPilotDomains() {
+  return $$("[data-billing-pilot]:checked").map((input) => input.value);
+}
+
+function renderBillingPilotSites() {
+  const selected = new Set(state.billingEnforcement?.settings?.pilotDomains || []);
+  const query = ($("#billingPilotSearch")?.value || "").trim().toLowerCase();
+  const sites = primarySites().filter((site) => site.host.toLowerCase().includes(query));
+  $("#billingPilotSites").innerHTML = sites.map((site) => {
+    const match = state.billingEnforcement?.plan?.rows?.find((row) => row.localDomain === site.host);
+    return `<label class="check"><input type="checkbox" data-billing-pilot value="${escapeHtml(site.host)}" ${selected.has(site.host) ? "checked" : ""} />
+      <span><strong>${escapeHtml(site.host)}</strong><small>${match ? `${escapeHtml(match.state)} · ${escapeHtml(match.enforcementMode)}` : "No billing match"}</small></span>
+    </label>`;
+  }).join("") || '<p class="muted">No local websites match this search.</p>';
+  $("#billingPilotCount").textContent = `${selected.size} pilot website${selected.size === 1 ? "" : "s"} selected`;
+}
+
+function syncBillingPilotSelection() {
+  const selected = selectedBillingPilotDomains();
+  state.billingEnforcement.settings.pilotDomains = selected;
+  $("#billingPilotCount").textContent = `${selected.length} pilot website${selected.length === 1 ? "" : "s"} selected`;
 }
 
 $("#loginForm").addEventListener("submit", async (event) => {
@@ -3332,7 +3355,7 @@ $("#billingEnforcementSettingsForm").addEventListener("submit", async (event) =>
       method: "PUT",
       body: JSON.stringify({
         enabled: form.elements.enabled.checked,
-        pilotDomains: form.elements.pilotDomains.value,
+        pilotDomains: selectedBillingPilotDomains(),
       }),
     }));
     state.billingEnforcement = data.enforcement;
@@ -3341,6 +3364,18 @@ $("#billingEnforcementSettingsForm").addEventListener("submit", async (event) =>
   } catch (error) {
     notice(error.message, "warning");
   }
+});
+
+$("#billingPilotSearch").addEventListener("input", renderBillingPilotSites);
+$("#billingPilotSites").addEventListener("change", syncBillingPilotSelection);
+$("#clearBillingPilots").addEventListener("click", () => {
+  state.billingEnforcement.settings.pilotDomains = [];
+  renderBillingPilotSites();
+});
+$("#selectMatchedBillingPilots").addEventListener("click", () => {
+  state.billingEnforcement.settings.pilotDomains = (state.billingEnforcement.plan?.rows || [])
+    .map((row) => row.localDomain);
+  renderBillingPilotSites();
 });
 
 $("#reconcileBillingEnforcement").addEventListener("click", async (event) => {

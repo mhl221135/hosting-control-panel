@@ -104,9 +104,11 @@ function renewalPage(service, reference) {
       lines.push(`Domain: ${payment.domain_months} months, through ${escapeHtml(payment.resulting_domain_paid_through)}`);
     }
     return `<article class="renewal-option">
-      <div><strong>${escapeHtml(payment.selection)} renewal</strong><small>${lines.join("<br>")}</small></div>
-      <div class="renewal-price"><strong>${escapeHtml((payment.amount_minor / 100).toFixed(2))} ${escapeHtml(payment.currency)}</strong>
-      <a class="button primary" href="/renew/${escapeHtml(reference)}/checkout/${escapeHtml(payment.payment_id)}">Continue to payment</a></div>
+      <div class="renewal-option-copy"><span class="renewal-label">${escapeHtml(payment.selection)} renewal</span>
+      <strong>${escapeHtml(payment.hosting_months || payment.domain_months)} month${Number(payment.hosting_months || payment.domain_months) === 1 ? "" : "s"} of service</strong>
+      <small>${lines.join("<br>")}</small></div>
+      <div class="renewal-price"><strong><span>${escapeHtml((payment.amount_minor / 100).toFixed(2))}</span> ${escapeHtml(payment.currency)}</strong>
+      <a class="button primary" href="/renew/${escapeHtml(reference)}/checkout/${escapeHtml(payment.payment_id)}">Pay securely</a></div>
     </article>`;
   }).join("") : `<p class="renewal-empty">No payment option is currently available.${
     support.supportUrl
@@ -115,21 +117,21 @@ function renewalPage(service, reference) {
   }</p>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Renew ${escapeHtml(service.primary_domain)}</title><link rel="stylesheet" href="/styles.css?v=6"></head>
-<body><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HB</span>
-<div><p class="eyebrow">Website renewal</p><h1>${escapeHtml(service.primary_domain)}</h1></div></header>
-<section class="renewal-status"><span>Current hosting state</span>
+<title>Renew ${escapeHtml(service.primary_domain)}</title><link rel="stylesheet" href="/styles.css?v=7"></head>
+<body class="renewal-page"><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HP</span>
+<div><p class="eyebrow">Hosting renewal</p><h1>${escapeHtml(service.primary_domain)}</h1><p class="renewal-intro">Restore uninterrupted website service by completing a renewal below.</p></div></header>
+<section class="renewal-status"><div><span>Website status</span>
 <strong class="state state-${escapeHtml(service.hosting_state)}">${escapeHtml(service.hosting_state)}</strong>
-<small>Paid through ${escapeHtml(service.hosting_paid_through || "not set")}</small></section>
-<section class="renewal-options"><h2>Available renewal options</h2>${paymentMarkup}</section>
-<p class="renewal-footnote">Payment is completed securely through the configured store.</p>
+<small>Hosting paid through ${escapeHtml(service.hosting_paid_through || "not set")}</small></div></section>
+<section class="renewal-options"><div class="renewal-section-heading"><p class="eyebrow">Choose a plan</p><h2>Available renewal options</h2></div>${paymentMarkup}</section>
+<footer class="renewal-footnote"><span aria-hidden="true">SSL</span><p><strong>Secure checkout</strong><br>Payment is completed through our configured WooCommerce store.</p></footer>
 </main></body></html>`;
 }
 
 function renewalUnavailable() {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Renewal unavailable</title><link rel="stylesheet" href="/styles.css?v=6"></head>
-<body><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HB</span>
+<title>Renewal unavailable</title><link rel="stylesheet" href="/styles.css?v=7"></head>
+<body class="renewal-page"><main class="renewal-shell"><header class="renewal-header"><span class="brand-mark">HP</span>
 <div><p class="eyebrow">Website renewal</p><h1>Renewal unavailable</h1></div></header>
 <p class="renewal-empty">This renewal link is invalid or no longer available. Contact the website administrator.</p>
 </main></body></html>`;

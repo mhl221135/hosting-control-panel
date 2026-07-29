@@ -42,6 +42,12 @@ function notice(message, error = false) {
   window.setTimeout(() => { element.hidden = true; }, 7000);
 }
 
+function paymentError(message = "", details = "") {
+  const element = $("#paymentLinkError");
+  element.textContent = [message, details].filter(Boolean).join(" - ");
+  element.hidden = !element.textContent;
+}
+
 async function busy(button, operation) {
   const previous = button.textContent;
   button.disabled = true;
@@ -475,34 +481,38 @@ $("#serviceSearch").addEventListener("input", () => {
 });
 
 $("#servicesBody").addEventListener("click", (event) => {
-  const editId = event.target.dataset.editService;
+  const editButton = event.target.closest("[data-edit-service]");
+  const editId = editButton?.dataset.editService;
   if (editId) {
     state.selectedServiceId = editId;
     showView("services");
     return;
   }
-  const serviceId = event.target.dataset.paymentService;
+  const paymentButton = event.target.closest("[data-payment-service]");
+  const serviceId = paymentButton?.dataset.paymentService;
   if (!serviceId) return;
   const form = $("#paymentLinkForm");
   form.hidden = false;
   $("#paymentFormTitle").textContent = "Create payment link";
   form.elements.service_id.value = serviceId;
-  form.elements.currency.value = event.target.dataset.paymentCurrency;
+  form.elements.currency.value = paymentButton.dataset.paymentCurrency;
   form.elements.replace_payment_id.value = "";
   form.elements.replacement_reason.value = "";
   form.elements.replacement_reason.required = false;
   $("#replacementReasonField").hidden = true;
   form.elements.selection.value = "hosting";
-  form.elements.hosting_months.value = event.target.dataset.paymentMonths;
-  form.elements.hosting_amount.value = (Number(event.target.dataset.paymentAmount) / 100).toFixed(2);
-  form.elements.hosting_paid_through.value = event.target.dataset.paymentHostingDate || "Not set";
-  form.elements.domain_months.value = event.target.dataset.paymentDomainMonths;
-  form.elements.domain_amount.value = (Number(event.target.dataset.paymentDomainAmount) / 100).toFixed(2);
-  form.elements.domain_paid_through.value = event.target.dataset.paymentDomainDate || "Not set";
-  $("#paymentService").textContent = event.target.dataset.paymentDomain;
+  form.elements.hosting_months.value = paymentButton.dataset.paymentMonths;
+  form.elements.hosting_amount.value = (Number(paymentButton.dataset.paymentAmount) / 100).toFixed(2);
+  form.elements.hosting_paid_through.value = paymentButton.dataset.paymentHostingDate || "Not set";
+  form.elements.domain_months.value = paymentButton.dataset.paymentDomainMonths;
+  form.elements.domain_amount.value = (Number(paymentButton.dataset.paymentDomainAmount) / 100).toFixed(2);
+  form.elements.domain_paid_through.value = paymentButton.dataset.paymentDomainDate || "Not set";
+  $("#paymentService").textContent = paymentButton.dataset.paymentDomain;
   $("#paymentLinkResult").hidden = true;
+  paymentError();
   updatePaymentSelection();
   showView("payments");
+  requestAnimationFrame(() => form.scrollIntoView({ behavior: "smooth", block: "start" }));
 });
 
 function updatePaymentSelection() {
@@ -733,7 +743,8 @@ $("#testWoo").addEventListener("click", async (event) => {
 $("#paymentLinkForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget;
-  const button = form.querySelector(".primary");
+  const button = form.querySelector("button[type='submit']");
+  paymentError();
   try {
     await busy(button, async () => {
       const selection = form.elements.selection.value;
@@ -760,6 +771,7 @@ $("#paymentLinkForm").addEventListener("submit", async (event) => {
       $("#paymentLinkResult").hidden = false;
     });
   } catch (error) {
+    paymentError(error.message, error.details);
     notice(error.message, true);
   }
 });
@@ -768,6 +780,7 @@ $("#cancelPaymentLink").addEventListener("click", () => {
   $("#paymentLinkForm").reset();
   $("#paymentLinkForm").hidden = true;
   $("#paymentLinkResult").hidden = true;
+  paymentError();
   $("#replacementReasonField").hidden = true;
   $("#paymentFormTitle").textContent = "Create payment link";
 });
