@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const { domain, integer, validationError } = require("./validation");
+const { bounded, domain, integer, validationError } = require("./validation");
 
 function httpsUrl(value, label) {
   let parsed;
@@ -16,6 +16,12 @@ function httpsUrl(value, label) {
   parsed.hash = "";
   parsed.search = "";
   return parsed.toString().replace(/\/$/, "");
+}
+
+function optionalHttpsUrl(value, label) {
+  const normalized = String(value || "").trim();
+  if (normalized.length > 500) throw validationError(`${label} must not exceed 500 characters`);
+  return normalized ? httpsUrl(normalized, label) : "";
 }
 
 class WooCommerceSettings {
@@ -67,6 +73,8 @@ class WooCommerceSettings {
       publicBillingUrl: stored.publicBillingUrl || "",
       productId: Number(stored.productId || 0),
       linkHours: Number(stored.linkHours || 72),
+      supportUrl: stored.supportUrl || "",
+      supportLabel: stored.supportLabel || "Contact support",
       consumerKey: this.decrypt(stored.consumerKey),
       consumerSecret: this.decrypt(stored.consumerSecret),
       webhookSecret: this.decrypt(stored.webhookSecret),
@@ -80,6 +88,8 @@ class WooCommerceSettings {
       publicBillingUrl: settings.publicBillingUrl,
       productId: settings.productId,
       linkHours: settings.linkHours,
+      supportUrl: settings.supportUrl,
+      supportLabel: settings.supportLabel,
       consumerKeyConfigured: Boolean(settings.consumerKey),
       consumerSecretConfigured: Boolean(settings.consumerSecret),
       webhookSecretConfigured: Boolean(settings.webhookSecret),
@@ -96,6 +106,13 @@ class WooCommerceSettings {
     domain(new URL(publicBillingUrl).hostname);
     const productId = integer(input.product_id, 1, 2_147_483_647);
     const linkHours = integer(input.link_hours, 1, 720, 72);
+    const supportUrl = input.support_url === undefined
+      ? current.supportUrl
+      : optionalHttpsUrl(input.support_url, "Support URL");
+    const supportLabel = input.support_label === undefined
+      ? current.supportLabel
+      : bounded(input.support_label, 80) || "Contact support";
+    if (supportUrl && supportLabel.length < 3) throw validationError("Support label must contain at least 3 characters");
     const consumerKey = String(input.consumer_key || current.consumerKey);
     const consumerSecret = String(input.consumer_secret || current.consumerSecret);
     const webhookSecret = String(input.webhook_secret || current.webhookSecret);
@@ -103,11 +120,13 @@ class WooCommerceSettings {
     if (!/^cs_[A-Za-z0-9]{20,}$/.test(consumerSecret)) throw validationError("WooCommerce consumer secret is invalid");
     if (webhookSecret.length < 24) throw validationError("Webhook secret must contain at least 24 characters");
     fs.writeFileSync(this.file, JSON.stringify({
-      version: 1,
+      version: 2,
       siteUrl,
       publicBillingUrl,
       productId,
       linkHours,
+      supportUrl,
+      supportLabel,
       consumerKey: this.encrypt(consumerKey),
       consumerSecret: this.encrypt(consumerSecret),
       webhookSecret: this.encrypt(webhookSecret),
@@ -165,4 +184,4 @@ class WooCommerceClient {
   }
 }
 
-module.exports = { WooCommerceClient, WooCommerceSettings, httpsUrl };
+module.exports = { WooCommerceClient, WooCommerceSettings, httpsUrl, optionalHttpsUrl };

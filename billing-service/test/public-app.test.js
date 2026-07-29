@@ -54,3 +54,13 @@ test("payment option reconciliation stays preview-first and requires CREATE", ()
   assert.match(source, /api\/payment-options\/run/);
   assert.match(source, /confirm: form\.elements\.confirm\.value/);
 });
+
+test("WooCommerce settings expose a bounded public support destination", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+
+  assert.match(html, /name="support_url"/);
+  assert.match(html, /name="support_label"/);
+  assert.match(source, /settings\.supportUrl/);
+  assert.match(source, /settings\.supportLabel/);
+});

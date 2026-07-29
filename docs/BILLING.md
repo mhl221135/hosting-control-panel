@@ -140,6 +140,10 @@ is refreshed only after WooCommerce confirms its old order is cancelled;
 overlapping expired selections are blocked for manual review. Each run records
 created, failed, blocked, and deferred counts in the billing audit. Runs are
 limited to 10 WooCommerce orders to bound provider load and request duration.
+Failed candidates remain eligible for the next controlled run. When a valid
+service has no active payment option, the renewal page shows the optional
+validated HTTPS support link and bounded label from WooCommerce settings.
+Invalid renewal references keep the generic unavailable page.
 
 Configure a WooCommerce **Order updated** webhook:
 

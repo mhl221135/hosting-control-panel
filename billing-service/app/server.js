@@ -92,6 +92,7 @@ function publicRateLimit(req) {
 
 function renewalPage(service, reference) {
   const available = database.publicPayments(service.service_id);
+  const support = wooSettings.public();
   const paymentMarkup = available.length ? available.map((payment) => {
     const lines = [];
     if (payment.hosting_months) {
@@ -105,7 +106,11 @@ function renewalPage(service, reference) {
       <div class="renewal-price"><strong>${escapeHtml((payment.amount_minor / 100).toFixed(2))} ${escapeHtml(payment.currency)}</strong>
       <a class="button primary" href="/renew/${escapeHtml(reference)}/checkout/${escapeHtml(payment.payment_id)}">Continue to payment</a></div>
     </article>`;
-  }).join("") : `<p class="renewal-empty">No payment option is currently available. Contact the website administrator.</p>`;
+  }).join("") : `<p class="renewal-empty">No payment option is currently available.${
+    support.supportUrl
+      ? ` <a class="button secondary" href="${escapeHtml(support.supportUrl)}" target="_blank" rel="noopener nofollow">${escapeHtml(support.supportLabel)}</a>`
+      : " Contact the website administrator."
+  }</p>`;
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Renew ${escapeHtml(service.primary_domain)}</title><link rel="stylesheet" href="/styles.css?v=6"></head>
@@ -458,6 +463,8 @@ async function api(req, res) {
       publicBillingUrl: settings.publicBillingUrl,
       productId: settings.productId,
       linkHours: settings.linkHours,
+      supportUrl: settings.supportUrl,
+      supportLabel: settings.supportLabel,
     });
     json(res, 200, { ok: true, settings });
     return true;

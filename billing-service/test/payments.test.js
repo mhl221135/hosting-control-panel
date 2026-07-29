@@ -17,6 +17,8 @@ function fixture() {
   settings.update({
     site_url: "https://store.example.com",
     public_billing_url: "https://billing.example.com",
+    support_url: "https://support.example.com/contact",
+    support_label: "Contact billing",
     product_id: 99,
     link_hours: 48,
     consumer_key: `ck_${"a".repeat(40)}`,
@@ -47,6 +49,19 @@ test("encrypts WooCommerce credentials and preserves blank secret updates", () =
     });
     assert.equal(updated.ready, true);
     assert.equal(updated.linkHours, 72);
+    assert.equal(updated.supportUrl, "https://support.example.com/contact");
+    assert.equal(updated.supportLabel, "Contact billing");
+    assert.throws(() => value.settings.update({
+      site_url: "https://store.example.com",
+      public_billing_url: "https://billing.example.com",
+      support_url: "http://support.example.com/contact",
+      support_label: "Contact billing",
+      product_id: 99,
+      link_hours: 72,
+      consumer_key: "",
+      consumer_secret: "",
+      webhook_secret: "",
+    }), /valid HTTPS URL/);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });
