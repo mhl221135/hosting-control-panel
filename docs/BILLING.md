@@ -102,6 +102,13 @@ atomically; a domain-only payment cannot change hosting and a hosting-only
 payment cannot change the domain. One unexpired pending link is allowed per
 service and selection.
 
+Pending rows provide **Cancel** and **Replace** actions. Both require an audit
+reason. Cancellation first asks WooCommerce to mark the order `cancelled`; the
+local checkout token is invalidated only after WooCommerce confirms the state.
+Replacement validates the new line items, cancels that exact active order, and
+then creates one fresh order. If new-order creation fails after cancellation,
+the cancelled order remains visible and no duplicate active link exists.
+
 The direct payment link contains a 256-bit random token; SQLite stores only its
 SHA-256 hash. The operator also receives a stable public renewal URL. Its
 `r1_...` reference is an HMAC-derived opaque value created with

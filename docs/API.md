@@ -89,6 +89,13 @@ audited and concurrency-safe. `resume` clears the override and returns to
 date-calculated state; `suspend` changes billing state only and has no website
 mutation authority.
 
+Pending renewal orders expose `POST /api/payments/:id/cancel` with a required
+3-500-character reason. Creating a payment link may include
+`replace_payment_id` plus `replacement_reason`; the selected pending order must
+still belong to the same service and renewal selection. WooCommerce must
+confirm `cancelled` before the local token is invalidated or a replacement is
+created.
+
 The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.

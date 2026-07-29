@@ -79,9 +79,6 @@ remain a later optional adapter.
 
 ### Hosting And Domain Renewal Orders
 
-- Add explicit audited cancellation/replacement of a pending order. The
-  implemented payment flow already keeps one active order per service and
-  renewal selection; expired links may be regenerated.
 - Treat partial payments, changed WooCommerce totals, refunds, chargebacks,
   deleted products, and ambiguous webhooks as manual-review states. They must
   not automatically restore or extend a service.

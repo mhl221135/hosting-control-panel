@@ -457,6 +457,17 @@ async function api(req, res) {
     });
     return true;
   }
+  const paymentCancelMatch = /^\/api\/payments\/([^/]+)\/cancel$/.exec(url.pathname);
+  if (req.method === "POST" && paymentCancelMatch) {
+    const body = await readJson(req);
+    const payment = await payments.cancel(
+      decodeURIComponent(paymentCancelMatch[1]),
+      body.reason,
+      session.email,
+    );
+    json(res, 200, { ok: true, payment });
+    return true;
+  }
   if (req.method === "PUT" && url.pathname === "/api/settings") {
     const body = await readJson(req);
     json(res, 200, {

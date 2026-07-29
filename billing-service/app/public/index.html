@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=7">
+  <link rel="stylesheet" href="/styles.css?v=8">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -198,9 +198,10 @@
             <p id="wooStatus" class="field-status"></p>
           </form>
           <form id="paymentLinkForm" class="form-grid" hidden>
-            <h2>Create payment link</h2>
+            <h2 id="paymentFormTitle">Create payment link</h2>
             <input name="service_id" type="hidden">
             <input name="currency" type="hidden">
+            <input name="replace_payment_id" type="hidden">
             <p class="wide" id="paymentService"></p>
             <label class="wide">Renewal selection
               <select name="selection">
@@ -221,6 +222,9 @@
               <label>Amount<input name="domain_amount" type="number" min="0.01" max="100000000" step="0.01" required></label>
               <label>Current paid through<input name="domain_paid_through" readonly></label>
             </fieldset>
+            <label id="replacementReasonField" class="wide" hidden>Replacement reason
+              <input name="replacement_reason" minlength="3" maxlength="500">
+            </label>
             <p class="wide payment-total">Order total <strong id="paymentTotal"></strong></p>
             <button class="primary" type="submit">Create WooCommerce order</button>
             <button id="cancelPaymentLink" class="secondary" type="button">Cancel</button>
@@ -236,11 +240,19 @@
         <h2 class="subheading">Recent payment links</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Selection</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th></tr></thead>
+            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Selection</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th><th>Actions</th></tr></thead>
             <tbody id="paymentsBody"></tbody>
           </table>
         </div>
         <p id="emptyPayments" class="empty" hidden>No payment links created.</p>
+        <form id="paymentCancelForm" class="form-grid compact-form" hidden>
+          <h2>Cancel pending order</h2>
+          <input name="payment_id" type="hidden">
+          <p id="paymentCancelTarget" class="wide"></p>
+          <label class="wide">Cancellation reason<input name="reason" minlength="3" maxlength="500" required></label>
+          <button class="danger" type="submit">Cancel WooCommerce order</button>
+          <button id="closePaymentCancel" class="secondary" type="button">Keep order</button>
+        </form>
       </section>
 
       <section data-section="reminders" hidden>
@@ -353,6 +365,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=7" defer></script>
+  <script src="/app.js?v=8" defer></script>
 </body>
 </html>

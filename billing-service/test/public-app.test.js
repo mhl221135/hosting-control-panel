@@ -21,3 +21,14 @@ test("manual overrides use reasoned actions instead of an unaudited state select
   assert.match(html, /data-manual-action="suspend"/);
   assert.match(source, /reason, updated_at: service\.updated_at/);
 });
+
+test("pending payment actions expose reasoned cancellation and replacement", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+
+  assert.match(html, /id="paymentCancelForm"/);
+  assert.match(html, /name="replacement_reason"/);
+  assert.match(source, /data-cancel-payment/);
+  assert.match(source, /data-replace-payment/);
+  assert.match(source, /replace_payment_id: form\.elements\.replace_payment_id\.value/);
+});
