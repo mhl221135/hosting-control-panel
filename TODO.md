@@ -175,6 +175,8 @@ amount, renewal-page security headers, and WooCommerce checkout without
 exposing protected URLs. A suspended state qualification has been exercised
 against one operator-selected local service. This is not evidence of
 completed-payment restoration or the remaining state/outage drills below.
+`docs/BILLING_PILOT_RUNBOOK.md` defines their safety boundary, ordered
+pass/fail checks, and private evidence checklist.
 
 1. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
