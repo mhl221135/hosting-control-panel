@@ -424,6 +424,7 @@ current configuration before large edits.
 | **Reconcile now** | Requires `RECONCILE`, validates nginx, and atomically applies only the displayed fresh plan. |
 | **Disable and restore all** | Requires `DISABLE`, turns off the global switch, and immediately clears every managed redirect. |
 | **Recent enforcement transitions** | Shows bounded proposed/applied block and restore evidence without retaining payment links or customer data. |
+| **Billing service location** | Limits Payment page enforcement to Local stack records; shared and notification-only services remain non-enforcing. |
 
 ### Performance settings
 

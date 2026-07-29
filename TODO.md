@@ -59,12 +59,6 @@ CSV import/export is required for migration and operator editing, but the
 billing database becomes the source of truth. Google Sheets synchronization can
 remain a later optional adapter.
 
-### Remaining Inventory Controls
-
-- Enforce local-versus-remote compatibility when selecting `payment_page`;
-  remote/shared services must remain notification-only until their own adapter
-  is qualified.
-
 ### WooCommerce Integration
 
 - Use one hidden virtual **Hosting renewal** product, not one variation per

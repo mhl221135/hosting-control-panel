@@ -23,6 +23,13 @@ test("manual overrides use reasoned actions instead of an unaudited state select
   assert.match(source, /reason, updated_at: service\.updated_at/);
 });
 
+test("payment-page enforcement follows local hosting compatibility", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+  assert.match(source, /function updateEnforcementCompatibility/);
+  assert.match(source, /paymentPage\.disabled = !local/);
+  assert.match(source, /elements\.location\.addEventListener\("change", updateEnforcementCompatibility\)/);
+});
+
 test("pending payment actions expose reasoned cancellation and replacement", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");

@@ -47,3 +47,22 @@ test("calculates active, reminder, grace, suspended and fail-open exempt states"
   assert.equal(stateForDate("", settings, "", now), "exempt");
   assert.equal(stateForDate("2020-01-01", settings, "active", now), "active");
 });
+
+test("allows payment-page enforcement only for local services", () => {
+  assert.equal(normalizeService({
+    primary_domain: "local.example.com",
+    location: "local",
+    enforcement_mode: "payment_page",
+  }).enforcement_mode, "payment_page");
+  for (const location of ["shared", "notification"]) {
+    assert.throws(() => normalizeService({
+      primary_domain: `${location}.example.com`,
+      location,
+      enforcement_mode: "payment_page",
+    }), /only for locally hosted services/);
+  }
+  assert.throws(() => importCsv([
+    "primary_domain,location,enforcement_mode",
+    "remote.example.com,shared,payment_page",
+  ].join("\n")), /row 2.*only for locally hosted services/);
+});
