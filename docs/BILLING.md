@@ -181,6 +181,12 @@ domain period, and 7 grace days. Provision and import forms retain a per-site
 choice; imports default to no free period. A registration outage becomes a
 provisioning warning and never rolls back the working website.
 
+Jobs with that specific warning expose **Retry billing**. The retry is a
+separate durable job that reconstructs the original bounded registration,
+reuses the original provisioning idempotency key and trial anchor, and does
+not touch website files, databases, DNS, NPM, or certificates. A successful
+linked retry removes the action from the source job.
+
 `hosting-ui` includes that consumer as an observe-only foundation. Under
 **Settings > Billing entitlement observer**, an operator can manually refresh
 or enable scheduled verification. The observer:

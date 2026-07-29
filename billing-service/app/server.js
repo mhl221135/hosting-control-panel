@@ -10,7 +10,7 @@ const { PaymentManager, addMonths } = require("./lib/payments");
 const { PublicReference } = require("./lib/public-reference");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
-const { domain, integer, normalizeService } = require("./lib/validation");
+const { domain, integer, isoDate, normalizeService } = require("./lib/validation");
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "/app/data");
@@ -254,6 +254,7 @@ async function api(req, res) {
     const primaryDomain = domain(body.primary_domain);
     const freeMonths = integer(body.free_months, 0, 60, 6);
     const grantFreePeriod = body.grant_free_period === true;
+    const trialAnchor = body.trial_anchor ? isoDate(body.trial_anchor) : "";
     const service = normalizeService({
       primary_domain: primaryDomain,
       aliases: body.aliases,
@@ -262,7 +263,7 @@ async function api(req, res) {
       contact_phone: body.contact_phone,
       location: "local",
       provider: "hosting-control-panel",
-      hosting_paid_through: grantFreePeriod ? addMonths("", freeMonths) : "",
+      hosting_paid_through: grantFreePeriod ? addMonths(trialAnchor, freeMonths) : "",
       domain_paid_through: body.domain_paid_through,
       renewal_months: body.renewal_months,
       domain_renewal_months: body.domain_renewal_months,

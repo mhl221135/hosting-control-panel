@@ -1038,6 +1038,9 @@ async function previewExport() {
 
 function renderJobs() {
   const allJobs = state.jobs || [];
+  const completedBillingRetries = new Set(allJobs
+    .filter((job) => job.type === "billing.provision.retry" && job.status === "succeeded")
+    .map((job) => job.retryOf));
   const statusFilter = $("#jobStatusFilter").value;
   const typeFilter = $("#jobTypeFilter").value;
   const types = [...new Set(allJobs.map((job) => job.type))].sort();
@@ -1068,12 +1071,15 @@ function renderJobs() {
       : "";
     const canCancel = job.status === "queued" || (job.status === "running" && job.cancellable);
     const canRetry = terminal && job.retryable && job.status !== "succeeded";
+    const canRetryBilling = terminal && job.type === "site.provision"
+      && !completedBillingRetries.has(job.id)
+      && job.results?.some((result) => result?.name === "billing" && result.ok === false);
     const canReveal = ["succeeded", "partially_succeeded"].includes(job.status) && job.oneTimeAccessAvailable;
     return `<div class="job-row">
       <div><span class="job-status ${escapeHtml(job.status)}">${escapeHtml(jobStatusLabel(job.status))}</span><h3>${escapeHtml(job.label)}</h3><p>${escapeHtml(jobTypeLabel(job.type))} · ${escapeHtml(job.operator || "system")}</p></div>
       <div class="job-progress"><div class="job-progress-track"><i style="width:${percent}%"></i></div><p>${total ? `${completed} of ${total}` : jobStatusLabel(job.status)}${job.currentStep ? ` · ${escapeHtml(job.currentStep)}` : ""}</p></div>
       <div><p>${escapeHtml(detail)}</p><p>${escapeHtml(new Date(job.startedAt || job.createdAt).toLocaleString())}${job.finishedAt ? ` · finished ${escapeHtml(new Date(job.finishedAt).toLocaleString())}` : ""}</p>${notificationText ? `<p>${escapeHtml(notificationText)}</p>` : ""}</div>
-      <div class="job-actions">${canReveal ? `<button class="secondary" data-reveal-provision="${job.id}">Reveal credentials</button>` : ""}${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
+      <div class="job-actions">${canReveal ? `<button class="secondary" data-reveal-provision="${job.id}">Reveal credentials</button>` : ""}${canRetryBilling ? `<button class="secondary" data-retry-billing="${job.id}">Retry billing</button>` : ""}${canCancel ? `<button class="secondary danger-button" data-cancel-job="${job.id}">Cancel</button>` : ""}${canRetry ? `<button class="secondary" data-retry-job="${job.id}">Retry</button>` : ""}</div>
     </div>`;
   }).join("") : "No jobs match the selected filters.";
 
@@ -1974,13 +1980,15 @@ ${application}</pre>`;
   }
   const cancel = event.target.closest("[data-cancel-job]");
   const retry = event.target.closest("[data-retry-job]");
-  const button = cancel || retry;
+  const retryBilling = event.target.closest("[data-retry-billing]");
+  const button = cancel || retry || retryBilling;
   if (!button) return;
-  const action = cancel ? "cancel" : "retry";
+  const action = cancel ? "cancel" : retryBilling ? "retry-billing" : "retry";
   if (cancel && !confirm("Cancel this job at its next safe boundary?")) return;
   try {
+    const id = cancel?.dataset.cancelJob || retry?.dataset.retryJob || retryBilling.dataset.retryBilling;
     const result = await withButton(button, action === "cancel" ? "Cancelling..." : "Queuing...", () => api(
-      `/api/jobs/${encodeURIComponent(cancel?.dataset.cancelJob || retry.dataset.retryJob)}/${action}`,
+      `/api/jobs/${encodeURIComponent(id)}/${action}`,
       { method: "POST" },
     ));
     rememberJob(result.job, action === "cancel" ? "Cancellation requested" : "Retry queued");

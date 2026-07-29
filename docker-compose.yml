@@ -41,7 +41,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.37
+    image: hosting-ui:2.38
     build:
       context: ./ui-manager
     container_name: hosting-ui

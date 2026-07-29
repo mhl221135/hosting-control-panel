@@ -49,7 +49,9 @@ contract and recovery workflow are in `BILLING.md`.
 `POST /internal/v1/services` requires the same bearer token plus a bounded
 `Idempotency-Key`. It is a create-only provisioning adapter: duplicate primary
 domains return the existing stable service and it never exposes billing
-inventory administration.
+inventory administration. A supplied `trial_anchor` fixes free-period
+calculation to the original provisioning date so a delayed retry cannot extend
+the trial.
 
 `POST /webhooks/woocommerce` is public and requires a valid WooCommerce
 HMAC-SHA256 signature, unique delivery ID, and an allowed order topic.
@@ -69,7 +71,7 @@ schedule, return due preview/history, and run the outbox manually.
 requires `BILLING_API_TOKEN`, accepts only the bounded reminder schema, and
 constructs its own notification event before enqueueing Telegram/SMTP delivery.
 
-The authenticated hosting-panel observer routes are:
+The authenticated hosting-panel billing integration routes are:
 
 | Method/path | Purpose |
 |---|---|
@@ -78,9 +80,11 @@ The authenticated hosting-panel observer routes are:
 | `POST /api/billing/observer/refresh` | Fetch and verify one signed snapshot immediately |
 | `GET /api/billing/provisioning-settings` | Read non-secret registration defaults and connection state |
 | `PUT /api/billing/provisioning-settings` | Validate and persist registration defaults |
+| `POST /api/jobs/:id/retry-billing` | Queue a billing-only retry for a completed provision whose billing step warned |
 
-These routes are observe-only. They do not expose the shared token and have no
-website mutation or enforcement capability.
+The observer routes are read-only. None of these routes exposes the shared
+token or has website mutation or enforcement capability; the retry route can
+only repeat the bounded billing registration.
 
 ## Route Groups
 

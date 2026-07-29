@@ -56,7 +56,14 @@ const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
 const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
 const { BillingEntitlementObserver } = require("./lib/billing-entitlement-observer");
-const { BillingProvisioningClient, BillingProvisioningSettings } = require("./lib/billing-provisioning");
+const {
+  BillingProvisioningClient,
+  BillingProvisioningSettings,
+  hasBillingWarning,
+  registrationPayload,
+  retryJobInput,
+  retryRegistration,
+} = require("./lib/billing-provisioning");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -1402,23 +1409,13 @@ jobManager.register("site.provision", async (context, payload) => {
   if (billing.enabled) {
     context.update({ currentStep: "Registering billing service" });
     try {
-      const registration = await billingProvisioningClient.register({
-        primary_domain: result.domain,
-        aliases: body.add_www && !result.domain.startsWith("www.") ? [`www.${result.domain}`] : [],
-        customer_name: billing.customerName,
-        contact_email: billing.contactEmail || result.wordpress?.adminEmail || "",
-        grant_free_period: billing.grantFreePeriod,
-        free_months: billing.freeMonths,
-        renewal_months: billing.renewalMonths,
-        hosting_price_minor: billing.hostingPriceMinor,
-        domain_renewal_months: billing.domainRenewalMonths,
-        domain_price_minor: billing.domainPriceMinor,
-        domain_paid_through: billing.domainPaidThrough,
-        currency: billing.currency,
-        grace_days: billing.graceDays,
-        timezone: billing.timezone,
-        notes: String(body.notes || "").slice(0, 2000),
-      }, context.id);
+      const registration = await billingProvisioningClient.register(
+        registrationPayload(result.domain, {
+          ...body,
+          admin_email: result.wordpress?.adminEmail || body.admin_email,
+        }, billing),
+        context.id,
+      );
       result.steps.push({
         name: "billing",
         status: "complete",
@@ -1443,6 +1440,30 @@ jobManager.register("site.provision", async (context, payload) => {
     });
   }
   return provisioningJobResult(result);
+});
+
+jobManager.register("billing.provision.retry", async (context, payload) => {
+  const source = jobManager.get(String(payload.sourceJobId || ""));
+  if (!source) throw new Error("The source provisioning job is unavailable");
+  const domain = String(source.targets?.[0] || "");
+  context.update({ currentStep: `Registering ${domain} with billing` });
+  const retried = await retryRegistration(
+    source,
+    billingProvisioningSettings,
+    billingProvisioningClient,
+  );
+  return {
+    ok: true,
+    completed: 1,
+    total: 1,
+    message: `${retried.domain} billing registration completed`,
+    results: [{
+      name: "billing",
+      ok: true,
+      created: retried.result.created,
+      serviceId: retried.result.service.serviceId,
+    }],
+  };
 });
 
 function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
@@ -1486,6 +1507,23 @@ async function handleApi(req, res) {
     }
     if (req.method === "POST" && parts.length === 2 && parts[1] === "retry") {
       sendJson(res, 202, { ok: true, job: jobManager.retry(id, req.auth.email) });
+      return true;
+    }
+    if (req.method === "POST" && parts.length === 2 && parts[1] === "retry-billing") {
+      const source = jobManager.get(id);
+      if (!hasBillingWarning(source)) {
+        sendJson(res, 409, { ok: false, message: "This job has no retryable billing warning" });
+        return true;
+      }
+      if (jobManager.jobs.some((job) =>
+        job.type === "billing.provision.retry" && job.retryOf === source.id && job.status === "succeeded")) {
+        sendJson(res, 409, { ok: false, message: "Billing registration was already retried successfully" });
+        return true;
+      }
+      sendJson(res, 202, {
+        ok: true,
+        job: jobManager.create(retryJobInput(source, req.auth.email)),
+      });
       return true;
     }
   }
