@@ -22,8 +22,9 @@ preserve that service boundary.
 Phase 2 code also implements encrypted WooCommerce settings, opaque expiring
 payment links, one-active-link protection, signed topic-restricted webhooks,
 amount/currency validation, idempotent delivery processing, and manual-review
-handling without enforcement. It still requires live qualification against the
-dedicated hidden renewal product before client use.
+handling. Billing remains unable to enforce directly; the independently gated
+hosting-side reconciler is described below. Live payment qualification against
+the dedicated hidden renewal product is still required before client use.
 
 Renewal reminders are implemented with a disabled-by-default daily scheduler,
 due-state preview, manual run, durable idempotent outbox, failure retry, and a

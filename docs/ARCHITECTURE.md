@@ -51,8 +51,9 @@ Database and Redis ports are intentionally not published.
 
 `hosting-billing` is a separate control-plane boundary. It has no Docker
 socket, website, MySQL, nginx, or panel-data mount and cannot mutate hosting
-state. `hosting-ui` receives only its URL and bearer token for future narrow
-integration. See `BILLING.md`.
+state. `hosting-ui` receives only its internal URL and bearer token for narrow
+provisioning, reminder delivery, signed entitlement observation, and guarded
+local enforcement. See `BILLING.md`.
 
 ## Runtime Routing
 
