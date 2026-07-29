@@ -160,6 +160,16 @@ function updateServicePreview() {
   ));
 }
 
+function updateEnforcementCompatibility() {
+  const form = $("#serviceForm");
+  const paymentPage = form.elements.enforcement_mode.querySelector('option[value="payment_page"]');
+  const local = form.elements.location.value === "local";
+  paymentPage.disabled = !local;
+  if (!local && form.elements.enforcement_mode.value === "payment_page") {
+    form.elements.enforcement_mode.value = "none";
+  }
+}
+
 function resetServiceForm() {
   const form = $("#serviceForm");
   form.reset();
@@ -182,6 +192,7 @@ function resetServiceForm() {
   $("#manualActionReason").value = "";
   $("#manualStateValue").textContent = "Calculated from renewal date";
   $$(".service-item").forEach((item) => item.classList.remove("active"));
+  updateEnforcementCompatibility();
   updateServicePreview();
 }
 
@@ -213,6 +224,7 @@ function editService(serviceId) {
     ? `Forced to ${service.manual_state}`
     : "Calculated from renewal date";
   $$(".service-item").forEach((item) => item.classList.toggle("active", item.dataset.serviceId === serviceId));
+  updateEnforcementCompatibility();
   updateServicePreview();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -609,6 +621,7 @@ $("#managerState").addEventListener("change", () => loadServiceManager(""));
 ["hosting_paid_through", "domain_paid_through", "grace_days", "manual_state"].forEach((name) => {
   $("#serviceForm").elements[name].addEventListener("input", updateServicePreview);
 });
+$("#serviceForm").elements.location.addEventListener("change", updateEnforcementCompatibility);
 
 $("#serviceForm").addEventListener("submit", async (event) => {
   event.preventDefault();

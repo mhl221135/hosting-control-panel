@@ -114,7 +114,7 @@ function normalizeService(input) {
   const sourceRef = bounded(input.source_ref || input.order_number, 120);
   const currency = bounded(input.currency || "USD", 3).toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) throw validationError(`Invalid currency: ${currency}`);
-  return {
+  const normalized = {
     service_id: serviceId(input.service_id, sourceRef, primaryDomain),
     primary_domain: primaryDomain,
     aliases: aliases(input.aliases, primaryDomain),
@@ -147,6 +147,10 @@ function normalizeService(input) {
     source_ref: sourceRef,
     archived: boolean(input.archived, false),
   };
+  if (normalized.enforcement_mode === "payment_page" && normalized.location !== "local") {
+    throw validationError("Payment page enforcement is available only for locally hosted services");
+  }
+  return normalized;
 }
 
 function stateForDate(paidThrough, settings, manualState = "", now = new Date()) {

@@ -263,6 +263,11 @@ enabled. The callback retries transient failures without changing the durable
 payment result. Scheduled observation is mandatory while enforcement is
 enabled and remains the recovery fallback if every callback attempt fails.
 
+`payment_page` is accepted only for services whose location is **Local stack**.
+The shared-hosting and notification-only locations reject it in API and CSV
+validation, and the editor disables the option. Remote services remain
+notification-only until a separately qualified adapter exists.
+
 Billing still has no nginx, Docker, website, or panel-data access. Only
 `hosting-ui` owns the narrow map and uses the allowlisted control agent for
 nginx validation/reload. The production allowlist must stay empty until the
