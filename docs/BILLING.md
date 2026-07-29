@@ -166,6 +166,21 @@ HMAC-SHA256 signature over the unsigned JSON payload. Consumers must verify the
 signature and freshness before relying on it. Future enforcement must retain a
 last-known-good copy and fail open when state is stale or unavailable.
 
+`POST /internal/v1/services` uses the same bearer credential but accepts only
+bounded provisioning fields and a required `Idempotency-Key`. It creates a
+local, enforcement-disabled billing record after successful website
+provisioning. Repeating a request for the same normalized primary domain
+returns the existing stable service without changing manually edited billing
+data. It does not expose list, update, archive, payment, or contact-reading
+operations.
+
+The hosting panel stores its non-secret defaults in
+`app-data/ui-manager/billing-provisioning-settings.json`. Defaults start
+disabled and use 6 free months, a 12-month USD 80 hosting renewal, a 12-month
+domain period, and 7 grace days. Provision and import forms retain a per-site
+choice; imports default to no free period. A registration outage becomes a
+provisioning warning and never rolls back the working website.
+
 `hosting-ui` includes that consumer as an observe-only foundation. Under
 **Settings > Billing entitlement observer**, an operator can manually refresh
 or enable scheduled verification. The observer:

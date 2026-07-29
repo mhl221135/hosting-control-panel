@@ -99,6 +99,11 @@ disabled-by-default poll interval and freshness policy.
 response plus sanitized local matching results. Both files are mode `0600`;
 the shared API token remains only in `.env`.
 
+`app-data/ui-manager/billing-provisioning-settings.json` stores non-secret
+defaults for new-site registration: enabled state, free/renewal months, prices,
+currency, grace days, and timezone. It contains no billing administrator,
+WooCommerce, or API credentials.
+
 ## Active Runtime Configuration
 
 Active copies live under `app-data/configs` and are bind-mounted into services.

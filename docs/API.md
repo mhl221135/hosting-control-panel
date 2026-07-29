@@ -46,6 +46,11 @@ and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
 health, but returns `503` during backup or restore maintenance. The complete
 contract and recovery workflow are in `BILLING.md`.
 
+`POST /internal/v1/services` requires the same bearer token plus a bounded
+`Idempotency-Key`. It is a create-only provisioning adapter: duplicate primary
+domains return the existing stable service and it never exposes billing
+inventory administration.
+
 `POST /webhooks/woocommerce` is public and requires a valid WooCommerce
 HMAC-SHA256 signature, unique delivery ID, and an allowed order topic.
 `GET /pay/:token` resolves only an unexpired pending token hash and redirects to
@@ -71,6 +76,8 @@ The authenticated hosting-panel observer routes are:
 | `GET /api/billing/observer` | Sanitized observer settings, freshness, matches, and drift |
 | `PUT /api/billing/observer/settings` | Enable/disable polling and set bounded interval/freshness |
 | `POST /api/billing/observer/refresh` | Fetch and verify one signed snapshot immediately |
+| `GET /api/billing/provisioning-settings` | Read non-secret registration defaults and connection state |
+| `PUT /api/billing/provisioning-settings` | Validate and persist registration defaults |
 
 These routes are observe-only. They do not expose the shared token and have no
 website mutation or enforcement capability.

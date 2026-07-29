@@ -6,6 +6,10 @@ const SAFE_FIELDS = new Set([
   "dns_preset_id", "add_www", "create_npm_host", "issue_ssl", "notes", "import_upload_id",
   "apply_security_preset", "security_preset", "apply_security_defaults",
   "create_database", "import_database_archive",
+  "register_billing", "billing_grant_free_period", "billing_free_months",
+  "billing_renewal_months", "billing_hosting_price", "billing_domain_renewal_months",
+  "billing_domain_price", "billing_domain_paid_through", "billing_currency",
+  "billing_grace_days", "billing_customer_name", "billing_contact_email",
 ]);
 
 function safeProvisionPayload(body = {}) {

@@ -17,7 +17,8 @@ COPY app/lib /app/lib
 COPY app/cli /app/cli
 COPY app/public /app/public
 COPY docker-rpc.js /usr/local/bin/docker
-RUN chmod 0555 /usr/local/bin/docker
+RUN chmod -R a=rX /app/server.js /app/lib /app/cli /app/public \
+    && chmod 0555 /usr/local/bin/docker
 
 ENV PORT=8687
 ENV DATA_DIR=/app/data

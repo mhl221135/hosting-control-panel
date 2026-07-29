@@ -56,6 +56,7 @@ const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
 const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
 const { BillingEntitlementObserver } = require("./lib/billing-entitlement-observer");
+const { BillingProvisioningClient, BillingProvisioningSettings } = require("./lib/billing-provisioning");
 
 const PORT = Number(process.env.PORT || 8687);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -142,6 +143,11 @@ const billingEntitlementObserver = new BillingEntitlementObserver({
     const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
     return getSitesWithPools(mapParsed, poolsParsed);
   },
+});
+const billingProvisioningSettings = new BillingProvisioningSettings(DATA_DIR);
+const billingProvisioningClient = new BillingProvisioningClient({
+  apiUrl: process.env.BILLING_API_URL,
+  token: process.env.BILLING_API_TOKEN,
 });
 const jobManager = new JobManager({
   dataDir: DATA_DIR,
@@ -1392,6 +1398,41 @@ jobManager.register("site.provision", async (context, payload) => {
   const secret = payload.requestRef ? provisioningVault.take(payload.requestRef, payload.owner) : null;
   if (payload.requestRef && !secret) throw new Error("Provisioning request credentials expired; submit the form again");
   const result = await executeProvisioning(body, context, secret?.adminPassword || "");
+  const billing = billingProvisioningSettings.registration(body);
+  if (billing.enabled) {
+    context.update({ currentStep: "Registering billing service" });
+    try {
+      const registration = await billingProvisioningClient.register({
+        primary_domain: result.domain,
+        aliases: body.add_www && !result.domain.startsWith("www.") ? [`www.${result.domain}`] : [],
+        customer_name: billing.customerName,
+        contact_email: billing.contactEmail || result.wordpress?.adminEmail || "",
+        grant_free_period: billing.grantFreePeriod,
+        free_months: billing.freeMonths,
+        renewal_months: billing.renewalMonths,
+        hosting_price_minor: billing.hostingPriceMinor,
+        domain_renewal_months: billing.domainRenewalMonths,
+        domain_price_minor: billing.domainPriceMinor,
+        domain_paid_through: billing.domainPaidThrough,
+        currency: billing.currency,
+        grace_days: billing.graceDays,
+        timezone: billing.timezone,
+        notes: String(body.notes || "").slice(0, 2000),
+      }, context.id);
+      result.steps.push({
+        name: "billing",
+        status: "complete",
+        created: registration.created,
+        serviceId: registration.service.serviceId,
+      });
+    } catch (error) {
+      result.steps.push({
+        name: "billing",
+        status: "warning",
+        message: String(error.details || error.message).slice(0, 300),
+      });
+    }
+  }
   if (result.database) {
     provisioningVault.put(context.id, payload.owner, {
       domain: result.domain,
@@ -1911,6 +1952,34 @@ async function handleApi(req, res) {
 
   if (req.method === "GET" && requestUrl.pathname === "/api/billing/observer") {
     sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.view() });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/billing/provisioning-settings") {
+    sendJson(res, 200, {
+      ok: true,
+      configured: billingProvisioningClient.configured(),
+      settings: billingProvisioningSettings.read(),
+    });
+    return true;
+  }
+
+  if (req.method === "PUT" && requestUrl.pathname === "/api/billing/provisioning-settings") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, {
+      ok: true,
+      configured: billingProvisioningClient.configured(),
+      settings: billingProvisioningSettings.update({
+        enabled: body.enabled === true,
+        freeMonths: body.free_months,
+        renewalMonths: body.renewal_months,
+        hostingPriceMinor: Math.round(Number(body.hosting_price || 0) * 100),
+        domainRenewalMonths: body.domain_renewal_months,
+        currency: body.currency,
+        graceDays: body.grace_days,
+        timezone: body.timezone,
+      }),
+    });
     return true;
   }
 
@@ -2660,6 +2729,7 @@ async function handleApi(req, res) {
   if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
     const submitted = JSON.parse((await readBody(req)) || "{}");
     const normalized = validateProvisionRequest(submitted);
+    if (submitted.register_billing) billingProvisioningSettings.registration(submitted);
     if (submitted.create_update_dns) validateIpv4(submitted.dns_ip);
     if (submitted.apply_dns_preset) dnsPresets.resolveAll(String(submitted.dns_preset_id || ""), normalized.domain);
     if (normalized.siteType === "wordpress" && normalized.sourceMode === "fresh") {

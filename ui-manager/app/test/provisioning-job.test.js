@@ -14,6 +14,10 @@ test("provisioning jobs never persist submitted administrator passwords", () => 
     plugin_packages: ["plugin-id"],
     apply_security_preset: true,
     security_preset: "suspicious-probes",
+    register_billing: true,
+    billing_grant_free_period: true,
+    billing_hosting_price: "80.00",
+    billing_contact_email: "owner@example.com",
     unknown: "discarded",
   });
   assert.deepEqual(request, {
@@ -22,6 +26,10 @@ test("provisioning jobs never persist submitted administrator passwords", () => 
     plugin_packages: ["plugin-id"],
     apply_security_preset: true,
     security_preset: "suspicious-probes",
+    register_billing: true,
+    billing_grant_free_period: true,
+    billing_hosting_price: "80.00",
+    billing_contact_email: "owner@example.com",
   });
   const input = jobInput({ body: request, domain: "example.com", operator: "admin@example.com" });
   assert.equal(JSON.stringify(input).includes("do-not-persist"), false);

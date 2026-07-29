@@ -6,11 +6,11 @@ const { AuthStore, apiAuthorized } = require("./lib/auth");
 const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
-const { PaymentManager } = require("./lib/payments");
+const { PaymentManager, addMonths } = require("./lib/payments");
 const { PublicReference } = require("./lib/public-reference");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
-const { normalizeService } = require("./lib/validation");
+const { domain, integer, normalizeService } = require("./lib/validation");
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "/app/data");
@@ -234,6 +234,72 @@ async function api(req, res) {
       return true;
     }
     json(res, 200, entitlementPayload());
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/internal/v1/services") {
+    if (backups.active) {
+      json(res, 503, { ok: false, message: "Billing maintenance is in progress" });
+      return true;
+    }
+    if (!apiAuthorized(req)) {
+      json(res, 401, { ok: false, message: "API authentication required" });
+      return true;
+    }
+    const idempotencyKey = String(req.headers["idempotency-key"] || "");
+    if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) {
+      throw Object.assign(new Error("A valid idempotency key is required"), { statusCode: 400 });
+    }
+    const body = await readJson(req);
+    const primaryDomain = domain(body.primary_domain);
+    const freeMonths = integer(body.free_months, 0, 60, 6);
+    const grantFreePeriod = body.grant_free_period === true;
+    const service = normalizeService({
+      primary_domain: primaryDomain,
+      aliases: body.aliases,
+      customer_name: body.customer_name,
+      contact_email: body.contact_email,
+      contact_phone: body.contact_phone,
+      location: "local",
+      provider: "hosting-control-panel",
+      hosting_paid_through: grantFreePeriod ? addMonths("", freeMonths) : "",
+      domain_paid_through: body.domain_paid_through,
+      renewal_months: body.renewal_months,
+      domain_renewal_months: body.domain_renewal_months,
+      hosting_price_minor: body.hosting_price_minor,
+      domain_price_minor: body.domain_price_minor,
+      currency: body.currency,
+      grace_days: body.grace_days,
+      enforcement_mode: "none",
+      timezone: body.timezone || "Europe/Kyiv",
+      notes: body.notes,
+      source_ref: `provision:${primaryDomain}`,
+    });
+    const existing = database.serviceByDomain(service.primary_domain);
+    if (existing) {
+      database.auditEntry("hosting-ui", "inventory.provision_replay", existing.service_id, {
+        idempotencyKey,
+        primaryDomain: existing.primary_domain,
+      });
+      json(res, 200, {
+        ok: true,
+        created: false,
+        service: { serviceId: existing.service_id, primaryDomain: existing.primary_domain },
+      });
+      return true;
+    }
+    const created = database.createService(service, "hosting-ui");
+    database.auditEntry("hosting-ui", "inventory.provision_register", created.service_id, {
+      idempotencyKey,
+      primaryDomain: created.primary_domain,
+      grantFreePeriod,
+      freeMonths,
+    });
+    json(res, 201, {
+      ok: true,
+      created: true,
+      service: { serviceId: created.service_id, primaryDomain: created.primary_domain },
+    });
     return true;
   }
 
