@@ -94,7 +94,10 @@ value pointing at `hosting-ui`; both services receive the same
 `app-data/ui-manager`.
 
 `app-data/ui-manager/billing-observer-settings.json` stores only the
-disabled-by-default poll interval and freshness policy.
+disabled-by-default poll interval and freshness policy. Compose also supplies
+the internal `ENTITLEMENT_REFRESH_API_URL` to billing. It carries no secret;
+requests use `BILLING_API_TOKEN`, and scheduled polling must remain enabled
+while local enforcement is armed.
 `billing-entitlements-lkg.json` is the atomic last verified entitlement
 response plus sanitized local matching results. Both files are mode `0600`;
 the shared API token remains only in `.env`.

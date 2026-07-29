@@ -54,7 +54,11 @@ const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/prov
 const { CloudflareAutomationManager } = require("./lib/cloudflare-automation-manager");
 const { WordPressUpdateManager } = require("./lib/wordpress-update-manager");
 const { inspectOpenCart, rewriteOpenCart } = require("./lib/opencart");
-const { authorized: billingAuthorized, validatedReminder } = require("./lib/billing-notification-api");
+const {
+  authorized: billingAuthorized,
+  validatedEntitlementRefresh,
+  validatedReminder,
+} = require("./lib/billing-notification-api");
 const { BillingEntitlementObserver } = require("./lib/billing-entitlement-observer");
 const { BillingEnforcementManager } = require("./lib/billing-enforcement");
 const {
@@ -2056,6 +2060,11 @@ async function handleApi(req, res) {
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/billing/observer/settings") {
     const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.enabled !== true && billingEnforcementManager.readSettings().enabled) {
+      throw Object.assign(new Error("Disable billing enforcement before disabling scheduled observation"), {
+        statusCode: 400,
+      });
+    }
     billingEntitlementObserver.saveSettings(body);
     sendJson(res, 200, { ok: true, observer: await billingEntitlementObserver.view() });
     return true;
@@ -3448,6 +3457,24 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 202, { ok: true, delivery }, { "Cache-Control": "no-store" });
+      return;
+    }
+    if (req.url === "/internal/v1/billing-entitlements/refresh" && req.method === "POST") {
+      if (!billingAuthorized(req)) {
+        sendJson(res, 401, { ok: false, message: "Billing API authentication required" }, { "Cache-Control": "no-store" });
+        return;
+      }
+      const request = validatedEntitlementRefresh(JSON.parse((await readBody(req)) || "{}"));
+      const observer = await billingEntitlementObserver.refresh();
+      let enforcement = null;
+      if (billingEnforcementManager.readSettings().enabled) {
+        enforcement = await billingEnforcementManager.reconcile(`woocommerce:${request.deliveryId}`);
+      }
+      sendJson(res, 200, {
+        ok: true,
+        observedAt: observer.snapshot?.observedAt || "",
+        enforcement: enforcement ? enforcement.result : "disabled",
+      }, { "Cache-Control": "no-store" });
       return;
     }
     if (req.url.startsWith("/api/")) {

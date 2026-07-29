@@ -364,6 +364,10 @@ class BillingEnforcementManager {
   }
 
   async updateSettings(input, actor) {
+    if (input.enabled === true && this.observer?.readSettings
+      && this.observer.readSettings().enabled !== true) {
+      throw validationError("Enable scheduled billing entitlement observation before enabling enforcement");
+    }
     const settings = this.saveSettings(input);
     if (!settings.enabled) await this.applyPlan(buildPlan(null, [], settings), actor, "disable");
     return this.view();

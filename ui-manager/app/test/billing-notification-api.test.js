@@ -1,7 +1,11 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const test = require("node:test");
-const { authorized, validatedReminder } = require("../lib/billing-notification-api");
+const {
+  authorized,
+  validatedEntitlementRefresh,
+  validatedReminder,
+} = require("../lib/billing-notification-api");
 
 test("requires the exact long billing bearer token", () => {
   const token = crypto.randomBytes(32).toString("hex");
@@ -49,4 +53,13 @@ test("rejects arbitrary messages, invalid states, dates, IDs, and keys", () => {
     { days_remaining: 1.5 },
     { reminder_key: "short" },
   ]) assert.throws(() => validatedReminder({ ...valid, ...change }));
+});
+
+test("accepts only a bounded WooCommerce delivery reference for entitlement refresh", () => {
+  assert.deepEqual(validatedEntitlementRefresh({ delivery_id: "delivery-123:updated" }), {
+    deliveryId: "delivery-123:updated",
+  });
+  for (const deliveryId of ["", "../delivery", "contains spaces", "x".repeat(161)]) {
+    assert.throws(() => validatedEntitlementRefresh({ delivery_id: deliveryId }));
+  }
 });

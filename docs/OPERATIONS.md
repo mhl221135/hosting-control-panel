@@ -29,6 +29,12 @@ transitions** after every pilot drill. Nginx apply or rollback failures create
 critical notifications through any enabled Telegram or SMTP channel even when
 ordinary severity filters are disabled.
 
+Keep scheduled billing entitlement observation enabled for every enforcement
+pilot. A verified paid webhook requests an immediate internal refresh and
+reconcile, but the callback is intentionally fail-open and cannot undo a
+durable payment. Scheduled polling is the recovery path after callback or panel
+outage.
+
 Billing reminders are also inert after deployment because their daily schedule
 defaults to disabled. Before enabling it, confirm Telegram and/or SMTP in the
 hosting panel, open Billing **Reminders**, review every due service and date,

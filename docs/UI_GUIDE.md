@@ -419,7 +419,7 @@ current configuration before large edits.
 | --- | --- |
 | **Billing provisioning defaults** | Sets optional defaults used only when a provision/restore explicitly registers a billing service. |
 | **Billing entitlement observer** | Verifies signed inventory and renewal URLs, checks freshness and domain ownership, and reports local matches. |
-| **Enable billing enforcement globally** | Arms the local reconciler. It defaults off and cannot act without an explicit pilot allowlist. |
+| **Enable billing enforcement globally** | Arms the local reconciler. It defaults off, requires scheduled signed observation, and cannot act without an explicit pilot allowlist. |
 | **Pilot website domains** | Restricts enforcement to listed local primary hosts; aliases must also be owned by the signed service. |
 | **Reconcile now** | Requires `RECONCILE`, validates nginx, and atomically applies only the displayed fresh plan. |
 | **Disable and restore all** | Requires `DISABLE`, turns off the global switch, and immediately clears every managed redirect. |

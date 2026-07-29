@@ -6,6 +6,7 @@ const { AuthStore, apiAuthorized } = require("./lib/auth");
 const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
+const { EntitlementRefreshClient } = require("./lib/entitlement-refresh");
 const { PaymentManager, addMonths } = require("./lib/payments");
 const { PaymentOptionReconciler } = require("./lib/payment-reconciler");
 const { PublicReference } = require("./lib/public-reference");
@@ -31,6 +32,7 @@ const payments = new PaymentManager(database, wooSettings, wooClient);
 const paymentOptions = new PaymentOptionReconciler(database, payments);
 const publicReference = new PublicReference(DATA_DIR);
 const reminderManager = new ReminderManager(database, new NotificationClient());
+const entitlementRefresh = new EntitlementRefreshClient();
 const publicRequests = new Map();
 
 function headers(extra = {}) {
@@ -661,7 +663,12 @@ const server = http.createServer(async (req, res) => {
         deliveryId: req.headers["x-wc-webhook-delivery-id"],
         topic: req.headers["x-wc-webhook-topic"],
       });
-      json(res, 200, { ok: true, ...result });
+      json(res, 200, { ok: true, duplicate: result.duplicate, result: result.result });
+      if (!result.duplicate && result.result === "paid") {
+        entitlementRefresh.trigger(String(req.headers["x-wc-webhook-delivery-id"] || "")).catch((error) => {
+          console.error(`Post-payment entitlement refresh failed: ${String(error.message).slice(0, 300)}`);
+        });
+      }
       return;
     }
     if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || req.url === "/health") {

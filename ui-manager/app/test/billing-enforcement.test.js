@@ -157,3 +157,27 @@ test("applies atomically, restores on validation failure, and disables immediate
     fs.rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("requires scheduled signed observation before enforcement can be enabled", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "billing-enforcement-schedule-"));
+  const manager = new BillingEnforcementManager({
+    dataDir: root,
+    mapPath: path.join(root, "billing-enforcement.map"),
+    nginxDefaultPath: path.join(root, "default.conf"),
+    observer: {
+      readSettings: () => ({ enabled: false }),
+      view: async () => observerView(),
+    },
+    siteProvider: async () => sites(),
+  });
+  try {
+    await assert.rejects(
+      manager.updateSettings({ enabled: true, pilotDomains: ["example.com"] }, "operator@example.com"),
+      /scheduled billing entitlement observation/,
+    );
+    assert.deepEqual(manager.readSettings(), { enabled: false, pilotDomains: [] });
+  } finally {
+    manager.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});

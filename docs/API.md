@@ -70,6 +70,10 @@ schedule, return due preview/history, and run the outbox manually.
 `POST /internal/v1/billing-reminders` on `hosting-ui` is not a browser API. It
 requires `BILLING_API_TOKEN`, accepts only the bounded reminder schema, and
 constructs its own notification event before enqueueing Telegram/SMTP delivery.
+`POST /internal/v1/billing-entitlements/refresh` uses the same internal bearer
+boundary and accepts only a bounded WooCommerce delivery ID. The panel ignores
+provider payload data, fetches the signed entitlement feed itself, and
+reconciles only when enforcement is already enabled.
 
 The authenticated hosting-panel billing integration routes are:
 
@@ -138,7 +142,9 @@ The switch defaults off and the allowlist defaults empty. A plan can redirect
 only a local unambiguous service whose fresh signed state is `suspended`, policy
 is `payment_page`, and signed renewal URL is valid HTTPS. Invalid, stale, or
 unavailable state produces an empty map. Audit entries contain service/domain
-transition metadata but never payment URLs or customer details.
+transition metadata but never payment URLs or customer details. Enabling
+enforcement requires scheduled observation, and scheduled observation cannot be
+disabled until enforcement is off.
 
 ## Route Groups
 
