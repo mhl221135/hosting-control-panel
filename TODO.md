@@ -95,17 +95,10 @@ remain a later optional adapter.
 
 ### Remaining Hosting-Side Enforcement Work
 
-- Deliver a critical operator notification when nginx validation, reload, or
-  rollback fails. The current bounded status record and container log are not a
-  substitute for an alert.
 - After a verified `processing` or `completed` webhook, billing should request
   a narrow authenticated observer refresh. The hosting reconciler should
   restore the website after receiving fresh signed active state, with periodic
   polling as a fallback.
-- Expand the current last-apply status into bounded audit history for proposed
-  and applied block/restore transitions with service ID, domain, state,
-  snapshot generation, reason, and result. Never persist payment URLs, order
-  keys, client details, or provider secrets.
 - Remote/shared-hosting records remain notification-only until a separately
   reviewed provider adapter exists.
 
@@ -187,9 +180,9 @@ remain a later optional adapter.
 1. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
    mismatched amount/currency, refund, chargeback, and provider outage.
-2. Finish critical notifications and post-payment refresh, then qualify the
-   disabled-by-default reconciler through billing outage, WooCommerce outage,
-   panel restart, nginx rollback, and freshness-watchdog drills.
+2. Finish post-payment refresh, then qualify the disabled-by-default reconciler
+   through billing outage, WooCommerce outage, panel restart, nginx rollback,
+   notification-delivery, and freshness-watchdog drills.
 3. Pilot only the dedicated test website. Exercise active, reminder, grace,
    suspended, payment, automatic restore, manual exemption, and disable-all
    workflows before adding any production domain to the allowlist.

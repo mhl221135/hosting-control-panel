@@ -1957,6 +1957,17 @@ function renderBillingEnforcement() {
       <td data-label="Reason">${escapeHtml(item.reason)}</td>
     </tr>
   `).join("") || '<tr class="empty-row"><td colspan="5" class="muted">No local billing matches to evaluate.</td></tr>';
+  const history = enforcement.history || [];
+  $("#billingEnforcementHistory").innerHTML = history.slice(0, 30).map((item) => `
+    <tr>
+      <td data-label="Time">${escapeHtml(item.at ? new Date(item.at).toLocaleString() : "Unknown")}</td>
+      <td data-label="Website">${escapeHtml(item.domain)}</td>
+      <td data-label="Transition"><span class="badge ${item.transition === "block" ? "danger" : "on"}">${escapeHtml(item.transition)}</span></td>
+      <td data-label="State">${escapeHtml(item.state)}</td>
+      <td data-label="Result">${escapeHtml(item.result)}</td>
+      <td data-label="Reason">${escapeHtml(item.reason)}${item.error ? `<br><span class="danger-text">${escapeHtml(item.error)}</span>` : ""}</td>
+    </tr>
+  `).join("") || '<tr class="empty-row"><td colspan="6" class="muted">No enforcement transitions recorded.</td></tr>';
 }
 
 $("#loginForm").addEventListener("submit", async (event) => {

@@ -423,6 +423,7 @@ current configuration before large edits.
 | **Pilot website domains** | Restricts enforcement to listed local primary hosts; aliases must also be owned by the signed service. |
 | **Reconcile now** | Requires `RECONCILE`, validates nginx, and atomically applies only the displayed fresh plan. |
 | **Disable and restore all** | Requires `DISABLE`, turns off the global switch, and immediately clears every managed redirect. |
+| **Recent enforcement transitions** | Shows bounded proposed/applied block and restore evidence without retaining payment links or customer data. |
 
 ### Performance settings
 

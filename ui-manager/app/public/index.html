@@ -911,6 +911,16 @@
               <button id="reconcileBillingEnforcement" type="button">Reconcile now</button>
               <button id="disableBillingEnforcement" type="button" class="danger">Disable and restore all</button>
             </div>
+            <div class="group-title full">
+              <h3>Recent enforcement transitions</h3>
+              <p>Bounded proposed and applied block or restore records. Payment links and customer details are never stored here.</p>
+            </div>
+            <div class="table-wrap full">
+              <table>
+                <thead><tr><th>Time</th><th>Website</th><th>Transition</th><th>State</th><th>Result</th><th>Reason</th></tr></thead>
+                <tbody id="billingEnforcementHistory"><tr class="empty-row"><td colspan="6">No enforcement transitions recorded.</td></tr></tbody>
+              </table>
+            </div>
           </form>
 
           <form id="performanceSettingsForm" class="panel form-grid">

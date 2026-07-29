@@ -17,6 +17,7 @@ function observerView(overrides = {}) {
   return {
     snapshot: {
       fresh: true,
+      generatedAt: "2026-07-29T09:59:30Z",
       matches: [{
         serviceId: "svc_1234567890abcdef12345678",
         primaryDomain: "example.com",
@@ -97,6 +98,7 @@ test("applies atomically, restores on validation failure, and disables immediate
   ].join("\n"));
   let fail = false;
   let reloads = 0;
+  const notifications = [];
   const observer = { view: async () => observerView() };
   const manager = new BillingEnforcementManager({
     dataDir: root,
@@ -108,6 +110,12 @@ test("applies atomically, restores on validation failure, and disables immediate
       reloads += 1;
       if (fail) throw new Error("nginx rejected candidate");
     },
+    notificationManager: {
+      enqueueEvent(event) {
+        notifications.push(event);
+        return { id: "delivery" };
+      },
+    },
     now: () => Date.parse("2026-07-29T10:00:00Z"),
   });
   try {
@@ -115,21 +123,34 @@ test("applies atomically, restores on validation failure, and disables immediate
     manager.saveSettings({ enabled: true, pilotDomains: ["example.com"] });
     const applied = await manager.reconcile("operator@example.com");
     assert.deepEqual(applied.blockedHosts, ["example.com", "www.example.com"]);
+    assert.equal(manager.readHistory()[0].result, "applied");
+    assert.equal(manager.readHistory()[0].transition, "block");
+    assert.equal(manager.readHistory()[0].snapshotGeneratedAt, "2026-07-29T09:59:30Z");
+    assert.equal(JSON.stringify(manager.readHistory()).includes(RENEWAL_URL), false);
     const beforeFailure = fs.readFileSync(mapPath, "utf8");
     fail = true;
     observer.view = async () => observerView({
       matches: [{
         ...observerView().snapshot.matches[0],
-        renewalUrl: "https://billing.example.com/renew/new_reference",
+        state: "active",
       }],
     });
-    await assert.rejects(manager.reconcile("operator@example.com"), /previous map restored/);
+    await assert.rejects(manager.reconcile("operator@example.com"), /rollback validation also failed/);
     assert.equal(fs.readFileSync(mapPath, "utf8"), beforeFailure);
+    assert.deepEqual(manager.readStatus().blockedHosts, ["example.com", "www.example.com"]);
+    assert.equal(manager.readHistory()[0].result, "failed");
+    assert.equal(manager.readHistory()[0].transition, "restore");
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].severity, "critical");
+    assert.equal(notifications[0].respectSeverityFilter, false);
+    assert.deepEqual(notifications[0].targets, ["example.com"]);
     fail = false;
     const disabled = await manager.disableAll("operator@example.com");
     assert.deepEqual(disabled.blockedHosts, []);
     assert.deepEqual(manager.readSettings(), { enabled: false, pilotDomains: ["example.com"] });
     assert.equal(fs.readFileSync(mapPath, "utf8"), renderMap());
+    assert.equal(manager.readHistory()[0].result, "applied");
+    assert.equal(manager.readHistory()[0].transition, "restore");
     assert.ok(reloads >= 3);
   } finally {
     manager.stop();

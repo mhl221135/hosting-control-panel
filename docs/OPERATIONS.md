@@ -24,7 +24,10 @@ defaults off, the pilot allowlist defaults empty, and its managed nginx map is
 empty after installation. Do not enable either gate for a client domain before
 the dedicated test-service pilot in `TODO.md`. If behavior is uncertain, type
 `DISABLE` and use **Disable and restore all**; this clears redirects without
-changing renewal dates or website data.
+changing renewal dates or website data. Review **Recent enforcement
+transitions** after every pilot drill. Nginx apply or rollback failures create
+critical notifications through any enabled Telegram or SMTP channel even when
+ordinary severity filters are disabled.
 
 Billing reminders are also inert after deployment because their daily schedule
 defaults to disabled. Before enabling it, confirm Telegram and/or SMTP in the

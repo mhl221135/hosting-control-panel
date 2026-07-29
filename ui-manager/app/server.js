@@ -196,6 +196,7 @@ const notificationManager = new NotificationManager({
   settings: notificationSettings,
   maxHistory: Number(process.env.NOTIFICATION_HISTORY_LIMIT || 500),
 });
+billingEnforcementManager.notificationManager = notificationManager;
 const healthSettings = new HealthSettings(DATA_DIR);
 const backupManager = new BackupManager({
   dataDir: DATA_DIR,

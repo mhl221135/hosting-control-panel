@@ -250,7 +250,10 @@ are written atomically, checked with `nginx -t`, and rolled back on reload
 failure. **Disable and restore all** turns off the switch and immediately
 empties the map without changing billing dates or website data. A one-minute
 freshness watchdog clears entries when signed state becomes stale or
-unavailable.
+unavailable. Proposed and applied block/restore transitions are retained in a
+bounded audit without payment URLs or customer data. Nginx apply or rollback
+failures enqueue a critical operator alert through the panel's configured
+Telegram and SMTP channels.
 
 Billing still has no nginx, Docker, website, or panel-data access. Only
 `hosting-ui` owns the narrow map and uses the allowlisted control agent for

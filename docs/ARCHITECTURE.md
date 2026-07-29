@@ -65,7 +65,9 @@ the matching listener and process limits.
 is empty by default and is owned only by the hosting-side billing reconciler.
 The common nginx server redirects a listed host before application routing, so
 WordPress, OpenCart, generic PHP, and static sites share one mechanism. Billing
-publishes signed state but cannot write or reload nginx.
+publishes signed state but cannot write or reload nginx. The hosting-side
+manager keeps a bounded transition audit and sends critical nginx failures to
+the existing notification queue without persisting renewal URLs.
 
 A primary site and its aliases normally share the same document root and
 PHP-FPM listener. A canonical redirect from `www` to the primary host is added
@@ -129,8 +131,9 @@ outbox. It sends an allowlisted contract to one bearer-authenticated internal
 message and passes it to the existing notification queue; billing never sees
 notification credentials. `billing-entitlement-observer.js` is the inverse
 read-only adapter in `hosting-ui`: it verifies signed entitlement snapshots,
-retains a last-known-good copy, and reports local inventory drift. It has no
-nginx writer, Docker action, or enforcement path.
+retains a last-known-good copy, and reports local inventory drift.
+`billing-enforcement.js` consumes only that verified view, owns the narrow
+fail-open nginx map and rollback, and records bounded transition evidence.
 
 ## Authentication And Secrets
 

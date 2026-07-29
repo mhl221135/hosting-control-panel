@@ -28,6 +28,7 @@ test("settings expose guarded billing enforcement controls", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
   assert.match(html, /id="billingEnforcementSettingsForm"/);
+  assert.match(html, /id="billingEnforcementHistory"/);
   assert.match(html, /Enable billing enforcement globally/);
   assert.match(html, /id="reconcileBillingEnforcement"/);
   assert.match(html, /id="disableBillingEnforcement"/);

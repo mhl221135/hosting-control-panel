@@ -125,6 +125,7 @@ function buildPlan(observer, sites, configuredSettings) {
     entries,
     rows,
     blockedHosts: Object.keys(entries).sort(),
+    snapshotGeneratedAt: String(snapshot?.generatedAt || ""),
     safeToApply: !settings.enabled || Boolean(snapshot?.fresh),
     reason: !settings.enabled
       ? "Global enforcement is disabled"
@@ -140,9 +141,12 @@ class BillingEnforcementManager {
     this.observer = options.observer;
     this.siteProvider = options.siteProvider || (async () => []);
     this.validateReload = options.validateReload || (async () => {});
+    this.notificationManager = options.notificationManager || null;
     this.now = options.now || (() => Date.now());
+    this.maxHistory = Number(options.maxHistory || 250);
     this.settingsPath = path.join(this.dataDir, "billing-enforcement-settings.json");
     this.statusPath = path.join(this.dataDir, "billing-enforcement-status.json");
+    this.historyPath = path.join(this.dataDir, "billing-enforcement-history.json");
     this.timer = null;
     this.running = false;
     fs.mkdirSync(this.dataDir, { recursive: true });
@@ -170,7 +174,82 @@ class BillingEnforcementManager {
     try {
       return JSON.parse(fs.readFileSync(this.statusPath, "utf8"));
     } catch {
-      return { appliedAt: "", blockedHosts: [], result: "not-applied", error: "" };
+      return { appliedAt: "", blockedHosts: [], blockedServices: [], result: "not-applied", error: "" };
+    }
+  }
+
+  readHistory() {
+    try {
+      const stored = JSON.parse(fs.readFileSync(this.historyPath, "utf8"));
+      return Array.isArray(stored.history) ? stored.history.slice(0, this.maxHistory) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  recordHistory(entries) {
+    if (!entries.length) return;
+    const history = [...entries, ...this.readHistory()].slice(0, this.maxHistory);
+    atomicWrite(this.historyPath, JSON.stringify({ version: 1, history }, null, 2), 0o600);
+  }
+
+  transitionRecords(plan, status, actor, action, result, error = "") {
+    const currentRows = new Map((plan.rows || []).map((row) => [row.localDomain, row]));
+    const previousRows = Array.isArray(status?.blockedServices) && status.blockedServices.length
+      ? status.blockedServices
+      : (status?.blockedHosts || []).map((domain) => ({
+        ...(currentRows.get(domain) || {}),
+        localDomain: domain,
+        reason: "Previously applied billing enforcement",
+      }));
+    const previouslyBlocked = new Map(previousRows.map((row) => [row.localDomain, row]));
+    const desired = new Map((plan.rows || []).filter((row) => row.action === "block")
+      .map((row) => [row.localDomain, row]));
+    const timestamp = new Date(this.now()).toISOString();
+    return [...new Set([...previouslyBlocked.keys(), ...desired.keys()])].flatMap((domain) => {
+      const wasBlocked = previouslyBlocked.has(domain);
+      const shouldBlock = desired.has(domain);
+      if (wasBlocked === shouldBlock) return [];
+      const row = desired.get(domain) || currentRows.get(domain) || previouslyBlocked.get(domain);
+      return [{
+        at: timestamp,
+        serviceId: String(row.serviceId || "").slice(0, 80),
+        domain: String(domain || "").slice(0, 253),
+        state: String(row.state || "").slice(0, 40),
+        snapshotGeneratedAt: String(plan.snapshotGeneratedAt || "").slice(0, 40),
+        transition: shouldBlock ? "block" : "restore",
+        reason: String(shouldBlock ? row.reason : (plan.reason || row.reason || "")).slice(0, 240),
+        action: String(action || "reconcile").slice(0, 40),
+        actor: String(actor || "system").slice(0, 160),
+        result,
+        error: String(error || "").slice(0, 300),
+      }];
+    });
+  }
+
+  notifyCritical(action, plan, error, rollbackError = null, targets = []) {
+    if (!this.notificationManager) return null;
+    const detail = [
+      String(error?.message || error || "Unknown nginx error"),
+      rollbackError ? `Rollback validation also failed: ${String(rollbackError.message || rollbackError)}` : "",
+    ].filter(Boolean).join(". ").slice(0, 500);
+    try {
+      return this.notificationManager.enqueueEvent({
+        eventType: "billing-enforcement",
+        eventId: `${action}:${this.now()}`,
+        dedupeKey: `billing-enforcement:${action}:${this.now()}`,
+        severity: "critical",
+        label: "Billing enforcement nginx failure",
+        status: rollbackError ? "rollback-failed" : "apply-failed",
+        targets: [...new Set([...(targets || []), ...(plan?.blockedHosts || [])])].slice(0, 10),
+        message: "The managed billing map was not applied. Verify nginx and keep enforcement disabled until reviewed.",
+        error: detail,
+        finishedAt: new Date(this.now()).toISOString(),
+        respectSeverityFilter: false,
+      });
+    } catch (notificationError) {
+      console.error(`Billing enforcement critical notification failed: ${notificationError.message}`);
+      return null;
     }
   }
 
@@ -196,6 +275,9 @@ class BillingEnforcementManager {
   async applyPlan(plan, actor, action = "reconcile") {
     const previous = fs.existsSync(this.mapPath) ? fs.readFileSync(this.mapPath, "utf8") : renderMap();
     const candidate = renderMap(plan.entries);
+    const previousStatus = this.readStatus();
+    const proposed = this.transitionRecords(plan, previousStatus, actor, action, "proposed");
+    this.recordHistory(proposed);
     try {
       if (candidate !== previous) {
         atomicWrite(this.mapPath, candidate);
@@ -206,24 +288,51 @@ class BillingEnforcementManager {
         action,
         actor: String(actor || "system").slice(0, 160),
         blockedHosts: plan.blockedHosts,
+        blockedServices: (plan.rows || []).filter((row) => row.action === "block").map((row) => ({
+          serviceId: String(row.serviceId || "").slice(0, 80),
+          localDomain: String(row.localDomain || "").slice(0, 253),
+          state: String(row.state || "").slice(0, 40),
+          reason: String(row.reason || "").slice(0, 240),
+        })),
         error: "",
       };
       this.record(result);
+      this.recordHistory(proposed.map((entry) => ({
+        ...entry,
+        at: new Date(this.now()).toISOString(),
+        result: "applied",
+      })));
       return { ...result, plan };
     } catch (error) {
       atomicWrite(this.mapPath, previous);
+      let rollbackError = null;
       try {
         await this.validateReload();
-      } catch {}
+      } catch (caught) {
+        rollbackError = caught;
+      }
       const result = {
         result: "failed",
         action,
         actor: String(actor || "system").slice(0, 160),
-        blockedHosts: [],
-        error: String(error.message || error).slice(0, 300),
+        blockedHosts: previousStatus.blockedHosts || [],
+        blockedServices: previousStatus.blockedServices || [],
+        error: [
+          String(error.message || error),
+          rollbackError ? `Rollback validation failed: ${String(rollbackError.message || rollbackError)}` : "",
+        ].filter(Boolean).join(". ").slice(0, 300),
       };
       this.record(result);
-      throw Object.assign(new Error("Billing enforcement validation failed; previous map restored"), {
+      this.recordHistory(proposed.map((entry) => ({
+        ...entry,
+        at: new Date(this.now()).toISOString(),
+        result: "failed",
+        error: result.error,
+      })));
+      this.notifyCritical(action, plan, error, rollbackError, proposed.map((entry) => entry.domain));
+      throw Object.assign(new Error(rollbackError
+        ? "Billing enforcement validation failed; previous map file restored but rollback validation also failed"
+        : "Billing enforcement validation failed; previous map restored"), {
         statusCode: 500,
         details: result.error,
       });
@@ -270,6 +379,7 @@ class BillingEnforcementManager {
     return {
       settings: this.readSettings(),
       status: this.readStatus(),
+      history: this.readHistory().slice(0, 100),
       running: this.running,
       plan: await this.preview(),
     };
@@ -287,6 +397,7 @@ class BillingEnforcementManager {
         blockedHosts: [],
         error: String(error.message || error).slice(0, 300),
       });
+      this.notifyCritical("prepare", null, error);
       console.error(`Billing enforcement integration is unavailable: ${error.message}`);
       return;
     }
