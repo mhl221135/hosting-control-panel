@@ -321,9 +321,10 @@ sudo ./scripts/qualify-billing-pilot.sh \
 The script requires exactly one pilot hostname. It checks container health,
 local `payment_page` policy, the expected calculated state, a fresh signed
 entitlement observation, the applied nginx map, an active payment matching the
-configured hosting price, the public renewal page, `noindex`, and the final
-WooCommerce checkout redirect. It does not print opaque renewal/payment
-references and does not mutate billing, orders, nginx, DNS, or website data.
+configured hosting price, the public renewal page, `noindex`, `no-store`,
+anti-framing, referrer and CSP headers, and the final WooCommerce checkout
+redirect. It does not print opaque renewal/payment references and does not
+mutate billing, orders, nginx, DNS, or website data.
 
 Repeat it with `active`, `reminder`, `grace`, and `exempt` during the state
 drill. Those states must be absent from the nginx map and must remain publicly

@@ -270,11 +270,15 @@ renewal_status="$(awk 'NR == 1 { print $2 }' "$temporary/renewal.headers")"
 [ "$renewal_status" = "200" ] || { printf 'Renewal page did not return HTTP 200.\n' >&2; exit 1; }
 if ! grep -Fq "$amount" "$temporary/renewal.html" \
   || ! grep -Fq "Pay securely" "$temporary/renewal.html" \
+  || ! grep -Eiq '^cache-control:[[:space:]]*no-store([[:space:]]|$)' "$temporary/renewal.headers" \
+  || ! grep -Eiq '^content-security-policy:.*frame-ancestors[[:space:]]+'\''none'\''' "$temporary/renewal.headers" \
+  || ! grep -Eiq '^referrer-policy:[[:space:]]*no-referrer([[:space:]]|$)' "$temporary/renewal.headers" \
+  || ! grep -Eiq '^x-frame-options:[[:space:]]*deny([[:space:]]|$)' "$temporary/renewal.headers" \
   || ! grep -Eiq '^x-robots-tag:[[:space:]]*noindex' "$temporary/renewal.headers"; then
-  printf 'Renewal page amount, action, or noindex policy is missing.\n' >&2
+  printf 'Renewal page content or required security headers are missing.\n' >&2
   exit 1
 fi
-record "renewal page exposes the matching amount and remains noindex"
+record "renewal page exposes the matching amount and required security headers"
 
 checkout_path="$(sed -n 's/.*href="\([^"]*\/checkout\/[^"]*\)".*/\1/p' "$temporary/renewal.html" | head -n 1)"
 [[ "$checkout_path" =~ ^/renew/r1_[A-Za-z0-9_-]{43}/checkout/[A-Za-z0-9-]{16,64}$ ]] || {

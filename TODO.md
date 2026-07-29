@@ -171,10 +171,10 @@ remain a later optional adapter.
 The read-only `scripts/qualify-billing-pilot.sh` gate is implemented. It
 validates one exact local pilot across billing policy, signed snapshot
 freshness, allowlisting, nginx mapping, renewal presentation, matching payment
-amount, and WooCommerce checkout without exposing protected URLs. A suspended
-state qualification has been exercised against one operator-selected local
-service. This is not evidence of completed-payment restoration or the remaining
-state/outage drills below.
+amount, renewal-page security headers, and WooCommerce checkout without
+exposing protected URLs. A suspended state qualification has been exercised
+against one operator-selected local service. This is not evidence of
+completed-payment restoration or the remaining state/outage drills below.
 
 1. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
