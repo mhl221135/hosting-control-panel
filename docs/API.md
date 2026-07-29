@@ -142,7 +142,7 @@ cache; avoid adding permanent polling.
 | `POST /api/backups/site` | backup one site |
 | `POST /api/backups/sites` | start enabled-site or all-site batch backup |
 | `POST /api/backups/app-data` | archive app data and dump all databases |
-| `POST /api/backups/restore` | restore a validated site set |
+| `POST /api/backups/restore` | Restore a validated site set; optionally create/reuse billing |
 | `DELETE /api/backups/...` | delete a complete backup set |
 | `GET,PUT /api/backups/offsite` | sanitized Restic configuration, recent jobs, and snapshots |
 | `POST /api/backups/offsite/initialize` | initialize a new encrypted repository after confirmation |
@@ -153,6 +153,13 @@ cache; avoid adding permanent polling.
 Backup, restore, maintenance, and image-optimization POST routes return `202`
 with a public job record. Use the job API to follow completion rather than
 holding the originating HTTP request open.
+
+Website restore accepts boolean `register_billing` and
+`billing_grant_free_period` fields. Registration runs only after the validated
+file/database restore succeeds, uses persisted billing defaults and the
+restore job ID as its idempotency key, and never rolls back a successful
+restore when billing is unavailable. A billing failure becomes a retryable job
+warning.
 
 Off-site secret fields are write-only. Blank secret fields preserve the stored
 encrypted value. Jobs contain no repository credentials or encryption material.

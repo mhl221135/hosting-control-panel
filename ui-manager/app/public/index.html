@@ -534,6 +534,20 @@
             </div>
             <div id="backupHistory" class="rows empty">Select a website or app data.</div>
           </article>
+          <dialog id="restoreBackupDialog" class="restore-dialog">
+            <form id="restoreBackupForm" class="form-stack">
+              <div><h3>Restore website</h3><p id="restoreBackupTarget" class="muted"></p></div>
+              <input name="domain" type="hidden" />
+              <input name="backup_id" type="hidden" />
+              <label class="check"><input name="register_billing" type="checkbox" /> Create or reuse billing record after restore</label>
+              <label class="check"><input name="billing_grant_free_period" type="checkbox" disabled /> Grant configured free hosting period for a new record</label>
+              <div id="restoreBillingStatus" class="status-box compact-status"></div>
+              <div class="form-actions">
+                <button id="cancelBackupRestore" class="secondary" type="button">Cancel</button>
+                <button type="submit">Restore website</button>
+              </div>
+            </form>
+          </dialog>
 
           <div class="section-head subsection-head">
             <div><h2>Encrypted off-site copies</h2><p>Replicate completed local backup sets to independent S3-compatible storage with Restic encryption.</p></div>

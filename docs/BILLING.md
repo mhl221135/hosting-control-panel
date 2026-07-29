@@ -213,13 +213,15 @@ operations.
 The hosting panel stores its non-secret defaults in
 `app-data/ui-manager/billing-provisioning-settings.json`. Defaults start
 disabled and use 6 free months, a 12-month USD 80 hosting renewal, a 12-month
-domain period, and 7 grace days. Provision and import forms retain a per-site
-choice; imports default to no free period. A registration outage becomes a
-provisioning warning and never rolls back the working website.
+domain period, and 7 grace days. Provision, import, and backup-restore forms
+retain a per-site choice. Imports and restores default to no registration and
+no free period. Restore registration runs only after the validated website and
+database restore succeeds. A registration outage becomes a job warning and
+never rolls back the working website.
 
 Jobs with that specific warning expose **Retry billing**. The retry is a
 separate durable job that reconstructs the original bounded registration,
-reuses the original provisioning idempotency key and trial anchor, and does
+reuses the original provision/restore idempotency key and trial anchor, and does
 not touch website files, databases, DNS, NPM, or certificates. A successful
 linked retry removes the action from the source job.
 

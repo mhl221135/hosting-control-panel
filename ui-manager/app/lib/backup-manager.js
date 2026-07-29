@@ -77,6 +77,7 @@ class BackupManager {
     this.mysqlContainer = options.mysqlContainer || "hosting-db";
     this.phpContainer = options.phpContainer || "hosting-php-fpm";
     this.siteProvider = options.siteProvider;
+    this.afterRestore = options.afterRestore || null;
     this.jobManager = options.jobManager || null;
     this.settingsPath = path.join(this.dataDir, "backup-settings.json");
     this.busy = false;
@@ -98,7 +99,36 @@ class BackupManager {
     this.jobManager.register("backup.app-data", (context) => this.runAppData(context));
     this.jobManager.register("backup.restore", async (context, payload) => {
       const site = await this.findSite(payload.domain);
-      return this.runSiteRestore(site, payload.backupId, context);
+      const result = await this.runSiteRestore(site, payload.backupId, context);
+      if (!payload.billingRegistration?.enabled || !this.afterRestore) return result;
+      context.update({ total: 2, completed: 1, currentStep: `Registering ${site.host} with billing` });
+      let billing;
+      try {
+        const registration = await this.afterRestore({
+          site,
+          registration: payload.billingRegistration,
+          idempotencyKey: context.id,
+        });
+        billing = {
+          name: "billing",
+          ok: true,
+          created: registration.created,
+          serviceId: registration.service.serviceId,
+        };
+      } catch (error) {
+        billing = {
+          name: "billing",
+          ok: false,
+          message: String(error.details || error.message).slice(0, 300),
+        };
+      }
+      result.results = [...(result.results || []), billing];
+      result.total = 2;
+      result.completed = 2;
+      result.ok = billing.ok;
+      result.message = `Restore completed for ${site.host}${billing.ok ? "" : " with a billing warning"}`;
+      context.update({ total: 2, completed: 2, results: result.results });
+      return result;
     });
     this.jobManager.register("backup.schedule", (context) => this.runScheduledWork(context));
   }
@@ -150,7 +180,7 @@ class BackupManager {
     });
   }
 
-  enqueueRestore(site, backupIdValue, operator = "system") {
+  enqueueRestore(site, backupIdValue, operator = "system", billingRegistration = null) {
     return this.jobManager.create({
       type: "backup.restore",
       label: `Restore ${site.host}`,
@@ -159,8 +189,13 @@ class BackupManager {
       conflicts: ["server-heavy", `site:${site.host}`],
       idempotencyKey: `backup.restore:${site.host}:${backupIdValue}`,
       cancellable: false,
-      payload: { domain: site.host, backupId: String(backupIdValue) },
-      total: 1,
+      payload: {
+        domain: site.host,
+        backupId: String(backupIdValue),
+        aliases: site.aliases || [],
+        ...(billingRegistration?.enabled ? { billingRegistration } : {}),
+      },
+      total: billingRegistration?.enabled ? 2 : 1,
     });
   }
 

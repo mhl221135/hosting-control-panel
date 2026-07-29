@@ -35,6 +35,56 @@ test("site restore mode accepts legacy zero-date schemas without weakening globa
   assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
 });
 
+test("runs optional billing registration after a successful restore", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-restore-billing-"));
+  try {
+    const handlers = new Map();
+    const jobManager = {
+      register: (type, handler) => handlers.set(type, handler),
+      create: (input) => input,
+    };
+    const calls = [];
+    const manager = new BackupManager({
+      dataDir: path.join(root, "data"),
+      backupsRoot: path.join(root, "backups"),
+      websitesRoot: path.join(root, "websites"),
+      appDataRoot: path.join(root, "app-data"),
+      jobManager,
+      siteProvider: async () => [{ host: "example.com", aliases: ["www.example.com"] }],
+      afterRestore: async (input) => {
+        calls.push(input);
+        return { created: false, service: { serviceId: "svc_example" } };
+      },
+    });
+    manager.runSiteRestore = async () => ({
+      ok: true,
+      total: 1,
+      completed: 1,
+      results: [{ name: "restore", ok: true }],
+    });
+    const updates = [];
+    const registration = { enabled: true, grantFreePeriod: false };
+    const result = await handlers.get("backup.restore")({
+      id: "11111111-1111-4111-8111-111111111111",
+      update: (patch) => updates.push(patch),
+    }, {
+      domain: "example.com",
+      backupId: "2026-07-29T00-00-00Z",
+      aliases: ["www.example.com"],
+      billingRegistration: registration,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].registration, registration);
+    assert.equal(calls[0].idempotencyKey, "11111111-1111-4111-8111-111111111111");
+    assert.equal(result.ok, true);
+    assert.equal(result.total, 2);
+    assert.equal(result.results[1].serviceId, "svc_example");
+    assert.equal(updates.at(-1).completed, 2);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("version 2 backup artifacts detect truncation while version 1 remains readable", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-artifacts-"));
   try {
