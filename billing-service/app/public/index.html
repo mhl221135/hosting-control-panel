@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=9">
+  <link rel="stylesheet" href="/styles.css?v=10">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -283,6 +283,28 @@
           </table>
         </div>
         <p id="emptyReminderHistory" class="empty" hidden>No reminders attempted.</p>
+        <h2 class="subheading">Payment option reconciliation</h2>
+        <div class="settings-layout">
+          <form id="paymentOptionSettingsForm" class="form-grid compact-form">
+            <h2>Schedule</h2>
+            <label class="toggle-row"><input name="enabled" type="checkbox"> Enable daily order creation</label>
+            <label>Local run time<input name="time" type="time" required></label>
+            <button class="primary" type="submit">Save schedule</button>
+            <p id="paymentOptionScheduleStatus" class="field-status"></p>
+          </form>
+          <form id="runPaymentOptionsForm" class="form-grid compact-form">
+            <h2>Create due options</h2>
+            <label>Type CREATE<input name="confirm" autocomplete="off" required></label>
+            <button class="primary" type="submit">Create WooCommerce orders</button>
+          </form>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Website</th><th>Selection</th><th>Amount</th><th>Action</th><th>Reason</th></tr></thead>
+            <tbody id="paymentOptionPreviewBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyPaymentOptionPreview" class="empty" hidden>No due payment options require action.</p>
       </section>
 
       <section data-section="import" hidden>
@@ -377,6 +399,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=9" defer></script>
+  <script src="/app.js?v=10" defer></script>
 </body>
 </html>

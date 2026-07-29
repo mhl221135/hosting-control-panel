@@ -43,3 +43,14 @@ test("public renewal key rotation requires an explicit reason and confirmation",
   assert.match(source, /api\/public-reference\/rotate/);
   assert.match(source, /reason: form\.elements\.reason\.value/);
 });
+
+test("payment option reconciliation stays preview-first and requires CREATE", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+
+  assert.match(html, /id="paymentOptionPreviewBody"/);
+  assert.match(html, /Enable daily order creation/);
+  assert.match(html, /Type CREATE/);
+  assert.match(source, /api\/payment-options\/run/);
+  assert.match(source, /confirm: form\.elements\.confirm\.value/);
+});

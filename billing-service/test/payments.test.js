@@ -219,6 +219,37 @@ test("keeps the local payment pending when WooCommerce does not confirm cancella
   }
 });
 
+test("refreshes an expired option only after WooCommerce cancels the old order", async () => {
+  const value = fixture();
+  try {
+    let nextOrder = 7000;
+    const cancelled = [];
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async () => {
+        nextOrder += 1;
+        return { id: nextOrder, order_key: `wc_order_${nextOrder}` };
+      },
+      cancelOrder: async (id) => {
+        cancelled.push(id);
+        return { id, status: "cancelled" };
+      },
+    });
+    const serviceId = value.database.services()[0].service_id;
+    await manager.create(serviceId, { selection: "hosting" }, "admin@example.com");
+    const old = value.database.activePayment(serviceId, "hosting");
+    value.database.db.prepare("UPDATE payments SET expires_at='2000-01-01T00:00:00.000Z' WHERE payment_id=?")
+      .run(old.payment_id);
+    const refreshed = await manager.refreshExpired(serviceId, "hosting", "scheduler");
+    assert.equal(refreshed.orderId, 7002);
+    assert.deepEqual(cancelled, [7001]);
+    assert.equal(value.database.payment(old.payment_id).status, "cancelled");
+    assert.equal(value.database.activePayment(serviceId, "hosting").woo_order_id, 7002);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("uses stable opaque public references and exposes only active matching payments", async () => {
   const value = fixture();
   try {

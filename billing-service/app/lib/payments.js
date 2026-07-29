@@ -189,6 +189,24 @@ class PaymentManager {
     return this.database.cancelPayment(payment.payment_id, boundedReason, actor);
   }
 
+  async refreshExpired(serviceId, selection, actor) {
+    this.database.activePayment(serviceId, selection);
+    const payment = this.database.latestPayment(serviceId, selection);
+    if (!payment || payment.status !== "expired") {
+      throw Object.assign(new Error("The expired payment selected for refresh is no longer current"), { statusCode: 409 });
+    }
+    const order = await this.woo.cancelOrder(payment.woo_order_id);
+    if (Number(order.id) !== payment.woo_order_id || String(order.status || "").toLowerCase() !== "cancelled") {
+      throw new Error("WooCommerce did not confirm expired order cancellation");
+    }
+    this.database.cancelExpiredPayment(
+      payment.payment_id,
+      "Reconciler replaced an expired payment option",
+      actor,
+    );
+    return this.create(serviceId, { selection }, actor);
+  }
+
   resolve(token) {
     return this.database.resolvePayment(tokenHash(token));
   }

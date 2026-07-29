@@ -131,6 +131,16 @@ expiry. A second rotation is blocked during that window. The UI/API disclose
 only key fingerprints and timestamps; global app-data backups retain both key
 files.
 
+The Reminders view also includes payment-option reconciliation. Its daily
+schedule defaults off, manual execution requires `CREATE`, and preview performs
+no WooCommerce writes. Eligible services must be non-archived, have a positive
+configured price and paid-through date, and be in reminder, grace, or suspended
+state. Existing active options are never duplicated. An exact expired option
+is refreshed only after WooCommerce confirms its old order is cancelled;
+overlapping expired selections are blocked for manual review. Each run records
+created, failed, blocked, and deferred counts in the billing audit. Runs are
+limited to 10 WooCommerce orders to bound provider load and request duration.
+
 Configure a WooCommerce **Order updated** webhook:
 
 ```text

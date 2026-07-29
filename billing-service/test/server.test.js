@@ -229,6 +229,25 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal((await archivedResponse.json()).service.archived, true);
     assert.equal((await (await request("/api/services")).json()).services.length, 2);
     assert.equal((await (await request("/api/services?archived=only")).json()).services.length, 1);
+    const paymentOptions = await request("/api/payment-options");
+    assert.equal(paymentOptions.status, 200);
+    assert.equal((await paymentOptions.json()).settings.enabled, false);
+    const optionSettings = await request("/api/payment-options/settings", {
+      method: "PUT",
+      body: JSON.stringify({ enabled: false, time: "08:30" }),
+    });
+    assert.equal(optionSettings.status, 200);
+    const invalidOptionRun = await request("/api/payment-options/run", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "create" }),
+    });
+    assert.equal(invalidOptionRun.status, 400);
+    const optionRun = await request("/api/payment-options/run", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "CREATE" }),
+    });
+    assert.equal(optionRun.status, 200);
+    assert.equal((await optionRun.json()).result.results.length, 0);
     const wooSettingsResponse = await request("/api/woocommerce/settings", {
       method: "PUT",
       body: JSON.stringify({
@@ -287,6 +306,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       && !line.includes("A reason of at least 3 characters is required")
       && !line.includes("Type ROTATE to confirm public renewal URL key rotation")
       && !line.includes("A previous key remains active until")
+      && !line.includes("Type CREATE to confirm WooCommerce order creation")
       && !line.includes("POST /webhooks/woocommerce: Invalid WooCommerce webhook signature"));
   assert.deepEqual(unexpected, [], stderr);
 });

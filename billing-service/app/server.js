@@ -7,6 +7,7 @@ const { BillingBackups } = require("./lib/backups");
 const { exportCsv, importCsv } = require("./lib/csv");
 const { BillingDatabase, SCHEMA_VERSION } = require("./lib/database");
 const { PaymentManager, addMonths } = require("./lib/payments");
+const { PaymentOptionReconciler } = require("./lib/payment-reconciler");
 const { PublicReference } = require("./lib/public-reference");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
@@ -27,6 +28,7 @@ const auth = new AuthStore(DATA_DIR);
 const wooSettings = new WooCommerceSettings(DATA_DIR);
 const wooClient = new WooCommerceClient(wooSettings);
 const payments = new PaymentManager(database, wooSettings, wooClient);
+const paymentOptions = new PaymentOptionReconciler(database, payments);
 const publicReference = new PublicReference(DATA_DIR);
 const reminderManager = new ReminderManager(database, new NotificationClient());
 const publicRequests = new Map();
@@ -422,6 +424,28 @@ async function api(req, res) {
     json(res, 200, { ok: true, result: await reminderManager.run(session.email) });
     return true;
   }
+  if (req.method === "GET" && url.pathname === "/api/payment-options") {
+    json(res, 200, {
+      ok: true,
+      settings: database.paymentOptionSettings(),
+      preview: paymentOptions.preview(),
+      running: paymentOptions.running,
+    });
+    return true;
+  }
+  if (req.method === "PUT" && url.pathname === "/api/payment-options/settings") {
+    const body = await readJson(req);
+    json(res, 200, { ok: true, settings: database.updatePaymentOptionSettings(body, session.email) });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/payment-options/run") {
+    const body = await readJson(req);
+    if (body.confirm !== "CREATE") {
+      throw Object.assign(new Error("Type CREATE to confirm WooCommerce order creation"), { statusCode: 400 });
+    }
+    json(res, 200, { ok: true, result: await paymentOptions.run(session.email) });
+    return true;
+  }
   if (req.method === "GET" && url.pathname === "/api/woocommerce/settings") {
     json(res, 200, { ok: true, settings: wooSettings.public() });
     return true;
@@ -640,10 +664,12 @@ server.requestTimeout = 60_000;
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Hosting billing listening on ${PORT}`);
   reminderManager.start();
+  paymentOptions.start();
 });
 
 function shutdown() {
   reminderManager.stop();
+  paymentOptions.stop();
   server.close(() => {
     database.close();
     process.exit(0);

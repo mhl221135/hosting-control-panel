@@ -101,6 +101,14 @@ fingerprints and overlap timestamps. `POST /api/public-reference/rotate`
 requires `ROTATE`, a reason, and a 24-2160 hour overlap. A second rotation is
 rejected while an old key remains active. Raw HMAC keys are never returned.
 
+`GET /api/payment-options` returns the disabled-by-default schedule and a
+read-only due-order preview. `PUT /api/payment-options/settings` updates the
+daily schedule. `POST /api/payment-options/run` requires `CREATE`, creates only
+missing eligible options, and refreshes an exact expired selection only after
+WooCommerce confirms cancellation of its previous order. Ambiguous overlapping
+expired selections are reported as blocked for operator review. A run creates
+at most 10 orders and reports the remaining eligible rows as deferred.
+
 The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.
