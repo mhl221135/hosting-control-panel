@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=10">
+  <link rel="stylesheet" href="/styles.css?v=11">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -191,6 +191,8 @@
             <label class="wide">Public billing URL<input name="public_billing_url" type="url" placeholder="https://billing.example.com" required></label>
             <label>Renewal product ID<input name="product_id" type="number" min="1" required></label>
             <label>Link lifetime (hours)<input name="link_hours" type="number" min="1" max="720" required></label>
+            <label class="wide">Support URL<input name="support_url" type="url" placeholder="https://example.com/contact"></label>
+            <label class="wide">Support link label<input name="support_label" minlength="3" maxlength="80" value="Contact support"></label>
             <label>Consumer key<input name="consumer_key" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
             <label>Consumer secret<input name="consumer_secret" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
             <label class="wide">Webhook secret<input name="webhook_secret" type="password" autocomplete="off" placeholder="Leave blank to preserve"></label>
@@ -399,6 +401,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=10" defer></script>
+  <script src="/app.js?v=11" defer></script>
 </body>
 </html>

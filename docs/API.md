@@ -109,6 +109,11 @@ WooCommerce confirms cancellation of its previous order. Ambiguous overlapping
 expired selections are reported as blocked for operator review. A run creates
 at most 10 orders and reports the remaining eligible rows as deferred.
 
+WooCommerce settings accept an optional `support_url` HTTPS destination and
+3-80 character `support_label`. A valid renewal reference with no active option
+shows that bounded public contact action. Invalid references retain the same
+generic unavailable response and never disclose the support destination.
+
 The observer routes are read-only. None of these routes exposes the shared
 token or has website mutation or enforcement capability; the retry route can
 only repeat the bounded billing registration.

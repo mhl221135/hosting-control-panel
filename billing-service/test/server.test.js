@@ -253,6 +253,8 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       body: JSON.stringify({
         site_url: "https://store.example.com",
         public_billing_url: "https://billing.example.com",
+        support_url: "https://support.example.com/renewals",
+        support_label: "Contact renewal support",
         product_id: 99,
         link_hours: 48,
         consumer_key: `ck_${"a".repeat(40)}`,
@@ -263,7 +265,12 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal(wooSettingsResponse.status, 200);
     const wooSettings = (await wooSettingsResponse.json()).settings;
     assert.equal(wooSettings.ready, true);
+    assert.equal(wooSettings.supportUrl, "https://support.example.com/renewals");
     assert.equal(JSON.stringify(wooSettings).includes("aaaa"), false);
+    const supportedRenewal = await fetch(`${baseUrl}/renew/${reference}`);
+    const supportedHtml = await supportedRenewal.text();
+    assert.match(supportedHtml, /https:\/\/support\.example\.com\/renewals/);
+    assert.match(supportedHtml, /Contact renewal support/);
     assert.equal((await fetch(`${baseUrl}/webhooks/woocommerce`, {
       method: "POST",
       headers: {

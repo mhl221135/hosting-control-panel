@@ -83,11 +83,6 @@ remain a later optional adapter.
   deleted products, and ambiguous webhooks as manual-review states. They must
   not automatically restore or extend a service.
 
-### Public Renewal Page
-
-- If WooCommerce is unavailable or no valid order exists, show a bounded
-  operator-contact message and keep retrying through the controlled scheduler.
-
 ### Enforcement
 
 - For locally hosted sites, enforce reminder/grace/suspended state at

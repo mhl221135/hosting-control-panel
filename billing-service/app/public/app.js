@@ -255,6 +255,8 @@ async function loadPayments() {
     form.elements.public_billing_url.value = settings.publicBillingUrl;
     form.elements.product_id.value = settings.productId || "";
     form.elements.link_hours.value = settings.linkHours || 72;
+    form.elements.support_url.value = settings.supportUrl || "";
+    form.elements.support_label.value = settings.supportLabel || "Contact support";
     form.elements.consumer_key.value = "";
     form.elements.consumer_secret.value = "";
     form.elements.webhook_secret.value = "";
