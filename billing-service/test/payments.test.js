@@ -7,6 +7,7 @@ const test = require("node:test");
 const { importCsv } = require("../app/lib/csv");
 const { BillingDatabase } = require("../app/lib/database");
 const { PaymentManager, addMonths, webhookValid } = require("../app/lib/payments");
+const { PublicReference } = require("../app/lib/public-reference");
 const { WooCommerceSettings } = require("../app/lib/woocommerce-settings");
 
 function fixture() {
@@ -23,8 +24,8 @@ function fixture() {
     webhook_secret: "webhook-secret-with-enough-entropy",
   });
   const input = importCsv([
-    "Order #,Website,Hosting Next Payment,Price Hosting,Currency,Email",
-    "42,example.com,2026-12-31,120.00,USD,owner@example.com",
+    "Order #,Website,Hosting Next Payment,Domain Next Payment,Hosting Months,Domain Months,Price Hosting,Price Domain,Currency,Email",
+    "42,example.com,2026-12-31,2027-01-15,12,24,120.00,18.25,USD,owner@example.com",
   ].join("\n"));
   database.importServices(input.services, input.fingerprint, "admin@example.com");
   return { root, database, settings };
@@ -57,8 +58,9 @@ test("creates opaque expiring links and applies a valid paid webhook once", asyn
   try {
     const woo = {
       createOrder: async (payload) => {
-        assert.equal(payload.line_items[0].product_id, 99);
-        assert.equal(payload.line_items[0].total, "120.00");
+    assert.equal(payload.line_items[0].product_id, 99);
+    assert.equal(payload.line_items[0].total, "120.00");
+    assert.equal(payload.line_items[0].meta_data.some((item) => item.value === "hosting"), true);
         return { id: 1234, order_key: "wc_order_private" };
       },
     };
@@ -67,7 +69,7 @@ test("creates opaque expiring links and applies a valid paid webhook once", asyn
     assert.match(created.paymentUrl, /^https:\/\/billing\.example\.com\/pay\/[A-Za-z0-9_-]{43}$/);
     await assert.rejects(
       manager.create(value.database.services()[0].service_id, {}, "admin@example.com"),
-      /active payment link already exists/,
+      /active hosting payment link already exists/,
     );
     assert.doesNotMatch(JSON.stringify(value.database.payments()), /wc_order_private|\/pay\//);
     const token = created.paymentUrl.split("/").pop();
@@ -90,6 +92,88 @@ test("creates opaque expiring links and applies a valid paid webhook once", asyn
       topic: "order.updated",
     }), { duplicate: true, result: "paid" });
     assert.equal(value.database.db.prepare("SELECT COUNT(*) AS count FROM events WHERE event_type='payment.completed'").get().count, 1);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("creates domain and combined selections and updates only purchased dates", async () => {
+  const value = fixture();
+  try {
+    let orderId = 2000;
+    const payloads = [];
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async (payload) => {
+        payloads.push(payload);
+        orderId += 1;
+        return { id: orderId, order_key: `wc_order_${orderId}` };
+      },
+    });
+    const serviceId = value.database.services()[0].service_id;
+    const domain = await manager.create(serviceId, { selection: "domain" }, "admin@example.com");
+    assert.equal(domain.amountMinor, 1825);
+    assert.equal(domain.domainMonths, 24);
+    assert.equal(domain.resultingDomainPaidThrough, "2029-01-15");
+    assert.equal(payloads[0].line_items.length, 1);
+    assert.equal(payloads[0].line_items[0].meta_data.some((item) => item.value === "domain"), true);
+    const secret = value.settings.private().webhookSecret;
+    const domainBody = JSON.stringify({ id: 2001, status: "completed", total: "18.25", currency: "USD" });
+    const domainSignature = crypto.createHmac("sha256", secret).update(domainBody).digest("base64");
+    assert.equal(manager.webhook(domainBody, {
+      signature: domainSignature,
+      deliveryId: "delivery-domain",
+      topic: "order.updated",
+    }).result, "paid");
+    assert.equal(value.database.service(serviceId).hosting_paid_through, "2026-12-31");
+    assert.equal(value.database.service(serviceId).domain_paid_through, "2029-01-15");
+
+    const both = await manager.create(serviceId, {
+      selection: "both",
+      hosting_months: 6,
+      domain_months: 12,
+    }, "admin@example.com");
+    assert.equal(both.amountMinor, 13825);
+    assert.equal(payloads[1].line_items.length, 2);
+    const bothBody = JSON.stringify({ id: 2002, status: "processing", total: "138.25", currency: "USD" });
+    const bothSignature = crypto.createHmac("sha256", secret).update(bothBody).digest("base64");
+    assert.equal(manager.webhook(bothBody, {
+      signature: bothSignature,
+      deliveryId: "delivery-both",
+      topic: "order.updated",
+    }).result, "paid");
+    const updated = value.database.service(serviceId);
+    assert.equal(updated.hosting_paid_through, both.resultingHostingPaidThrough);
+    assert.equal(updated.domain_paid_through, both.resultingDomainPaidThrough);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
+test("uses stable opaque public references and exposes only active matching payments", async () => {
+  const value = fixture();
+  try {
+    const service = value.database.services()[0];
+    const references = new PublicReference(value.root);
+    const reference = references.forService(service.service_id);
+    assert.match(reference, /^r1_[A-Za-z0-9_-]{43}$/);
+    assert.doesNotMatch(reference, /example|svc_/);
+    assert.equal(references.resolve(reference, value.database.services()).service_id, service.service_id);
+    assert.equal(references.resolve(`${reference.slice(0, -1)}x`, value.database.services()), null);
+    const manager = new PaymentManager(value.database, value.settings, {
+      createOrder: async () => ({ id: 3001, order_key: "wc_order_public" }),
+    });
+    await manager.create(service.service_id, { selection: "hosting" }, "admin@example.com");
+    const available = value.database.publicPayments(service.service_id);
+    assert.equal(available.length, 1);
+    assert.equal(available[0].selection, "hosting");
+    assert.equal(Object.hasOwn(available[0], "checkout_url"), false);
+    assert.match(value.database.resolvePublicPayment(service.service_id, available[0].payment_id), /wc_order_public/);
+    assert.throws(
+      () => value.database.resolvePublicPayment("svc_wrong_service", available[0].payment_id),
+      /not found/,
+    );
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });

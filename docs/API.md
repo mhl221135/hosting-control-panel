@@ -52,6 +52,12 @@ HMAC-SHA256 signature, unique delivery ID, and an allowed order topic.
 its fixed WooCommerce order-pay URL. Neither endpoint accepts arbitrary redirect
 targets or hosting-panel credentials.
 
+`GET /renew/:opaque-reference` is a no-store, rate-limited public summary of
+already-created renewal options. It contains no client/contact data and cannot
+create orders. `GET /renew/:opaque-reference/checkout/:payment-id` redirects
+only when both opaque identifiers resolve to the same active pending payment.
+Invalid and expired lookups use a generic unavailable page.
+
 Billing's authenticated reminder routes read/update the disabled-by-default
 schedule, return due preview/history, and run the outbox manually.
 `POST /internal/v1/billing-reminders` on `hosting-ui` is not a browser API. It

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Hosting Billing</title>
-  <link rel="stylesheet" href="/styles.css?v=4">
+  <link rel="stylesheet" href="/styles.css?v=6">
 </head>
 <body>
   <main id="loginView" class="login-shell">
@@ -194,14 +194,35 @@
           <form id="paymentLinkForm" class="form-grid" hidden>
             <h2>Create payment link</h2>
             <input name="service_id" type="hidden">
+            <input name="currency" type="hidden">
             <p class="wide" id="paymentService"></p>
-            <label>Renewal months<input name="months" type="number" min="1" max="120" required></label>
-            <label>Amount<input name="amount" type="number" min="0.01" max="100000000" step="0.01" required></label>
+            <label class="wide">Renewal selection
+              <select name="selection">
+                <option value="hosting">Hosting</option>
+                <option value="domain">Domain</option>
+                <option value="both">Hosting and domain</option>
+              </select>
+            </label>
+            <fieldset id="paymentHostingFields" class="renewal-group wide">
+              <legend>Hosting</legend>
+              <label>Months<input name="hosting_months" type="number" min="1" max="120" required></label>
+              <label>Amount<input name="hosting_amount" type="number" min="0.01" max="100000000" step="0.01" required></label>
+              <label>Current paid through<input name="hosting_paid_through" readonly></label>
+            </fieldset>
+            <fieldset id="paymentDomainFields" class="renewal-group wide" hidden>
+              <legend>Domain</legend>
+              <label>Months<input name="domain_months" type="number" min="1" max="120" required></label>
+              <label>Amount<input name="domain_amount" type="number" min="0.01" max="100000000" step="0.01" required></label>
+              <label>Current paid through<input name="domain_paid_through" readonly></label>
+            </fieldset>
+            <p class="wide payment-total">Order total <strong id="paymentTotal"></strong></p>
             <button class="primary" type="submit">Create WooCommerce order</button>
             <button id="cancelPaymentLink" class="secondary" type="button">Cancel</button>
             <div id="paymentLinkResult" class="wide payment-result" hidden>
-              <strong>Payment link</strong>
+              <strong>Direct payment link</strong>
               <a id="paymentLinkUrl" target="_blank" rel="noopener"></a>
+              <strong>Public renewal page</strong>
+              <a id="renewalPageUrl" target="_blank" rel="noopener"></a>
               <small id="paymentLinkExpiry"></small>
             </div>
           </form>
@@ -209,7 +230,7 @@
         <h2 class="subheading">Recent payment links</h2>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th></tr></thead>
+            <thead><tr><th>Created</th><th>Website</th><th>Order</th><th>Selection</th><th>Amount</th><th>Period</th><th>Status</th><th>Expires</th></tr></thead>
             <tbody id="paymentsBody"></tbody>
           </table>
         </div>
@@ -326,6 +347,6 @@
     </main>
   </div>
 
-  <script src="/app.js?v=5" defer></script>
+  <script src="/app.js?v=6" defer></script>
 </body>
 </html>

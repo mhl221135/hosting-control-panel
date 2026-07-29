@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const test = require("node:test");
+const { PublicReference } = require("../app/lib/public-reference");
 
 function waitForHealth(baseUrl, child) {
   return new Promise((resolve, reject) => {
@@ -49,8 +50,11 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   child.stderr.on("data", (chunk) => { stderr += chunk; });
   try {
     await waitForHealth(baseUrl, child);
-    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 4);
+    assert.equal((await (await fetch(`${baseUrl}/health`)).json()).schemaVersion, 5);
     assert.equal((await fetch(`${baseUrl}/internal/v1/entitlements`)).status, 401);
+    const invalidRenewal = await fetch(`${baseUrl}/renew/r1_${"a".repeat(43)}`);
+    assert.equal(invalidRenewal.status, 404);
+    assert.doesNotMatch(await invalidRenewal.text(), /service_id|customer|email/i);
 
     const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
       method: "POST",
@@ -88,6 +92,13 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     const services = await (await request("/api/services")).json();
     assert.equal(services.services.length, 1);
     assert.equal(services.services[0].primary_domain, "example.com");
+    const reference = new PublicReference(path.join(root, "data")).forService(services.services[0].service_id);
+    const renewalPage = await fetch(`${baseUrl}/renew/${reference}`);
+    assert.equal(renewalPage.status, 200);
+    const renewalHtml = await renewalPage.text();
+    assert.match(renewalHtml, /example\.com/);
+    assert.doesNotMatch(renewalHtml, /owner@example\.com|customer_name|service_id/);
+    assert.match(renewalHtml, /No payment option is currently available/);
     const createdResponse = await request("/api/services", {
       method: "POST",
       body: JSON.stringify({

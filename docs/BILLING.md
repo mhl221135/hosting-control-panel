@@ -87,10 +87,27 @@ secret fields preserve their existing values. The generated key is stored as
 `app-data/billing/woocommerce-settings.key` unless
 `BILLING_SETTINGS_KEY` is supplied.
 
-Creating a link first creates one pending WooCommerce order with service ID,
-period, resulting paid-through date, and a random nonce in order metadata. The
-public link contains only a 256-bit random token; SQLite stores only its SHA-256
-hash. Only one unexpired pending link can exist for a service.
+Creating a link requires an explicit **hosting**, **domain**, or **both**
+selection. Each selected line carries its own period, amount, and resulting
+paid-through date in WooCommerce metadata. Combined payments update both dates
+atomically; a domain-only payment cannot change hosting and a hosting-only
+payment cannot change the domain. One unexpired pending link is allowed per
+service and selection.
+
+The direct payment link contains a 256-bit random token; SQLite stores only its
+SHA-256 hash. The operator also receives a stable public renewal URL. Its
+`r1_...` reference is an HMAC-derived opaque value created with
+`app-data/billing/public-reference.key`, which is included in app-data backups.
+It exposes no service ID, domain, contact data, order key, or administrator
+credential.
+
+`GET /renew/:reference` is read-only. It displays only the primary domain,
+hosting state/date, available pending selections, periods, totals, and expiry.
+It never creates a WooCommerce order. An authenticated operator must create or
+refresh payment options. Checkout requires both the valid opaque service
+reference and a matching active payment ID, then redirects to the fixed
+WooCommerce order-pay URL. Invalid, archived, expired, and mismatched references
+receive the same bounded unavailable page.
 
 Configure a WooCommerce **Order updated** webhook:
 
@@ -100,8 +117,8 @@ Secret: the exact webhook secret saved in Billing
 ```
 
 The handler accepts signed `order.created` and `order.updated` deliveries.
-`processing` or `completed` extends service state only when order ID, amount,
-and currency match. Delivery IDs and payment state make callbacks idempotent.
+`processing` or `completed` extends only the selected service dates when order
+ID, amount, and currency match. Delivery IDs and payment state make callbacks idempotent.
 Forged, replayed, mismatched, expired, refunded, cancelled, and failed cases do
 not silently extend or shorten service; ambiguous paid/refund cases are marked
 for manual review in audit history.

@@ -62,6 +62,13 @@ test("migrates an existing schema-three database without changing renewal dates"
     );
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     INSERT INTO settings VALUES('reminder_days','30');
+    CREATE TABLE payments (
+      payment_id TEXT PRIMARY KEY, service_id TEXT NOT NULL, token_hash TEXT NOT NULL UNIQUE,
+      nonce TEXT NOT NULL UNIQUE, woo_order_id INTEGER NOT NULL UNIQUE, checkout_url TEXT NOT NULL,
+      amount_minor INTEGER NOT NULL, currency TEXT NOT NULL, months INTEGER NOT NULL,
+      resulting_paid_through TEXT NOT NULL, status TEXT NOT NULL, expires_at TEXT NOT NULL,
+      paid_at TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL
+    );
     INSERT INTO services VALUES(
       'svc_migration_example_1','example.com','[]','','','','local','','2026-12-31',
       '2027-01-15',18,8000,1500,'USD',7,'none','','UTC','','',
@@ -78,6 +85,9 @@ test("migrates an existing schema-three database without changing renewal dates"
     assert.equal(service.domain_renewal_months, 18);
     assert.equal(service.hosting_paid_through, "2026-12-31");
     assert.equal(service.archived, false);
+    const columns = database.db.prepare("PRAGMA table_info(payments)").all().map((column) => column.name);
+    assert.equal(columns.includes("selection"), true);
+    assert.equal(columns.includes("resulting_domain_paid_through"), true);
   } finally {
     database.close();
     fs.rmSync(root, { recursive: true, force: true });

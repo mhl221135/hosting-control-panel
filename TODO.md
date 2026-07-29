@@ -82,39 +82,22 @@ remain a later optional adapter.
 
 ### Hosting And Domain Renewal Orders
 
-- Let the operator create a payment for **hosting**, **domain**, or **both**.
-  Display each selected line item, renewal period, resulting paid-through date,
-  and total before creating the WooCommerce order.
-- Extend only the dates represented by verified paid order metadata. Combined
-  payments update both dates atomically after amount and currency validation.
-- Keep one active order per service and renewal selection, or replace it only
-  through an explicit audited cancellation. Expired links may be regenerated.
+- Add explicit audited cancellation/replacement of a pending order. The
+  implemented payment flow already keeps one active order per service and
+  renewal selection; expired links may be regenerated.
 - Treat partial payments, changed WooCommerce totals, refunds, chargebacks,
   deleted products, and ambiguous webhooks as manual-review states. They must
   not automatically restore or extend a service.
 
 ### Public Renewal Page
 
-- Add an unauthenticated renewal page on the configured public billing origin,
-  for example `/renew/<opaque-service-reference>`. The URL must contain no
-  client email, phone number, name, order key, or reusable administrator
-  credential.
-- Generate the public reference from a stable service ID plus a keyed,
-  rotation-aware signature, or use an equivalently protected random identifier.
-  Do not expose a plain domain parameter as the authority for selecting a
-  billing record.
-- Display only the website domain, current service state, selected renewal
-  items, periods, prices, currency, and a secure WooCommerce payment action.
-  Never expose internal notes, contact data, provider credentials, or audit
-  history.
-- Reuse a valid pending WooCommerce order. Create or refresh overdue payment
-  orders through an authenticated scheduler/reconciler, not an unrestricted
-  public GET request that bots could use to generate orders.
+- Add controlled public-reference key rotation with an overlap window; current
+  `r1_` references use a dedicated stable backed-up HMAC key.
+- Add an authenticated scheduler/reconciler that creates or refreshes overdue
+  payment options. The implemented public GET is read-only and shows only
+  already-created active options.
 - If WooCommerce is unavailable or no valid order exists, show a bounded
   operator-contact message and keep retrying through the controlled scheduler.
-- Apply strict CSP/security headers, request throttling, no-store caching, and
-  generic error responses. Public payment lookup must not reveal whether
-  arbitrary service IDs exist.
 
 ### Enforcement
 
@@ -272,26 +255,24 @@ remain a later optional adapter.
 
 ### Remaining Delivery Phases
 
-1. Implement separate hosting/domain order calculations and the protected
-   public renewal page. Keep enforcement disabled.
-2. Add configurable six-month-free provisioning defaults and idempotent
+1. Add configurable six-month-free provisioning defaults and idempotent
    internal service registration. Qualify new-record creation with a disposable
    test website.
-3. Qualify payment links and webhooks with the real hidden WooCommerce test
+2. Qualify payment links and webhooks with the real hidden WooCommerce test
    product: checkout, processing/completed, duplicate delivery, expiration,
    mismatched amount/currency, refund, chargeback, and provider outage.
-4. Implement the nginx map reconciler behind a global off switch. Test stale
+3. Implement the nginx map reconciler behind a global off switch. Test stale
    snapshots, invalid signatures, ambiguous aliases, nginx validation failure,
    billing outage, WooCommerce outage, panel restart, and immediate global
    rollback.
-5. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
+4. Pilot only `testsite.example.com`. Exercise active, reminder, grace,
    suspended, payment, automatic restore, manual exemption, and disable-all
    workflows before adding any production domain to the allowlist.
-6. Build the remote WordPress plugin and enrollment API after local enforcement
+5. Build the remote WordPress plugin and enrollment API after local enforcement
    passes. Pilot one disposable remote WordPress site through enrollment,
    cloning, stale-state, suspension, payment, cache purge, restoration,
    credential revoke, and plugin rollback tests.
-7. Review audit logs, notification behavior, load, and rollback evidence.
+6. Review audit logs, notification behavior, load, and rollback evidence.
    Enable selected production services individually; never bulk-enable the
    imported inventory during the pilot.
 
