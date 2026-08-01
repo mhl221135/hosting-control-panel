@@ -653,6 +653,27 @@ the replacement-host requirement above; the full coordinated restore,
 application checks, NPM/certificate validation, operator login, RPO/RTO, and
 DNS rollback drill remain outstanding.
 
+## 4. PHP-FPM Pool Preset Editor
+
+- Add a Settings form for editing the `low`, `medium`, and `high` PHP-FPM
+  profiles instead of requiring direct edits to `pool-presets.json`.
+- Expose `pm`, maximum children, start/minimum/maximum spare workers, idle
+  timeout, maximum requests, and request termination timeout with clear units
+  and validated bounds.
+- Show estimated maximum worker capacity and warn when combined pool limits are
+  unreasonable for the server's configured RAM and CPU profile.
+- Provide preview, validation, and explicit apply actions. Applying a preset
+  must list affected pools, back up the current presets and generated PHP-FPM
+  configuration, run `php-fpm -t`, and roll back automatically on failure.
+- Let the operator choose whether saving a preset affects only future pools or
+  also updates existing pools currently assigned to that profile.
+- Preserve custom pools unless they are explicitly selected. Display profile
+  drift when a pool no longer matches its assigned preset.
+- Restart or reload PHP-FPM through the controlled runtime action and verify
+  that every new listen port is active before reporting success.
+- Add API validation, audit history, responsive UI coverage, tests, and updated
+  operations/UI documentation.
+
 ## Cross-Cutting Delivery Rules
 
 - Every long panel operation returns a durable job ID, survives browser
