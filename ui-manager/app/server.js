@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
+const os = require("os");
 const { exec, execFile } = require("child_process");
 const { AuthStore } = require("./lib/auth");
 const { IntegrationSettings } = require("./lib/integration-settings");
@@ -1609,6 +1610,11 @@ async function handleApi(req, res) {
         reload_nginx: Boolean(ACTION_CMDS.reload_nginx),
         reload_php: Boolean(ACTION_CMDS.reload_php),
         clear_opcache: Boolean(ACTION_CMDS.clear_opcache),
+      },
+      capacity: {
+        cpuCount: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length,
+        memoryTotalBytes: os.totalmem(),
+        phpMemoryLimitMb: performanceSettings.read().php.memoryLimitMb,
       },
       integrations: {
         npm: npm.configured(),

@@ -658,10 +658,12 @@ DNS rollback drill remain outstanding.
 The Runtime workspace now edits the `low`, `medium`, and `high` profile process
 manager, worker counts, idle timeout, and request recycling limits with bounded
 server validation. Request termination timeout is also configurable from 1 to
-3600 seconds. Saving definitions affects future assignments only.
+3600 seconds. Runtime shows active worker slots and a conservative worst-case
+PHP memory ceiling against host RAM. Saving definitions affects future
+assignments only.
 
-- Show estimated maximum worker capacity and warn when combined pool limits are
-  unreasonable for the server's configured RAM and CPU profile.
+- Add CPU-aware capacity thresholds and per-profile worker-memory estimates;
+  the current warning intentionally uses the configured PHP memory ceiling.
 - Provide preview, validation, and explicit apply actions. Applying a preset
   must list affected pools, back up the current presets and generated PHP-FPM
   configuration, run `php-fpm -t`, and roll back automatically on failure.
