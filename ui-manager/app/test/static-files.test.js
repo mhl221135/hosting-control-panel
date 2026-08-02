@@ -47,5 +47,6 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(html, /id="savePoolPresets"/);
   assert.match(source, /data-preset-field="max_children"/);
   assert.match(source, /method: "PUT"[\s\S]*\/api\/pool-presets/);
+  assert.match(source, /data-preset-field="request_terminate_timeout"/);
   assert.match(source, /Existing pools were not changed/);
 });

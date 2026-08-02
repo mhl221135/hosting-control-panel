@@ -104,6 +104,7 @@ const DEFAULT_POOL_PRESETS = {
     min_spare_servers: "1",
     max_spare_servers: "2",
     process_idle_timeout: "20s",
+    request_terminate_timeout: "120s",
     max_requests: "400",
   },
   medium: {
@@ -113,6 +114,7 @@ const DEFAULT_POOL_PRESETS = {
     min_spare_servers: "1",
     max_spare_servers: "2",
     process_idle_timeout: "30s",
+    request_terminate_timeout: "120s",
     max_requests: "500",
   },
   high: {
@@ -122,6 +124,7 @@ const DEFAULT_POOL_PRESETS = {
     min_spare_servers: "2",
     max_spare_servers: "4",
     process_idle_timeout: "45s",
+    request_terminate_timeout: "120s",
     max_requests: "700",
   },
 };
@@ -475,6 +478,7 @@ function readPoolPresets() {
       min_spare_servers: String(preset.min_spare_servers || merged[name]?.min_spare_servers || "1"),
       max_spare_servers: String(preset.max_spare_servers || merged[name]?.max_spare_servers || "2"),
       process_idle_timeout: String(preset.process_idle_timeout || merged[name]?.process_idle_timeout || "30s"),
+      request_terminate_timeout: String(preset.request_terminate_timeout || merged[name]?.request_terminate_timeout || "120s"),
       max_requests: String(preset.max_requests || merged[name]?.max_requests || "500"),
     };
   }
@@ -518,6 +522,7 @@ function writePoolPresets(payload) {
       min_spare_servers: boundedInteger(preset.min_spare_servers ?? existing.min_spare_servers, 0, 100, `${name} minimum spare servers`),
       max_spare_servers: boundedInteger(preset.max_spare_servers ?? existing.max_spare_servers, 0, 100, `${name} maximum spare servers`),
       process_idle_timeout: duration(preset.process_idle_timeout ?? existing.process_idle_timeout, `${name} idle timeout`),
+      request_terminate_timeout: duration(preset.request_terminate_timeout ?? existing.request_terminate_timeout, `${name} request timeout`),
       max_requests: boundedInteger(preset.max_requests ?? existing.max_requests, 1, 10000, `${name} maximum requests`),
     };
     if (Number(out[name].min_spare_servers) > Number(out[name].max_spare_servers)
@@ -764,7 +769,11 @@ function buildPoolSettings({ incomingPool, basePool, defaults, tierName, root, p
       incomingPool.open_basedir || basePool["php_admin_value[open_basedir]"] || `${root || "/var/www"}/:/global/:/tmp/`,
     clear_env: "no",
     catch_workers_output: "yes",
-    request_terminate_timeout: incomingPool.request_terminate_timeout || basePool.request_terminate_timeout || "60s",
+    request_terminate_timeout:
+      incomingPool.request_terminate_timeout ||
+      tier.request_terminate_timeout ||
+      basePool.request_terminate_timeout ||
+      "120s",
   };
   return setPoolOpcache(settings, settings["php_admin_value[opcache.enable]"] !== "0");
 }

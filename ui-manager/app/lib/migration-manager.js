@@ -20,9 +20,9 @@ const {
 const execFileAsync = promisify(execFile);
 const DATABASE_PATTERN = /^[A-Za-z0-9_$-]{1,32}$/;
 const DEFAULT_PRESETS = {
-  low: { pm: "ondemand", max_children: "3", start_servers: "1", min_spare_servers: "1", max_spare_servers: "2", process_idle_timeout: "20s", max_requests: "400" },
-  medium: { pm: "ondemand", max_children: "6", start_servers: "1", min_spare_servers: "1", max_spare_servers: "2", process_idle_timeout: "30s", max_requests: "500" },
-  high: { pm: "dynamic", max_children: "10", start_servers: "2", min_spare_servers: "2", max_spare_servers: "4", process_idle_timeout: "45s", max_requests: "700" },
+  low: { pm: "ondemand", max_children: "3", start_servers: "1", min_spare_servers: "1", max_spare_servers: "2", process_idle_timeout: "20s", request_terminate_timeout: "120s", max_requests: "400" },
+  medium: { pm: "ondemand", max_children: "6", start_servers: "1", min_spare_servers: "1", max_spare_servers: "2", process_idle_timeout: "30s", request_terminate_timeout: "120s", max_requests: "500" },
+  high: { pm: "dynamic", max_children: "10", start_servers: "2", min_spare_servers: "2", max_spare_servers: "4", process_idle_timeout: "45s", request_terminate_timeout: "120s", max_requests: "700" },
 };
 
 function transferId(date = new Date()) {
@@ -796,7 +796,10 @@ class MigrationManager {
   readPresets() {
     try {
       const stored = JSON.parse(fs.readFileSync(path.join(this.dataDir, "pool-presets.json"), "utf8"));
-      return { ...DEFAULT_PRESETS, ...stored };
+      return Object.fromEntries(Object.entries(DEFAULT_PRESETS).map(([name, preset]) => [
+        name,
+        { ...preset, ...(stored[name] || {}) },
+      ]));
     } catch {
       return DEFAULT_PRESETS;
     }
@@ -831,7 +834,8 @@ class MigrationManager {
           "pm.min_spare_servers": String(tier.min_spare_servers), "pm.max_spare_servers": String(tier.max_spare_servers),
           "pm.process_idle_timeout": String(tier.process_idle_timeout), "pm.max_requests": String(tier.max_requests),
           "php_admin_value[open_basedir]": `${root}/:/global/:/tmp/`,
-          clear_env: "no", catch_workers_output: "yes", request_terminate_timeout: "120s",
+          clear_env: "no", catch_workers_output: "yes",
+          request_terminate_timeout: String(tier.request_terminate_timeout || "120s"),
         }, site.state.opcache !== false);
         pools.sectionOrder.push(poolName);
       }
