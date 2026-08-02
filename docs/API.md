@@ -387,6 +387,8 @@ is returned as a partial job warning after local creation rather than rollback.
 | Method/path | Purpose |
 |---|---|
 | `GET /api/logs` | recent PHP-FPM container logs |
+| `GET /api/pool-presets` | reusable Low, Medium, and High PHP-FPM defaults |
+| `PUT /api/pool-presets` | validate and atomically save PHP-FPM defaults without changing existing pools |
 | `POST /api/validate` | nginx and PHP-FPM configuration tests |
 | `POST /api/actions/:action` | allowlisted reload/OPcache actions |
 

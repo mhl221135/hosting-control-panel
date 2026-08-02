@@ -39,3 +39,13 @@ test("settings expose guarded billing enforcement controls", () => {
   assert.match(source, /api\/billing\/enforcement\/disable/);
   assert.match(source, /selectedBillingPilotDomains/);
 });
+
+test("runtime exposes an editable PHP-FPM profile form", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(html, /id="poolPresetsEditor"/);
+  assert.match(html, /id="savePoolPresets"/);
+  assert.match(source, /data-preset-field="max_children"/);
+  assert.match(source, /method: "PUT"[\s\S]*\/api\/pool-presets/);
+  assert.match(source, /Existing pools were not changed/);
+});
