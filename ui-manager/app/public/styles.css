@@ -424,5 +424,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .pool-capacity small { grid-column: 1 / -1; color: var(--warning); }
 .pool-capacity.warning { border-color: #f1cf9e; background: #fff7e8; }
 .pool-drift { display: block; margin-top: 5px; max-width: 220px; color: var(--warning); line-height: 1.35; }
+.pool-preset-preview { margin-bottom: 14px; border-left: 3px solid var(--accent); padding: 8px 12px; background: #f4f8f8; font-size: 12px; }
+.pool-preset-preview p { margin: 5px 0; }
+.pool-preset-preview small { display: block; margin-top: 6px; color: var(--muted); }
 @media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }

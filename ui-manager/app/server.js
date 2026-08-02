@@ -486,8 +486,7 @@ function readPoolPresets() {
   return merged;
 }
 
-function writePoolPresets(payload) {
-  const current = readPoolPresets();
+function validatePoolPresets(payload, current = readPoolPresets()) {
   const out = {};
   const boundedInteger = (value, minimum, maximum, label) => {
     const parsed = Number(value);
@@ -537,9 +536,41 @@ function writePoolPresets(payload) {
   for (const requiredName of ["low", "medium", "high"]) {
     if (!out[requiredName]) out[requiredName] = current[requiredName] || DEFAULT_POOL_PRESETS[requiredName];
   }
+  return out;
+}
+
+function writePoolPresets(payload) {
+  const out = validatePoolPresets(payload);
   const temporary = `${PRESETS_PATH}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, JSON.stringify(out, null, 2), "utf8");
   fs.renameSync(temporary, PRESETS_PATH);
+}
+
+function previewPoolPresetChanges(payload) {
+  const current = readPoolPresets();
+  const proposed = validatePoolPresets(payload, current);
+  const pools = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  const fields = {
+    pm: "pm",
+    max_children: "pm.max_children",
+    start_servers: "pm.start_servers",
+    min_spare_servers: "pm.min_spare_servers",
+    max_spare_servers: "pm.max_spare_servers",
+    process_idle_timeout: "pm.process_idle_timeout",
+    request_terminate_timeout: "request_terminate_timeout",
+    max_requests: "pm.max_requests",
+  };
+  return pools.sectionOrder.flatMap((name) => {
+    const settings = pools.sections[name] || {};
+    const tier = detectTier(settings, current);
+    if (tier === "custom" || !proposed[tier]) return [];
+    const changes = Object.entries(fields).flatMap(([presetKey, poolKey]) => {
+      const from = String(settings[poolKey] || "");
+      const to = String(proposed[tier][presetKey] || "");
+      return from === to ? [] : [{ field: poolKey, from, to }];
+    });
+    return changes.length ? [{ name, tier, changes }] : [];
+  });
 }
 
 function normalizeTier(tier, presets = readPoolPresets()) {
@@ -2968,6 +2999,13 @@ async function handleApi(req, res) {
       writeDefaultPool(defaults);
     }
     sendJson(res, 200, { ok: true, tiers: presets });
+    return true;
+  }
+
+  if (req.method === "POST" && req.url === "/api/pool-presets/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const affected = previewPoolPresetChanges(body.tiers || {});
+    sendJson(res, 200, { ok: true, affected, customPoolsPreserved: true });
     return true;
   }
 
