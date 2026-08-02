@@ -662,6 +662,9 @@ server validation. Request termination timeout is also configurable from 1 to
 PHP memory ceiling against host RAM. Saving definitions affects future
 assignments only.
 
+The editor can preview which currently matching pools would change and reports
+custom/drifted pools as preserved. Preview validation performs no writes.
+
 - Add CPU-aware capacity thresholds and per-profile worker-memory estimates;
   the current warning intentionally uses the configured PHP memory ceiling.
 - Provide preview, validation, and explicit apply actions. Applying a preset

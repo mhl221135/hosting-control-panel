@@ -1521,6 +1521,14 @@ function renderPoolCapacity() {
   box.innerHTML = `<strong>${workerSlots} worker slots</strong><span>Worst-case PHP ceiling: ${formatBytes(configuredBytes)} across ${state.pools.length} pools · Host RAM: ${formatBytes(memoryTotalBytes)} · ${escapeHtml(capacity.cpuCount || 0)} CPUs</span>${warning ? "<small>This configured ceiling exceeds 75% of host RAM. Ondemand pools do not reserve it, but concurrent load can exhaust the host.</small>" : ""}`;
 }
 
+function poolPresetDraft() {
+  return Object.fromEntries($$("[data-pool-preset]").map((group) => [
+    group.dataset.poolPreset,
+    Object.fromEntries([...group.querySelectorAll("[data-preset-field]")]
+      .map((input) => [input.dataset.presetField, input.value])),
+  ]));
+}
+
 function renderHosts() {
   const poolOptions = state.pools.map((pool) => pool.name);
   $("#hostsTable").innerHTML = state.sites.map((site) => `
@@ -3300,11 +3308,7 @@ $("#savePools").addEventListener("click", async (event) => {
 });
 
 $("#savePoolPresets").addEventListener("click", async (event) => {
-  const tiers = Object.fromEntries($$("[data-pool-preset]").map((group) => [
-    group.dataset.poolPreset,
-    Object.fromEntries([...group.querySelectorAll("[data-preset-field]")]
-      .map((input) => [input.dataset.presetField, input.value])),
-  ]));
+  const tiers = poolPresetDraft();
   try {
     const result = await withButton(event.currentTarget, "Saving...", () => api("/api/pool-presets", {
       method: "PUT",
@@ -3314,6 +3318,20 @@ $("#savePoolPresets").addEventListener("click", async (event) => {
     renderPoolPresets();
     renderPools();
     notice("PHP-FPM profiles saved. Existing pools were not changed.");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#previewPoolPresets").addEventListener("click", async (event) => {
+  try {
+    const result = await withButton(event.currentTarget, "Checking...", () => api("/api/pool-presets/preview", {
+      method: "POST",
+      body: JSON.stringify({ tiers: poolPresetDraft() }),
+    }));
+    const box = $("#poolPresetPreview");
+    box.classList.remove("hidden");
+    box.innerHTML = result.affected.length
+      ? `<strong>${result.affected.length} matching pool${result.affected.length === 1 ? "" : "s"} would change</strong>${result.affected.map((pool) => `<p><code>${escapeHtml(pool.name)}</code> · ${escapeHtml(pool.tier)} · ${pool.changes.length} setting${pool.changes.length === 1 ? "" : "s"}</p>`).join("")}<small>Preview only. Custom/drifted pools are preserved and no configuration was written.</small>`
+      : "<strong>No existing matching pools would change.</strong><small>Custom/drifted pools are preserved and no configuration was written.</small>";
   } catch (error) { notice(error.message, "warning"); }
 });
 

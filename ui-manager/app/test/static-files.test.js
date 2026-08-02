@@ -52,5 +52,7 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /Worst-case PHP ceiling/);
   assert.match(source, /Custom \/ drifted/);
   assert.match(source, /Settings differ from every preset/);
+  assert.match(source, /\/api\/pool-presets\/preview/);
+  assert.match(html, /Preview impact/);
   assert.match(source, /Existing pools were not changed/);
 });
