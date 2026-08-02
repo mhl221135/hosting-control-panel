@@ -50,5 +50,7 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /data-preset-field="request_terminate_timeout"/);
   assert.match(source, /renderPoolCapacity/);
   assert.match(source, /Worst-case PHP ceiling/);
+  assert.match(source, /Custom \/ drifted/);
+  assert.match(source, /Settings differ from every preset/);
   assert.match(source, /Existing pools were not changed/);
 });

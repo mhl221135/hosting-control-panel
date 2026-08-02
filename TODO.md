@@ -669,8 +669,6 @@ assignments only.
   configuration, run `php-fpm -t`, and roll back automatically on failure.
 - Let the operator choose whether saving a preset affects only future pools or
   also updates existing pools currently assigned to that profile.
-- Preserve custom pools unless they are explicitly selected. Display profile
-  drift when a pool no longer matches its assigned preset.
 - Restart or reload PHP-FPM through the controlled runtime action and verify
   that every new listen port is active before reporting success.
 - Add API validation, audit history, responsive UI coverage, tests, and updated
