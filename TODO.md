@@ -657,9 +657,9 @@ DNS rollback drill remain outstanding.
 
 The Runtime workspace now edits the `low`, `medium`, and `high` profile process
 manager, worker counts, idle timeout, and request recycling limits with bounded
-server validation. Saving definitions affects future assignments only.
+server validation. Request termination timeout is also configurable from 1 to
+3600 seconds. Saving definitions affects future assignments only.
 
-- Add request termination timeout with clear units and validated bounds.
 - Show estimated maximum worker capacity and warn when combined pool limits are
   unreasonable for the server's configured RAM and CPU profile.
 - Provide preview, validation, and explicit apply actions. Applying a preset

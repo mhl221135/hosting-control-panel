@@ -1499,6 +1499,7 @@ function renderPoolPresets() {
       <label>Minimum spare<input data-preset-field="min_spare_servers" type="number" min="0" max="100" value="${escapeHtml(preset.min_spare_servers)}" required /></label>
       <label>Maximum spare<input data-preset-field="max_spare_servers" type="number" min="0" max="100" value="${escapeHtml(preset.max_spare_servers)}" required /></label>
       <label>Idle timeout<input data-preset-field="process_idle_timeout" pattern="[0-9]+s" value="${escapeHtml(preset.process_idle_timeout)}" required /></label>
+      <label>Request timeout<input data-preset-field="request_terminate_timeout" pattern="[0-9]+s" value="${escapeHtml(preset.request_terminate_timeout)}" required /></label>
       <label>Maximum requests<input data-preset-field="max_requests" type="number" min="1" max="10000" value="${escapeHtml(preset.max_requests)}" required /></label>
     </fieldset>
   `).join("");
