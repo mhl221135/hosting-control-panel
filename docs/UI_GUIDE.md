@@ -387,7 +387,7 @@ normal work; use Runtime for diagnosis and manual correction.
 | --- | --- |
 | **Validate** | Runs nginx and PHP-FPM configuration validation without reloading services. |
 | **Reload nginx** | Validates and gracefully reloads internal nginx. |
-| **Reload PHP-FPM** | Validates and gracefully reloads PHP-FPM. |
+| **Reload PHP-FPM** | Gracefully reloads PHP-FPM and verifies that every configured pool port accepts connections. |
 | **Clear OPcache** | Resets shared PHP OPcache so scripts are recompiled. |
 | **Save profiles** | Validates and saves the reusable Low, Medium, and High PHP-FPM worker, idle, request-timeout, and recycling defaults. Existing pools are not changed. |
 | **Preview impact** | Validates the edited profiles and lists currently matching pools that would change. It performs no writes and excludes custom/drifted pools. |

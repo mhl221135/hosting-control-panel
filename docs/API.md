@@ -391,7 +391,7 @@ is returned as a partial job warning after local creation rather than rollback.
 | `PUT /api/pool-presets` | validate and atomically save PHP-FPM defaults without changing existing pools |
 | `POST /api/pool-presets/preview` | validate proposed defaults and list matching existing pools that would change without writing configuration |
 | `POST /api/validate` | nginx and PHP-FPM configuration tests |
-| `POST /api/actions/:action` | allowlisted reload/OPcache actions |
+| `POST /api/actions/:action` | allowlisted reload/OPcache actions; PHP-FPM reload verifies every configured pool port |
 
 ## Adding Or Changing Routes
 
