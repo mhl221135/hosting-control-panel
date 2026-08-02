@@ -484,22 +484,56 @@ function readPoolPresets() {
 function writePoolPresets(payload) {
   const current = readPoolPresets();
   const out = {};
+  const boundedInteger = (value, minimum, maximum, label) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+      const error = new Error(`${label} must be an integer from ${minimum} to ${maximum}`);
+      error.statusCode = 400;
+      throw error;
+    }
+    return String(parsed);
+  };
+  const duration = (value, label) => {
+    const match = String(value || "").trim().match(/^(\d+)s$/);
+    if (!match || Number(match[1]) < 1 || Number(match[1]) > 3600) {
+      const error = new Error(`${label} must be between 1s and 3600s`);
+      error.statusCode = 400;
+      throw error;
+    }
+    return `${Number(match[1])}s`;
+  };
   for (const [name, preset] of Object.entries(payload || {})) {
     if (!preset || typeof preset !== "object") continue;
+    const existing = current[name] || DEFAULT_POOL_PRESETS[name] || DEFAULT_POOL_PRESETS.medium;
+    const pm = String(preset.pm ?? existing.pm).trim();
+    if (!["ondemand", "dynamic", "static"].includes(pm)) {
+      const error = new Error(`${name} process manager is invalid`);
+      error.statusCode = 400;
+      throw error;
+    }
     out[name] = {
-      pm: String(preset.pm || current[name]?.pm || "ondemand"),
-      max_children: String(preset.max_children || current[name]?.max_children || "4"),
-      start_servers: String(preset.start_servers || current[name]?.start_servers || "1"),
-      min_spare_servers: String(preset.min_spare_servers || current[name]?.min_spare_servers || "1"),
-      max_spare_servers: String(preset.max_spare_servers || current[name]?.max_spare_servers || "2"),
-      process_idle_timeout: String(preset.process_idle_timeout || current[name]?.process_idle_timeout || "30s"),
-      max_requests: String(preset.max_requests || current[name]?.max_requests || "500"),
+      pm,
+      max_children: boundedInteger(preset.max_children ?? existing.max_children, 1, 100, `${name} maximum children`),
+      start_servers: boundedInteger(preset.start_servers ?? existing.start_servers, 0, 100, `${name} start servers`),
+      min_spare_servers: boundedInteger(preset.min_spare_servers ?? existing.min_spare_servers, 0, 100, `${name} minimum spare servers`),
+      max_spare_servers: boundedInteger(preset.max_spare_servers ?? existing.max_spare_servers, 0, 100, `${name} maximum spare servers`),
+      process_idle_timeout: duration(preset.process_idle_timeout ?? existing.process_idle_timeout, `${name} idle timeout`),
+      max_requests: boundedInteger(preset.max_requests ?? existing.max_requests, 1, 10000, `${name} maximum requests`),
     };
+    if (Number(out[name].min_spare_servers) > Number(out[name].max_spare_servers)
+        || Number(out[name].max_spare_servers) > Number(out[name].max_children)
+        || (pm === "dynamic" && Number(out[name].start_servers) > Number(out[name].max_children))) {
+      const error = new Error(`${name} worker limits are inconsistent`);
+      error.statusCode = 400;
+      throw error;
+    }
   }
   for (const requiredName of ["low", "medium", "high"]) {
     if (!out[requiredName]) out[requiredName] = current[requiredName] || DEFAULT_POOL_PRESETS[requiredName];
   }
-  fs.writeFileSync(PRESETS_PATH, JSON.stringify(out, null, 2), "utf8");
+  const temporary = `${PRESETS_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(out, null, 2), "utf8");
+  fs.renameSync(temporary, PRESETS_PATH);
 }
 
 function normalizeTier(tier, presets = readPoolPresets()) {

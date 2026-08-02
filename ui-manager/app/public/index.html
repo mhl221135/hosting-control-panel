@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260729-30" />
+    <link rel="stylesheet" href="/styles.css?v=20260802-1" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -724,6 +724,11 @@
           </div>
 
           <article class="panel">
+            <div class="card-head"><div><h3>PHP-FPM profiles</h3><p class="muted">Edit reusable pool defaults. Existing pools are unchanged until you select and save their profile below.</p></div><button id="savePoolPresets">Save profiles</button></div>
+            <div id="poolPresetsEditor" class="preset-editor"></div>
+          </article>
+
+          <article class="panel">
             <div class="card-head"><div><h3>PHP-FPM pools</h3><p class="muted">Resource profiles and assigned ports.</p></div><button id="savePools">Save pools</button></div>
             <div class="table-wrap"><table><thead><tr><th>Name</th><th>Port</th><th>Profile</th><th>Hosts</th></tr></thead><tbody id="poolsTable"></tbody></table></div>
           </article>
@@ -1017,6 +1022,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260729-30"></script>
+    <script src="/app.js?v=20260802-1"></script>
   </body>
 </html>

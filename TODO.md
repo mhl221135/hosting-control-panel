@@ -655,11 +655,11 @@ DNS rollback drill remain outstanding.
 
 ## 4. PHP-FPM Pool Preset Editor
 
-- Add a Settings form for editing the `low`, `medium`, and `high` PHP-FPM
-  profiles instead of requiring direct edits to `pool-presets.json`.
-- Expose `pm`, maximum children, start/minimum/maximum spare workers, idle
-  timeout, maximum requests, and request termination timeout with clear units
-  and validated bounds.
+The Runtime workspace now edits the `low`, `medium`, and `high` profile process
+manager, worker counts, idle timeout, and request recycling limits with bounded
+server validation. Saving definitions affects future assignments only.
+
+- Add request termination timeout with clear units and validated bounds.
 - Show estimated maximum worker capacity and warn when combined pool limits are
   unreasonable for the server's configured RAM and CPU profile.
 - Provide preview, validation, and explicit apply actions. Applying a preset

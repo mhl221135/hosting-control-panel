@@ -1487,6 +1487,23 @@ function renderPools() {
   `).join("");
 }
 
+function renderPoolPresets() {
+  $("#poolPresetsEditor").innerHTML = Object.entries(state.tiers).map(([name, preset]) => `
+    <fieldset class="pool-preset" data-pool-preset="${escapeHtml(name)}">
+      <legend>${escapeHtml(name)}</legend>
+      <label>Process manager<select data-preset-field="pm">
+        ${["ondemand", "dynamic", "static"].map((value) => `<option value="${value}" ${preset.pm === value ? "selected" : ""}>${value}</option>`).join("")}
+      </select></label>
+      <label>Maximum children<input data-preset-field="max_children" type="number" min="1" max="100" value="${escapeHtml(preset.max_children)}" required /></label>
+      <label>Start servers<input data-preset-field="start_servers" type="number" min="0" max="100" value="${escapeHtml(preset.start_servers)}" required /></label>
+      <label>Minimum spare<input data-preset-field="min_spare_servers" type="number" min="0" max="100" value="${escapeHtml(preset.min_spare_servers)}" required /></label>
+      <label>Maximum spare<input data-preset-field="max_spare_servers" type="number" min="0" max="100" value="${escapeHtml(preset.max_spare_servers)}" required /></label>
+      <label>Idle timeout<input data-preset-field="process_idle_timeout" pattern="[0-9]+s" value="${escapeHtml(preset.process_idle_timeout)}" required /></label>
+      <label>Maximum requests<input data-preset-field="max_requests" type="number" min="1" max="10000" value="${escapeHtml(preset.max_requests)}" required /></label>
+    </fieldset>
+  `).join("");
+}
+
 function renderHosts() {
   const poolOptions = state.pools.map((pool) => pool.name);
   $("#hostsTable").innerHTML = state.sites.map((site) => `
@@ -1534,6 +1551,7 @@ async function loadData() {
   renderDomainOptions();
   renderBackupOptions();
   renderPools();
+  renderPoolPresets();
   renderHosts();
   renderImageOptimization();
   renderMaintenance();
@@ -3260,6 +3278,24 @@ $("#savePools").addEventListener("click", async (event) => {
     await api("/api/validate", { method: "POST" });
     notice("PHP pools saved and validated.");
     await loadData();
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#savePoolPresets").addEventListener("click", async (event) => {
+  const tiers = Object.fromEntries($$("[data-pool-preset]").map((group) => [
+    group.dataset.poolPreset,
+    Object.fromEntries([...group.querySelectorAll("[data-preset-field]")]
+      .map((input) => [input.dataset.presetField, input.value])),
+  ]));
+  try {
+    const result = await withButton(event.currentTarget, "Saving...", () => api("/api/pool-presets", {
+      method: "PUT",
+      body: JSON.stringify({ tiers }),
+    }));
+    state.tiers = result.tiers || {};
+    renderPoolPresets();
+    renderPools();
+    notice("PHP-FPM profiles saved. Existing pools were not changed.");
   } catch (error) { notice(error.message, "warning"); }
 });
 

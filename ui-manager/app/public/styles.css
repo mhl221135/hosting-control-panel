@@ -416,3 +416,8 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .restore-dialog .form-actions {
   justify-content: flex-end;
 }
+.preset-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.pool-preset { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; min-width: 0; }
+.pool-preset legend { font-weight: 700; text-transform: capitalize; }
+@media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }
