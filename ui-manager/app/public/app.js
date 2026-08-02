@@ -1475,16 +1475,19 @@ async function loadBackupView() {
 }
 
 function renderPools() {
-  $("#poolsTable").innerHTML = state.pools.map((pool) => `
+  $("#poolsTable").innerHTML = state.pools.map((pool) => {
+    const custom = pool.tier === "custom";
+    return `
     <tr>
-      <td><input data-pool-field="name" value="${escapeHtml(pool.name)}" /></td>
-      <td><input data-pool-field="port" type="number" value="${escapeHtml(pool.port)}" /></td>
-      <td><select data-pool-field="tier">${Object.keys(state.tiers).map((tier) =>
+      <td><input data-pool-field="name" value="${escapeHtml(pool.name)}" ${custom ? "readonly" : ""} /></td>
+      <td><input data-pool-field="port" type="number" value="${escapeHtml(pool.port)}" ${custom ? "readonly" : ""} /></td>
+      <td><select data-pool-field="tier">${custom ? '<option value="custom" selected disabled>Custom / drifted</option>' : ""}${Object.keys(state.tiers).map((tier) =>
         `<option value="${escapeHtml(tier)}" ${tier === pool.tier ? "selected" : ""}>${escapeHtml(tier)}</option>`
-      ).join("")}</select></td>
+      ).join("")}</select>${custom ? '<small class="pool-drift">Settings differ from every preset. Select a profile to replace them.</small>' : ""}</td>
       <td>${escapeHtml((pool.hosts || []).join(", "))}</td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderPoolPresets() {

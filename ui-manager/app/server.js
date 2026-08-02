@@ -3095,7 +3095,7 @@ async function handleApi(req, res) {
       const name = sanitizeSectionName(String(raw.name || "").trim());
       const port = Number(raw.port);
       const incomingPool = raw.settings || {};
-      const requestedTier = normalizeTier(raw.tier || incomingPool.tier || "", presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+      const requestedTierInput = String(raw.tier || incomingPool.tier || "").trim().toLowerCase();
 
       const existingSameName = poolsParsed.sections[name] || null;
       const existingSamePort = poolsParsed.byPort[port] || null;
@@ -3103,6 +3103,17 @@ async function handleApi(req, res) {
         sendJson(res, 400, { ok: false, message: `Port ${port} is already used by pool '${existingSamePort.name}'` });
         return true;
       }
+
+      if (requestedTierInput === "custom") {
+        if (!existingSameName || Number(existingSameName.listen) !== port) {
+          sendJson(res, 400, { ok: false, message: `Custom pool '${name}' must keep its existing name and port` });
+          return true;
+        }
+        continue;
+      }
+      const requestedTier = normalizeTier(requestedTierInput, presets)
+        || normalizeTier(defaults.default_tier, presets)
+        || "medium";
 
       const oldPort = existingSameName ? Number(existingSameName.listen) : null;
       poolsParsed.sections[name] = buildPoolSettings({
