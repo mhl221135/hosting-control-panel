@@ -419,5 +419,9 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .preset-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .pool-preset { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; min-width: 0; }
 .pool-preset legend { font-weight: 700; text-transform: capitalize; }
+.pool-capacity { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: baseline; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #f7f9fa; font-size: 12px; }
+.pool-capacity span { color: var(--muted); overflow-wrap: anywhere; }
+.pool-capacity small { grid-column: 1 / -1; color: var(--warning); }
+.pool-capacity.warning { border-color: #f1cf9e; background: #fff7e8; }
 @media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }

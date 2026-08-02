@@ -390,6 +390,7 @@ normal work; use Runtime for diagnosis and manual correction.
 | **Reload PHP-FPM** | Validates and gracefully reloads PHP-FPM. |
 | **Clear OPcache** | Resets shared PHP OPcache so scripts are recompiled. |
 | **Save profiles** | Validates and saves the reusable Low, Medium, and High PHP-FPM worker, idle, request-timeout, and recycling defaults. Existing pools are not changed. |
+| **Worker capacity** | Shows active pool worker slots and their worst-case configured PHP memory ceiling against host RAM. Ondemand pools do not reserve this memory. |
 | **Save pools** | Validates and writes the complete PHP-FPM pool model. |
 | **Save routes** | Validates and writes internal host, alias, document-root, pool, and canonical-route mappings. |
 | **Refresh logs** | Reloads the bounded PHP-FPM log tail. |

@@ -1505,6 +1505,19 @@ function renderPoolPresets() {
   `).join("");
 }
 
+function renderPoolCapacity() {
+  const capacity = state.status?.capacity || {};
+  const workerSlots = state.pools.reduce((total, pool) =>
+    total + Number(pool.settings?.["pm.max_children"] || 0), 0);
+  const memoryLimitMb = Number(capacity.phpMemoryLimitMb || 0);
+  const memoryTotalBytes = Number(capacity.memoryTotalBytes || 0);
+  const configuredBytes = workerSlots * memoryLimitMb * 1024 * 1024;
+  const warning = memoryTotalBytes > 0 && configuredBytes / memoryTotalBytes > 0.75;
+  const box = $("#poolCapacity");
+  box.className = `pool-capacity${warning ? " warning" : ""}`;
+  box.innerHTML = `<strong>${workerSlots} worker slots</strong><span>Worst-case PHP ceiling: ${formatBytes(configuredBytes)} across ${state.pools.length} pools · Host RAM: ${formatBytes(memoryTotalBytes)} · ${escapeHtml(capacity.cpuCount || 0)} CPUs</span>${warning ? "<small>This configured ceiling exceeds 75% of host RAM. Ondemand pools do not reserve it, but concurrent load can exhaust the host.</small>" : ""}`;
+}
+
 function renderHosts() {
   const poolOptions = state.pools.map((pool) => pool.name);
   $("#hostsTable").innerHTML = state.sites.map((site) => `
@@ -1553,6 +1566,7 @@ async function loadData() {
   renderBackupOptions();
   renderPools();
   renderPoolPresets();
+  renderPoolCapacity();
   renderHosts();
   renderImageOptimization();
   renderMaintenance();
