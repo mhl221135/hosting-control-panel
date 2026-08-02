@@ -43,6 +43,7 @@ test("settings expose guarded billing enforcement controls", () => {
 test("runtime exposes an editable PHP-FPM profile form", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(html, /id="poolPresetsEditor"/);
   assert.match(html, /id="savePoolPresets"/);
   assert.match(source, /data-preset-field="max_children"/);
@@ -55,4 +56,6 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /\/api\/pool-presets\/preview/);
   assert.match(html, /Preview impact/);
   assert.match(source, /Existing pools were not changed/);
+  assert.match(source, /pool ports verified/);
+  assert.match(server, /resolvePoolSectionName/);
 });

@@ -664,6 +664,8 @@ assignments only.
 
 The editor can preview which currently matching pools would change and reports
 custom/drifted pools as preserved. Preview validation performs no writes.
+Manual PHP-FPM reloads now connect to every configured pool port before the
+panel reports success.
 
 - Add CPU-aware capacity thresholds and per-profile worker-memory estimates;
   the current warning intentionally uses the configured PHP memory ceiling.
@@ -672,8 +674,8 @@ custom/drifted pools as preserved. Preview validation performs no writes.
   configuration, run `php-fpm -t`, and roll back automatically on failure.
 - Let the operator choose whether saving a preset affects only future pools or
   also updates existing pools currently assigned to that profile.
-- Restart or reload PHP-FPM through the controlled runtime action and verify
-  that every new listen port is active before reporting success.
+- Extend port verification to every configuration mutation that can allocate a
+  new listen port, with rollback if verification fails.
 - Add API validation, audit history, responsive UI coverage, tests, and updated
   operations/UI documentation.
 

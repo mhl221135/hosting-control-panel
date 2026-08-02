@@ -3355,7 +3355,7 @@ $("#saveHosts").addEventListener("click", async (event) => {
 const runtimeActions = {
   validateConfig: ["/api/validate", "Validating...", "Configuration is valid."],
   reloadNginx: ["/api/actions/reload_nginx", "Reloading...", "nginx reloaded."],
-  reloadPhp: ["/api/actions/reload_php", "Reloading...", "PHP-FPM reloaded."],
+  reloadPhp: ["/api/actions/reload_php", "Reloading...", "PHP-FPM reloaded and pool ports verified."],
   clearOpcache: ["/api/actions/clear_opcache", "Clearing...", "OPcache cleared."],
 };
 for (const [id, [url, pending, complete]] of Object.entries(runtimeActions)) {

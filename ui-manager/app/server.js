@@ -3,6 +3,7 @@ const path = require("path");
 const http = require("http");
 const crypto = require("crypto");
 const os = require("os");
+const net = require("net");
 const { exec, execFile } = require("child_process");
 const { AuthStore } = require("./lib/auth");
 const { IntegrationSettings } = require("./lib/integration-settings");
@@ -458,6 +459,11 @@ function sanitizeSectionName(host) {
   return host.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "pool";
 }
 
+function resolvePoolSectionName(value, poolsParsed) {
+  const raw = String(value || "").trim();
+  return raw && poolsParsed.sections[raw] ? raw : sanitizeSectionName(raw);
+}
+
 function readPoolPresets() {
   if (!fs.existsSync(PRESETS_PATH)) {
     fs.writeFileSync(PRESETS_PATH, JSON.stringify(DEFAULT_POOL_PRESETS, null, 2), "utf8");
@@ -829,6 +835,35 @@ function execAction(actionKey) {
       resolve({ ok: true, message: "Action completed", output: `${stdout}\n${stderr}`.trim() });
     });
   });
+}
+
+function connectToPhpPort(port, timeoutMs = 1500) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ host: process.env.PHP_FPM_HOST || "hosting-php-fpm", port });
+    const finish = (ok) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolve(ok);
+    };
+    socket.setTimeout(timeoutMs, () => finish(false));
+    socket.once("connect", () => finish(true));
+    socket.once("error", () => finish(false));
+  });
+}
+
+async function verifyPhpPoolPorts() {
+  const parsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  const ports = [...new Set(parsed.sectionOrder
+    .map((name) => Number(parsed.sections[name]?.listen))
+    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535))];
+  const checks = await Promise.all(ports.map(async (port) => ({ port, ok: await connectToPhpPort(port) })));
+  const unavailable = checks.filter((check) => !check.ok).map((check) => check.port);
+  if (unavailable.length) {
+    const error = new Error(`PHP-FPM reload completed, but pool ports did not accept connections: ${unavailable.join(", ")}`);
+    error.statusCode = 502;
+    throw error;
+  }
+  return ports;
 }
 
 function execCommand(command, timeout = 30_000) {
@@ -3041,17 +3076,16 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && req.url === "/api/pools/upsert") {
     const body = JSON.parse((await readBody(req)) || "{}");
-    const name = sanitizeSectionName(String(body.name || "").trim());
+    const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
+    const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
+    const mapParsed = parseSitesMap(mapBefore);
+    const poolsParsed = parsePools(poolsBefore);
+    const name = resolvePoolSectionName(body.name, poolsParsed);
     const port = Number(body.port);
     if (!name || !Number.isInteger(port)) {
       sendJson(res, 400, { ok: false, message: "name and integer port are required" });
       return true;
     }
-
-    const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
-    const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
-    const mapParsed = parseSitesMap(mapBefore);
-    const poolsParsed = parsePools(poolsBefore);
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
 
@@ -3111,7 +3145,7 @@ async function handleApi(req, res) {
     const plannedNames = new Set();
     const plannedPorts = new Set();
     for (const raw of items) {
-      const name = sanitizeSectionName(String(raw.name || "").trim());
+      const name = resolvePoolSectionName(raw.name, poolsParsed);
       const port = Number(raw.port);
       if (!name || !Number.isInteger(port)) {
         sendJson(res, 400, { ok: false, message: "Each pool row requires valid name and integer port" });
@@ -3130,7 +3164,7 @@ async function handleApi(req, res) {
     }
 
     for (const raw of items) {
-      const name = sanitizeSectionName(String(raw.name || "").trim());
+      const name = resolvePoolSectionName(raw.name, poolsParsed);
       const port = Number(raw.port);
       const incomingPool = raw.settings || {};
       const requestedTierInput = String(raw.tier || incomingPool.tier || "").trim().toLowerCase();
@@ -3461,6 +3495,11 @@ async function handleApi(req, res) {
       return true;
     }
     const result = await execAction(action);
+    if (action === "reload_php" && result.ok) {
+      const ports = await verifyPhpPoolPorts();
+      result.verifiedPorts = ports;
+      result.message = `PHP-FPM reloaded and ${ports.length} pool ports verified`;
+    }
     sendJson(res, result.ok ? 200 : 400, result);
     return true;
   }
