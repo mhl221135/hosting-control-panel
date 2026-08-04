@@ -3335,6 +3335,43 @@ $("#previewPoolPresets").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 
+$("#applyPoolPresets").addEventListener("click", async (event) => {
+  try {
+    const result = await withButton(event.currentTarget, "Checking...", () => api("/api/pool-presets/apply/preview", {
+      method: "POST",
+      body: JSON.stringify({ tiers: poolPresetDraft() }),
+    }));
+    const box = $("#poolPresetApply");
+    box.classList.remove("hidden");
+    if (!result.affected.length) {
+      box.innerHTML = "<strong>No existing matching pools would change.</strong><small>Custom/drifted pools are preserved. Save profiles to affect future pools only.</small>";
+      return;
+    }
+    box.innerHTML = `<strong>Select pools to apply the reviewed profiles to</strong><div class="pool-apply-selection">${result.affected.map((pool) => `<label class="check"><input type="checkbox" data-apply-pool="${escapeHtml(pool.name)}" checked /><span><code>${escapeHtml(pool.name)}</code> · ${escapeHtml(pool.tier)} · ${pool.changes.length} change${pool.changes.length === 1 ? "" : "s"}</span></label>`).join("")}</div><label>Type <strong>APPLY</strong> to confirm<input id="poolPresetApplyConfirm" autocomplete="off" placeholder="APPLY" /></label><div class="button-row"><button id="confirmPoolPresetApply" type="button" disabled>Apply reviewed profiles</button></div><small>Backups of pool-presets.json, pools.conf, and sites.map are created. Configuration is validated with php-fpm -t, PHP-FPM is reloaded through the controlled action, and every pool port is verified. Any failure restores the previous configuration automatically.</small>`;
+    const confirmInput = $("#poolPresetApplyConfirm");
+    const applyButton = $("#confirmPoolPresetApply");
+    confirmInput.addEventListener("input", () => {
+      applyButton.disabled = confirmInput.value.trim() !== "APPLY";
+    });
+    applyButton.addEventListener("click", async (applyEvent) => {
+      const selectedPools = $$("[data-apply-pool]:checked").map((input) => input.dataset.applyPool);
+      if (!selectedPools.length) {
+        notice("Select at least one affected pool to apply", "warning");
+        return;
+      }
+      try {
+        const applied = await withButton(applyButton, "Applying...", () => api("/api/pool-presets/apply", {
+          method: "POST",
+          body: JSON.stringify({ tiers: poolPresetDraft(), selected_pools: selectedPools, confirm: "APPLY" }),
+        }));
+        notice(applied.message || "PHP-FPM profiles applied.");
+        box.classList.add("hidden");
+        await loadData();
+      } catch (error) { notice(error.message, "warning"); }
+    });
+  } catch (error) { notice(error.message, "warning"); }
+});
+
 $("#saveHosts").addEventListener("click", async (event) => {
   const hosts = $$("#hostsTable tr").map((row) => ({
     host: row.querySelector('[data-host-field="host"]').value,
