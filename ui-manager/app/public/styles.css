@@ -349,7 +349,9 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .section-actions .search { order: -1; width: 100%; flex-basis: 100%; }
   .section-actions .muted { flex: 1 1 100%; }
   button, input, select, textarea { min-height: 44px; }
-  .metrics, .form-grid, .site-row, .source-mode, .import-source, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid, .maintenance-schedule, .maintenance-operations, .job-filters, .job-row { grid-template-columns: 1fr; }
+  .metrics, .form-grid, .site-row, .source-mode, .import-source, .provision-dns-options, .package-selection, .package-upload, .preset-draft-row, .stats-detail-grid, .maintenance-schedule, .maintenance-operations, .job-filters, .job-row, .preset-editor { grid-template-columns: 1fr; }
+  .button-row { flex-wrap: wrap; }
+  .button-row button { min-width: 0; }
   .option-group.import-source { grid-template-columns: 1fr; }
   .metrics { gap: 8px; margin-bottom: 20px; }
   .metrics article { padding: 12px 13px; }

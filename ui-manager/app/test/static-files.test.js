@@ -145,3 +145,20 @@ test("runtime exposes a bounded runtime-configuration audit history", () => {
   assert.match(server, /runtimeConfigAudit\.recent\(limit\)/);
   assert.match(server, /commitRuntimeConfig\(/);
 });
+
+test("runtime responsive contract: no hidden mobile overflow for preset editor and capacity", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../public/styles.css"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  assert.match(css, /\.preset-editor \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  // mobile: preset editor collapses to a single column and button rows wrap
+  assert.match(css, /@media \(max-width: 640px\) \{/);
+  assert.match(css, /\.button-row \{ flex-wrap: wrap; \}/);
+  assert.match(css, /\.button-row button \{ min-width: 0; \}/);
+  // capacity grid collapses on small screens
+  assert.match(css, /@media \(max-width: 520px\)/);
+  assert.match(css, /\.pool-capacity \.capacity-grid \{ grid-template-columns: 1fr; \}/);
+  // audit rows wrap long content
+  assert.match(css, /\.php-fpm-audit-row p \{ margin: 0; color: var\(--muted\); overflow-wrap: anywhere; \}/);
+  assert.match(html, /id="poolPresetsEditor"/);
+  assert.match(html, /id="poolCapacity"/);
+});
