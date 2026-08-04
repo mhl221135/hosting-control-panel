@@ -387,14 +387,27 @@ is returned as a partial job warning after local creation rather than rollback.
 | Method/path | Purpose |
 |---|---|
 | `GET /api/logs` | recent PHP-FPM container logs |
-| `GET /api/pool-presets` | reusable Low, Medium, and High PHP-FPM defaults |
+| `GET /api/pool-presets` | reusable Low, Medium, and High PHP-FPM defaults, including each profile's validated `estimated_memory_mb` planning value |
 | `PUT /api/pool-presets` | validate and atomically save PHP-FPM defaults without changing existing pools |
 | `POST /api/pool-presets/preview` | validate proposed defaults and list matching existing pools that would change without writing configuration |
 | `POST /api/pool-presets/apply/preview` | validate proposed defaults and list affected pools plus preserved custom/drifted pools without writing configuration |
 | `POST /api/pool-presets/apply` | require `APPLY` and `selected_pools`; back up presets/pools/sites.map, validate with `php-fpm -t`, reload through the controlled action, verify every pool port, and roll back automatically on failure |
 | `GET /api/pool-presets/audit` | read-only bounded recent PHP-FPM profile save/preview/apply audit events (optional `limit`, capped at 250) |
+| `GET /api/status` | readiness plus `capacity.guardrails`: a bounded CPU/memory capacity summary (worker slots, slots per CPU, estimated worker memory, PHP ceiling, host RAM, healthy/warning/critical status, custom-pool fallback count) |
 | `POST /api/validate` | nginx and PHP-FPM configuration tests |
 | `POST /api/actions/:action` | allowlisted reload/OPcache actions; PHP-FPM reload verifies every configured pool port |
+
+`estimated_memory_mb` is validated server-side as an integer from 32 to 4096 MB;
+NaN, fractional, negative, oversized, unknown, and malformed values are
+rejected. Existing `pool-presets.json` files without the field read with the
+documented per-tier default (low 96 MB, medium 128 MB, high 192 MB). The value
+is planning metadata only and is never rendered into PHP-FPM pool
+configuration; changing only it never makes pools drift, triggers a reload, or
+appears in the apply preview. The capacity summary statuses are stable:
+memory compares estimated and ceiling totals against host RAM (warning at
+>50% estimated or >75% ceiling, critical at >75% estimated or >90% ceiling),
+and CPU compares worker slots per CPU (warning at >4, critical at >8). Missing
+or zero host CPU/RAM is reported safely as `unknown`.
 
 Successful profile saves and successful pool applications are recorded as
 mutating audit events. Failed applies after execution begins are recorded with

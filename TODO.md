@@ -667,12 +667,21 @@ custom/drifted pools as preserved. Preview validation performs no writes.
 Manual PHP-FPM reloads now connect to every configured pool port before the
 panel reports success.
 
-- Add CPU-aware capacity thresholds and per-profile worker-memory estimates;
-  the current warning intentionally uses the configured PHP memory ceiling.
 - Extend port verification to every configuration mutation that can allocate a
   new listen port, with rollback if verification fails.
 - Extend API validation, responsive UI coverage, tests, and operations/UI
   documentation to every remaining configuration mutation.
+
+The Runtime workspace now offers CPU-aware capacity planning and per-profile
+worker-memory estimates. Each profile stores a validated estimated memory per
+worker (`estimated_memory_mb`, 32-4096 MB, defaults 96/128/192 MB) that is
+planning metadata only and is never rendered into PHP-FPM pool configuration.
+A testable capacity model in `lib/php-fpm-capacity.js` computes total worker
+slots, slots per CPU, estimated worker memory (profile estimate ×
+`pm.max_children`, with a conservative 256 MB fallback for custom/drifted
+pools), the separate absolute PHP memory-limit ceiling, host RAM, and healthy/
+warning/critical statuses. Changing only a memory estimate never makes pools
+drift, triggers a reload, or appears in the apply preview.
 
 The Runtime workspace now records bounded, atomic, sanitized audit history for
 profile saves, previews, and applies (including failed applies after execution
