@@ -35,7 +35,7 @@ const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
 const { DirectoryLock, RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
 const {
-  guardBody, boundedSlug, validHostname, optionalHostname, documentRoot,
+  guardBody, guardSettingsBody, boundedSlug, validHostname, optionalHostname, documentRoot,
   validPort, rejectUnknownKeys, boundedInteger, poolSettings,
 } = require("./lib/runtime-validation");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
@@ -2192,7 +2192,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/backups/offsite") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "endpoint", "bucket", "prefix", "region", "access_key_id", "secret_access_key", "repository_password", "schedule_time", "retention", "upload_limit_kib", "download_limit_kib", "verify_percent", "restore_test_enabled", "restore_test_day", "restore_test_time", "restore_test_max_gib"]), stringKeys: ["endpoint", "bucket", "prefix", "region", "schedule_time", "restore_test_time"], label: "off-site backup settings" });
     const settings = offsiteBackupManager.settings.update({
       enabled: body.enabled,
       endpoint: body.endpoint,
@@ -2238,7 +2238,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/backups/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["schedule_time", "retention", "site_backups_enabled", "app_data_enabled"]), stringKeys: ["schedule_time"], label: "backup settings" });
     const settings = backupManager.updateSettings({
       scheduleTime: body.schedule_time,
       retention: body.retention,
@@ -2332,7 +2332,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/settings/integrations") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["npmApiUrl", "npmIdentity", "npmSecret", "acmeEmail", "cloudflareToken", "cloudflareSecurityToken", "cloudflareAccountId", "ipinfoToken", "mysqlContainer", "mysqlSitePrefix", "clearNpmSecret", "clearCloudflareToken", "clearCloudflareSecurityToken", "clearIpinfoToken"]), stringKeys: ["npmApiUrl", "npmIdentity", "acmeEmail", "cloudflareAccountId", "mysqlContainer", "mysqlSitePrefix"], label: "integration settings" });
     const updated = integrationSettings.update(body);
     npm.cachedToken = null;
     sendJson(res, 200, { ok: true, settings: updated });
@@ -2363,7 +2363,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/billing/provisioning-settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "free_months", "renewal_months", "hosting_price", "domain_renewal_months", "currency", "grace_days", "timezone"]), stringKeys: ["currency", "timezone"], label: "billing provisioning settings" });
     sendJson(res, 200, {
       ok: true,
       configured: billingProvisioningClient.configured(),
@@ -2382,7 +2382,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/billing/observer/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "intervalMinutes", "maxSnapshotAgeSeconds"]), label: "billing observer settings" });
     if (body.enabled !== true && billingEnforcementManager.readSettings().enabled) {
       throw Object.assign(new Error("Disable billing enforcement before disabling scheduled observation"), {
         statusCode: 400,
@@ -2409,7 +2409,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/billing/enforcement/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "pilotDomains"]), label: "billing enforcement settings" });
     sendJson(res, 200, {
       ok: true,
       enforcement: await billingEnforcementManager.updateSettings({
@@ -2445,7 +2445,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/settings/notifications") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["installationName", "serverName", "panelUrl", "telegramEnabled", "telegramBotToken", "telegramChatIds", "telegramCommandsEnabled", "telegramCommandUserIds", "telegramMutationsEnabled", "smtpEnabled", "smtpHost", "smtpPort", "smtpSecure", "smtpUsername", "smtpPassword", "smtpFrom", "smtpRecipients", "severityFailure", "severityWarning", "severitySuccess", "telegramUseGlobalSeverity", "telegramSeverityFailure", "telegramSeverityWarning", "telegramSeveritySuccess", "smtpUseGlobalSeverity", "smtpSeverityFailure", "smtpSeverityWarning", "smtpSeveritySuccess", "clearTelegramBotToken", "clearSmtpPassword"]), stringKeys: ["installationName", "serverName", "panelUrl", "smtpHost", "smtpUsername", "smtpFrom"], label: "notification settings" });
     sendJson(res, 200, { ok: true, settings: notificationSettings.update(body) });
     return true;
   }
@@ -2467,7 +2467,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/health/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "intervalMinutes", "diskWarningPercent", "diskCriticalPercent", "certificateWarningDays", "certificateCriticalDays", "opcacheWarningPercent", "publicCheckTimeoutSeconds", "publicHosts", "requiredContainers"]), label: "health settings" });
     healthSettings.save(body);
     sendJson(res, 200, { ok: true, health: healthMonitor.publicState() });
     return true;
@@ -2484,7 +2484,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/settings/performance") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["php", "opcache", "fastcgi", "redis", "mysql"]), label: "performance settings" });
     const previousSettings = performanceSettings.read();
     const snapshot = performanceSettings.snapshot();
     try {
@@ -2600,7 +2600,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/cloudflare/automation") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["provisioning_defaults_enabled", "provisioning_presets", "protected_addresses"]), label: "cloudflare automation settings" });
     const settings = cloudflareAutomation.updateSettings({
       provisioningDefaultsEnabled: body.provisioning_defaults_enabled,
       provisioningPresets: body.provisioning_presets,
@@ -2774,7 +2774,8 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/dns-presets") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardBody(await readJsonBody(req));
+    rejectUnknownKeys(body, new Set(["id", "label", "records", "type", "nameTemplate", "contentTemplate", "ttl", "priority", "proxied"]), "DNS preset");
     sendJson(res, body.id ? 200 : 201, { ok: true, preset: dnsPresets.save(body) });
     return true;
   }
@@ -2823,7 +2824,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/cloudflare/ip-addresses") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["addresses"]), label: "server IP addresses" });
     sendJson(res, 200, { ok: true, addresses: ipAddresses.save(body.addresses) });
     return true;
   }

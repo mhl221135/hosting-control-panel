@@ -1,6 +1,7 @@
 const fs = require("fs");
 const net = require("net");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 function validateIpv4(value) {
   const ip = String(value || "").trim();
@@ -39,7 +40,7 @@ class IpAddressStore {
       error.statusCode = 400;
       throw error;
     }
-    fs.writeFileSync(this.filePath, JSON.stringify(addresses, null, 2), { encoding: "utf8", mode: 0o600 });
+    atomicWriteJson(this.filePath, addresses, 0o600);
     return addresses;
   }
 }
