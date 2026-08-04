@@ -391,6 +391,7 @@ normal work; use Runtime for diagnosis and manual correction.
 | **Clear OPcache** | Resets shared PHP OPcache so scripts are recompiled. |
 | **Save profiles** | Validates and saves the reusable Low, Medium, and High PHP-FPM worker, idle, request-timeout, and recycling defaults. Existing pools are not changed. |
 | **Preview impact** | Validates the edited profiles and lists currently matching pools that would change. It performs no writes and excludes custom/drifted pools. |
+| **Apply to existing pools** | Opens a preview of every affected pool and each changed value. Select individual pools (custom/drifted pools are never included unless explicitly selected), type `APPLY` to confirm, then apply. Backs up pool-presets.json, pools.conf, and sites.map, validates with `php-fpm -t`, reloads PHP-FPM through the controlled action, verifies every pool port, and restores the backup automatically if validation or reload fails. |
 | **Worker capacity** | Shows active pool worker slots and their worst-case configured PHP memory ceiling against host RAM. Ondemand pools do not reserve this memory. |
 | **Custom / drifted** | Marks pools that no longer match a preset. Saving other pool rows preserves their current settings; selecting a named profile replaces them. |
 | **Save pools** | Validates and writes the complete PHP-FPM pool model. |

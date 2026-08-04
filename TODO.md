@@ -669,15 +669,11 @@ panel reports success.
 
 - Add CPU-aware capacity thresholds and per-profile worker-memory estimates;
   the current warning intentionally uses the configured PHP memory ceiling.
-- Provide preview, validation, and explicit apply actions. Applying a preset
-  must list affected pools, back up the current presets and generated PHP-FPM
-  configuration, run `php-fpm -t`, and roll back automatically on failure.
-- Let the operator choose whether saving a preset affects only future pools or
-  also updates existing pools currently assigned to that profile.
 - Extend port verification to every configuration mutation that can allocate a
   new listen port, with rollback if verification fails.
-- Add API validation, audit history, responsive UI coverage, tests, and updated
-  operations/UI documentation.
+- Add audit history for preset apply operations.
+- Extend API validation, responsive UI coverage, tests, and operations/UI
+  documentation to every remaining configuration mutation.
 
 ## Cross-Cutting Delivery Rules
 

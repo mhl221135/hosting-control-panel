@@ -427,5 +427,11 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .pool-preset-preview { margin-bottom: 14px; border-left: 3px solid var(--accent); padding: 8px 12px; background: #f4f8f8; font-size: 12px; }
 .pool-preset-preview p { margin: 5px 0; }
 .pool-preset-preview small { display: block; margin-top: 6px; color: var(--muted); }
+.pool-preset-apply { margin-bottom: 14px; border-left: 3px solid var(--warning); padding: 10px 12px; background: #fff8e8; font-size: 12px; }
+.pool-preset-apply strong { display: block; margin-bottom: 6px; }
+.pool-preset-apply .pool-apply-selection { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px; margin: 8px 0; }
+.pool-preset-apply label { display: block; margin: 6px 0; }
+.pool-preset-apply small { display: block; margin-top: 8px; color: var(--muted); }
+.pool-preset-apply .button-row { margin-top: 8px; }
 @media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }

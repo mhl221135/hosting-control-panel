@@ -724,9 +724,10 @@
           </div>
 
           <article class="panel">
-            <div class="card-head"><div><h3>PHP-FPM profiles</h3><p class="muted">Edit reusable pool defaults. Existing pools are unchanged until you select and save their profile below.</p></div><div class="button-row"><button id="previewPoolPresets" class="secondary">Preview impact</button><button id="savePoolPresets">Save profiles</button></div></div>
+            <div class="card-head"><div><h3>PHP-FPM profiles</h3><p class="muted">Edit reusable pool defaults. Saving affects future pools only. Use Apply to existing pools to update currently matching pools.</p></div><div class="button-row"><button id="previewPoolPresets" class="secondary">Preview impact</button><button id="applyPoolPresets" class="secondary">Apply to existing pools</button><button id="savePoolPresets">Save profiles</button></div></div>
             <div id="poolCapacity" class="pool-capacity"></div>
             <div id="poolPresetPreview" class="pool-preset-preview hidden"></div>
+<div id="poolPresetApply" class="pool-preset-apply hidden"></div>
             <div id="poolPresetsEditor" class="preset-editor"></div>
           </article>
 

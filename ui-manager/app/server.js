@@ -32,6 +32,7 @@ const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
+const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
@@ -3041,6 +3042,51 @@ async function handleApi(req, res) {
     const body = JSON.parse((await readBody(req)) || "{}");
     const affected = previewPoolPresetChanges(body.tiers || {});
     sendJson(res, 200, { ok: true, affected, customPoolsPreserved: true });
+    return true;
+  }
+
+  if (req.method === "POST" && req.url === "/api/pool-presets/apply/preview") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    const current = readPoolPresets();
+    const proposed = validatePoolPresets(body.tiers || {}, current);
+    const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
+    const { affected, customPools } = previewPoolPresetApply(proposed, poolsContent, current);
+    sendJson(res, 200, { ok: true, affected, customPools, customPoolsPreserved: true });
+    return true;
+  }
+
+  if (req.method === "POST" && req.url === "/api/pool-presets/apply") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (body.confirm !== "APPLY") {
+      sendJson(res, 400, { ok: false, message: "Type APPLY to confirm applying the reviewed PHP-FPM profiles" });
+      return true;
+    }
+    const current = readPoolPresets();
+    const proposed = validatePoolPresets(body.tiers || {}, current);
+    const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
+    const plan = buildPoolPresetApplyPlan(proposed, poolsContent, current, body.selected_pools || []);
+    if (!plan.selected.length) {
+      sendJson(res, 400, { ok: false, message: "Select at least one affected pool to apply" });
+      return true;
+    }
+    const result = await applyPoolPresetPlan({ ...plan, payload: proposed }, {
+      poolsPath: POOLS_PATH,
+      presetsPath: PRESETS_PATH,
+      sitesMapPath: SITES_MAP_PATH,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      writeFile: (filePath, content) => fs.writeFileSync(filePath, content, "utf8"),
+      renameFile: (from, to) => fs.renameSync(from, to),
+      backupFile: (filePath, content) => backupFile(filePath, content),
+      validateConfig: async () => {
+        await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
+      },
+      reloadPhp: async () => {
+        const result = await execAction("reload_php");
+        if (!result.ok) throw new Error(result.message);
+      },
+      verifyPorts: async () => verifyPhpPoolPorts(),
+    });
+    sendJson(res, 200, { ok: true, ...result, message: `Applied PHP-FPM profiles to ${result.applied.length} pool(s)` });
     return true;
   }
 
