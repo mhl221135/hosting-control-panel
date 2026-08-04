@@ -594,6 +594,7 @@ function detectTier(pool, presets = readPoolPresets()) {
     "pm.min_spare_servers",
     "pm.max_spare_servers",
     "pm.process_idle_timeout",
+    "request_terminate_timeout",
     "pm.max_requests",
   ];
   for (const [tierName, tier] of Object.entries(presets)) {
