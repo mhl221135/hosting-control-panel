@@ -176,3 +176,22 @@ test("runtime responsive contract: no hidden mobile overflow for preset editor a
   assert.match(html, /id="poolPresetsEditor"/);
   assert.match(html, /id="poolCapacity"/);
 });
+
+test("settings responsive contract: no mobile overflow and secret inputs masked", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../public/styles.css"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  assert.match(css, /@media \(max-width: 640px\) \{/);
+  assert.match(css, /\.form-grid[\s\S]*\{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /button, input, select, textarea \{ min-height: 44px; \}/);
+  // settings forms use responsive containers
+  assert.match(html, /id="integrationSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="notificationSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="performanceSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="backupSettingsForm" class="panel form-stack"/);
+  assert.match(html, /id="offsiteSettingsForm" class="panel form-stack"/);
+  // secrets are password inputs and never returned in public views
+  assert.match(html, /name="npmSecret" type="password"/);
+  assert.match(html, /name="cloudflareToken" type="password"/);
+  assert.match(html, /name="telegramBotToken" type="password"/);
+  assert.match(html, /name="smtpPassword" type="password"/);
+});
