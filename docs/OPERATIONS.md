@@ -366,6 +366,37 @@ malformed, or excessive pool data are reported as `unknown` instead of as a
 healthy empty system. Use the summary to bound worker counts and host RAM, then
 reload clearly and verify traffic.
 
+## Runtime Mutation Transactions And Port Verification
+
+Every operation that creates or changes a PHP-FPM pool runs through the shared
+`RuntimeConfigTransaction` in `lib/runtime-transaction.js`. It serializes
+concurrent map/pool writes (so requests and background jobs cannot overwrite
+each other), snapshots both files before mutating, and rejects stale previewed
+work with a `409`. Proposed models are validated before any reload: ports must
+be integers in 1-65535 with no duplicates; every PHP-enabled route must point at
+an existing pool whose upstream agrees with its port; and pool sections must be
+consistent (no duplicate/missing sections). Invalid or unreadable state fails
+closed rather than being silently skipped.
+
+The activation sequence is: write both files atomically (temp file + rename,
+with timestamped backups) -> `nginx -t` and `php-fpm -t` -> reload PHP-FPM and
+nginx -> verify every configured PHP-FPM port with bounded retries/backoff
+(because a PHP-FPM reload is asynchronous). Success is reported only after every
+required port, including newly allocated ports, accepts a TCP connection. On a
+failure the prior files are restored atomically, re-validated, reloaded, and
+re-verified; the original error is preserved and the rollback outcome
+(`not-required`, `succeeded`, or `failed`) is reported distinctly. `rolled back`
+is never reported unless restore validation, reload, and port verification all
+succeeded.
+
+Pool creation and reclassification use a gap-aware allocator that fills gaps
+instead of `max(existing)+1`, ignores malformed existing ports, refuses
+exhausted or invalid ranges, and reserves ports under the transaction lock so
+concurrent allocations cannot collide. Preset apply retains its own port
+verification and is serialized under the same lock. This boundary does not own
+website files, databases, DNS, or NPM cleanup; those remain owned by the
+operations that already perform them.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

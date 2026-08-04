@@ -48,6 +48,7 @@ into dedicated directories.
 - Runtime logs and service actions
 - Bounded atomic PHP-FPM profile audit history (save, preview, apply, and rollback outcome) with a read-only Runtime viewer
 - CPU-aware PHP-FPM capacity planning with per-profile worker-memory estimates, slots-per-CPU and estimated/RAM-ceiling summaries, and healthy/warning/critical guardrails
+- Serialized, rollback-safe PHP-FPM/nginx runtime transactions with gap-aware port allocation, validation, and verified port activation for every pool mutation
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest

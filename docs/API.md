@@ -422,6 +422,42 @@ audit store is bounded (250 events by default), written atomically, and
 tolerates missing, empty, or corrupted state. `GET /api/pool-presets/audit`
 requires only a valid session (no CSRF token for a read-only GET).
 
+### Runtime mutation transaction and port verification
+
+Every operation that creates or changes a PHP-FPM pool/listen port runs through
+the shared `RuntimeConfigTransaction` (`lib/runtime-transaction.js`), which
+serializes map/pool writes, captures `sites.map`/`pools.conf` before mutating,
+rejects stale previewed state and invalid models, writes both files atomically
+with timestamped backups, validates nginx + PHP-FPM, reloads PHP-FPM and nginx,
+verifies every configured pool port with bounded retries, and rolls back to the
+prior validated/reloaded/verified files on failure. Commit responses are sent
+only after every required port accepts a TCP connection. Failures preserve the
+original error and attach a bounded, distinct rollback outcome
+(`not-required`, `succeeded`, or `failed`); `rolled back` is never reported
+unless restored files were validated, reloaded, and verified.
+
+Mutation matrix for operations that can allocate or change a listen port:
+
+| Operation | Creates/changes port | Verified transaction |
+|---|---|---|
+| `POST /api/pools/upsert` | yes | yes |
+| `POST /api/pools/bulk-upsert` | yes | yes |
+| `POST /api/hosts/upsert` / `POST /api/sites/upsert` (creates a pool) | yes | yes |
+| Fresh WordPress/Generic-PHP/OpenCart provisioning | yes (gap-aware) | yes |
+| MigrationManager portable & provisioning import | yes (gap-aware) | yes |
+| Static-route reclassification/recovery | yes (gap-aware) | yes |
+| OPcache change (`POST /api/site-state`) | no | yes (serialized) |
+| Site removal (`POST /api/site-removal`) | no (may delete pool) | yes (serialized) |
+| `POST /api/pools/:name` DELETE (unused pool) | no (delete only) | yes (serialized) |
+| `POST /api/pool-presets/apply` | changes pools | preset's own verification, serialized under the same lock |
+
+Invalid requests are rejected before reload: ports outside 1-65535, duplicate
+listen ports, malformed/non-integer ports, a site upstream that disagrees with
+its pool port, PHP-enabled routes referencing a missing pool, and duplicate or
+inconsistent pool sections. Port allocation uses a gap-aware allocator that
+ignores malformed existing ports, fills gaps rather than `max+1`, and refuses
+to run when the range is exhausted or invalid.
+
 ## Adding Or Changing Routes
 
 1. Validate and normalize input at the boundary.
