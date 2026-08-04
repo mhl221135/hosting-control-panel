@@ -489,6 +489,38 @@ inconsistent pool sections. Port allocation uses a gap-aware allocator that
 ignores malformed existing ports, fills gaps rather than `max+1`, and refuses
 to run when the range is exhausted or invalid.
 
+### Non-runtime settings mutation inventory
+
+Every settings `PUT`/`POST` JSON mutation is parsed through a guarded body
+reader (`readJsonBody`) plus `guardSettingsBody` (`lib/runtime-validation.js`),
+which requires a plain object, rejects prototype-pollution keys
+(`__proto__`/`constructor`/`prototype`), rejects excessive depth, size, and
+array counts, rejects unknown fields, and rejects CR/LF/NUL and other C0
+control characters in configured string fields. Numeric bounds, enums, URLs,
+hostnames, ports, and schedules are validated by each owning module. Secret
+fields are stored only inside the encrypted settings mechanism and are never
+returned, logged, audited, or persisted in plaintext; omitted or masked secret
+fields preserve the current secret, and empty input never erases credentials
+unless an explicit clear flag is sent. Persistence is atomic (temp-file +
+rename, mode 0600) and fail-closed; the performance endpoint additionally
+restores the previous generated PHP/nginx/Redis/MySQL state on any validation,
+reload, or application failure.
+
+| Endpoint | Accepted fields | Secret fields | Validation module | Persistent file | Atomic / rollback |
+|---|---|---|---|---|---|
+| `PUT /api/settings/performance` | `php`, `opcache`, `fastcgi`, `redis`, `mysql` (nested numeric/enums) | none | `lib/performance-settings.js` | `performance-settings.json` | atomic + snapshot/restore rollback of generated files |
+| `PUT /api/backups/settings` | `schedule_time`, `retention`, `site_backups_enabled`, `app_data_enabled` | none | `lib/backup-manager.js` | `backup-settings.json` | atomic |
+| `PUT /api/backups/offsite` | `enabled`, `endpoint`, `bucket`, `prefix`, `region`, `access_key_id`, `secret_access_key`, `repository_password`, `schedule_time`, `retention`, `upload_limit_kib`, `download_limit_kib`, `verify_percent`, `restore_test_enabled`, `restore_test_day`, `restore_test_time`, `restore_test_max_gib` | `access_key_id`, `secret_access_key`, `repository_password` (encrypted) | `lib/offsite-backup-manager.js` | `offsite-backup-settings.json` | atomic |
+| `PUT /api/settings/notifications` | installation, telegram, SMTP, severity, and per-channel override fields | `telegramBotToken`, `smtpPassword` (encrypted) | `lib/notification-settings.js` | `notification-settings.json` | atomic |
+| `PUT /api/settings/integrations` | `npmApiUrl`, `npmIdentity`, `acmeEmail`, `mysqlContainer`, `mysqlSitePrefix`, plus secret/clear fields | `npmSecret`, `cloudflareToken`, `cloudflareSecurityToken`, `ipinfoToken` (encrypted) | `lib/integration-settings.js` | `integration-settings.json` | atomic |
+| `PUT /api/billing/provisioning-settings` | `enabled`, `free_months`, `renewal_months`, `hosting_price`, `domain_renewal_months`, `currency`, `grace_days`, `timezone` | none | `lib/billing-provisioning.js` | `billing-provisioning-settings.json` | atomic |
+| `PUT /api/billing/observer/settings` | `enabled`, `intervalMinutes`, `maxSnapshotAgeSeconds` | none | `lib/billing-entitlement-observer.js` | `billing-observer-settings.json` | atomic |
+| `PUT /api/billing/enforcement/settings` | `enabled`, `pilotDomains` | none | `lib/billing-enforcement.js` | `billing-enforcement-settings.json` | atomic |
+| `PUT /api/health/settings` | `enabled`, `intervalMinutes`, `diskWarningPercent`, `diskCriticalPercent`, `certificateWarningDays`, `certificateCriticalDays`, `opcacheWarningPercent`, `publicCheckTimeoutSeconds`, `publicHosts`, `requiredContainers` | none | `lib/health-settings.js` | `health-settings.json` | atomic |
+| `PUT /api/cloudflare/automation` | `provisioning_defaults_enabled`, `provisioning_presets`, `protected_addresses` | none | `lib/cloudflare-automation-manager.js` | `cloudflare-automation-settings.json` | atomic |
+| `PUT /api/cloudflare/ip-addresses` | `addresses[]` (valid IPv4s, ≤50) | none | `lib/ip-addresses.js` | `cloudflare-ip-addresses.json` | atomic |
+| `POST /api/dns-presets` | `id`, `label`, `records`/DNS fields | none | `lib/dns-presets.js` | `dns-presets.json` | atomic |
+
 ## Adding Or Changing Routes
 
 1. Validate and normalize input at the boundary.

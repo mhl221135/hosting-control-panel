@@ -431,6 +431,14 @@ current configuration before large edits.
 
 ## Settings
 
+Settings forms render as responsive grids that collapse to a single column on
+small screens so labels, inputs, and buttons stay within the viewport without
+overlapping. Secret fields (passwords and API tokens) are masked and are never
+shown again after saving; leaving a secret field blank or omitting it preserves
+the current value, and only a dedicated clear action removes it. Validation is
+enforced server-side and any rejected value is reported as a bounded error
+without echoing the submitted secret.
+
 ### Integration settings
 
 | Control | Function |
