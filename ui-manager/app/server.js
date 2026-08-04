@@ -1510,7 +1510,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     };
   }
 
-  await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+  await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } });
   const steps = [];
   steps.push({ name: "runtime", status: "complete" });
   jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
