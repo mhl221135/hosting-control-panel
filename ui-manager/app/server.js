@@ -33,7 +33,7 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
-const { RuntimeConfigTransaction, allocatePort, verifyPortsWithRetry } = require("./lib/runtime-transaction");
+const { RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
@@ -3224,7 +3224,10 @@ async function handleApi(req, res) {
           const result = await execAction("reload_php");
           if (!result.ok) throw new Error(result.message);
         },
-        verifyPorts: async () => verifyPhpPoolPorts(),
+        verifyPorts: async () => verifyPortsWithRetry(
+          collectPoolPorts(parsePools(fs.readFileSync(POOLS_PATH, "utf8"))),
+          { host: process.env.PHP_FPM_HOST || "hosting-php-fpm" },
+        ),
       }));
       tryRecordPhpFpmAudit(() => ({
         operation: "apply",
