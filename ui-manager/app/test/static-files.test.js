@@ -118,6 +118,20 @@ test("all php pool mutations route through the shared runtime transaction", () =
   assert.doesNotMatch(server, /function writeConfigs/);
 });
 
+test("non-runtime settings mutations use guarded body parsing and atomic writes", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const lib = fs.readFileSync(path.resolve(__dirname, "../lib/safe-write.js"), "utf8");
+  assert.match(server, /guardSettingsBody\(await readJsonBody\(req\)/);
+  const guardedCount = (server.match(/guardSettingsBody\(await readJsonBody\(req\)/g) || []).length;
+  assert.ok(guardedCount >= 11, `expected >=11 guarded settings endpoints, got ${guardedCount}`);
+  // key setting endpoints are present
+  for (const path of ["/api/settings/performance", "/api/backups/settings", "/api/backups/offsite", "/api/settings/notifications", "/api/settings/integrations", "/api/billing/provisioning-settings", "/api/billing/observer/settings", "/api/billing/enforcement/settings", "/api/health/settings", "/api/cloudflare/automation", "/api/cloudflare/ip-addresses"]) {
+    assert.ok(server.includes(`requestUrl.pathname === "${path}"`), path);
+  }
+  assert.match(lib, /function atomicWriteJson/);
+  assert.match(lib, /renameSync\(temporary, filePath\)/);
+});
+
 test("runtime mutations use shared guarded validation", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(server, /require\("\.\/lib\/runtime-validation"\)/);
