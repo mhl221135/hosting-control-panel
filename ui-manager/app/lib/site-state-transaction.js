@@ -2,6 +2,19 @@ const { parsePools, parseSitesMap, renderPools, renderSitesMap, setPoolOpcache }
 const { validateRuntimeModel } = require("./runtime-transaction");
 const { atomicWriteFile, atomicWriteJson } = require("./safe-write");
 
+const REDACT_PATTERNS = [
+  /\bauthorization\s*:\s*[a-z0-9._-]+\s+[a-z0-9._~/+\-]{6,}/gi,
+  /\bbearer\s+[a-z0-9._~/+=-]{6,}/gi,
+  /\b(password|passwd|secret|token|api[_-]?key|access[_-]?key|session[_-]?id|cookie)\b\s*[:=]\s*["']?[^\s,;}"']+/gi,
+  /(?:https?:\/\/)[^\s/@]*(?=@)/gi,
+];
+
+function redact(value) {
+  let output = String(value ?? "");
+  for (const pattern of REDACT_PATTERNS) output = output.replace(pattern, "[redacted]");
+  return output;
+}
+
 function renderCacheMapContent(data) {
   const sites = Object.entries((data && data.sites) || {}).sort(([left], [right]) => left.localeCompare(right));
   const enabled = ["map $host $site_cache_enabled {", "  default 0;"];
@@ -99,7 +112,7 @@ async function applySiteStateTransaction({ site, opcache, buildState, deps }) {
         await verifyPorts(collectPorts(snap.pools));
       } catch (rollbackError) {
         outcome = "failed";
-        error.rollbackError = String(rollbackError?.message || rollbackError).slice(0, 300);
+        error.rollbackError = redact(String(rollbackError?.message || rollbackError)).slice(0, 300);
       }
       rollback = outcome;
       error.rollback = outcome;
