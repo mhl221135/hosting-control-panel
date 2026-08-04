@@ -39,6 +39,7 @@ const state = {
   importSources: [],
   importPreview: null,
   poolPresetApplyPreview: null,
+  phpFpmAudit: [],
 };
 
 let imageOptimizationPollTimer = null;
@@ -346,7 +347,7 @@ function switchTab(name) {
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "transfers") loadTransfers().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
-  if (name === "runtime") loadLogs();
+  if (name === "runtime") { loadLogs(); loadPhpFpmAudit().catch((error) => notice(error.message, "warning")); }
   if (name === "settings") loadIntegrationSettings();
 }
 
@@ -1528,6 +1529,50 @@ function poolPresetDraft() {
     Object.fromEntries([...group.querySelectorAll("[data-preset-field]")]
       .map((input) => [input.dataset.presetField, input.value])),
   ]));
+}
+
+function auditDetailItems(event) {
+  const items = [];
+  if (event.profiles && event.profiles.length) items.push(`Profiles: ${event.profiles.join(", ")}`);
+  if (event.selectedPools && event.selectedPools.length) items.push(`Selected pools (${event.selectedPools.length}): ${event.selectedPools.join(", ")}`);
+  if (event.affectedPools && event.affectedPools.length) items.push(`Affected pools (${event.affectedPools.length}): ${event.affectedPools.join(", ")}`);
+  if (event.changedFields && event.changedFields.length) items.push(`Changed fields: ${event.changedFields.join(", ")}`);
+  items.push(`Rollback: ${event.rollback || "not-required"}`);
+  return items;
+}
+
+function renderPhpFpmAudit() {
+  const events = state.phpFpmAudit || [];
+  const container = $("#phpFpmAuditHistory");
+  if (!events.length) {
+    container.className = "rows empty";
+    container.innerHTML = "No PHP-FPM audit events recorded.";
+    return;
+  }
+  container.className = "rows";
+  container.innerHTML = events.map((event, index) => `
+    <div class="php-fpm-audit-row">
+      <p><span class="badge ${event.status === "failed" ? "danger" : event.operation === "save" || event.operation === "apply" ? "on" : ""}">${escapeHtml(event.operation)}</span>
+        <span class="badge ${event.status === "failed" ? "danger" : "on"}">${escapeHtml(event.status)}</span>
+        <strong>${escapeHtml(event.operator || "system")}</strong>
+        <span class="muted">· ${event.at ? escapeHtml(new Date(event.at).toLocaleString()) : "Unknown"}</span>
+        ${event.operation === "apply" ? `<span class="muted">· ${escapeHtml(String(event.result || "applied"))}</span>` : ""}
+        ${event.selectedPools && event.selectedPools.length ? `<span class="muted">· ${event.selectedPools.length} selected pool${event.selectedPools.length === 1 ? "" : "s"}</span>` : ""}
+        ${event.rollback && event.rollback !== "not-required" ? `<span class="badge ${event.rollback === "failed" ? "danger" : "on"}">rollback ${escapeHtml(event.rollback)}</span>` : ""}
+      </p>
+      ${event.error ? `<p class="danger-text audit-error">${escapeHtml(event.error)}</p>` : ""}
+      <details>
+        <summary>Safe details</summary>
+        <ul>${auditDetailItems(event).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+      </details>
+    </div>
+  `).join("");
+}
+
+async function loadPhpFpmAudit() {
+  const data = await api("/api/pool-presets/audit");
+  state.phpFpmAudit = data.events || [];
+  renderPhpFpmAudit();
 }
 
 function renderHosts() {
@@ -3414,6 +3459,9 @@ for (const [id, [url, pending, complete]] of Object.entries(runtimeActions)) {
   });
 }
 $("#refreshLogs").addEventListener("click", loadLogs);
+$("#refreshPhpFpmAudit").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Refreshing...", () => loadPhpFpmAudit());
+});
 
 $("#integrationSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();

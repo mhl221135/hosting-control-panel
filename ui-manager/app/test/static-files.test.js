@@ -63,3 +63,20 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /change\.field/);
   assert.match(source, /Preset values changed after preview/);
 });
+
+test("runtime exposes a PHP-FPM audit history section", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="phpFpmAuditHistory"/);
+  assert.match(html, /id="refreshPhpFpmAudit"/);
+  assert.match(source, /api\/pool-presets\/audit/);
+  assert.match(source, /function loadPhpFpmAudit/);
+  assert.match(source, /function renderPhpFpmAudit/);
+  assert.match(source, /escapeHtml\(event\.operator/);
+  assert.match(source, /No PHP-FPM audit events recorded/);
+  assert.match(source, /rollback/);
+  assert.match(server, /phpFpmAudit\.record/);
+  assert.match(server, /operation: "apply"/);
+  assert.match(server, /throw error/);
+});
