@@ -74,6 +74,8 @@ The panel provides:
   mutation: atomic map/pool writes, nginx/PHP validation, controlled reloads,
   verified port activation with bounded retries, gap-aware port allocation, and
   distinct rollback outcomes
+- Shared guarded request validation and a bounded runtime-configuration
+  mutation audit with a read-only Runtime history view
 - CPU-aware PHP-FPM capacity planning: per-profile worker-memory estimates,
   worker slots, slots per CPU, estimated/RAM-ceiling summaries, and
   healthy/warning/critical guardrails, with a conservative fallback for
@@ -121,6 +123,7 @@ generated and persistent files include:
 - `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
 - `app-data/ui-manager/php-fpm-audit.json`: bounded atomic audit history for PHP-FPM profile save, preview, and apply operations
+- `app-data/ui-manager/runtime-config-audit.json`: bounded atomic audit history for pool, host, provisioning, import, opcache, and removal runtime mutations
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
 - `app-data/ui-manager/offsite-backup-settings.json`: encrypted off-site settings and schedule state
 - `app-data/billing`: separate billing database and administrator account

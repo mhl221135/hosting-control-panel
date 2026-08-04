@@ -65,6 +65,8 @@ Paths below are relative to `app-data/ui-manager`.
 | `wordpress-update-pins.json` | per-site core/package update exclusions and last editor metadata | no |
 | `default-pool.json` | default PHP pool choice | no |
 | `pool-presets.json` | low/medium/high worker definitions plus per-profile `estimated_memory_mb` planning value | no |
+| `php-fpm-audit.json` | bounded atomic PHP-FPM profile save/preview/apply audit | no |
+| `runtime-config-audit.json` | bounded atomic runtime mutation audit (pool/host/provision/import/opcache/removal) | no |
 | `image-optimization-status.json` | persisted bulk-job progress | no |
 | `jobs.json` | durable queue, progress, results, and bounded history | no; secret fields are rejected |
 | `provisioning-credentials.json` | encrypted, expiring one-time provisioning records | yes |
