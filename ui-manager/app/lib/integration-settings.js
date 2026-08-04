@@ -120,8 +120,15 @@ class IntegrationSettings {
         .toLowerCase(),
       updatedAt: new Date().toISOString(),
     };
-    if (!/^https?:\/\//.test(next.npmApiUrl)) {
-      const error = new Error("NPM API URL must start with http:// or https://");
+    let npmUrl;
+    try {
+      npmUrl = new URL(next.npmApiUrl);
+    } catch {
+      npmUrl = null;
+    }
+    if (!npmUrl || !["http:", "https:"].includes(npmUrl.protocol)
+        || npmUrl.username || npmUrl.password || npmUrl.hash) {
+      const error = new Error("NPM API URL must be a credential-free HTTP or HTTPS URL");
       error.statusCode = 400;
       throw error;
     }

@@ -5,6 +5,7 @@ const MAX_NAME_LENGTH = 200;
 const MAX_ROOT_LENGTH = 500;
 const MAX_BODY_ELEMENTS = 10000;
 const MAX_BODY_DEPTH = 20;
+const MAX_ARRAY_ELEMENTS = 1000;
 
 function validationError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -31,7 +32,11 @@ function hasPollutionKey(value) {
 
 // Guards against prototype-pollution and overly deep/large structures. Returns
 // the original object when safe; throws a bounded error otherwise.
-function guardBody(body, { maxKeys = MAX_BODY_ELEMENTS, maxDepth = MAX_BODY_DEPTH } = {}) {
+function guardBody(body, {
+  maxKeys = MAX_BODY_ELEMENTS,
+  maxDepth = MAX_BODY_DEPTH,
+  maxArrayLength = MAX_ARRAY_ELEMENTS,
+} = {}) {
   if (body === undefined || body === null) return {};
   if (!isPlainObject(body)) throw validationError("Request body must be a JSON object", 400);
   let count = 0;
@@ -40,9 +45,13 @@ function guardBody(body, { maxKeys = MAX_BODY_ELEMENTS, maxDepth = MAX_BODY_DEPT
     const { value, depth } = stack.pop();
     if (value === null || typeof value !== "object") continue;
     if (depth > maxDepth) throw validationError("Request structure is too deep", 400);
-    count += 1;
+    if (Array.isArray(value) && value.length > maxArrayLength) {
+      throw validationError("Request structure is too large: array has too many entries", 400);
+    }
+    const keys = Object.keys(value);
+    count += keys.length;
     if (count > maxKeys) throw validationError("Request structure is too large", 400);
-    for (const key of Object.keys(value)) {
+    for (const key of keys) {
       if (POLLUTION_KEYS.has(key)) throw validationError("Unsupported request key", 400);
       stack.push({ value: value[key], depth: depth + 1 });
     }
@@ -74,11 +83,47 @@ function rejectObjectControlChars(obj, { stringKeys = [], label = "settings" } =
   return obj;
 }
 
+function rejectDeepControlChars(value, label = "settings") {
+  const stack = [{ value, label }];
+  while (stack.length) {
+    const current = stack.pop();
+    if (typeof current.value === "string") {
+      rejectControlChars(current.value, { label: current.label });
+      continue;
+    }
+    if (!current.value || typeof current.value !== "object") continue;
+    for (const [key, child] of Object.entries(current.value)) {
+      stack.push({ value: child, label: `${current.label}.${key}` });
+    }
+  }
+  return value;
+}
+
+function rejectNestedUnknownKeys(obj, nested, label) {
+  for (const [key, descriptor] of Object.entries(nested || {})) {
+    if (obj[key] === undefined) continue;
+    const values = descriptor.array ? obj[key] : [obj[key]];
+    if (!Array.isArray(values)) throw validationError(`${label}.${key} must be an array`, 400);
+    for (const value of values) {
+      if (!isPlainObject(value)) throw validationError(`${label}.${key} must contain objects`, 400);
+      rejectUnknownKeys(value, descriptor.allowed, `${label}.${key}`);
+    }
+  }
+  return obj;
+}
+
 // Combines plain-object/pollution/size/depth guards with unknown-field rejection
 // and boundary control-character checks for settings mutations.
-function guardSettingsBody(body, { allowed = new Set(), stringKeys = [], label = "settings" } = {}) {
+function guardSettingsBody(body, {
+  allowed = new Set(),
+  stringKeys = [],
+  nested = {},
+  label = "settings",
+} = {}) {
   const guarded = guardBody(body);
   rejectUnknownKeys(guarded, allowed, label);
+  rejectNestedUnknownKeys(guarded, nested, label);
+  rejectDeepControlChars(guarded, label);
   rejectObjectControlChars(guarded, { stringKeys, label });
   return guarded;
 }
@@ -223,6 +268,8 @@ module.exports = {
   poolSettings,
   processManager,
   rejectControlChars,
+  rejectDeepControlChars,
+  rejectNestedUnknownKeys,
   rejectObjectControlChars,
   rejectUnknownKeys,
   validHostname,

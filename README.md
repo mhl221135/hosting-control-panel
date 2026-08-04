@@ -50,7 +50,7 @@ into dedicated directories.
 - CPU-aware PHP-FPM capacity planning with per-profile worker-memory estimates, slots-per-CPU and estimated/RAM-ceiling summaries, and healthy/warning/critical guardrails
 - Cross-process serialized, rollback-safe PHP-FPM/nginx runtime transactions with gap-aware port allocation, stale-state rejection, validation, and verified port activation for every pool mutation
 - Shared guarded request validation (prototype-pollution, bounded, malformed-input rejection) and a bounded runtime-configuration mutation audit with a read-only Runtime history view
-- Bounded, atomic, guarded persistence for non-runtime settings (performance, backup/off-site, notifications, integrations, health, billing, Cloudflare, IP, DNS presets) with encrypted secret preservation and fail-closed rolls on generated configuration
+- Bounded, atomic, guarded persistence for non-runtime settings (performance, backup/off-site, notifications, integrations, health, billing, Cloudflare, IP, DNS presets) with encrypted secret preservation and fail-closed rollback of generated configuration
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest

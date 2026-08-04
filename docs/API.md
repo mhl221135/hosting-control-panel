@@ -495,8 +495,8 @@ Every settings `PUT`/`POST` JSON mutation is parsed through a guarded body
 reader (`readJsonBody`) plus `guardSettingsBody` (`lib/runtime-validation.js`),
 which requires a plain object, rejects prototype-pollution keys
 (`__proto__`/`constructor`/`prototype`), rejects excessive depth, size, and
-array counts, rejects unknown fields, and rejects CR/LF/NUL and other C0
-control characters in configured string fields. Numeric bounds, enums, URLs,
+array counts, rejects unknown top-level and declared nested fields, and rejects
+CR/LF/NUL and other C0 control characters recursively. Numeric bounds, enums, URLs,
 hostnames, ports, and schedules are validated by each owning module. Secret
 fields are stored only inside the encrypted settings mechanism and are never
 returned, logged, audited, or persisted in plaintext; omitted or masked secret
@@ -510,7 +510,7 @@ reload, or application failure.
 |---|---|---|---|---|---|
 | `PUT /api/settings/performance` | `php`, `opcache`, `fastcgi`, `redis`, `mysql` (nested numeric/enums) | none | `lib/performance-settings.js` | `performance-settings.json` | atomic + snapshot/restore rollback of generated files |
 | `PUT /api/backups/settings` | `schedule_time`, `retention`, `site_backups_enabled`, `app_data_enabled` | none | `lib/backup-manager.js` | `backup-settings.json` | atomic |
-| `PUT /api/backups/offsite` | `enabled`, `endpoint`, `bucket`, `prefix`, `region`, `access_key_id`, `secret_access_key`, `repository_password`, `schedule_time`, `retention`, `upload_limit_kib`, `download_limit_kib`, `verify_percent`, `restore_test_enabled`, `restore_test_day`, `restore_test_time`, `restore_test_max_gib` | `access_key_id`, `secret_access_key`, `repository_password` (encrypted) | `lib/offsite-backup-manager.js` | `offsite-backup-settings.json` | atomic |
+| `PUT /api/backups/offsite` | `enabled`, `endpoint`, `bucket`, `prefix`, `region`, `access_key_id`, `secret_access_key`, `repository_password`, their explicit `clear_*` flags, `schedule_time`, `retention`, `upload_limit_kib`, `download_limit_kib`, `verify_percent`, `restore_test_enabled`, `restore_test_day`, `restore_test_time`, `restore_test_max_gib` | `access_key_id`, `secret_access_key`, `repository_password` (encrypted) | `lib/offsite-backup-manager.js` | `offsite-backup-settings.json` | atomic |
 | `PUT /api/settings/notifications` | installation, telegram, SMTP, severity, and per-channel override fields | `telegramBotToken`, `smtpPassword` (encrypted) | `lib/notification-settings.js` | `notification-settings.json` | atomic |
 | `PUT /api/settings/integrations` | `npmApiUrl`, `npmIdentity`, `acmeEmail`, `mysqlContainer`, `mysqlSitePrefix`, plus secret/clear fields | `npmSecret`, `cloudflareToken`, `cloudflareSecurityToken`, `ipinfoToken` (encrypted) | `lib/integration-settings.js` | `integration-settings.json` | atomic |
 | `PUT /api/billing/provisioning-settings` | `enabled`, `free_months`, `renewal_months`, `hosting_price`, `domain_renewal_months`, `currency`, `grace_days`, `timezone` | none | `lib/billing-provisioning.js` | `billing-provisioning-settings.json` | atomic |

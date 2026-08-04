@@ -567,8 +567,11 @@
               <label>Repository prefix<input name="prefix" value="hosting-control" /></label>
               <label>Region<input name="region" value="us-east-1" /></label>
               <label>Access key ID<input name="access_key_id" autocomplete="off" /></label>
+              <label class="check inline"><input name="clear_access_key" type="checkbox" /> Clear saved access key ID</label>
               <label>Secret access key<input name="secret_access_key" type="password" autocomplete="new-password" /></label>
+              <label class="check inline"><input name="clear_secret_access_key" type="checkbox" /> Clear saved secret access key</label>
               <label>Repository password<input name="repository_password" type="password" autocomplete="new-password" /></label>
+              <label class="check inline"><input name="clear_repository_password" type="checkbox" /> Clear saved repository password</label>
               <div class="three-column">
                 <label>Daily sync<input name="schedule_time" type="time" required /></label>
                 <label>Snapshots to keep<input name="retention" type="number" min="1" max="365" required /></label>

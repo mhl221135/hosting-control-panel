@@ -438,6 +438,8 @@ shown again after saving; leaving a secret field blank or omitting it preserves
 the current value, and only a dedicated clear action removes it. Validation is
 enforced server-side and any rejected value is reported as a bounded error
 without echoing the submitted secret.
+Off-site backup credentials provide separate clear controls for the access key
+ID, secret key, and Restic repository password.
 
 ### Integration settings
 

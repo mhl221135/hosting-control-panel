@@ -3039,6 +3039,9 @@ $("#offsiteSettingsForm").addEventListener("submit", async (event) => {
     event.currentTarget.elements.access_key_id.value = "";
     event.currentTarget.elements.secret_access_key.value = "";
     event.currentTarget.elements.repository_password.value = "";
+    event.currentTarget.elements.clear_access_key.checked = false;
+    event.currentTarget.elements.clear_secret_access_key.checked = false;
+    event.currentTarget.elements.clear_repository_password.checked = false;
     notice("Off-site backup settings saved.");
     await loadOffsite(false);
   } catch (error) { notice(error.message, "warning"); }
