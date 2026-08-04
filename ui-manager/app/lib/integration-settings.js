@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 class IntegrationSettings {
   constructor(dataDir) {
@@ -119,8 +120,15 @@ class IntegrationSettings {
         .toLowerCase(),
       updatedAt: new Date().toISOString(),
     };
-    if (!/^https?:\/\//.test(next.npmApiUrl)) {
-      const error = new Error("NPM API URL must start with http:// or https://");
+    let npmUrl;
+    try {
+      npmUrl = new URL(next.npmApiUrl);
+    } catch {
+      npmUrl = null;
+    }
+    if (!npmUrl || !["http:", "https:"].includes(npmUrl.protocol)
+        || npmUrl.username || npmUrl.password || npmUrl.hash) {
+      const error = new Error("NPM API URL must be a credential-free HTTP or HTTPS URL");
       error.statusCode = 400;
       throw error;
     }
@@ -144,10 +152,7 @@ class IntegrationSettings {
       error.statusCode = 400;
       throw error;
     }
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return this.publicView();
   }
 }

@@ -76,6 +76,9 @@ The panel provides:
   distinct rollback outcomes
 - Shared guarded request validation and a bounded runtime-configuration
   mutation audit with a read-only Runtime history view
+- Bounded, atomic, guarded non-runtime settings persistence (performance,
+  backup/off-site, notifications, integrations, health, billing, Cloudflare,
+  IP, DNS presets) with encrypted secret preservation and fail-closed rolls
 - CPU-aware PHP-FPM capacity planning: per-profile worker-memory estimates,
   worker slots, slots per CPU, estimated/RAM-ceiling summaries, and
   healthy/warning/critical guardrails, with a conservative fallback for

@@ -118,6 +118,20 @@ test("all php pool mutations route through the shared runtime transaction", () =
   assert.doesNotMatch(server, /function writeConfigs/);
 });
 
+test("non-runtime settings mutations use guarded body parsing and atomic writes", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const lib = fs.readFileSync(path.resolve(__dirname, "../lib/safe-write.js"), "utf8");
+  assert.match(server, /guardSettingsBody\(await readJsonBody\(req\)/);
+  const guardedCount = (server.match(/guardSettingsBody\(await readJsonBody\(req\)/g) || []).length;
+  assert.ok(guardedCount >= 11, `expected >=11 guarded settings endpoints, got ${guardedCount}`);
+  // key setting endpoints are present
+  for (const path of ["/api/settings/performance", "/api/backups/settings", "/api/backups/offsite", "/api/settings/notifications", "/api/settings/integrations", "/api/billing/provisioning-settings", "/api/billing/observer/settings", "/api/billing/enforcement/settings", "/api/health/settings", "/api/cloudflare/automation", "/api/cloudflare/ip-addresses"]) {
+    assert.ok(server.includes(`requestUrl.pathname === "${path}"`), path);
+  }
+  assert.match(lib, /function atomicWriteJson/);
+  assert.match(lib, /renameSync\(temporary, filePath\)/);
+});
+
 test("runtime mutations use shared guarded validation", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(server, /require\("\.\/lib\/runtime-validation"\)/);
@@ -161,4 +175,32 @@ test("runtime responsive contract: no hidden mobile overflow for preset editor a
   assert.match(css, /\.php-fpm-audit-row p \{ margin: 0; color: var\(--muted\); overflow-wrap: anywhere; \}/);
   assert.match(html, /id="poolPresetsEditor"/);
   assert.match(html, /id="poolCapacity"/);
+});
+
+test("settings responsive contract: no mobile overflow and secret inputs masked", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../public/styles.css"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(css, /@media \(max-width: 640px\) \{/);
+  assert.match(css, /\.form-grid[\s\S]*\{ grid-template-columns: 1fr; \}/);
+  assert.match(css, /button, input, select, textarea \{ min-height: 44px; \}/);
+  // settings forms use responsive containers
+  assert.match(html, /id="integrationSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="notificationSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="performanceSettingsForm" class="panel form-grid"/);
+  assert.match(html, /id="backupSettingsForm" class="panel form-stack"/);
+  assert.match(html, /id="offsiteSettingsForm" class="panel form-stack"/);
+  // secrets are password inputs and never returned in public views
+  assert.match(html, /name="npmSecret" type="password"/);
+  assert.match(html, /name="cloudflareToken" type="password"/);
+  assert.match(html, /name="telegramBotToken" type="password"/);
+  assert.match(html, /name="smtpPassword" type="password"/);
+  assert.match(html, /name="clear_access_key" type="checkbox"/);
+  assert.match(html, /name="clear_secret_access_key" type="checkbox"/);
+  assert.match(html, /name="clear_repository_password" type="checkbox"/);
+  assert.match(server, /clearAccessKey: body\.clear_access_key/);
+  assert.match(server, /clearSecretKey: body\.clear_secret_access_key/);
+  assert.match(server, /clearRepositoryPassword: body\.clear_repository_password/);
+  assert.match(server, /label: "DNS preset"/);
+  assert.match(server, /nested: \{[\s\S]*php: \{ allowed:/);
 });
