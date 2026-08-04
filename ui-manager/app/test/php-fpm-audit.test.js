@@ -172,6 +172,29 @@ test("wrong-shape audit state is treated as empty", () => {
   assert.deepEqual(manager.readHistory(), []);
 });
 
+test("persisted history is re-sanitized before it is returned", () => {
+  const manager = tempAudit({ now: () => Date.parse("2026-08-04T12:00:00Z") });
+  fs.writeFileSync(auditPath(manager), JSON.stringify({
+    version: 1,
+    history: [{
+      operation: "apply",
+      at: "2026-08-03T10:30:00Z",
+      operator: "a".repeat(500),
+      error: "token=secret-value " + "e".repeat(500),
+      password: "must-not-survive",
+      selectedPools: Array.from({ length: 150 }, (_, index) => `pool_${index}`),
+    }],
+  }), "utf8");
+
+  const [event] = manager.recent();
+  assert.equal(event.at, "2026-08-03T10:30:00.000Z");
+  assert.ok(event.operator.length <= DEFAULTS.maxString);
+  assert.ok(event.error.length <= DEFAULTS.maxError);
+  assert.ok(event.selectedPools.length <= DEFAULTS.maxPools);
+  assert.doesNotMatch(event.error, /secret-value/);
+  assert.equal("password" in event, false);
+});
+
 test("atomic persistence leaves a valid file after sequential records", () => {
   const manager = tempAudit();
   for (let index = 0; index < 20; index += 1) {

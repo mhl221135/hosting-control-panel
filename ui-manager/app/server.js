@@ -3171,21 +3171,23 @@ async function handleApi(req, res) {
       }));
       sendJson(res, 200, { ok: true, ...result, message: `Applied PHP-FPM profiles to ${result.applied.length} pool(s)` });
     } catch (error) {
-      tryRecordPhpFpmAudit(() => ({
-        operation: "apply",
-        status: "failed",
-        result: "failed",
-        rollback: error.rollbackError ? "failed" : "succeeded",
-        error: error.message,
-        ...auditContext(),
-      }));
+      if (error.executionStarted === true) {
+        tryRecordPhpFpmAudit(() => ({
+          operation: "apply",
+          status: "failed",
+          result: "failed",
+          rollback: error.rollbackStatus || "not-required",
+          error: error.message,
+          ...auditContext(),
+        }));
+      }
       throw error;
     }
     return true;
   }
 
-  if (req.method === "GET" && req.url === "/api/pool-presets/audit") {
-    const requested = Number(new URL(req.url, "http://panel").searchParams.get("limit") || 100);
+  if (req.method === "GET" && requestUrl.pathname === "/api/pool-presets/audit") {
+    const requested = Number(requestUrl.searchParams.get("limit") || 100);
     const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
     sendJson(res, 200, { ok: true, events: phpFpmAudit.recent(limit) });
     return true;

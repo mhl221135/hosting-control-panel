@@ -122,9 +122,16 @@ async function applyPlan(plan, deps) {
 
   const poolsAfter = renderPools(pools);
 
-  backupFile(presetsPath, presetsBefore);
-  backupFile(poolsPath, poolsBefore);
-  backupFile(sitesMapPath, sitesMapBefore);
+  try {
+    backupFile(presetsPath, presetsBefore);
+    backupFile(poolsPath, poolsBefore);
+    backupFile(sitesMapPath, sitesMapBefore);
+  } catch (error) {
+    error.executionStarted = true;
+    error.rollbackStatus = "not-required";
+    error.message = `Could not create safety backups; no configuration was changed. ${error.message}`;
+    throw error;
+  }
 
   const restore = async () => {
     const restoreFile = (filePath, content) => {
@@ -145,12 +152,16 @@ async function applyPlan(plan, deps) {
     renameFile(poolsTmp, poolsPath);
     await validateConfig();
   } catch (error) {
+    error.executionStarted = true;
     try {
       await restore();
+      error.rollbackStatus = "succeeded";
     } catch (rollbackError) {
       error.rollbackError = rollbackError.message;
+      error.rollbackStatus = "failed";
     }
-    error.message = `Configuration write or validation failed; changes were rolled back. ${error.message}`;
+    const outcome = error.rollbackStatus === "succeeded" ? "changes were rolled back" : "rollback failed";
+    error.message = `Configuration write or validation failed; ${outcome}. ${error.message}`;
     throw error;
   }
 
@@ -158,14 +169,18 @@ async function applyPlan(plan, deps) {
     await reloadPhp();
     await verifyPorts();
   } catch (error) {
-    await restore();
+    error.executionStarted = true;
     try {
+      await restore();
       await validateConfig();
       await reloadPhp();
+      error.rollbackStatus = "succeeded";
     } catch (rollbackError) {
       error.rollbackError = rollbackError.message;
+      error.rollbackStatus = "failed";
     }
-    error.message = `PHP-FPM reload or port verification failed; changes were rolled back. ${error.message}`;
+    const outcome = error.rollbackStatus === "succeeded" ? "changes were rolled back" : "rollback failed";
+    error.message = `PHP-FPM reload or port verification failed; ${outcome}. ${error.message}`;
     throw error;
   }
 
