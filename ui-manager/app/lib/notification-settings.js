@@ -190,11 +190,21 @@ class NotificationSettings {
     if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$/.test(next.serverName)) {
       throw validationError("Server name must contain only letters, numbers, dots, underscores, or hyphens");
     }
-    if (next.panelUrl && !/^https?:\/\/[^\s]+$/.test(next.panelUrl)) {
-      throw validationError("Panel URL must start with http:// or https://");
+    let panelUrl = null;
+    try { panelUrl = next.panelUrl ? new URL(next.panelUrl) : null; } catch { /* handled below */ }
+    if (next.panelUrl && (!panelUrl || !["http:", "https:"].includes(panelUrl.protocol)
+        || panelUrl.username || panelUrl.password || panelUrl.search || panelUrl.hash)) {
+      throw validationError("Panel URL must start with http:// or https:// and contain no credentials, query, or fragment");
     }
     if (!Number.isInteger(next.smtpPort) || next.smtpPort < 1 || next.smtpPort > 65535) {
       throw validationError("SMTP port must be between 1 and 65535");
+    }
+    if (next.smtpHost && !/^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$/.test(next.smtpHost)) {
+      throw validationError("SMTP host is invalid");
+    }
+    if (next.telegramChatIds.length > 100 || next.telegramCommandUserIds.length > 100
+        || next.smtpRecipients.length > 100) {
+      throw validationError("Notification recipient and allowlist fields support at most 100 entries");
     }
     if (next.telegramEnabled && (!(this.decrypt(next.telegramBotToken) || process.env.TELEGRAM_BOT_TOKEN) || !next.telegramChatIds.length)) {
       throw validationError("Telegram requires a bot token and at least one chat ID");

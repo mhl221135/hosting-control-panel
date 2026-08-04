@@ -40,6 +40,20 @@ test("guardSettingsBody rejects unknown fields, pollution keys, and control char
   assert.throws(() => guardSettingsBody("nope", { allowed, label: "test" }), /JSON object/);
   assert.throws(() => guardSettingsBody({ name: "a\nb" }, { allowed, stringKeys: ["name"], label: "test" }), /control characters/);
   assert.throws(() => guardSettingsBody({ name: "a\u0000" }, { allowed, stringKeys: ["name"], label: "test" }), /control characters/);
+  assert.throws(() => guardSettingsBody({ name: "ok", nested: { value: "a\nb" } }, {
+    allowed: new Set(["name", "nested"]),
+    nested: { nested: { allowed: new Set(["value"]) } },
+    label: "test",
+  }), /control characters/);
+  assert.throws(() => guardSettingsBody({ nested: { value: "ok", ignored: true } }, {
+    allowed: new Set(["nested"]),
+    nested: { nested: { allowed: new Set(["value"]) } },
+    label: "test",
+  }), /Unsupported field 'ignored'/);
+  assert.throws(() => guardSettingsBody({ rows: Array.from({ length: 1001 }, () => "x") }, {
+    allowed: new Set(["rows"]),
+    label: "test",
+  }), /too many entries/);
 });
 
 test("rejectControlChars rejects CR/LF/NUL and allows normal text", () => {
@@ -74,6 +88,7 @@ test("integration settings preserve masked and omitted secrets atomically", () =
     stored = JSON.parse(fs.readFileSync(settings.settingsPath, "utf8"));
     assert.equal(stored.npmSecret, "");
     assert.equal(fs.statSync(settings.settingsPath).mode & 0o777, 0o600);
+    assert.throws(() => settings.update({ npmApiUrl: "https://user:pass@example.test/api" }), /credential-free/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -95,6 +110,8 @@ test("notification settings preserve masked secrets and reject invalid inputs", 
     stored = JSON.parse(fs.readFileSync(settings.settingsPath, "utf8"));
     assert.equal(stored.telegramBotToken, "");
     assert.equal(fs.statSync(settings.settingsPath).mode & 0o777, 0o600);
+    assert.throws(() => settings.update({ panelUrl: "https://user:pass@example.test" }), /credentials/);
+    assert.throws(() => settings.update({ smtpHost: "bad/host" }), /SMTP host/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

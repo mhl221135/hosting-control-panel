@@ -436,8 +436,9 @@ save/preview/apply.
 Performance, backup and off-site backup, notification, integration, health,
 billing provisioning/observer/enforcement, Cloudflare automation, server IP,
 and DNS-preset settings are written only after guarded body parsing (plain
-object, prototype-pollution, depth/size/count, unknown-field, and
-CR/LF/NUL-control rejection — see `lib/runtime-validation.js`) plus each
+object, prototype-pollution, depth/size/count, declared nested and top-level
+unknown-field, and recursive CR/LF/NUL-control rejection — see
+`lib/runtime-validation.js`) plus each
 module's own bounds/enum/URL/hostname/port/schedule validation. All settings
 persist atomically (temp-file + rename, mode 0600) and fail closed. Secrets are
 kept only in the encrypted settings mechanism; leaving a secret field blank or

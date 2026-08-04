@@ -2192,7 +2192,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/backups/offsite") {
-    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "endpoint", "bucket", "prefix", "region", "access_key_id", "secret_access_key", "repository_password", "schedule_time", "retention", "upload_limit_kib", "download_limit_kib", "verify_percent", "restore_test_enabled", "restore_test_day", "restore_test_time", "restore_test_max_gib"]), stringKeys: ["endpoint", "bucket", "prefix", "region", "schedule_time", "restore_test_time"], label: "off-site backup settings" });
+    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "endpoint", "bucket", "prefix", "region", "access_key_id", "secret_access_key", "repository_password", "clear_access_key", "clear_secret_access_key", "clear_repository_password", "schedule_time", "retention", "upload_limit_kib", "download_limit_kib", "verify_percent", "restore_test_enabled", "restore_test_day", "restore_test_time", "restore_test_max_gib"]), label: "off-site backup settings" });
     const settings = offsiteBackupManager.settings.update({
       enabled: body.enabled,
       endpoint: body.endpoint,
@@ -2202,6 +2202,9 @@ async function handleApi(req, res) {
       accessKeyId: body.access_key_id,
       secretAccessKey: body.secret_access_key,
       repositoryPassword: body.repository_password,
+      clearAccessKey: body.clear_access_key,
+      clearSecretKey: body.clear_secret_access_key,
+      clearRepositoryPassword: body.clear_repository_password,
       scheduleTime: body.schedule_time,
       retention: body.retention,
       uploadLimitKib: body.upload_limit_kib,
@@ -2484,7 +2487,17 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/settings/performance") {
-    const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["php", "opcache", "fastcgi", "redis", "mysql"]), label: "performance settings" });
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["php", "opcache", "fastcgi", "redis", "mysql"]),
+      nested: {
+        php: { allowed: new Set(["memoryLimitMb", "maxExecutionSeconds"]) },
+        opcache: { allowed: new Set(["memoryMb", "internedStringsMb", "maxFiles", "validateTimestamps", "revalidateSeconds"]) },
+        fastcgi: { allowed: new Set(["keysZoneMb", "maxSizeGb", "inactiveMinutes", "validMinutes", "readTimeoutSeconds", "cacheLock"]) },
+        redis: { allowed: new Set(["maxMemoryMb", "policy"]) },
+        mysql: { allowed: new Set(["bufferPoolMb", "maxConnections", "redoLogCapacityMb"]) },
+      },
+      label: "performance settings",
+    });
     const previousSettings = performanceSettings.read();
     const snapshot = performanceSettings.snapshot();
     try {
@@ -2774,8 +2787,13 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/dns-presets") {
-    const body = guardBody(await readJsonBody(req));
-    rejectUnknownKeys(body, new Set(["id", "label", "records", "type", "nameTemplate", "contentTemplate", "ttl", "priority", "proxied"]), "DNS preset");
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["id", "label", "records", "type", "nameTemplate", "name_template", "contentTemplate", "content_template", "ttl", "priority", "proxied"]),
+      nested: {
+        records: { array: true, allowed: new Set(["id", "type", "nameTemplate", "name_template", "contentTemplate", "content_template", "ttl", "priority", "proxied"]) },
+      },
+      label: "DNS preset",
+    });
     sendJson(res, body.id ? 200 : 201, { ok: true, preset: dnsPresets.save(body) });
     return true;
   }

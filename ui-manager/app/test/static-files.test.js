@@ -180,6 +180,7 @@ test("runtime responsive contract: no hidden mobile overflow for preset editor a
 test("settings responsive contract: no mobile overflow and secret inputs masked", () => {
   const css = fs.readFileSync(path.resolve(__dirname, "../public/styles.css"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(css, /@media \(max-width: 640px\) \{/);
   assert.match(css, /\.form-grid[\s\S]*\{ grid-template-columns: 1fr; \}/);
   assert.match(css, /button, input, select, textarea \{ min-height: 44px; \}/);
@@ -194,4 +195,12 @@ test("settings responsive contract: no mobile overflow and secret inputs masked"
   assert.match(html, /name="cloudflareToken" type="password"/);
   assert.match(html, /name="telegramBotToken" type="password"/);
   assert.match(html, /name="smtpPassword" type="password"/);
+  assert.match(html, /name="clear_access_key" type="checkbox"/);
+  assert.match(html, /name="clear_secret_access_key" type="checkbox"/);
+  assert.match(html, /name="clear_repository_password" type="checkbox"/);
+  assert.match(server, /clearAccessKey: body\.clear_access_key/);
+  assert.match(server, /clearSecretKey: body\.clear_secret_access_key/);
+  assert.match(server, /clearRepositoryPassword: body\.clear_repository_password/);
+  assert.match(server, /label: "DNS preset"/);
+  assert.match(server, /nested: \{[\s\S]*php: \{ allowed:/);
 });
