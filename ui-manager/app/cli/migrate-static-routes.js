@@ -6,7 +6,7 @@ const { execFile } = require("child_process");
 const { promisify } = require("util");
 const { migrateStaticRoutes, activateStaticMigration } = require("../lib/static-route-migration");
 const { parseSitesMap } = require("../lib/runtime-config");
-const { atomicWriteFile, verifyPortsWithRetry } = require("../lib/runtime-transaction");
+const { DirectoryLock, atomicWriteFile, verifyPortsWithRetry } = require("../lib/runtime-transaction");
 
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -48,7 +48,7 @@ function writePlan(result) {
 async function main() {
   const args = new Set(process.argv.slice(2));
   const apply = args.has("--apply");
-  const preview = args.has("--dry-run") || !apply;
+  if (args.has("--dry-run") && apply) throw new Error("Choose either --dry-run or --apply");
 
   const before = {
     map: fs.readFileSync(SITES_MAP_PATH, "utf8"),
@@ -56,14 +56,15 @@ async function main() {
     nginx: fs.readFileSync(NGINX_DEFAULT_PATH, "utf8"),
   };
   const statePath = STATE_PATH;
-  const rawState = fs.existsSync(statePath) ? fs.readFileSync(statePath, "utf8") : "";
+  const stateExisted = fs.existsSync(statePath);
+  const rawState = stateExisted ? fs.readFileSync(statePath, "utf8") : "";
   let siteState;
   try {
     siteState = rawState ? JSON.parse(rawState) : { sites: {} };
   } catch {
-    siteState = { sites: {} };
+    throw new Error("site-state.json is invalid; refusing to replace it during static migration");
   }
-  const beforeState = JSON.stringify(siteState, null, 2);
+  const beforeState = rawState;
   const currentMap = parseSitesMap(before.map);
   const legacyPhpDomains = Object.entries(siteState.sites || {})
     .filter(([, state]) => state?.siteType === "static")
@@ -107,7 +108,7 @@ async function main() {
     await execFileAsync("docker", ["exec", phpHost, "sh", "-c", "kill -USR2 1"], { timeout: 30_000 });
   };
   await activateStaticMigration({
-    before: { ...before, state: beforeState, stateMode: 0o600 },
+    before: { ...before, state: beforeState, stateMode: 0o600, stateExisted },
     after: {
       mapContent: result.mapContent,
       poolsContent: result.poolsContent,
@@ -122,7 +123,11 @@ async function main() {
       statePath,
       stateMode: 0o600,
       atomicWrite: (filePath, content, mode) => atomicWriteFile(filePath, content, mode),
-      backupFile: () => {},
+      backupFile: (filePath, content) => {
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+        fs.writeFileSync(path.join(DATA_DIR, `${path.basename(filePath)}.${stamp}.bak`), content, "utf8");
+      },
+      lock: new DirectoryLock(path.join(DATA_DIR, "runtime-config.lock")),
       validateConfig: async () => {
         await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-t"], { timeout: 30_000 });
         await execFileAsync("docker", ["exec", phpHost, "php-fpm", "-t"], { timeout: 30_000 });

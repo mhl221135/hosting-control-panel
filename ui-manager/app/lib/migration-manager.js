@@ -859,6 +859,8 @@ class MigrationManager {
       }
       configured.push({ ...site, port, poolName });
     }
+    const mapAfter = renderSitesMap(map);
+    const poolsAfter = renderPools(pools);
     if (this.runtimeTransaction) {
       return {
         configured,
@@ -866,20 +868,26 @@ class MigrationManager {
         poolsBefore,
         mapParsed: map,
         poolsParsed: pools,
+        mapAfter,
+        poolsAfter,
         hasPhp: configured.some((site) => Boolean(site.port)),
         committed: true,
+        applied: false,
       };
     }
-    fs.writeFileSync(this.sitesMapPath, renderSitesMap(map), "utf8");
-    fs.writeFileSync(this.poolsPath, renderPools(pools), "utf8");
+    fs.writeFileSync(this.sitesMapPath, mapAfter, "utf8");
+    fs.writeFileSync(this.poolsPath, poolsAfter, "utf8");
     return {
       configured,
       mapBefore,
       poolsBefore,
       mapParsed: map,
-      poolsParsed: pools,
-      hasPhp: configured.some((site) => Boolean(site.port)),
-      committed: false,
+        poolsParsed: pools,
+        mapAfter,
+        poolsAfter,
+        hasPhp: configured.some((site) => Boolean(site.port)),
+        committed: false,
+        applied: true,
     };
   }
 
@@ -986,7 +994,8 @@ class MigrationManager {
           poolsBefore: runtimeChange.poolsBefore,
           mapParsed: runtimeChange.mapParsed,
           poolsParsed: runtimeChange.poolsParsed,
-        }, { verifyPorts: runtimeChange.hasPhp });
+        });
+        runtimeChange.applied = true;
       } else {
         await this.validateAndReload(runtimeChange);
       }
@@ -1001,7 +1010,18 @@ class MigrationManager {
       }
     } catch (error) {
       const cleanupErrors = [];
-      if (runtimeChange && runtimeChange.committed === false) {
+      if (runtimeChange && runtimeChange.committed === true && runtimeChange.applied) {
+        try {
+          await this.runtimeTransaction.rollback({
+            mapBefore: runtimeChange.mapBefore,
+            poolsBefore: runtimeChange.poolsBefore,
+            expectCurrent: { map: runtimeChange.mapAfter, pools: runtimeChange.poolsAfter },
+          });
+          runtimeChange.applied = false;
+        } catch (cleanupError) {
+          cleanupErrors.push(`runtime: ${cleanupError.message}`);
+        }
+      } else if (runtimeChange && runtimeChange.committed === false) {
         try {
           fs.writeFileSync(this.sitesMapPath, runtimeChange.mapBefore, "utf8");
           fs.writeFileSync(this.poolsPath, runtimeChange.poolsBefore, "utf8");

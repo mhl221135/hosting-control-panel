@@ -12,21 +12,30 @@ function parseSitesMap(content, defaultUpstream = "hosting-php-fpm:9000") {
   }
   const parseBlock = (block) => {
     const entries = {};
+    const duplicates = [];
     let defaultValue = "";
+    let sawDefault = false;
     for (const rawLine of block.split("\n")) {
       const line = rawLine.trim();
       if (!line || line.startsWith("#")) continue;
       const match = line.match(/^([^\s]+)\s+(.+);$/);
       if (!match) continue;
-      if (match[1] === "default") defaultValue = match[2];
-      else entries[match[1]] = match[2];
+      if (match[1] === "default") {
+        if (sawDefault) duplicates.push("default");
+        sawDefault = true;
+        defaultValue = match[2];
+      }
+      else {
+        if (Object.prototype.hasOwnProperty.call(entries, match[1])) duplicates.push(match[1]);
+        entries[match[1]] = match[2];
+      }
     }
-    return { entries, defaultValue };
+    return { entries, defaultValue, duplicates };
   };
   const roots = parseBlock(rootBlockMatch[1]);
   const upstreams = parseBlock(upstreamBlockMatch[1]);
-  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1" };
-  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '\"\"' };
+  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1", duplicates: [] };
+  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '\"\"', duplicates: [] };
   const hosts = {};
   const allHosts = new Set([
     ...Object.keys(roots.entries),
@@ -51,6 +60,12 @@ function parseSitesMap(content, defaultUpstream = "hosting-php-fpm:9000") {
     defaultUpstream,
     defaultPhpEnabled: phpEnabled.defaultValue !== "0",
     defaultCanonical: canonicals.defaultValue || '\"\"',
+    duplicateEntries: [
+      ...roots.duplicates,
+      ...upstreams.duplicates,
+      ...phpEnabled.duplicates,
+      ...canonicals.duplicates,
+    ],
     hosts,
   };
 }
@@ -79,11 +94,13 @@ function parsePools(content) {
   const prefix = [];
   const sections = {};
   const sectionOrder = [];
+  const duplicateSections = [];
   let current = null;
   for (const raw of content.split("\n")) {
     const sectionMatch = raw.match(/^\s*\[([^\]]+)\]\s*$/);
     if (sectionMatch) {
       current = sectionMatch[1];
+      if (Object.prototype.hasOwnProperty.call(sections, current)) duplicateSections.push(current);
       if (!sections[current]) {
         sections[current] = {};
         sectionOrder.push(current);
@@ -102,7 +119,7 @@ function parsePools(content) {
     const port = Number(sections[name].listen);
     if (Number.isFinite(port)) byPort[port] = { name, settings: sections[name] };
   }
-  return { prefix, sections, sectionOrder, byPort };
+  return { prefix, sections, sectionOrder, byPort, duplicateSections };
 }
 
 function renderPools(parsed) {

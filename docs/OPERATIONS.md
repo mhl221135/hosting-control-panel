@@ -389,6 +389,12 @@ re-verified; the original error is preserved and the rollback outcome
 is never reported unless restore validation, reload, and port verification all
 succeeded.
 
+The transaction lock is a shared directory under
+`app-data/ui-manager/runtime-config.lock`, so the long-running panel and
+one-shot transfer/migration containers cannot allocate or activate ports at the
+same time. Every commit re-reads both source files after acquiring that lock;
+stale proposals fail with `409` before backups or writes.
+
 Pool creation and reclassification use a gap-aware allocator that fills gaps
 instead of `max(existing)+1`, ignores malformed existing ports, refuses
 exhausted or invalid ranges, and reserves ports under the transaction lock so
@@ -398,7 +404,7 @@ website files, databases, DNS, or NPM cleanup; those remain owned by the
 operations that already perform them.
 
 Request bodies for the pool/host/preset routes are guarded: non-object bodies,
-prototype-pollution keys, oversized or unknown structures, malformed hosts,
+prototype-pollution keys, excessively deep, oversized or unknown structures, malformed hosts,
 unsafe document roots, and invalid ports/tiers are rejected with bounded
 errors before any write (see `lib/runtime-validation.js`). Valid existing state
 remains accepted (backward compatible).

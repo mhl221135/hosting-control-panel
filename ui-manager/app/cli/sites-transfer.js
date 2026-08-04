@@ -9,7 +9,7 @@ const { CloudflareClient, NpmClient } = require("../lib/integrations");
 const { MigrationManager, newestDatabaseDump, validateIpv4, validateManifest } = require("../lib/migration-manager");
 const { SiteState } = require("../lib/site-state");
 const { validateDomain } = require("../lib/provisioner");
-const { RuntimeConfigTransaction, collectPoolPorts, verifyPortsWithRetry } = require("../lib/runtime-transaction");
+const { DirectoryLock, RuntimeConfigTransaction, verifyPortsWithRetry } = require("../lib/runtime-transaction");
 const { parsePools } = require("../lib/runtime-config");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
@@ -41,7 +41,12 @@ const runtimeTxn = new RuntimeConfigTransaction({
   reloadPhp: async () => {
     await execFileAsync("docker", ["exec", phpHost, "sh", "-c", "kill -USR2 1"], { timeout: 30_000 });
   },
+  backupFile: (filePath, content) => {
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    fs.writeFileSync(path.join(DATA_DIR, `${path.basename(filePath)}.${stamp}.bak`), content, "utf8");
+  },
   verifyPorts: async (ports) => verifyPortsWithRetry(ports, { host: process.env.PHP_FPM_HOST || phpHost }),
+  lock: new DirectoryLock(path.join(DATA_DIR, "runtime-config.lock")),
 });
 const manager = new MigrationManager({
   dataDir: DATA_DIR,

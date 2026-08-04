@@ -33,8 +33,11 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
-const { RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
-const { guardBody, boundedSlug, validHostname, documentRoot, validPort, rejectUnknownKeys, boundedInteger } = require("./lib/runtime-validation");
+const { DirectoryLock, RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
+const {
+  guardBody, boundedSlug, validHostname, optionalHostname, documentRoot,
+  validPort, rejectUnknownKeys, boundedInteger, poolSettings,
+} = require("./lib/runtime-validation");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
 const { RuntimeConfigAudit } = require("./lib/runtime-config-audit");
 const {
@@ -360,6 +363,7 @@ const runtimeTxn = new RuntimeConfigTransaction({
     ports,
     { host: process.env.PHP_FPM_HOST || "hosting-php-fpm" },
   ),
+  lock: new DirectoryLock(path.join(DATA_DIR, "runtime-config.lock")),
 });
 const migrationManager = new MigrationManager({
   dataDir: DATA_DIR,
@@ -666,7 +670,7 @@ function commitRuntimeConfig(category, buildCounts, commitPromise, operator = "s
       operator,
       mutating: true,
       result: "success",
-      verification: "success",
+      verification: result?.verificationStatus || "success",
       rollback: result?.rollback || "not-required",
       counts: buildCounts ? buildCounts() : {},
     }));
@@ -677,7 +681,7 @@ function commitRuntimeConfig(category, buildCounts, commitPromise, operator = "s
       operator,
       mutating: true,
       result: "failed",
-      verification: "failed",
+      verification: error?.verificationStatus || "not-required",
       rollback: error?.rollback || "not-required",
       error: error?.message,
     }));
@@ -774,22 +778,31 @@ function parseSitesMap(content) {
 
   const parseBlock = (block) => {
     const entries = {};
+    const duplicates = [];
     let defaultValue = "";
+    let sawDefault = false;
     for (const rawLine of block.split("\n")) {
       const line = rawLine.trim();
       if (!line || line.startsWith("#")) continue;
       const m = line.match(/^([^\s]+)\s+(.+);$/);
       if (!m) continue;
-      if (m[1] === "default") defaultValue = m[2];
-      else entries[m[1]] = m[2];
+      if (m[1] === "default") {
+        if (sawDefault) duplicates.push("default");
+        sawDefault = true;
+        defaultValue = m[2];
+      }
+      else {
+        if (Object.prototype.hasOwnProperty.call(entries, m[1])) duplicates.push(m[1]);
+        entries[m[1]] = m[2];
+      }
     }
-    return { entries, defaultValue };
+    return { entries, defaultValue, duplicates };
   };
 
   const roots = parseBlock(rootBlockMatch[1]);
   const upstreams = parseBlock(upstreamBlockMatch[1]);
-  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1" };
-  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '""' };
+  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1", duplicates: [] };
+  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '""', duplicates: [] };
   const hosts = {};
   const allHosts = new Set([
     ...Object.keys(roots.entries),
@@ -816,6 +829,12 @@ function parseSitesMap(content) {
     defaultUpstream: DEFAULT_PHP_UPSTREAM,
     defaultPhpEnabled: phpEnabled.defaultValue !== "0",
     defaultCanonical: canonicals.defaultValue || '""',
+    duplicateEntries: [
+      ...roots.duplicates,
+      ...upstreams.duplicates,
+      ...phpEnabled.duplicates,
+      ...canonicals.duplicates,
+    ],
     hosts,
   };
 }
@@ -847,12 +866,14 @@ function parsePools(content) {
   const prefix = [];
   const sections = {};
   const sectionOrder = [];
+  const duplicateSections = [];
   let current = null;
 
   for (const raw of lines) {
     const secMatch = raw.match(/^\s*\[([^\]]+)\]\s*$/);
     if (secMatch) {
       current = secMatch[1];
+      if (Object.prototype.hasOwnProperty.call(sections, current)) duplicateSections.push(current);
       if (!sections[current]) {
         sections[current] = {};
         sectionOrder.push(current);
@@ -877,7 +898,7 @@ function parsePools(content) {
     if (Number.isFinite(p)) byPort[p] = { name, settings: sections[name] };
   }
 
-  return { prefix, sections, sectionOrder, byPort };
+  return { prefix, sections, sectionOrder, byPort, duplicateSections };
 }
 
 function renderPools(parsed) {
@@ -1566,26 +1587,43 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     };
   }
 
-  await commitRuntimeConfig(
-    "provisioning",
-    () => ({ poolsCreated: adapter.php ? 1 : 0, hostsChanged: 1 }),
-    runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } }),
-    "",
-  );
+  const runtimeAfter = { map: renderSitesMap(mapParsed), pools: renderPools(poolsParsed) };
+  try {
+    await commitRuntimeConfig(
+      "provisioning",
+      () => ({ poolsCreated: adapter.php ? 1 : 0, hostsChanged: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      "",
+    );
+  } catch (error) {
+    fs.rmSync(sitePath, { recursive: true, force: true });
+    throw error;
+  }
   const steps = [];
   steps.push({ name: "runtime", status: "complete" });
   jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
   let database = null;
   if (siteType === "wordpress") {
-    database = await createDatabase(domain, integrationSettings.resolved());
-    steps.push({ name: "database", status: "complete", database: database.name });
-    await installWordPress({
-      domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
-      adminPassword, redis: Boolean(body.redis), useHttps: false,
-      commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
-      keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
-    });
-    steps.push({ name: "wordpress", status: "complete" });
+    try {
+      database = await createDatabase(domain, integrationSettings.resolved());
+      steps.push({ name: "database", status: "complete", database: database.name });
+      await installWordPress({
+        domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
+        adminPassword, redis: Boolean(body.redis), useHttps: false,
+        commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
+        keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
+      });
+      steps.push({ name: "wordpress", status: "complete" });
+    } catch (error) {
+      if (database) await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+      try {
+        await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
+      } catch (recoveryError) {
+        error.message += `; runtime recovery failed: ${recoveryError.message}`;
+      }
+      fs.rmSync(sitePath, { recursive: true, force: true });
+      throw error;
+    }
   } else if ((siteType === "generic-php" && body.create_database) || siteType === "opencart") {
     try {
       database = await createDatabase(domain, integrationSettings.resolved());
@@ -1621,7 +1659,7 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
         await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
       }
       try {
-        await runtimeTxn.rollback({ mapBefore, poolsBefore });
+        await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
       } catch (recoveryError) {
         error.message += `; runtime recovery failed: ${recoveryError.message}`;
       }
@@ -1633,19 +1671,31 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
   }
 
-  siteState.update(domain, {
-    fastcgiCache: siteType !== "static" && Boolean(body.fastcgi_cache),
-    redis: siteType === "wordpress" && Boolean(body.redis),
-    opcache: siteType !== "static" && body.opcache !== false,
-    backupEnabled: Boolean(body.scheduled_backup),
-    imageOptimizationEnabled: siteType === "wordpress" && Boolean(body.scheduled_image_optimization),
-    siteType,
-    databaseName: database?.name || "",
-    databaseUser: database?.user || "",
-    cacheVersion: 1,
-    notes: String(body.notes || "").slice(0, 2000),
-  });
-  await execCommand("docker exec hosting-nginx nginx -s reload");
+  try {
+    siteState.update(domain, {
+      fastcgiCache: siteType !== "static" && Boolean(body.fastcgi_cache),
+      redis: siteType === "wordpress" && Boolean(body.redis),
+      opcache: siteType !== "static" && body.opcache !== false,
+      backupEnabled: Boolean(body.scheduled_backup),
+      imageOptimizationEnabled: siteType === "wordpress" && Boolean(body.scheduled_image_optimization),
+      siteType,
+      databaseName: database?.name || "",
+      databaseUser: database?.user || "",
+      cacheVersion: 1,
+      notes: String(body.notes || "").slice(0, 2000),
+    });
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+  } catch (error) {
+    try { siteState.remove([domain]); } catch { /* best-effort state cleanup */ }
+    if (database) await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+    try {
+      await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
+    } catch (recoveryError) {
+      error.message += `; runtime recovery failed: ${recoveryError.message}`;
+    }
+    fs.rmSync(sitePath, { recursive: true, force: true });
+    throw error;
+  }
   jobContext?.update({ completed: 5, currentStep: "Applying DNS and proxy integrations" });
 
   if (body.create_update_dns) {
@@ -3330,8 +3380,7 @@ async function handleApi(req, res) {
     const requested = Number(requestUrl.searchParams.get("limit") || 100);
     const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
     const category = String(requestUrl.searchParams.get("category") || "").toLowerCase();
-    const events = runtimeConfigAudit.recent(limit)
-      .filter((event) => !category || event.category === category);
+    const events = runtimeConfigAudit.recent(limit, category);
     sendJson(res, 200, { ok: true, category, events });
     return true;
   }
@@ -3373,7 +3422,8 @@ async function handleApi(req, res) {
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
     const poolsParsed = parsePools(poolsBefore);
-    const name = resolvePoolSectionName(body.name, poolsParsed);
+    const requestedName = boundedSlug(body.name, { label: "pool name" });
+    const name = resolvePoolSectionName(requestedName, poolsParsed);
     const port = validPort(body.port);
     if (!name) {
       sendJson(res, 400, { ok: false, message: "name and integer port are required" });
@@ -3389,8 +3439,10 @@ async function handleApi(req, res) {
       return true;
     }
 
-    const requestedTier = normalizeTier(body.tier || body.settings?.tier || "", presets) || normalizeTier(defaults.default_tier, presets) || "medium";
-    const incomingPool = body.settings || {};
+    const incomingPool = poolSettings(body.settings);
+    const tierInput = String(body.tier || incomingPool.tier || "").trim();
+    const requestedTier = normalizeTier(tierInput, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+    if (tierInput && !normalizeTier(tierInput, presets)) throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
     const oldPort = existingSameName ? Number(existingSameName.listen) : null;
     poolsParsed.sections[name] = buildPoolSettings({
       incomingPool,
@@ -3432,6 +3484,7 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "pools array is required" });
       return true;
     }
+    if (items.length > 200) throw Object.assign(new Error("Too many pool rows"), { statusCode: 400 });
 
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3448,8 +3501,9 @@ async function handleApi(req, res) {
         return true;
       }
       rejectUnknownKeys(raw, new Set(["name", "port", "tier", "settings"]), "pool row");
-      const name = resolvePoolSectionName(raw.name, poolsParsed);
+      const name = resolvePoolSectionName(boundedSlug(raw.name, { label: "pool name" }), poolsParsed);
       const port = validPort(raw.port);
+      poolSettings(raw.settings);
       if (!name) {
         sendJson(res, 400, { ok: false, message: "Each pool row requires valid name and integer port" });
         return true;
@@ -3467,9 +3521,9 @@ async function handleApi(req, res) {
     }
 
     for (const raw of items) {
-      const name = resolvePoolSectionName(raw.name, poolsParsed);
+      const name = resolvePoolSectionName(boundedSlug(raw.name, { label: "pool name" }), poolsParsed);
       const port = Number(raw.port);
-      const incomingPool = raw.settings || {};
+      const incomingPool = poolSettings(raw.settings);
       const requestedTierInput = String(raw.tier || incomingPool.tier || "").trim().toLowerCase();
 
       const existingSameName = poolsParsed.sections[name] || null;
@@ -3489,6 +3543,9 @@ async function handleApi(req, res) {
       const requestedTier = normalizeTier(requestedTierInput, presets)
         || normalizeTier(defaults.default_tier, presets)
         || "medium";
+      if (requestedTierInput && !normalizeTier(requestedTierInput, presets)) {
+        throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
+      }
 
       const oldPort = existingSameName ? Number(existingSameName.listen) : null;
       poolsParsed.sections[name] = buildPoolSettings({
@@ -3524,7 +3581,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "DELETE" && req.url.startsWith("/api/pools/")) {
-    const name = sanitizeSectionName(decodeURIComponent(req.url.replace("/api/pools/", "")));
+    const name = boundedSlug(decodeURIComponent(req.url.replace("/api/pools/", "")), { label: "pool name" });
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
@@ -3612,6 +3669,7 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "hosts array is required" });
       return true;
     }
+    if (items.length > 200) throw Object.assign(new Error("Too many host rows"), { statusCode: 400 });
 
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3626,9 +3684,10 @@ async function handleApi(req, res) {
       rejectUnknownKeys(raw, new Set(["host", "root", "pool_name", "php_enabled", "canonical_to", "add_www_alias"]), "host row");
       const host = validHostname(raw.host);
       const root = documentRoot(raw.root);
-      const poolName = sanitizeSectionName(String(raw.pool_name || "").trim());
+      const poolInput = String(raw.pool_name || "").trim();
+      const poolName = poolInput ? boundedSlug(poolInput, { label: "pool name" }) : "";
       const phpEnabled = raw.php_enabled !== false && Boolean(poolName);
-      const canonicalTo = String(raw.canonical_to || "").trim();
+      const canonicalTo = optionalHostname(raw.canonical_to);
       const addWwwAlias = Boolean(raw.add_www_alias);
 
       if (!host || !root || (phpEnabled && !poolName)) {
@@ -3705,10 +3764,11 @@ async function handleApi(req, res) {
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
 
-    const poolName = sanitizeSectionName(String(body.pool_name || "").trim());
+    const poolInput = String(body.pool_name || "").trim();
+    const poolName = poolInput ? boundedSlug(poolInput, { label: "pool name" }) : "";
     const phpEnabled = body.php_enabled !== false;
     const addWwwAlias = Boolean(body.add_www_alias);
-    const canonicalTo = String(body.canonical_to || "").trim();
+    const canonicalTo = optionalHostname(body.canonical_to);
 
     let port = phpEnabled ? validPort(body.port, { allowNull: true }) : null;
     if (phpEnabled && poolName) {
@@ -3757,8 +3817,11 @@ async function handleApi(req, res) {
     if (phpEnabled && !poolName) {
       const existingPool = poolsParsed.byPort[port];
       const sectionName = existingPool ? existingPool.name : sanitizeSectionName(host);
-      const incomingPool = body.pool || {};
+      const incomingPool = poolSettings(body.pool);
       const requestedTier = normalizeTier(body.pool_tier || incomingPool.tier || "", presets);
+      if ((body.pool_tier || incomingPool.tier) && !requestedTier) {
+        throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
+      }
       const effectiveTier = requestedTier || normalizeTier(defaults.default_tier, presets) || "medium";
       const basePool = existingPool ? existingPool.settings : {};
       poolsParsed.sections[sectionName] = buildPoolSettings({
@@ -3784,7 +3847,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "DELETE" && (req.url.startsWith("/api/sites/") || req.url.startsWith("/api/hosts/"))) {
-    const host = decodeURIComponent(req.url.replace("/api/sites/", "").replace("/api/hosts/", ""));
+    const host = validHostname(decodeURIComponent(req.url.replace("/api/sites/", "").replace("/api/hosts/", "")));
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);

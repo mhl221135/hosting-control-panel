@@ -139,7 +139,13 @@ function restoreActivation(deps, before) {
   atomicWrite(sitesMapPath, before.map);
   atomicWrite(poolsPath, before.pools);
   atomicWrite(nginxDefaultPath, before.nginx);
-  atomicWrite(statePath, before.state, before.stateMode || 0o600);
+  if (before.stateExisted === false) {
+    try { require("fs").unlinkSync(statePath); } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  } else {
+    atomicWrite(statePath, before.state, before.stateMode || 0o600);
+  }
 }
 
 async function activateStaticMigration({ before, after, deps }) {
@@ -152,59 +158,73 @@ async function activateStaticMigration({ before, after, deps }) {
     reloadNginx,
     verifyPorts,
     stateMode = 0o600,
+    lock = null,
+    readFile = (filePath) => require("fs").readFileSync(filePath, "utf8"),
   } = deps;
 
-  validateModel(parseSitesMap(after.mapContent), parsePools(after.poolsContent));
-
-  backupFile(deps.sitesMapPath, before.map);
-  backupFile(deps.poolsPath, before.pools);
-  backupFile(deps.nginxDefaultPath, before.nginx);
-  backupFile(deps.statePath, before.state);
-
-  const afterPorts = migrationPorts(after.poolsContent);
-  try {
-    atomicWrite(deps.sitesMapPath, after.mapContent);
-    atomicWrite(deps.poolsPath, after.poolsContent);
-    atomicWrite(deps.nginxDefaultPath, after.nginxContent);
-    atomicWrite(deps.statePath, after.state, stateMode);
-  } catch (writeError) {
-    let restoreError = "";
-    try {
-      restoreActivation(deps, before);
-    } catch (error) {
-      restoreError = String(error?.message || error).slice(0, 300);
+  const run = async () => {
+    const currentState = require("fs").existsSync(deps.statePath) ? readFile(deps.statePath) : "";
+    if (readFile(deps.sitesMapPath) !== before.map
+        || readFile(deps.poolsPath) !== before.pools
+        || readFile(deps.nginxDefaultPath) !== before.nginx
+        || currentState !== before.state) {
+      throw Object.assign(new Error("Runtime configuration changed after static migration preview; preview again"), {
+        statusCode: 409,
+      });
     }
-    throw Object.assign(writeError, {
-      rollback: restoreError ? "failed" : "succeeded",
-      rollbackError: restoreError,
-      statusCode: 500,
-    });
-  }
+    validateModel(parseSitesMap(after.mapContent), parsePools(after.poolsContent));
 
-  let rollback = "not-required";
-  try {
-    await validateConfig();
-    await reloadPhp();
-    await reloadNginx();
-    if (afterPorts.length) await verifyPorts(afterPorts);
-  } catch (error) {
-    let rollbackOutcome = "succeeded";
+    backupFile(deps.sitesMapPath, before.map);
+    backupFile(deps.poolsPath, before.pools);
+    backupFile(deps.nginxDefaultPath, before.nginx);
+    if (before.stateExisted !== false) backupFile(deps.statePath, before.state);
+
+    const afterPorts = migrationPorts(after.poolsContent);
     try {
-      restoreActivation(deps, before);
+      atomicWrite(deps.sitesMapPath, after.mapContent);
+      atomicWrite(deps.poolsPath, after.poolsContent);
+      atomicWrite(deps.nginxDefaultPath, after.nginxContent);
+      atomicWrite(deps.statePath, after.state, stateMode);
+    } catch (writeError) {
+      let restoreError = "";
+      try {
+        restoreActivation(deps, before);
+      } catch (error) {
+        restoreError = String(error?.message || error).slice(0, 300);
+      }
+      throw Object.assign(writeError, {
+        rollback: restoreError ? "failed" : "succeeded",
+        rollbackError: restoreError,
+        statusCode: 500,
+      });
+    }
+
+    let rollback = "not-required";
+    try {
       await validateConfig();
       await reloadPhp();
       await reloadNginx();
-      await verifyPorts(migrationPorts(before.pools));
-    } catch (rollbackError) {
-      rollbackOutcome = "failed";
-      error.rollbackError = String(rollbackError?.message || rollbackError).slice(0, 300);
+      if (afterPorts.length) await verifyPorts(afterPorts);
+    } catch (error) {
+      let rollbackOutcome = "succeeded";
+      try {
+        restoreActivation(deps, before);
+        await validateConfig();
+        await reloadPhp();
+        await reloadNginx();
+        await verifyPorts(migrationPorts(before.pools));
+      } catch (rollbackError) {
+        rollbackOutcome = "failed";
+        error.rollbackError = String(rollbackError?.message || rollbackError).slice(0, 300);
+      }
+      rollback = rollbackOutcome;
+      error.rollback = rollbackOutcome;
+      if (!error.statusCode) error.statusCode = 502;
+      throw error;
     }
-    rollback = rollbackOutcome;
-    error.rollback = rollbackOutcome;
-    if (!error.statusCode) error.statusCode = 502;
-    throw error;
-  }
-  return { rollback };
+    return { rollback };
+  };
+  return lock ? lock.runExclusive(run) : run();
 }
 
 module.exports = {

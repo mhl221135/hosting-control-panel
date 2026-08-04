@@ -13,6 +13,7 @@ const CATEGORIES = new Set([
 ]);
 const ROLLBACKS = new Set(["not-required", "succeeded", "failed"]);
 const RESULTS = new Set(["success", "failed"]);
+const VERIFICATIONS = new Set(["not-required", "success", "failed"]);
 
 const DEFAULTS = {
   maxEvents: 250,
@@ -41,7 +42,7 @@ const CREDENTIAL_PATTERNS = [
   /(?:https?:\/\/)[^\s/@]*(?=@)/gi,
 ];
 
-const DOMAIN_PATTERN = /(?:^|[^a-z0-9])[a-z0-9-]+\.(?:com|net|org|dev|io|co|app|xyz)(?=$|[^a-z0-9])/gi;
+const DOMAIN_PATTERN = /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b/gi;
 
 function redact(value) {
   let output = String(value);
@@ -63,7 +64,7 @@ function sliceIdentifiers(values, maxLength, maxEntries) {
   const seen = new Set();
   const output = [];
   for (const value of Array.isArray(values) ? values : []) {
-    const item = String(value ?? "").trim().slice(0, maxLength);
+    const item = redact(String(value ?? "").trim()).slice(0, maxLength);
     if (!item || seen.has(item)) continue;
     seen.add(item);
     output.push(item);
@@ -87,10 +88,16 @@ function normalizeResult(value) {
   return RESULTS.has(key) ? key : "success";
 }
 
+function normalizeVerification(value) {
+  const key = String(value || "not-required");
+  return VERIFICATIONS.has(key) ? key : "not-required";
+}
+
 function normalizeCounts(input = {}) {
   const counts = {};
+  if (!input || typeof input !== "object" || Array.isArray(input)) return counts;
   for (const key of ALLOWED_COUNT_KEYS) {
-    if (key in input && typeof input === "object") {
+    if (key in input) {
       const value = Number(input[key]);
       if (Number.isInteger(value) && value >= 0) counts[key] = value;
     }
@@ -100,8 +107,13 @@ function normalizeCounts(input = {}) {
 
 function atomicWrite(filePath, content, mode = 0o600) {
   const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, content, { encoding: "utf8", mode });
-  fs.renameSync(temporary, filePath);
+  try {
+    fs.writeFileSync(temporary, content, { encoding: "utf8", mode });
+    fs.renameSync(temporary, filePath);
+  } catch (error) {
+    try { fs.unlinkSync(temporary); } catch { /* best-effort cleanup */ }
+    throw error;
+  }
 }
 
 class RuntimeConfigAudit {
@@ -141,7 +153,7 @@ class RuntimeConfigAudit {
       category,
       mutating: input.mutating === false ? false : true,
       result: normalizeResult(input.result),
-      verification: normalizeResult(input.verification),
+      verification: normalizeVerification(input.verification),
       rollback: normalizeRollback(input.rollback),
       counts: normalizeCounts(input.counts),
       scope: sliceIdentifiers(input.scope, 60, DEFAULTS.maxScope),
@@ -157,9 +169,13 @@ class RuntimeConfigAudit {
     return event;
   }
 
-  recent(limit = 100) {
+  recent(limit = 100, category = "") {
     const bounded = Math.max(1, Math.min(Number(limit) || 100, this.maxEvents));
-    return this.readHistory().slice(0, bounded);
+    const normalizedCategory = category ? normalizeCategory(category) : "";
+    if (category && !normalizedCategory) return [];
+    return this.readHistory()
+      .filter((event) => !normalizedCategory || event.category === normalizedCategory)
+      .slice(0, bounded);
   }
 }
 
@@ -172,6 +188,7 @@ module.exports = {
   normalizeCounts,
   normalizeResult,
   normalizeRollback,
+  normalizeVerification,
   redact,
   redactCredential,
 };

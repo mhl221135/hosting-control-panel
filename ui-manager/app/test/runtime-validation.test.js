@@ -9,6 +9,8 @@ const {
   guardBody,
   hasPollutionKey,
   optionalBoolean,
+  optionalHostname,
+  poolSettings,
   processManager,
   rejectUnknownKeys,
   validHostname,
@@ -37,6 +39,12 @@ test("guardBody rejects oversized structures", () => {
   assert.throws(() => guardBody({ rows: big }, { maxKeys: 100 }), /too large/);
 });
 
+test("guardBody rejects excessive nesting without recursive overflow", () => {
+  let nested = {};
+  for (let index = 0; index < 30; index += 1) nested = { child: nested };
+  assert.throws(() => guardBody(nested), /too deep/);
+});
+
 test("validHostname accepts valid and rejects malformed hosts", () => {
   assert.equal(validHostname("Example.COM"), "example.com");
   assert.equal(validHostname("a.example.com"), "a.example.com");
@@ -49,9 +57,17 @@ test("validHostname accepts valid and rejects malformed hosts", () => {
 
 test("documentRoot rejects traversal and non /var/www roots", () => {
   assert.equal(documentRoot("/var/www/site"), "/var/www/site");
-  assert.throws(() => documentRoot("/var/www/../../etc"), /path traversal/);
+  assert.throws(() => documentRoot("/var/www/../../etc"), /unsafe|traversal/);
   assert.throws(() => documentRoot("/etc/passwd"), /under \/var\/www/);
   assert.throws(() => documentRoot(""), /required/);
+});
+
+test("optional hostname and pool settings reject config injection", () => {
+  assert.equal(optionalHostname(""), "");
+  assert.equal(optionalHostname("WWW.Example.com"), "www.example.com");
+  assert.equal(poolSettings({ pm: "ondemand", max_children: "4" }).max_children, "4");
+  assert.throws(() => poolSettings({ unknown: "x" }), /Unsupported field/);
+  assert.throws(() => poolSettings({ open_basedir: "/var/www/site\nlisten = 1" }), /invalid/);
 });
 
 test("validPort accepts 1..65535 and rejects others", () => {

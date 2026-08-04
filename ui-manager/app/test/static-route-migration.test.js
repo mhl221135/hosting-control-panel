@@ -119,6 +119,10 @@ function makeActivationDeps(dir, overrides = {}) {
     statePath: path.join(dir, "site-state.json"),
   };
   const calls = { validate: 0, reloadPhp: 0, reloadNginx: 0, verified: [] };
+  fs.writeFileSync(paths.sitesMapPath, LEGACY_MAP, "utf8");
+  fs.writeFileSync(paths.poolsPath, POOLS, "utf8");
+  fs.writeFileSync(paths.nginxDefaultPath, NGINX, "utf8");
+  fs.writeFileSync(paths.statePath, "{}", "utf8");
   const deps = {
     ...paths,
     atomicWrite: (filePath, content, mode) => {
