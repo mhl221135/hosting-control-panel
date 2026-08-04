@@ -36,6 +36,7 @@ const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan
 const { RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
 const { guardBody, boundedSlug, validHostname, documentRoot, validPort, rejectUnknownKeys, boundedInteger } = require("./lib/runtime-validation");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
+const { RuntimeConfigAudit } = require("./lib/runtime-config-audit");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
   DEFAULT_WORKER_MEMORY_MB,
@@ -179,6 +180,7 @@ const billingEntitlementObserver = new BillingEntitlementObserver({
   },
 });
 const phpFpmAudit = new PhpFpmAudit({ dataDir: DATA_DIR });
+const runtimeConfigAudit = new RuntimeConfigAudit({ dataDir: DATA_DIR });
 const billingEnforcementManager = new BillingEnforcementManager({
   dataDir: DATA_DIR,
   mapPath: BILLING_ENFORCEMENT_MAP_PATH,
@@ -644,6 +646,43 @@ function tryRecordPhpFpmAudit(build) {
     console.error(`PHP-FPM audit record failed: ${auditError.message}`);
     return null;
   }
+}
+
+function tryRecordRuntimeAudit(build) {
+  try {
+    const event = build();
+    if (!event) return null;
+    return runtimeConfigAudit.record(event);
+  } catch (auditError) {
+    console.error(`Runtime config audit record failed: ${auditError.message}`);
+    return null;
+  }
+}
+
+function commitRuntimeConfig(category, buildCounts, commitPromise, operator = "system") {
+  return commitPromise.then((result) => {
+    tryRecordRuntimeAudit(() => ({
+      category,
+      operator,
+      mutating: true,
+      result: "success",
+      verification: "success",
+      rollback: result?.rollback || "not-required",
+      counts: buildCounts ? buildCounts() : {},
+    }));
+    return result;
+  }).catch((error) => {
+    tryRecordRuntimeAudit(() => ({
+      category,
+      operator,
+      mutating: true,
+      result: "failed",
+      verification: "failed",
+      rollback: error?.rollback || "not-required",
+      error: error?.message,
+    }));
+    throw error;
+  });
 }
 
 function profileDiff(before, after) {
@@ -1270,7 +1309,12 @@ async function executeSiteRemoval(domain, selected, jobContext = null) {
         delete poolsParsed.sections[plan.pool.name];
         poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((name) => name !== plan.pool.name);
       }
-      await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+      await commitRuntimeConfig(
+        "removal",
+        () => ({ hostsRemoved: plan.targetDomains.length, poolsRemoved: selected.pool ? 1 : 0 }),
+        runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+        "",
+      );
       record({ name: "runtime", status: "complete", count: plan.targetDomains.length });
       if (selected.pool) record({ name: "pool", status: "complete", count: 1 });
     }
@@ -1522,7 +1566,12 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     };
   }
 
-  await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } });
+  await commitRuntimeConfig(
+    "provisioning",
+    () => ({ poolsCreated: adapter.php ? 1 : 0, hostsChanged: 1 }),
+    runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } }),
+    "",
+  );
   const steps = [];
   steps.push({ name: "runtime", status: "complete" });
   jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
@@ -2792,7 +2841,12 @@ async function handleApi(req, res) {
         return true;
       }
       setPoolOpcache(pool.settings, body.opcache);
-      await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } });
+      await commitRuntimeConfig(
+        "opcache",
+        () => ({ poolsChanged: 1 }),
+        runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } }),
+        req.auth.email,
+      );
       opcacheChanged = true;
     }
     const state = siteState.update(domain, {
@@ -3272,6 +3326,16 @@ async function handleApi(req, res) {
     return true;
   }
 
+  if (req.method === "GET" && requestUrl.pathname === "/api/runtime-config/audit") {
+    const requested = Number(requestUrl.searchParams.get("limit") || 100);
+    const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
+    const category = String(requestUrl.searchParams.get("category") || "").toLowerCase();
+    const events = runtimeConfigAudit.recent(limit)
+      .filter((event) => !category || event.category === category);
+    sendJson(res, 200, { ok: true, category, events });
+    return true;
+  }
+
   if (req.method === "GET" && req.url === "/api/pools") {
     const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
     const mapContent = fs.readFileSync(SITES_MAP_PATH, "utf8");
@@ -3350,7 +3414,12 @@ async function handleApi(req, res) {
       }
     }
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsCreated: existingSameName ? 0 : 1, poolsChanged: existingSameName ? 1 : 0 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: "Pool updated" });
     return true;
   }
@@ -3444,7 +3513,12 @@ async function handleApi(req, res) {
       }
     }
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsChanged: items.length }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} pool rows` });
     return true;
   }
@@ -3478,7 +3552,12 @@ async function handleApi(req, res) {
     delete poolsParsed.sections[name];
     poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((n) => n !== name);
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsRemoved: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Removed pool ${name}` });
     return true;
   }
@@ -3599,7 +3678,12 @@ async function handleApi(req, res) {
       }
     }
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsChanged: items.length }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} host rows` });
     return true;
   }
@@ -3689,7 +3773,12 @@ async function handleApi(req, res) {
       if (!poolsParsed.sectionOrder.includes(sectionName)) poolsParsed.sectionOrder.push(sectionName);
     }
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsChanged: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: "Host updated" });
     return true;
   }
@@ -3719,7 +3808,12 @@ async function handleApi(req, res) {
       poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((s) => s !== secName);
     }
 
-    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsRemoved: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Removed ${host}` });
     return true;
   }

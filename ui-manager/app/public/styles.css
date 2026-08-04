@@ -149,6 +149,9 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .php-fpm-audit-row details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
 .php-fpm-audit-row details ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
 .php-fpm-audit-row .audit-error { margin-top: 4px; }
+.compact-select { max-width: 220px; }
+.runtime-audit-row details p { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.runtime-audit-row details code { margin-right: 6px; }
 
 .data-row { display: grid; grid-template-columns: 60px minmax(120px, 1fr) minmax(160px, 1.5fr) 70px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
 .data-row code { overflow-wrap: anywhere; }

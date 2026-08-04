@@ -128,3 +128,20 @@ test("runtime mutations use shared guarded validation", () => {
   assert.match(server, /documentRoot\(raw\.root\)/);
   assert.match(server, /validPort\(body\.port/);
 });
+
+test("runtime exposes a bounded runtime-configuration audit history", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="runtimeConfigAuditHistory"/);
+  assert.match(html, /id="refreshRuntimeConfigAudit"/);
+  assert.match(html, /id="runtimeConfigAuditFilter"/);
+  assert.match(source, /api\/runtime-config\/audit/);
+  assert.match(source, /function renderRuntimeConfigAudit/);
+  assert.match(source, /function loadRuntimeConfigAudit/);
+  assert.match(source, /runtimeConfigAuditCountLabel/);
+  assert.match(source, /escapeHtml\(event\.category\)/);
+  assert.match(server, /requestUrl\.pathname === "\/api\/runtime-config\/audit"/);
+  assert.match(server, /runtimeConfigAudit\.recent\(limit\)/);
+  assert.match(server, /commitRuntimeConfig\(/);
+});

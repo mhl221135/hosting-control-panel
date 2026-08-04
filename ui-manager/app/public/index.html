@@ -742,8 +742,13 @@
           </article>
 
           <article class="panel">
-            <div class="card-head"><div><h3>Internal routes</h3><p class="muted">Host, document root, pool and canonical destination.</p></div><button id="saveHosts">Save routes</button></div>
-            <div class="table-wrap"><table><thead><tr><th>Host</th><th>Root</th><th>Pool</th><th>Canonical</th><th>www</th></tr></thead><tbody id="hostsTable"></tbody></table></div>
+            <div class="card-head"><div><h3>PHP-FPM audit history</h3><p class="muted">Bounded record of profile saves, previews, and applies. No passwords, tokens, environment values, or website contents are stored.</p></div><button id="refreshPhpFpmAudit" class="secondary">Refresh</button></div>
+            <div id="phpFpmAuditHistory" class="rows empty">No PHP-FPM audit history loaded.</div>
+          </article>
+
+          <article class="panel">
+            <div class="card-head"><div><h3>Runtime configuration history</h3><p class="muted">Bounded record of pool, host, provisioning, import, opcache, and removal mutations. No domains, secrets, or full configuration contents are stored.</p></div><div class="button-row"><select id="runtimeConfigAuditFilter" class="compact-select"><option value="">All mutations</option><option value="pool">Pool</option><option value="host">Host</option><option value="provisioning">Provisioning</option><option value="import">Import</option><option value="opcache">OPcache</option><option value="removal">Removal</option></select><button id="refreshRuntimeConfigAudit" class="secondary">Refresh</button></div></div>
+            <div id="runtimeConfigAuditHistory" class="rows empty">No runtime configuration history loaded.</div>
           </article>
 
           <article class="panel">
