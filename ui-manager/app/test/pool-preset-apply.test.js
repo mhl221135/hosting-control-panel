@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
+  PRESET_FIELDS,
   applyPlan,
   buildApplyPlan,
   detectTier,
@@ -446,6 +447,22 @@ test("applyPlan rejects an empty selection", async () => {
     }),
     /No pools selected/,
   );
+});
+
+test("estimate-only profile changes never modify pool configuration or apply preview", () => {
+  assert.equal("estimated_memory_mb" in PRESET_FIELDS, false);
+  const content = mediumPool("example_com", 9001);
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, estimated_memory_mb: "256" } };
+  const { affected } = previewApply(proposed, content, PRESETS);
+  assert.deepEqual(affected, []);
+  const prevSettings = mediumPool("example_com", 9001).split("\n").slice(1)
+    .reduce((acc, line) => {
+      const [key, value] = line.split(" = ");
+      if (key) acc[key] = value;
+      return acc;
+    }, {});
+  assert.equal(detectTier(prevSettings, PRESETS), "medium");
+  assert.throws(() => buildApplyPlan(proposed, content, PRESETS, ["example_com"]), /not affected/);
 });
 
 test("detectTier and normalizeTier behave correctly", () => {

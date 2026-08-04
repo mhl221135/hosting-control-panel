@@ -50,7 +50,7 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /method: "PUT"[\s\S]*\/api\/pool-presets/);
   assert.match(source, /data-preset-field="request_terminate_timeout"/);
   assert.match(source, /renderPoolCapacity/);
-  assert.match(source, /Worst-case PHP ceiling/);
+  assert.match(source, /PHP memory ceiling/);
   assert.match(source, /Custom \/ drifted/);
   assert.match(source, /Settings differ from every preset/);
   assert.match(source, /\/api\/pool-presets\/preview/);
@@ -62,6 +62,28 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /poolPresetApplyPreview\.tiers/);
   assert.match(source, /change\.field/);
   assert.match(source, /Preset values changed after preview/);
+});
+
+test("runtime exposes per-profile worker-memory estimates and a capacity summary", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="poolCapacity"/);
+  assert.match(html, /id="poolPresetsEditor"/);
+  assert.match(source, /data-preset-field="estimated_memory_mb"/);
+  assert.match(source, /Estimated memory per worker/);
+  assert.match(source, /never written into PHP-FPM pool configuration/);
+  assert.match(source, /state\.status\?\.capacity\?\.guardrails/);
+  assert.match(source, /estimatedWorkerMemoryBytes/);
+  assert.match(source, /ceilingBytes/);
+  assert.match(source, /slotsPerCpu/);
+  assert.match(source, /fallbackPoolCount/);
+  assert.match(source, /fallbackMemoryMb/);
+  assert.match(source, /estimatedRatio/);
+  assert.match(server, /computeCapacitySummary/);
+  assert.match(server, /capacityGuardrails/);
+  assert.match(server, /estimated_memory_mb/);
+  assert.match(server, /WORKER_MEMORY_MIN_MB/);
 });
 
 test("runtime exposes a PHP-FPM audit history section", () => {

@@ -70,6 +70,10 @@ The panel provides:
   SQLite restore points
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
+- CPU-aware PHP-FPM capacity planning: per-profile worker-memory estimates,
+  worker slots, slots per CPU, estimated/RAM-ceiling summaries, and
+  healthy/warning/critical guardrails, with a conservative fallback for
+  custom/drifted pools
 - Manual-refresh server/container statistics, per-pool PHP usage, cache health,
   and selected-site NPM traffic summaries
 
