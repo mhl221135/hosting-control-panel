@@ -160,10 +160,21 @@ async function verifyPortsWithRetry(ports, {
   return [...ready].sort((a, b) => a - b);
 }
 
+function uniqueTempPath(filePath) {
+  return `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+}
+
 function atomicWriteFile(filePath, content, mode = 0o644) {
-  const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, content, { encoding: "utf8", mode });
-  fs.renameSync(temporary, filePath);
+  const temporary = uniqueTempPath(filePath);
+  try {
+    fs.writeFileSync(temporary, content, { encoding: "utf8", mode });
+    fs.renameSync(temporary, filePath);
+  } catch (error) {
+    try {
+      if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    } catch { /* best-effort temp cleanup */ }
+    throw error;
+  }
 }
 
 class AsyncLock {
@@ -213,15 +224,30 @@ class RuntimeConfigTransaction {
         this.backupFile(this.sitesMapPath, mapBefore);
         this.backupFile(this.poolsPath, poolsBefore);
       }
-      this.atomicWrite(this.sitesMapPath, renderedMap);
-      this.atomicWrite(this.poolsPath, renderedPools);
+      try {
+        this.atomicWrite(this.sitesMapPath, renderedMap);
+        this.atomicWrite(this.poolsPath, renderedPools);
+      } catch (writeError) {
+        let restoreError = "";
+        try {
+          this.atomicWrite(this.sitesMapPath, mapBefore);
+          this.atomicWrite(this.poolsPath, poolsBefore);
+        } catch (error) {
+          restoreError = String(error?.message || error).slice(0, 300);
+        }
+        throw Object.assign(writeError, {
+          rollback: restoreError ? "failed" : "succeeded",
+          rollbackError: restoreError,
+          statusCode: 500,
+        });
+      }
       const verifyPorts = opts.verifyPorts !== false;
       const portList = verifyPorts ? collectPoolPorts(poolsParsed) : [];
       let rollback = "not-required";
       try {
         await this.validate();
-        await this.reloadNginx();
         await this.reloadPhp();
+        await this.reloadNginx();
         if (verifyPorts && portList.length) await this.verifyPorts(portList);
       } catch (error) {
         let rollbackOutcome = "succeeded";
@@ -244,8 +270,8 @@ class RuntimeConfigTransaction {
     this.atomicWrite(this.sitesMapPath, mapBefore);
     this.atomicWrite(this.poolsPath, poolsBefore);
     await this.validate();
-    await this.reloadNginx();
     await this.reloadPhp();
+    await this.reloadNginx();
     await this.verifyPorts(collectPoolPorts(parsePools(poolsBefore)));
   }
 }
