@@ -38,6 +38,7 @@ const state = {
   exportPreview: null,
   importSources: [],
   importPreview: null,
+  poolPresetApplyPreview: null,
 };
 
 let imageOptimizationPollTimer = null;
@@ -3333,6 +3334,54 @@ $("#previewPoolPresets").addEventListener("click", async (event) => {
       ? `<strong>${result.affected.length} matching pool${result.affected.length === 1 ? "" : "s"} would change</strong>${result.affected.map((pool) => `<p><code>${escapeHtml(pool.name)}</code> · ${escapeHtml(pool.tier)} · ${pool.changes.length} setting${pool.changes.length === 1 ? "" : "s"}</p>`).join("")}<small>Preview only. Custom/drifted pools are preserved and no configuration was written.</small>`
       : "<strong>No existing matching pools would change.</strong><small>Custom/drifted pools are preserved and no configuration was written.</small>";
   } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#applyPoolPresets").addEventListener("click", async (event) => {
+  try {
+    const reviewedTiers = poolPresetDraft();
+    const result = await withButton(event.currentTarget, "Checking...", () => api("/api/pool-presets/apply/preview", {
+      method: "POST",
+      body: JSON.stringify({ tiers: reviewedTiers }),
+    }));
+    state.poolPresetApplyPreview = { tiers: reviewedTiers };
+    const box = $("#poolPresetApply");
+    box.classList.remove("hidden");
+    if (!result.affected.length) {
+      box.innerHTML = "<strong>No existing matching pools would change.</strong><small>Custom/drifted pools are preserved. Save profiles to affect future pools only.</small>";
+      return;
+    }
+    box.innerHTML = `<strong>Select pools to apply the reviewed profiles to</strong><div class="pool-apply-selection">${result.affected.map((pool) => `<label class="check"><input type="checkbox" data-apply-pool="${escapeHtml(pool.name)}" checked /><span><code>${escapeHtml(pool.name)}</code> · ${escapeHtml(pool.tier)}${pool.changes.map((change) => `<small><code>${escapeHtml(change.field)}</code>: ${escapeHtml(change.from || "unset")} → ${escapeHtml(change.to)}</small>`).join("")}</span></label>`).join("")}</div><small>Unselected matching pools keep their current settings and become Custom / drifted when the new profile definitions are saved.</small><label>Type <strong>APPLY</strong> to confirm<input id="poolPresetApplyConfirm" autocomplete="off" placeholder="APPLY" /></label><div class="button-row"><button id="confirmPoolPresetApply" type="button" disabled>Apply reviewed profiles</button></div><small>Backups of pool-presets.json, pools.conf, and sites.map are created. Configuration is validated with php-fpm -t, PHP-FPM is reloaded through the controlled action, and every pool port is verified. Any failure restores the previous configuration automatically.</small>`;
+    const confirmInput = $("#poolPresetApplyConfirm");
+    const applyButton = $("#confirmPoolPresetApply");
+    confirmInput.addEventListener("input", () => {
+      applyButton.disabled = confirmInput.value.trim() !== "APPLY";
+    });
+    applyButton.addEventListener("click", async (applyEvent) => {
+      const selectedPools = $$("[data-apply-pool]:checked").map((input) => input.dataset.applyPool);
+      if (!selectedPools.length) {
+        notice("Select at least one affected pool to apply", "warning");
+        return;
+      }
+      try {
+        if (!state.poolPresetApplyPreview) {
+          notice("Preset values changed after preview. Preview again before applying.", "warning");
+          return;
+        }
+        const applied = await withButton(applyButton, "Applying...", () => api("/api/pool-presets/apply", {
+          method: "POST",
+          body: JSON.stringify({ tiers: state.poolPresetApplyPreview.tiers, selected_pools: selectedPools, confirm: "APPLY" }),
+        }));
+        notice(applied.message || "PHP-FPM profiles applied.");
+        box.classList.add("hidden");
+        await loadData();
+      } catch (error) { notice(error.message, "warning"); }
+    });
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#poolPresetsEditor").addEventListener("input", () => {
+  state.poolPresetApplyPreview = null;
+  $("#poolPresetApply").classList.add("hidden");
 });
 
 $("#saveHosts").addEventListener("click", async (event) => {

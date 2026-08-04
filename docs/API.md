@@ -390,6 +390,8 @@ is returned as a partial job warning after local creation rather than rollback.
 | `GET /api/pool-presets` | reusable Low, Medium, and High PHP-FPM defaults |
 | `PUT /api/pool-presets` | validate and atomically save PHP-FPM defaults without changing existing pools |
 | `POST /api/pool-presets/preview` | validate proposed defaults and list matching existing pools that would change without writing configuration |
+| `POST /api/pool-presets/apply/preview` | validate proposed defaults and list affected pools plus preserved custom/drifted pools without writing configuration |
+| `POST /api/pool-presets/apply` | require `APPLY` and `selected_pools`; back up presets/pools/sites.map, validate with `php-fpm -t`, reload through the controlled action, verify every pool port, and roll back automatically on failure |
 | `POST /api/validate` | nginx and PHP-FPM configuration tests |
 | `POST /api/actions/:action` | allowlisted reload/OPcache actions; PHP-FPM reload verifies every configured pool port |
 
