@@ -383,6 +383,15 @@ skipped rather than force-deleted.
 Runtime is the low-level configuration editor. Prefer Sites and Provision for
 normal work; use Runtime for diagnosis and manual correction.
 
+Every pool change in Runtime (and pool creation from Sites/Provision/imports)
+is committed through a serialized, verified runtime transaction: the panel
+writes both runtime files atomically, validates nginx and PHP-FPM, reloads
+both, and verifies that every configured PHP-FPM port accepts a TCP connection
+before reporting success. If any step fails it restores the prior files,
+reloads them, and reports a distinct rollback outcome. There is no new
+Runtime control to learn; these guarantees protect the existing save/preview/
+apply and pool/host controls.
+
 | Control | Function |
 | --- | --- |
 | **Validate** | Runs nginx and PHP-FPM configuration validation without reloading services. |

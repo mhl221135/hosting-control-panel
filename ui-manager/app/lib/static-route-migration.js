@@ -5,6 +5,7 @@ const {
   renderSitesMap,
   sanitizeSectionName,
 } = require("./runtime-config");
+const { allocatePort } = require("./runtime-transaction");
 
 const STATIC_GATE_MARKER = "# Managed static-route isolation.";
 
@@ -39,10 +40,7 @@ function migrateStaticRoutes({
   const reclassified = [];
   const recoveredPools = [];
 
-  let nextPort = Math.max(
-    9000,
-    ...Object.values(pools.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger),
-  ) + 1;
+  const usedPorts = Object.values(pools.sections).map((pool) => Number(pool.listen));
   for (const domain of staticDomains.filter((item) => legacyPhp.has(item))) {
     const route = map.hosts[domain];
     if (!route?.root) {
@@ -52,7 +50,8 @@ function migrateStaticRoutes({
     const routes = Object.values(map.hosts).filter((candidate) => candidate.root === route.root);
     let port = routes.find((candidate) => candidate.phpEnabled !== false && candidate.port)?.port || null;
     if (!port) {
-      port = nextPort++;
+      port = allocatePort(usedPorts);
+      usedPorts.push(port);
       const poolName = sanitizeSectionName(domain);
       if (pools.sections[poolName]) throw new Error(`Cannot recover PHP route ${domain}: pool ${poolName} already exists`);
       pools.sections[poolName] = {

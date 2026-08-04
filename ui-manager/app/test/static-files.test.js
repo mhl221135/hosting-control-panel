@@ -105,3 +105,15 @@ test("runtime exposes a PHP-FPM audit history section", () => {
   assert.match(server, /error\.rollbackStatus \|\| "not-required"/);
   assert.match(server, /throw error/);
 });
+
+test("all php pool mutations route through the shared runtime transaction", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /require\("\.\/lib\/runtime-transaction"\)/);
+  assert.match(server, /new RuntimeConfigTransaction/);
+  assert.match(server, /runtimeTxn\.commit/);
+  assert.match(server, /runtimeTxn\.rollback/);
+  assert.match(server, /verifyPortsWithRetry/);
+  assert.match(server, /allocatePort/);
+  assert.match(server, /runtimeTxn\.lock\.runExclusive/);
+  assert.doesNotMatch(server, /function writeConfigs/);
+});

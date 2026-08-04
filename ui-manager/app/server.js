@@ -33,6 +33,7 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
+const { RuntimeConfigTransaction, allocatePort, verifyPortsWithRetry } = require("./lib/runtime-transaction");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
@@ -339,6 +340,24 @@ const provisioningVault = new OneTimeVault({
   dataDir: DATA_DIR,
   ttlHours: process.env.PROVISION_CREDENTIAL_TTL_HOURS || 24,
 });
+const runtimeTxn = new RuntimeConfigTransaction({
+  sitesMapPath: SITES_MAP_PATH,
+  poolsPath: POOLS_PATH,
+  backupFile: (filePath, content) => backupFile(filePath, content),
+  validate: async () => {
+    await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
+  },
+  reloadNginx: async () => {
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+  },
+  reloadPhp: async () => {
+    await execCommand("docker exec hosting-php-fpm sh -c 'kill -USR2 1'");
+  },
+  verifyPorts: async (ports) => verifyPortsWithRetry(
+    ports,
+    { host: process.env.PHP_FPM_HOST || "hosting-php-fpm" },
+  ),
+});
 const migrationManager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
@@ -351,6 +370,7 @@ const migrationManager = new MigrationManager({
   npm,
   cloudflare,
   siteState,
+  runtimeTransaction: runtimeTxn,
 });
 jobManager.register("sites.export", async (context, payload) =>
   backupManager.withLock({ type: "export", label: "Portable website export" }, async () => {
@@ -1238,8 +1258,7 @@ async function executeSiteRemoval(domain, selected, jobContext = null) {
         delete poolsParsed.sections[plan.pool.name];
         poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((name) => name !== plan.pool.name);
       }
-      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-      await validateAndReload(mapBefore, poolsBefore);
+      await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
       record({ name: "runtime", status: "complete", count: plan.targetDomains.length });
       if (selected.pool) record({ name: "pool", status: "complete", count: 1 });
     }
@@ -1457,8 +1476,8 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   let poolName = "";
   const root = `/var/www/${directory}`;
   if (adapter.php) {
-    const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
-    port = Math.max(9000, ...usedPorts) + 1;
+    const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen));
+    port = allocatePort(usedPorts);
     poolName = sanitizeSectionName(domain);
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
@@ -1491,9 +1510,8 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     };
   }
 
-  writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+  await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
   const steps = [];
-  await validateAndReload(mapBefore, poolsBefore);
   steps.push({ name: "runtime", status: "complete" });
   jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
   let database = null;
@@ -1541,11 +1559,11 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       if (database) {
         await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
       }
-      fs.writeFileSync(SITES_MAP_PATH, mapBefore, "utf8");
-      fs.writeFileSync(POOLS_PATH, poolsBefore, "utf8");
-      await validateAndReload().catch((recoveryError) => {
+      try {
+        await runtimeTxn.rollback({ mapBefore, poolsBefore });
+      } catch (recoveryError) {
         error.message += `; runtime recovery failed: ${recoveryError.message}`;
-      });
+      }
       fs.rmSync(sitePath, { recursive: true, force: true });
       throw error;
     }
@@ -1688,13 +1706,6 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
     }],
   };
 });
-
-function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
-  backupFile(SITES_MAP_PATH, mapBefore);
-  backupFile(POOLS_PATH, poolsBefore);
-  fs.writeFileSync(SITES_MAP_PATH, renderSitesMap(mapParsed), "utf8");
-  fs.writeFileSync(POOLS_PATH, renderPools(poolsParsed), "utf8");
-}
 
 async function handleApi(req, res) {
   const requestUrl = new URL(req.url, "http://ui-manager.local");
@@ -2769,7 +2780,7 @@ async function handleApi(req, res) {
         return true;
       }
       setPoolOpcache(pool.settings, body.opcache);
-      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+      await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } });
       opcacheChanged = true;
     }
     const state = siteState.update(domain, {
@@ -2784,9 +2795,9 @@ async function handleApi(req, res) {
     if (
       typeof body.fastcgi_cache === "boolean" ||
       typeof body.redis === "boolean" ||
-      typeof body.opcache === "boolean"
+      (typeof body.opcache === "boolean" && !opcacheChanged)
     ) {
-      await validateAndReload(opcacheChanged ? mapBefore : null, opcacheChanged ? poolsBefore : null);
+      await validateAndReload();
     }
     sendJson(res, 200, { ok: true, state });
     return true;
@@ -3198,7 +3209,7 @@ async function handleApi(req, res) {
       changedFields,
     });
     try {
-      const result = await applyPoolPresetPlan({ ...plan, payload: proposed }, {
+      const result = await runtimeTxn.lock.runExclusive(() => applyPoolPresetPlan({ ...plan, payload: proposed }, {
         poolsPath: POOLS_PATH,
         presetsPath: PRESETS_PATH,
         sitesMapPath: SITES_MAP_PATH,
@@ -3214,7 +3225,7 @@ async function handleApi(req, res) {
           if (!result.ok) throw new Error(result.message);
         },
         verifyPorts: async () => verifyPhpPoolPorts(),
-      });
+      }));
       tryRecordPhpFpmAudit(() => ({
         operation: "apply",
         status: "success",
@@ -3323,8 +3334,7 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: "Pool updated" });
     return true;
   }
@@ -3412,8 +3422,7 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} pool rows` });
     return true;
   }
@@ -3447,8 +3456,7 @@ async function handleApi(req, res) {
     delete poolsParsed.sections[name];
     poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((n) => n !== name);
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: `Removed pool ${name}` });
     return true;
   }
@@ -3563,8 +3571,7 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} host rows` });
     return true;
   }
@@ -3653,8 +3660,7 @@ async function handleApi(req, res) {
       if (!poolsParsed.sectionOrder.includes(sectionName)) poolsParsed.sectionOrder.push(sectionName);
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: "Host updated" });
     return true;
   }
@@ -3684,8 +3690,7 @@ async function handleApi(req, res) {
       poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((s) => s !== secName);
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed });
     sendJson(res, 200, { ok: true, message: `Removed ${host}` });
     return true;
   }

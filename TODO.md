@@ -667,10 +667,27 @@ custom/drifted pools as preserved. Preview validation performs no writes.
 Manual PHP-FPM reloads now connect to every configured pool port before the
 panel reports success.
 
-- Extend port verification to every configuration mutation that can allocate a
-  new listen port, with rollback if verification fails.
 - Extend API validation, responsive UI coverage, tests, and operations/UI
   documentation to every remaining configuration mutation.
+
+Every runtime map/pool mutation now runs through a shared, serialized, verified
+transaction in `lib/runtime-transaction.js` (`RuntimeConfigTransaction`). It
+captures `sites.map`/`pools.conf` before mutating, rejects stale previewed
+state and invalid models (out-of-range/duplicate/invalid ports, upstream/pool
+mismatches, missing pools, duplicate sections), writes both files atomically
+(temp-file + rename with timestamped backups), validates nginx + PHP-FPM,
+reloads PHP-FPM and nginx, and verifies every configured pool port with bounded
+retries before reporting success. On any failure it restores and re-validates/
+reloads/verifies the prior files and reports a distinct rollback outcome
+(`not-required`/`succeeded`/`failed`). Pool creation and reclassification use a
+gap-aware `allocatePort` that handles gaps, malformed existing ports, upper
+bound-exhaustion, and concurrent allocation under the transaction lock. This
+covers `POST /api/pools/upsert`, `POST /api/pools/bulk-upsert`,
+`POST /api/hosts/upsert` and `/api/sites/upsert` when they create a pool, fresh
+WordPress/Generic-PHP/OpenCart provisioning, MigrationManager portable and
+provisioning imports, opcache changes, site removal, and static-route
+reclassification/recovery. Preset apply keeps its own existing port
+verification and is serialized under the same lock.
 
 The Runtime workspace now offers CPU-aware capacity planning and per-profile
 worker-memory estimates. Each profile stores a validated estimated memory per
