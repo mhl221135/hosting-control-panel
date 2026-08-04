@@ -46,6 +46,7 @@ into dedicated directories.
   files, database, NPM, certificate, Cloudflare DNS, panel state, and backups
 - Nginx/PHP validation and graceful reload controls
 - Runtime logs and service actions
+- Bounded atomic PHP-FPM profile audit history (save, preview, apply, and rollback outcome) with a read-only Runtime viewer
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest

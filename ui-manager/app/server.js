@@ -33,6 +33,7 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
+const { PhpFpmAudit } = require("./lib/php-fpm-audit");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
@@ -164,6 +165,7 @@ const billingEntitlementObserver = new BillingEntitlementObserver({
     return getSitesWithPools(mapParsed, poolsParsed);
   },
 });
+const phpFpmAudit = new PhpFpmAudit({ dataDir: DATA_DIR });
 const billingEnforcementManager = new BillingEnforcementManager({
   dataDir: DATA_DIR,
   mapPath: BILLING_ENFORCEMENT_MAP_PATH,
@@ -578,6 +580,35 @@ function previewPoolPresetChanges(payload) {
     });
     return changes.length ? [{ name, tier, changes }] : [];
   });
+}
+
+function tryRecordPhpFpmAudit(build) {
+  try {
+    const event = build();
+    if (!event) return null;
+    return phpFpmAudit.record(event);
+  } catch (auditError) {
+    console.error(`PHP-FPM audit record failed: ${auditError.message}`);
+    return null;
+  }
+}
+
+function profileDiff(before, after) {
+  const profiles = [];
+  const changedFields = [];
+  for (const name of ["low", "medium", "high"]) {
+    const previous = before[name] || {};
+    const proposed = after[name] || {};
+    const changed = Object.keys(proposed).filter((key) => (
+      previous[key] === undefined
+        ? proposed[key] !== undefined
+        : String(previous[key]) !== String(proposed[key])
+    ));
+    if (!changed.length) continue;
+    profiles.push(name);
+    changedFields.push(...changed);
+  }
+  return { profiles, changedFields };
 }
 
 function normalizeTier(tier, presets = readPoolPresets()) {
@@ -3028,13 +3059,27 @@ async function handleApi(req, res) {
 
   if (req.method === "PUT" && req.url === "/api/pool-presets") {
     const body = JSON.parse((await readBody(req)) || "{}");
-    writePoolPresets(body.tiers || {});
+    const current = readPoolPresets();
+    const proposed = validatePoolPresets(body.tiers || {}, current);
+    writePoolPresets(proposed);
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
     if (!normalizeTier(defaults.default_tier, presets)) {
       defaults.default_tier = "medium";
       writeDefaultPool(defaults);
     }
+    tryRecordPhpFpmAudit(() => {
+      const { profiles, changedFields } = profileDiff(current, proposed);
+      return {
+        operation: "save",
+        status: "success",
+        result: "ok",
+        rollback: "not-required",
+        operator: req.auth.email,
+        profiles,
+        changedFields,
+      };
+    });
     sendJson(res, 200, { ok: true, tiers: presets });
     return true;
   }
@@ -3042,6 +3087,15 @@ async function handleApi(req, res) {
   if (req.method === "POST" && req.url === "/api/pool-presets/preview") {
     const body = JSON.parse((await readBody(req)) || "{}");
     const affected = previewPoolPresetChanges(body.tiers || {});
+    tryRecordPhpFpmAudit(() => ({
+      operation: "preview",
+      status: "success",
+      result: "ok",
+      rollback: "not-required",
+      operator: req.auth.email,
+      profiles: profileDiff(readPoolPresets(), validatePoolPresets(body.tiers || {})).profiles,
+      affectedPools: affected.map((pool) => pool.name),
+    }));
     sendJson(res, 200, { ok: true, affected, customPoolsPreserved: true });
     return true;
   }
@@ -3052,6 +3106,15 @@ async function handleApi(req, res) {
     const proposed = validatePoolPresets(body.tiers || {}, current);
     const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
     const { affected, customPools } = previewPoolPresetApply(proposed, poolsContent, current);
+    tryRecordPhpFpmAudit(() => ({
+      operation: "preview",
+      status: "success",
+      result: "ok",
+      rollback: "not-required",
+      operator: req.auth.email,
+      profiles: profileDiff(current, proposed).profiles,
+      affectedPools: affected.map((pool) => pool.name),
+    }));
     sendJson(res, 200, { ok: true, affected, customPools, customPoolsPreserved: true });
     return true;
   }
@@ -3070,24 +3133,61 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: "Select at least one affected pool to apply" });
       return true;
     }
-    const result = await applyPoolPresetPlan({ ...plan, payload: proposed }, {
-      poolsPath: POOLS_PATH,
-      presetsPath: PRESETS_PATH,
-      sitesMapPath: SITES_MAP_PATH,
-      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
-      writeFile: (filePath, content) => fs.writeFileSync(filePath, content, "utf8"),
-      renameFile: (from, to) => fs.renameSync(from, to),
-      backupFile: (filePath, content) => backupFile(filePath, content),
-      validateConfig: async () => {
-        await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
-      },
-      reloadPhp: async () => {
-        const result = await execAction("reload_php");
-        if (!result.ok) throw new Error(result.message);
-      },
-      verifyPorts: async () => verifyPhpPoolPorts(),
+    const selectedPoolNames = plan.selected.map((pool) => pool.name);
+    const changedFields = [...new Set(plan.selected.flatMap((pool) => (
+      (pool.changes || []).map((change) => change.field)
+    )))];
+    const profiles = [...new Set(plan.selected.map((pool) => pool.tier).filter(Boolean))];
+    const auditContext = () => ({
+      operator: req.auth.email,
+      selectedPools: selectedPoolNames,
+      profiles,
+      changedFields,
     });
-    sendJson(res, 200, { ok: true, ...result, message: `Applied PHP-FPM profiles to ${result.applied.length} pool(s)` });
+    try {
+      const result = await applyPoolPresetPlan({ ...plan, payload: proposed }, {
+        poolsPath: POOLS_PATH,
+        presetsPath: PRESETS_PATH,
+        sitesMapPath: SITES_MAP_PATH,
+        readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+        writeFile: (filePath, content) => fs.writeFileSync(filePath, content, "utf8"),
+        renameFile: (from, to) => fs.renameSync(from, to),
+        backupFile: (filePath, content) => backupFile(filePath, content),
+        validateConfig: async () => {
+          await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
+        },
+        reloadPhp: async () => {
+          const result = await execAction("reload_php");
+          if (!result.ok) throw new Error(result.message);
+        },
+        verifyPorts: async () => verifyPhpPoolPorts(),
+      });
+      tryRecordPhpFpmAudit(() => ({
+        operation: "apply",
+        status: "success",
+        result: "applied",
+        rollback: "not-required",
+        ...auditContext(),
+      }));
+      sendJson(res, 200, { ok: true, ...result, message: `Applied PHP-FPM profiles to ${result.applied.length} pool(s)` });
+    } catch (error) {
+      tryRecordPhpFpmAudit(() => ({
+        operation: "apply",
+        status: "failed",
+        result: "failed",
+        rollback: error.rollbackError ? "failed" : "succeeded",
+        error: error.message,
+        ...auditContext(),
+      }));
+      throw error;
+    }
+    return true;
+  }
+
+  if (req.method === "GET" && req.url === "/api/pool-presets/audit") {
+    const requested = Number(new URL(req.url, "http://panel").searchParams.get("limit") || 100);
+    const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
+    sendJson(res, 200, { ok: true, events: phpFpmAudit.recent(limit) });
     return true;
   }
 

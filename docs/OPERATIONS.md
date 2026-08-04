@@ -323,6 +323,20 @@ select **Images daily** on each intended primary website. The scheduler runs onc
 per local calendar day after the configured time and defers while the shared
 operation lock is occupied.
 
+### PHP-FPM profile audit history
+
+Successful profile saves and applies, failed applies after execution begins, and
+non-mutating previews are recorded in
+`app-data/ui-manager/php-fpm-audit.json`. The log is bounded to 250 events by
+default (drop the youngest outside the window is automatic), written atomically,
+and safely tolerates a missing or corrupted file by starting fresh. View it from
+Runtime's **PHP-FPM audit history** section or `GET /api/pool-presets/audit`.
+Entries store only timestamps, operator, operation, pool/profile names, changed
+field names, result/rollback status, and a bounded redacted error summary; they
+never store passwords, tokens, environment values, website contents, full
+configuration files, customer data, or request headers, so the file is not a
+secret store and no dedicated rotation is required beyond the bounded retention.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

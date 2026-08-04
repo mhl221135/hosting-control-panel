@@ -671,9 +671,17 @@ panel reports success.
   the current warning intentionally uses the configured PHP memory ceiling.
 - Extend port verification to every configuration mutation that can allocate a
   new listen port, with rollback if verification fails.
-- Add audit history for preset apply operations.
 - Extend API validation, responsive UI coverage, tests, and operations/UI
   documentation to every remaining configuration mutation.
+
+The Runtime workspace now records bounded, atomic, sanitized audit history for
+profile saves, previews, and applies (including failed applies after execution
+begins and their rollback outcome) in `app-data/ui-manager/php-fpm-audit.json`.
+A read-only authenticated API (`GET /api/pool-presets/audit`) and a Runtime
+audit-history section with expandable safe details and a refresh button are
+implemented. Audit failures never hide the original apply error, and entries
+never store passwords, tokens, environment values, website contents, full
+configuration files, customer data, or request headers.
 
 ## Cross-Cutting Delivery Rules
 

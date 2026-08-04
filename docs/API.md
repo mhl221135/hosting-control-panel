@@ -392,8 +392,21 @@ is returned as a partial job warning after local creation rather than rollback.
 | `POST /api/pool-presets/preview` | validate proposed defaults and list matching existing pools that would change without writing configuration |
 | `POST /api/pool-presets/apply/preview` | validate proposed defaults and list affected pools plus preserved custom/drifted pools without writing configuration |
 | `POST /api/pool-presets/apply` | require `APPLY` and `selected_pools`; back up presets/pools/sites.map, validate with `php-fpm -t`, reload through the controlled action, verify every pool port, and roll back automatically on failure |
+| `GET /api/pool-presets/audit` | read-only bounded recent PHP-FPM profile save/preview/apply audit events (optional `limit`, capped at 250) |
 | `POST /api/validate` | nginx and PHP-FPM configuration tests |
 | `POST /api/actions/:action` | allowlisted reload/OPcache actions; PHP-FPM reload verifies every configured pool port |
+
+Successful profile saves and successful pool applications are recorded as
+mutating audit events. Failed applies after execution begins are recorded with
+their rollback outcome (`not-required`, `succeeded`, or `failed`). Read-only
+previews are recorded as non-mutating events. Audit entries contain the
+timestamp, operator, operation, selected/affected pool names, profile names,
+changed field names, result/rollback status, and a bounded redacted error
+summary. They never contain passwords, tokens, environment values, website
+contents, full configuration files, customer data, or request headers. The
+audit store is bounded (250 events by default), written atomically, and
+tolerates missing, empty, or corrupted state. `GET /api/pool-presets/audit`
+requires only a valid session (no CSRF token for a read-only GET).
 
 ## Adding Or Changing Routes
 

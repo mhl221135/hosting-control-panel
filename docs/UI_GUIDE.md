@@ -396,7 +396,17 @@ normal work; use Runtime for diagnosis and manual correction.
 | **Custom / drifted** | Marks pools that no longer match a preset. Saving other pool rows preserves their current settings; selecting a named profile replaces them. |
 | **Save pools** | Validates and writes the complete PHP-FPM pool model. |
 | **Save routes** | Validates and writes internal host, alias, document-root, pool, and canonical-route mappings. |
+| **PHP-FPM audit history** | Lists recent profile saves, previews, and applies with operation, operator, time, status, and selected-pool count. Each row has expandable **Safe details** showing profile names, selected/affected pools, changed field names, and the rollback outcome. A **Refresh** button reloads the events. Empty and error states are shown when there is no history or the list cannot load. |
 | **Refresh logs** | Reloads the bounded PHP-FPM log tail. |
+
+The audit history is read-only and bounded (250 events by default). Successful
+saves and applies, failed applies after execution begins (with their rollback
+outcome: not required, succeeded, or failed), and non-mutating preview events
+are retained. Entries never expose passwords, tokens, environment values,
+website contents, full configuration files, customer data, or request headers,
+and an audit-recording failure never hides the original apply error. The
+history refreshes automatically when the Runtime tab opens and on demand with
+**Refresh**.
 
 Manual route or pool changes can affect every site. Export or back up the
 current configuration before large edits.
