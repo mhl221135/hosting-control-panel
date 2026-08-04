@@ -5,6 +5,7 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   AsyncLock,
+  DirectoryLock,
   RuntimeConfigTransaction,
   allocatePort,
   atomicWriteFile: atomicWriteFileBuiltin,
@@ -52,8 +53,9 @@ function makeTxn(dir, overrides = {}) {
 function addPool(mapParsed, poolsParsed, name, port) {
   poolsParsed.sections[name] = { listen: String(port), pm: "ondemand", "pm.max_children": "2" };
   poolsParsed.sectionOrder.push(name);
-  mapParsed.hosts[name] = {
-    host: name, root: `/var/www/${name}`, port, upstream: `hosting-php-fpm:${port}`, phpEnabled: true, canonicalTo: "",
+  const host = name.replace(/_/g, ".");
+  mapParsed.hosts[host] = {
+    host, root: `/var/www/${host}`, port, upstream: `hosting-php-fpm:${port}`, phpEnabled: true, canonicalTo: "",
   };
   return { mapParsed, poolsParsed };
 }
@@ -72,7 +74,7 @@ test("single pool creation commits files atomically and verifies ports", async (
     assert.equal(calls.reloadPhp, 1);
     assert.deepEqual(calls.verified[0], [9000, 9001]);
     assert.match(fs.readFileSync(poolsPath, "utf8"), /\[newsite_com\]/);
-    assert.match(fs.readFileSync(mapPath, "utf8"), /newsite_com/);
+    assert.match(fs.readFileSync(mapPath, "utf8"), /newsite\.com/);
     assert.ok(calls.backups >= 2);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -108,11 +110,11 @@ test("validation rejects out-of-range, duplicate, missing-pool, and mismatched u
     assert.throws(() => validateRuntimeModel(parseSitesMap(mapBefore), dup), /Duplicate listen port/);
 
     const missingPool = cloneMap(parseSitesMap(mapBefore));
-    missingPool.hosts.ghost = { host: "ghost", root: "/srv/ghost", port: 9001, upstream: "hosting-php-fpm:9001", phpEnabled: true, canonicalTo: "" };
+    missingPool.hosts["ghost.example"] = { host: "ghost.example", root: "/var/www/ghost.example", port: 9001, upstream: "hosting-php-fpm:9001", phpEnabled: true, canonicalTo: "" };
     assert.throws(() => validateRuntimeModel(missingPool, parsePools(poolsBefore)), /missing pool port/);
 
     const mismatch = cloneMap(parseSitesMap(mapBefore));
-    mismatch.hosts.ghost = { host: "ghost", root: "/srv/ghost", port: 9000, upstream: "hosting-php-fpm:9999", phpEnabled: true, canonicalTo: "" };
+    mismatch.hosts["ghost.example"] = { host: "ghost.example", root: "/var/www/ghost.example", port: 9000, upstream: "hosting-php-fpm:9999", phpEnabled: true, canonicalTo: "" };
     assert.throws(() => validateRuntimeModel(mismatch, parsePools(poolsBefore)), /disagrees/);
 
     const dupSection = clonePools(parsePools(poolsBefore));
@@ -121,6 +123,20 @@ test("validation rejects out-of-range, duplicate, missing-pool, and mismatched u
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("parser preserves evidence of duplicate pool sections and map entries", () => {
+  const pools = parsePools("[www]\nlisten = 9000\n\n[www]\nlisten = 9001\n");
+  assert.deepEqual(pools.duplicateSections, ["www"]);
+  assert.throws(() => validateRuntimeModel(parseSitesMap(SAMPLE_MAP), pools), /Duplicate PHP-FPM pool sections/);
+
+  const duplicatedMap = SAMPLE_MAP.replace(
+    "  default /var/www/_default;",
+    "  default /var/www/_default;\n  duplicate.example /var/www/one;\n  duplicate.example /var/www/two;",
+  );
+  const parsedMap = parseSitesMap(duplicatedMap);
+  assert.deepEqual(parsedMap.duplicateEntries, ["duplicate.example"]);
+  assert.throws(() => validateRuntimeModel(parsedMap, parsePools("[www]\nlisten = 9000\n")), /Duplicate host entries/);
 });
 
 test("validation failure before reload leaves files unchanged and reports rollback", async () => {
@@ -241,9 +257,7 @@ test("stale source state is rejected before committing", async () => {
     addPool(mapParsed, poolsParsed, "newsite_com", 9001);
     fs.writeFileSync(poolsPath, "[www]\nlisten = 9000\n\n[other]\nlisten = 9009\n", "utf8");
     await assert.rejects(
-      txn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, {
-        expectBefore: { map: mapBefore, pools: poolsBefore },
-      }),
+      txn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
       /changed after preview/,
     );
   } finally {
@@ -324,6 +338,41 @@ test("AsyncLock serializes mutations", async () => {
     lock.runExclusive(async () => { order.push("b"); }),
   ]);
   assert.deepEqual(order, ["a", "a2", "b"]);
+});
+
+test("DirectoryLock serializes independent lock instances sharing a directory", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "txn-dirlock-"));
+  try {
+    const lockPath = path.join(dir, "runtime.lock");
+    const first = new DirectoryLock(lockPath, { retryMs: 2, timeoutMs: 1000 });
+    const second = new DirectoryLock(lockPath, { retryMs: 2, timeoutMs: 1000 });
+    const order = [];
+    await Promise.all([
+      first.runExclusive(async () => { order.push("a"); await new Promise((resolve) => setTimeout(resolve, 20)); order.push("a2"); }),
+      second.runExclusive(async () => { order.push("b"); }),
+    ]);
+    assert.deepEqual(order, ["a", "a2", "b"]);
+    assert.equal(fs.existsSync(lockPath), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("rollback refuses to overwrite runtime state changed after activation", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "txn-safe-rollback-"));
+  try {
+    const { txn, mapPath, poolsPath, mapBefore, poolsBefore } = makeTxn(dir);
+    fs.writeFileSync(poolsPath, "[www]\nlisten = 9000\n\n[new]\nlisten = 9001\n", "utf8");
+    await assert.rejects(txn.rollback({
+      mapBefore,
+      poolsBefore,
+      expectCurrent: { map: mapBefore, pools: "different" },
+    }), /changed after activation/);
+    assert.match(fs.readFileSync(poolsPath, "utf8"), /\[new\]/);
+    assert.equal(fs.readFileSync(mapPath, "utf8"), mapBefore);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("MigrationManager configureRuntime uses shared allocator and returns model for transaction", () => {

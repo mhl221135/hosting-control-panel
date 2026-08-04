@@ -70,7 +70,7 @@ The panel provides:
   SQLite restore points
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
-- Serialized, rollback-safe runtime transactions for every PHP-FPM pool
+- Cross-process serialized, rollback-safe runtime transactions for every PHP-FPM pool
   mutation: atomic map/pool writes, nginx/PHP validation, controlled reloads,
   verified port activation with bounded retries, gap-aware port allocation, and
   distinct rollback outcomes

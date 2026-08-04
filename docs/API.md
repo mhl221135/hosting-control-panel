@@ -426,7 +426,9 @@ requires only a valid session (no CSRF token for a read-only GET).
 
 Every operation that creates or changes a PHP-FPM pool/listen port runs through
 the shared `RuntimeConfigTransaction` (`lib/runtime-transaction.js`), which
-serializes map/pool writes, captures `sites.map`/`pools.conf` before mutating,
+serializes map/pool writes across the panel and one-shot CLI containers through
+the shared `app-data/ui-manager/runtime-config.lock` directory, captures
+`sites.map`/`pools.conf` before mutating,
 rejects stale previewed state and invalid models, writes both files atomically
 with timestamped backups, validates nginx + PHP-FPM, reloads PHP-FPM and nginx,
 verifies every configured pool port with bounded retries, and rolls back to the
@@ -438,7 +440,8 @@ unless restored files were validated, reloaded, and verified. Partial writes
 (when one file is written but the next fails) restore both captured files
 before reporting. Request bodies for the pool/host/preset routes are parsed
 through a guarded helper (`readJsonBody`) that rejects non-object bodies,
-prototype-pollution keys (`__proto__`/`constructor`/`prototype`), oversized or
+prototype-pollution keys (`__proto__`/`constructor`/`prototype`), excessively
+deep, oversized or
 unknown structures, and returns bounded errors; field-level validation
 (`lib/runtime-validation.js`) rejects malformed hosts, unsafe document roots,
 non-integer/out-of-range ports, invalid tiers/process managers, and unsupported

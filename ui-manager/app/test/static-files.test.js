@@ -142,7 +142,7 @@ test("runtime exposes a bounded runtime-configuration audit history", () => {
   assert.match(source, /runtimeConfigAuditCountLabel/);
   assert.match(source, /escapeHtml\(event\.category\)/);
   assert.match(server, /requestUrl\.pathname === "\/api\/runtime-config\/audit"/);
-  assert.match(server, /runtimeConfigAudit\.recent\(limit\)/);
+  assert.match(server, /runtimeConfigAudit\.recent\(limit, category\)/);
   assert.match(server, /commitRuntimeConfig\(/);
 });
 

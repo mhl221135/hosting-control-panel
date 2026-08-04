@@ -4,6 +4,7 @@ const MAX_HOST_LENGTH = 253;
 const MAX_NAME_LENGTH = 200;
 const MAX_ROOT_LENGTH = 500;
 const MAX_BODY_ELEMENTS = 10000;
+const MAX_BODY_DEPTH = 20;
 
 function validationError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -15,38 +16,37 @@ function isPlainObject(value) {
 
 const POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-function hasPollutionKey(value, path = "$") {
-  if (Array.isArray(value)) {
-    for (let index = 0; index < value.length; index += 1) {
-      if (hasPollutionKey(value[index], `${path}[${index}]`)) return true;
+function hasPollutionKey(value) {
+  const stack = [value];
+  while (stack.length) {
+    const current = stack.pop();
+    if (!current || typeof current !== "object") continue;
+    for (const key of Object.keys(current)) {
+      if (POLLUTION_KEYS.has(key)) return true;
+      if (current[key] && typeof current[key] === "object") stack.push(current[key]);
     }
-    return false;
-  }
-  if (!isPlainObject(value)) return false;
-  for (const key of Object.keys(value)) {
-    if (POLLUTION_KEYS.has(key)) return true;
-    if (value[key] && typeof value[key] === "object" && hasPollutionKey(value[key], `${path}.${key}`)) return true;
   }
   return false;
 }
 
 // Guards against prototype-pollution and overly deep/large structures. Returns
 // the original object when safe; throws a bounded error otherwise.
-function guardBody(body, { maxKeys = MAX_BODY_ELEMENTS } = {}) {
+function guardBody(body, { maxKeys = MAX_BODY_ELEMENTS, maxDepth = MAX_BODY_DEPTH } = {}) {
   if (body === undefined || body === null) return {};
   if (!isPlainObject(body)) throw validationError("Request body must be a JSON object", 400);
   let count = 0;
-  const countDeep = (value) => {
-    if (value === null || typeof value !== "object") return;
+  const stack = [{ value: body, depth: 0 }];
+  while (stack.length) {
+    const { value, depth } = stack.pop();
+    if (value === null || typeof value !== "object") continue;
+    if (depth > maxDepth) throw validationError("Request structure is too deep", 400);
     count += 1;
     if (count > maxKeys) throw validationError("Request structure is too large", 400);
     for (const key of Object.keys(value)) {
       if (POLLUTION_KEYS.has(key)) throw validationError("Unsupported request key", 400);
-      countDeep(value[key]);
+      stack.push({ value: value[key], depth: depth + 1 });
     }
-  };
-  countDeep(body);
-  if (hasPollutionKey(body)) throw validationError("Unsupported request key", 400);
+  }
   return body;
 }
 
@@ -85,7 +85,9 @@ function documentRoot(value, { label = "root" } = {}) {
   const raw = String(value ?? "").trim();
   if (!raw) throw validationError(`${label} is required`, 400);
   if (raw.length > MAX_ROOT_LENGTH) throw validationError(`${label} is too long`, 400);
-  if (raw.includes("..")) throw validationError(`${label} contains path traversal`, 400);
+  if (/[\r\n\0\\]/.test(raw) || raw.split("/").includes("..")) {
+    throw validationError(`${label} contains unsafe path characters`, 400);
+  }
   if (!raw.startsWith("/var/www/")) throw validationError(`${label} must be under /var/www`, 400);
   return raw;
 }
@@ -138,6 +140,46 @@ function durationSeconds(value, { label = "duration", min = 1, max = 3600 } = {}
   return `${parsed}s`;
 }
 
+function optionalHostname(value) {
+  const raw = String(value ?? "").trim();
+  return raw ? validHostname(raw) : "";
+}
+
+const POOL_SETTING_KEYS = new Set([
+  "tier", "user", "group", "pm", "max_children", "start_servers",
+  "min_spare_servers", "max_spare_servers", "process_idle_timeout",
+  "max_requests", "request_terminate_timeout", "open_basedir",
+]);
+
+function poolSettings(value) {
+  if (value === undefined || value === null) return {};
+  if (!isPlainObject(value)) throw validationError("Pool settings must be an object", 400);
+  rejectUnknownKeys(value, POOL_SETTING_KEYS, "pool settings");
+  const result = { ...value };
+  if (result.tier !== undefined) result.tier = boundedSlug(result.tier, { label: "tier", max: 20 }).toLowerCase();
+  for (const field of ["user", "group"]) {
+    if (result[field] !== undefined) result[field] = boundedSlug(result[field], { label: field, max: 64 });
+  }
+  if (result.pm !== undefined) result.pm = processManager(result.pm);
+  for (const field of ["max_children", "start_servers", "min_spare_servers", "max_spare_servers"]) {
+    if (result[field] !== undefined) result[field] = String(boundedInteger(result[field], { min: 0, max: 1000, label: field, allowZero: true }));
+  }
+  if (result.max_requests !== undefined) {
+    result.max_requests = String(boundedInteger(result.max_requests, { min: 0, max: 1_000_000, label: "max_requests", allowZero: true }));
+  }
+  for (const field of ["process_idle_timeout", "request_terminate_timeout"]) {
+    if (result[field] !== undefined) result[field] = durationSeconds(result[field], { label: field, min: 1, max: 86400 });
+  }
+  if (result.open_basedir !== undefined) {
+    const raw = String(result.open_basedir).trim();
+    if (raw.length > 1000 || /[\r\n\0]/.test(raw) || !raw.startsWith("/var/www/")) {
+      throw validationError("open_basedir is invalid", 400);
+    }
+    result.open_basedir = raw;
+  }
+  return result;
+}
+
 module.exports = {
   MAX_PORT,
   MIN_PORT,
@@ -150,6 +192,8 @@ module.exports = {
   hasPollutionKey,
   isPlainObject,
   optionalBoolean,
+  optionalHostname,
+  poolSettings,
   processManager,
   rejectUnknownKeys,
   validHostname,

@@ -683,9 +683,10 @@ verification and rollback outcome, and redacted errors — never domains, secret
 or full configuration contents. The PHP-FPM preset audit remains the dedicated
 stream for profile save/preview/apply.
 
-Every runtime map/pool mutation now runs through a shared, serialized, verified
+Every runtime map/pool mutation now runs through a shared, cross-process serialized, verified
 transaction in `lib/runtime-transaction.js` (`RuntimeConfigTransaction`). It
-captures `sites.map`/`pools.conf` before mutating, rejects stale previewed
+uses the shared `app-data/ui-manager/runtime-config.lock` directory, captures
+`sites.map`/`pools.conf` before mutating, rejects stale previewed
 state and invalid models (out-of-range/duplicate/invalid ports, upstream/pool
 mismatches, missing pools, duplicate sections), writes both files atomically
 (temp-file + rename with timestamped backups), validates nginx + PHP-FPM,

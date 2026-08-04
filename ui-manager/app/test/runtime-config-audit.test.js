@@ -114,6 +114,18 @@ test("redacts credential and domain patterns", () => {
   assert.match(redact("https://user:pass@example.com/x"), /\[redacted\]/);
   const cleaned = redact("error connecting to production.example.com");
   assert.equal(cleaned.includes("production.example.com"), false);
+  assert.equal(redact("failed for store.example.shop").includes("store.example.shop"), false);
+  assert.equal(redact("failed for demo.example.site").includes("demo.example.site"), false);
+  assert.equal(redact("failed for demo.example.pp.ua").includes("demo.example.pp.ua"), false);
+});
+
+test("category filtering happens before the result limit", () => {
+  const { manager, dir } = makeAudit({ maxEvents: 10 });
+  manager.record({ category: "pool", result: "success" });
+  manager.record({ category: "host", result: "success" });
+  manager.record({ category: "host", result: "success" });
+  assert.equal(manager.recent(1, "pool").length, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("normalizeCategory lowercases and validates", () => {
