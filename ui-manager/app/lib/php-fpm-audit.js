@@ -76,7 +76,7 @@ function atomicWrite(filePath, content, mode = 0o600) {
 
 class PhpFpmAudit {
   constructor(options = {}) {
-    this.maxEvents = Number(options.maxEvents || DEFAULTS.maxEvents);
+    this.maxEvents = Math.max(1, Math.min(Number(options.maxEvents) || DEFAULTS.maxEvents, 10_000));
     this.maxString = Number(options.maxString || DEFAULTS.maxString);
     this.maxError = Number(options.maxError || DEFAULTS.maxError);
     this.filePath = path.join(options.dataDir, "php-fpm-audit.json");
@@ -88,7 +88,10 @@ class PhpFpmAudit {
     try {
       const stored = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
       if (stored && stored.version === DEFAULTS.version && Array.isArray(stored.history)) {
-        return stored.history.slice(0, this.maxEvents);
+        return stored.history
+          .slice(0, this.maxEvents)
+          .map((event) => this.build(event))
+          .filter(Boolean);
       }
       return [];
     } catch {
@@ -99,9 +102,13 @@ class PhpFpmAudit {
   build(input = {}) {
     const operation = normalizeOperation(input.operation);
     if (!operation) return null;
+    const requestedAt = new Date(input.at ?? this.now());
+    const at = Number.isFinite(requestedAt.getTime())
+      ? requestedAt.toISOString()
+      : new Date(this.now()).toISOString();
     return {
       version: DEFAULTS.version,
-      at: new Date(this.now()).toISOString(),
+      at,
       operator: slice(redact(input.operator), this.maxString),
       operation,
       status: normalizeStatus(input.status),

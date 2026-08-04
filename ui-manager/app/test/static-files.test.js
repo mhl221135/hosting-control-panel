@@ -78,5 +78,8 @@ test("runtime exposes a PHP-FPM audit history section", () => {
   assert.match(source, /rollback/);
   assert.match(server, /phpFpmAudit\.record/);
   assert.match(server, /operation: "apply"/);
+  assert.match(server, /requestUrl\.pathname === "\/api\/pool-presets\/audit"/);
+  assert.match(server, /error\.executionStarted === true/);
+  assert.match(server, /error\.rollbackStatus \|\| "not-required"/);
   assert.match(server, /throw error/);
 });
