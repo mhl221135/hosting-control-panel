@@ -366,6 +366,71 @@ malformed, or excessive pool data are reported as `unknown` instead of as a
 healthy empty system. Use the summary to bound worker counts and host RAM, then
 reload clearly and verify traffic.
 
+## Runtime Mutation Transactions And Port Verification
+
+Every operation that creates or changes a PHP-FPM pool runs through the shared
+`RuntimeConfigTransaction` in `lib/runtime-transaction.js`. It serializes
+concurrent map/pool writes (so requests and background jobs cannot overwrite
+each other), snapshots both files before mutating, and rejects stale previewed
+work with a `409`. Proposed models are validated before any reload: ports must
+be integers in 1-65535 with no duplicates; every PHP-enabled route must point at
+an existing pool whose upstream agrees with its port; and pool sections must be
+consistent (no duplicate/missing sections). Invalid or unreadable state fails
+closed rather than being silently skipped.
+
+The activation sequence is: write both files atomically (temp file + rename,
+with timestamped backups) -> `nginx -t` and `php-fpm -t` -> reload PHP-FPM and
+nginx -> verify every configured PHP-FPM port with bounded retries/backoff
+(because a PHP-FPM reload is asynchronous). Success is reported only after every
+required port, including newly allocated ports, accepts a TCP connection. On a
+failure the prior files are restored atomically, re-validated, reloaded, and
+re-verified; the original error is preserved and the rollback outcome
+(`not-required`, `succeeded`, or `failed`) is reported distinctly. `rolled back`
+is never reported unless restore validation, reload, and port verification all
+succeeded.
+
+The transaction lock is a shared directory under
+`app-data/ui-manager/runtime-config.lock`, so the long-running panel and
+one-shot transfer/migration containers cannot allocate or activate ports at the
+same time. Every commit re-reads both source files after acquiring that lock;
+stale proposals fail with `409` before backups or writes.
+
+Pool creation and reclassification use a gap-aware allocator that fills gaps
+instead of `max(existing)+1`, ignores malformed existing ports, refuses
+exhausted or invalid ranges, and reserves ports under the transaction lock so
+concurrent allocations cannot collide. Preset apply retains its own port
+verification and is serialized under the same lock. This boundary does not own
+website files, databases, DNS, or NPM cleanup; those remain owned by the
+operations that already perform them.
+
+Request bodies for the pool/host/preset routes are guarded: non-object bodies,
+prototype-pollution keys, excessively deep, oversized or unknown structures, malformed hosts,
+unsafe document roots, and invalid ports/tiers are rejected with bounded
+errors before any write (see `lib/runtime-validation.js`). Valid existing state
+remains accepted (backward compatible).
+
+### Static route migration CLI boundary
+
+`scripts/migrate-static-routes.js` is an offline upgrade-time migration. It is
+**non-mutating by default**: it prints a plan and changes nothing unless run
+with `--apply`. `scripts/upgrade.sh` passes `--apply`. Apply commits through the
+shared `activateStaticMigration` activation (atomic writes of
+`sites.map`/`pools.conf`/`default.conf`/`site-state.json`, model validation,
+nginx + PHP-FPM validation and reload, and bounded port verification, with
+verified rollback on failure). `--dry-run` prints the plan without mutating. Do
+not run it against a live runtime outside an upgrade or without `--apply`.
+
+### Runtime configuration audit
+
+Runtime mutations (pool, host, provisioning, import, opcache, removal) are
+recorded to `app-data/ui-manager/runtime-config-audit.json` (bounded 250,
+atomic, mode 0600, tolerant of missing/corrupt files). It stores counts and
+internal identifiers only — no domains, secrets, submitted payloads, or full
+configuration contents — with redacted bounded errors. View it in Runtime's
+**Runtime configuration history** section or `GET /api/runtime-config/audit`.
+This is separate from the PHP-FPM preset audit, which records only profile
+save/preview/apply.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

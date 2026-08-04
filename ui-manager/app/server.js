@@ -33,7 +33,13 @@ const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
+const { DirectoryLock, RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
+const {
+  guardBody, boundedSlug, validHostname, optionalHostname, documentRoot,
+  validPort, rejectUnknownKeys, boundedInteger, poolSettings,
+} = require("./lib/runtime-validation");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
+const { RuntimeConfigAudit } = require("./lib/runtime-config-audit");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
   DEFAULT_WORKER_MEMORY_MB,
@@ -177,6 +183,7 @@ const billingEntitlementObserver = new BillingEntitlementObserver({
   },
 });
 const phpFpmAudit = new PhpFpmAudit({ dataDir: DATA_DIR });
+const runtimeConfigAudit = new RuntimeConfigAudit({ dataDir: DATA_DIR });
 const billingEnforcementManager = new BillingEnforcementManager({
   dataDir: DATA_DIR,
   mapPath: BILLING_ENFORCEMENT_MAP_PATH,
@@ -339,6 +346,25 @@ const provisioningVault = new OneTimeVault({
   dataDir: DATA_DIR,
   ttlHours: process.env.PROVISION_CREDENTIAL_TTL_HOURS || 24,
 });
+const runtimeTxn = new RuntimeConfigTransaction({
+  sitesMapPath: SITES_MAP_PATH,
+  poolsPath: POOLS_PATH,
+  backupFile: (filePath, content) => backupFile(filePath, content),
+  validate: async () => {
+    await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
+  },
+  reloadNginx: async () => {
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+  },
+  reloadPhp: async () => {
+    await execCommand("docker exec hosting-php-fpm sh -c 'kill -USR2 1'");
+  },
+  verifyPorts: async (ports) => verifyPortsWithRetry(
+    ports,
+    { host: process.env.PHP_FPM_HOST || "hosting-php-fpm" },
+  ),
+  lock: new DirectoryLock(path.join(DATA_DIR, "runtime-config.lock")),
+});
 const migrationManager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
@@ -351,6 +377,7 @@ const migrationManager = new MigrationManager({
   npm,
   cloudflare,
   siteState,
+  runtimeTransaction: runtimeTxn,
 });
 jobManager.register("sites.export", async (context, payload) =>
   backupManager.withLock({ type: "export", label: "Portable website export" }, async () => {
@@ -471,6 +498,17 @@ function readBinaryBody(req, limit = 128 * 1024 * 1024) {
 
 function sanitizeSectionName(host) {
   return host.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "pool";
+}
+
+async function readJsonBody(req) {
+  const raw = (await readBody(req)) || "{}";
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Request body is not valid JSON"), { statusCode: 400 });
+  }
+  return guardBody(parsed);
 }
 
 function resolvePoolSectionName(value, poolsParsed) {
@@ -614,6 +652,43 @@ function tryRecordPhpFpmAudit(build) {
   }
 }
 
+function tryRecordRuntimeAudit(build) {
+  try {
+    const event = build();
+    if (!event) return null;
+    return runtimeConfigAudit.record(event);
+  } catch (auditError) {
+    console.error(`Runtime config audit record failed: ${auditError.message}`);
+    return null;
+  }
+}
+
+function commitRuntimeConfig(category, buildCounts, commitPromise, operator = "system") {
+  return commitPromise.then((result) => {
+    tryRecordRuntimeAudit(() => ({
+      category,
+      operator,
+      mutating: true,
+      result: "success",
+      verification: result?.verificationStatus || "success",
+      rollback: result?.rollback || "not-required",
+      counts: buildCounts ? buildCounts() : {},
+    }));
+    return result;
+  }).catch((error) => {
+    tryRecordRuntimeAudit(() => ({
+      category,
+      operator,
+      mutating: true,
+      result: "failed",
+      verification: error?.verificationStatus || "not-required",
+      rollback: error?.rollback || "not-required",
+      error: error?.message,
+    }));
+    throw error;
+  });
+}
+
 function profileDiff(before, after) {
   const profiles = [];
   const changedFields = [];
@@ -703,22 +778,31 @@ function parseSitesMap(content) {
 
   const parseBlock = (block) => {
     const entries = {};
+    const duplicates = [];
     let defaultValue = "";
+    let sawDefault = false;
     for (const rawLine of block.split("\n")) {
       const line = rawLine.trim();
       if (!line || line.startsWith("#")) continue;
       const m = line.match(/^([^\s]+)\s+(.+);$/);
       if (!m) continue;
-      if (m[1] === "default") defaultValue = m[2];
-      else entries[m[1]] = m[2];
+      if (m[1] === "default") {
+        if (sawDefault) duplicates.push("default");
+        sawDefault = true;
+        defaultValue = m[2];
+      }
+      else {
+        if (Object.prototype.hasOwnProperty.call(entries, m[1])) duplicates.push(m[1]);
+        entries[m[1]] = m[2];
+      }
     }
-    return { entries, defaultValue };
+    return { entries, defaultValue, duplicates };
   };
 
   const roots = parseBlock(rootBlockMatch[1]);
   const upstreams = parseBlock(upstreamBlockMatch[1]);
-  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1" };
-  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '""' };
+  const phpEnabled = phpEnabledBlockMatch ? parseBlock(phpEnabledBlockMatch[1]) : { entries: {}, defaultValue: "1", duplicates: [] };
+  const canonicals = canonicalBlockMatch ? parseBlock(canonicalBlockMatch[1]) : { entries: {}, defaultValue: '""', duplicates: [] };
   const hosts = {};
   const allHosts = new Set([
     ...Object.keys(roots.entries),
@@ -745,6 +829,12 @@ function parseSitesMap(content) {
     defaultUpstream: DEFAULT_PHP_UPSTREAM,
     defaultPhpEnabled: phpEnabled.defaultValue !== "0",
     defaultCanonical: canonicals.defaultValue || '""',
+    duplicateEntries: [
+      ...roots.duplicates,
+      ...upstreams.duplicates,
+      ...phpEnabled.duplicates,
+      ...canonicals.duplicates,
+    ],
     hosts,
   };
 }
@@ -776,12 +866,14 @@ function parsePools(content) {
   const prefix = [];
   const sections = {};
   const sectionOrder = [];
+  const duplicateSections = [];
   let current = null;
 
   for (const raw of lines) {
     const secMatch = raw.match(/^\s*\[([^\]]+)\]\s*$/);
     if (secMatch) {
       current = secMatch[1];
+      if (Object.prototype.hasOwnProperty.call(sections, current)) duplicateSections.push(current);
       if (!sections[current]) {
         sections[current] = {};
         sectionOrder.push(current);
@@ -806,7 +898,7 @@ function parsePools(content) {
     if (Number.isFinite(p)) byPort[p] = { name, settings: sections[name] };
   }
 
-  return { prefix, sections, sectionOrder, byPort };
+  return { prefix, sections, sectionOrder, byPort, duplicateSections };
 }
 
 function renderPools(parsed) {
@@ -1238,8 +1330,12 @@ async function executeSiteRemoval(domain, selected, jobContext = null) {
         delete poolsParsed.sections[plan.pool.name];
         poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((name) => name !== plan.pool.name);
       }
-      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-      await validateAndReload(mapBefore, poolsBefore);
+      await commitRuntimeConfig(
+        "removal",
+        () => ({ hostsRemoved: plan.targetDomains.length, poolsRemoved: selected.pool ? 1 : 0 }),
+        runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+        "",
+      );
       record({ name: "runtime", status: "complete", count: plan.targetDomains.length });
       if (selected.pool) record({ name: "pool", status: "complete", count: 1 });
     }
@@ -1457,8 +1553,8 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   let poolName = "";
   const root = `/var/www/${directory}`;
   if (adapter.php) {
-    const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
-    port = Math.max(9000, ...usedPorts) + 1;
+    const usedPorts = Object.values(poolsParsed.sections).map((pool) => Number(pool.listen));
+    port = allocatePort(usedPorts);
     poolName = sanitizeSectionName(domain);
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
@@ -1491,22 +1587,43 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     };
   }
 
-  writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+  const runtimeAfter = { map: renderSitesMap(mapParsed), pools: renderPools(poolsParsed) };
+  try {
+    await commitRuntimeConfig(
+      "provisioning",
+      () => ({ poolsCreated: adapter.php ? 1 : 0, hostsChanged: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      "",
+    );
+  } catch (error) {
+    fs.rmSync(sitePath, { recursive: true, force: true });
+    throw error;
+  }
   const steps = [];
-  await validateAndReload(mapBefore, poolsBefore);
   steps.push({ name: "runtime", status: "complete" });
   jobContext?.update({ completed: 3, currentStep: siteType === "wordpress" ? "Creating database and installing WordPress" : "Registering website state" });
   let database = null;
   if (siteType === "wordpress") {
-    database = await createDatabase(domain, integrationSettings.resolved());
-    steps.push({ name: "database", status: "complete", database: database.name });
-    await installWordPress({
-      domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
-      adminPassword, redis: Boolean(body.redis), useHttps: false,
-      commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
-      keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
-    });
-    steps.push({ name: "wordpress", status: "complete" });
+    try {
+      database = await createDatabase(domain, integrationSettings.resolved());
+      steps.push({ name: "database", status: "complete", database: database.name });
+      await installWordPress({
+        domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
+        adminPassword, redis: Boolean(body.redis), useHttps: false,
+        commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
+        keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
+      });
+      steps.push({ name: "wordpress", status: "complete" });
+    } catch (error) {
+      if (database) await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+      try {
+        await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
+      } catch (recoveryError) {
+        error.message += `; runtime recovery failed: ${recoveryError.message}`;
+      }
+      fs.rmSync(sitePath, { recursive: true, force: true });
+      throw error;
+    }
   } else if ((siteType === "generic-php" && body.create_database) || siteType === "opencart") {
     try {
       database = await createDatabase(domain, integrationSettings.resolved());
@@ -1541,11 +1658,11 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       if (database) {
         await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
       }
-      fs.writeFileSync(SITES_MAP_PATH, mapBefore, "utf8");
-      fs.writeFileSync(POOLS_PATH, poolsBefore, "utf8");
-      await validateAndReload().catch((recoveryError) => {
+      try {
+        await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
+      } catch (recoveryError) {
         error.message += `; runtime recovery failed: ${recoveryError.message}`;
-      });
+      }
       fs.rmSync(sitePath, { recursive: true, force: true });
       throw error;
     }
@@ -1554,19 +1671,31 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     steps.push({ name: sourceMode === "import" ? "website-import" : "website-files", status: "complete" });
   }
 
-  siteState.update(domain, {
-    fastcgiCache: siteType !== "static" && Boolean(body.fastcgi_cache),
-    redis: siteType === "wordpress" && Boolean(body.redis),
-    opcache: siteType !== "static" && body.opcache !== false,
-    backupEnabled: Boolean(body.scheduled_backup),
-    imageOptimizationEnabled: siteType === "wordpress" && Boolean(body.scheduled_image_optimization),
-    siteType,
-    databaseName: database?.name || "",
-    databaseUser: database?.user || "",
-    cacheVersion: 1,
-    notes: String(body.notes || "").slice(0, 2000),
-  });
-  await execCommand("docker exec hosting-nginx nginx -s reload");
+  try {
+    siteState.update(domain, {
+      fastcgiCache: siteType !== "static" && Boolean(body.fastcgi_cache),
+      redis: siteType === "wordpress" && Boolean(body.redis),
+      opcache: siteType !== "static" && body.opcache !== false,
+      backupEnabled: Boolean(body.scheduled_backup),
+      imageOptimizationEnabled: siteType === "wordpress" && Boolean(body.scheduled_image_optimization),
+      siteType,
+      databaseName: database?.name || "",
+      databaseUser: database?.user || "",
+      cacheVersion: 1,
+      notes: String(body.notes || "").slice(0, 2000),
+    });
+    await execCommand("docker exec hosting-nginx nginx -s reload");
+  } catch (error) {
+    try { siteState.remove([domain]); } catch { /* best-effort state cleanup */ }
+    if (database) await dropDatabaseAndUser(database.name, database.user, integrationSettings.resolved()).catch(() => {});
+    try {
+      await runtimeTxn.rollback({ mapBefore, poolsBefore, expectCurrent: runtimeAfter });
+    } catch (recoveryError) {
+      error.message += `; runtime recovery failed: ${recoveryError.message}`;
+    }
+    fs.rmSync(sitePath, { recursive: true, force: true });
+    throw error;
+  }
   jobContext?.update({ completed: 5, currentStep: "Applying DNS and proxy integrations" });
 
   if (body.create_update_dns) {
@@ -1688,13 +1817,6 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
     }],
   };
 });
-
-function writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed }) {
-  backupFile(SITES_MAP_PATH, mapBefore);
-  backupFile(POOLS_PATH, poolsBefore);
-  fs.writeFileSync(SITES_MAP_PATH, renderSitesMap(mapParsed), "utf8");
-  fs.writeFileSync(POOLS_PATH, renderPools(poolsParsed), "utf8");
-}
 
 async function handleApi(req, res) {
   const requestUrl = new URL(req.url, "http://ui-manager.local");
@@ -2769,7 +2891,12 @@ async function handleApi(req, res) {
         return true;
       }
       setPoolOpcache(pool.settings, body.opcache);
-      writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
+      await commitRuntimeConfig(
+        "opcache",
+        () => ({ poolsChanged: 1 }),
+        runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } }),
+        req.auth.email,
+      );
       opcacheChanged = true;
     }
     const state = siteState.update(domain, {
@@ -2784,9 +2911,9 @@ async function handleApi(req, res) {
     if (
       typeof body.fastcgi_cache === "boolean" ||
       typeof body.redis === "boolean" ||
-      typeof body.opcache === "boolean"
+      (typeof body.opcache === "boolean" && !opcacheChanged)
     ) {
-      await validateAndReload(opcacheChanged ? mapBefore : null, opcacheChanged ? poolsBefore : null);
+      await validateAndReload();
     }
     sendJson(res, 200, { ok: true, state });
     return true;
@@ -3111,7 +3238,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && req.url === "/api/pool-presets") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const current = readPoolPresets();
     const proposed = validatePoolPresets(body.tiers || {}, current);
     writePoolPresets(proposed);
@@ -3138,7 +3265,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/preview") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const affected = previewPoolPresetChanges(body.tiers || {});
     tryRecordPhpFpmAudit(() => ({
       operation: "preview",
@@ -3154,7 +3281,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/apply/preview") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const current = readPoolPresets();
     const proposed = validatePoolPresets(body.tiers || {}, current);
     const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3173,7 +3300,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/apply") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     if (body.confirm !== "APPLY") {
       sendJson(res, 400, { ok: false, message: "Type APPLY to confirm applying the reviewed PHP-FPM profiles" });
       return true;
@@ -3198,7 +3325,7 @@ async function handleApi(req, res) {
       changedFields,
     });
     try {
-      const result = await applyPoolPresetPlan({ ...plan, payload: proposed }, {
+      const result = await runtimeTxn.lock.runExclusive(() => applyPoolPresetPlan({ ...plan, payload: proposed }, {
         poolsPath: POOLS_PATH,
         presetsPath: PRESETS_PATH,
         sitesMapPath: SITES_MAP_PATH,
@@ -3213,8 +3340,11 @@ async function handleApi(req, res) {
           const result = await execAction("reload_php");
           if (!result.ok) throw new Error(result.message);
         },
-        verifyPorts: async () => verifyPhpPoolPorts(),
-      });
+        verifyPorts: async () => verifyPortsWithRetry(
+          collectPoolPorts(parsePools(fs.readFileSync(POOLS_PATH, "utf8"))),
+          { host: process.env.PHP_FPM_HOST || "hosting-php-fpm" },
+        ),
+      }));
       tryRecordPhpFpmAudit(() => ({
         operation: "apply",
         status: "success",
@@ -3243,6 +3373,15 @@ async function handleApi(req, res) {
     const requested = Number(requestUrl.searchParams.get("limit") || 100);
     const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
     sendJson(res, 200, { ok: true, events: phpFpmAudit.recent(limit) });
+    return true;
+  }
+
+  if (req.method === "GET" && requestUrl.pathname === "/api/runtime-config/audit") {
+    const requested = Number(requestUrl.searchParams.get("limit") || 100);
+    const limit = Math.max(1, Math.min(Number.isFinite(requested) ? requested : 100, 250));
+    const category = String(requestUrl.searchParams.get("category") || "").toLowerCase();
+    const events = runtimeConfigAudit.recent(limit, category);
+    sendJson(res, 200, { ok: true, category, events });
     return true;
   }
 
@@ -3277,14 +3416,16 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pools/upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["name", "port", "tier", "settings"]), "pool payload");
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
     const poolsParsed = parsePools(poolsBefore);
-    const name = resolvePoolSectionName(body.name, poolsParsed);
-    const port = Number(body.port);
-    if (!name || !Number.isInteger(port)) {
+    const requestedName = boundedSlug(body.name, { label: "pool name" });
+    const name = resolvePoolSectionName(requestedName, poolsParsed);
+    const port = validPort(body.port);
+    if (!name) {
       sendJson(res, 400, { ok: false, message: "name and integer port are required" });
       return true;
     }
@@ -3298,8 +3439,10 @@ async function handleApi(req, res) {
       return true;
     }
 
-    const requestedTier = normalizeTier(body.tier || body.settings?.tier || "", presets) || normalizeTier(defaults.default_tier, presets) || "medium";
-    const incomingPool = body.settings || {};
+    const incomingPool = poolSettings(body.settings);
+    const tierInput = String(body.tier || incomingPool.tier || "").trim();
+    const requestedTier = normalizeTier(tierInput, presets) || normalizeTier(defaults.default_tier, presets) || "medium";
+    if (tierInput && !normalizeTier(tierInput, presets)) throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
     const oldPort = existingSameName ? Number(existingSameName.listen) : null;
     poolsParsed.sections[name] = buildPoolSettings({
       incomingPool,
@@ -3323,19 +3466,25 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsCreated: existingSameName ? 0 : 1, poolsChanged: existingSameName ? 1 : 0 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: "Pool updated" });
     return true;
   }
 
   if (req.method === "POST" && req.url === "/api/pools/bulk-upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["pools"]), "bulk pool payload");
     const items = Array.isArray(body.pools) ? body.pools : [];
     if (items.length === 0) {
       sendJson(res, 400, { ok: false, message: "pools array is required" });
       return true;
     }
+    if (items.length > 200) throw Object.assign(new Error("Too many pool rows"), { statusCode: 400 });
 
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3347,9 +3496,15 @@ async function handleApi(req, res) {
     const plannedNames = new Set();
     const plannedPorts = new Set();
     for (const raw of items) {
-      const name = resolvePoolSectionName(raw.name, poolsParsed);
-      const port = Number(raw.port);
-      if (!name || !Number.isInteger(port)) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        sendJson(res, 400, { ok: false, message: "Each pool row must be an object" });
+        return true;
+      }
+      rejectUnknownKeys(raw, new Set(["name", "port", "tier", "settings"]), "pool row");
+      const name = resolvePoolSectionName(boundedSlug(raw.name, { label: "pool name" }), poolsParsed);
+      const port = validPort(raw.port);
+      poolSettings(raw.settings);
+      if (!name) {
         sendJson(res, 400, { ok: false, message: "Each pool row requires valid name and integer port" });
         return true;
       }
@@ -3366,9 +3521,9 @@ async function handleApi(req, res) {
     }
 
     for (const raw of items) {
-      const name = resolvePoolSectionName(raw.name, poolsParsed);
+      const name = resolvePoolSectionName(boundedSlug(raw.name, { label: "pool name" }), poolsParsed);
       const port = Number(raw.port);
-      const incomingPool = raw.settings || {};
+      const incomingPool = poolSettings(raw.settings);
       const requestedTierInput = String(raw.tier || incomingPool.tier || "").trim().toLowerCase();
 
       const existingSameName = poolsParsed.sections[name] || null;
@@ -3388,6 +3543,9 @@ async function handleApi(req, res) {
       const requestedTier = normalizeTier(requestedTierInput, presets)
         || normalizeTier(defaults.default_tier, presets)
         || "medium";
+      if (requestedTierInput && !normalizeTier(requestedTierInput, presets)) {
+        throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
+      }
 
       const oldPort = existingSameName ? Number(existingSameName.listen) : null;
       poolsParsed.sections[name] = buildPoolSettings({
@@ -3412,14 +3570,18 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsChanged: items.length }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} pool rows` });
     return true;
   }
 
   if (req.method === "DELETE" && req.url.startsWith("/api/pools/")) {
-    const name = sanitizeSectionName(decodeURIComponent(req.url.replace("/api/pools/", "")));
+    const name = boundedSlug(decodeURIComponent(req.url.replace("/api/pools/", "")), { label: "pool name" });
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
@@ -3447,8 +3609,12 @@ async function handleApi(req, res) {
     delete poolsParsed.sections[name];
     poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((n) => n !== name);
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "pool",
+      () => ({ poolsRemoved: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Removed pool ${name}` });
     return true;
   }
@@ -3496,12 +3662,14 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/hosts/bulk-upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["hosts"]), "bulk host payload");
     const items = Array.isArray(body.hosts) ? body.hosts : [];
     if (items.length === 0) {
       sendJson(res, 400, { ok: false, message: "hosts array is required" });
       return true;
     }
+    if (items.length > 200) throw Object.assign(new Error("Too many host rows"), { statusCode: 400 });
 
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3509,11 +3677,17 @@ async function handleApi(req, res) {
     const poolsParsed = parsePools(poolsBefore);
 
     for (const raw of items) {
-      const host = String(raw.host || "").trim().toLowerCase();
-      const root = String(raw.root || "").trim();
-      const poolName = sanitizeSectionName(String(raw.pool_name || "").trim());
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        sendJson(res, 400, { ok: false, message: "Each host row must be an object" });
+        return true;
+      }
+      rejectUnknownKeys(raw, new Set(["host", "root", "pool_name", "php_enabled", "canonical_to", "add_www_alias"]), "host row");
+      const host = validHostname(raw.host);
+      const root = documentRoot(raw.root);
+      const poolInput = String(raw.pool_name || "").trim();
+      const poolName = poolInput ? boundedSlug(poolInput, { label: "pool name" }) : "";
       const phpEnabled = raw.php_enabled !== false && Boolean(poolName);
-      const canonicalTo = String(raw.canonical_to || "").trim();
+      const canonicalTo = optionalHostname(raw.canonical_to);
       const addWwwAlias = Boolean(raw.add_www_alias);
 
       if (!host || !root || (phpEnabled && !poolName)) {
@@ -3563,16 +3737,21 @@ async function handleApi(req, res) {
       }
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsChanged: items.length }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Updated ${items.length} host rows` });
     return true;
   }
 
   if (req.method === "POST" && (req.url === "/api/hosts/upsert" || req.url === "/api/sites/upsert")) {
-    const body = JSON.parse((await readBody(req)) || "{}");
-    const host = String(body.host || "").trim().toLowerCase();
-    const root = String(body.root || "").trim();
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["host", "root", "pool_name", "php_enabled", "canonical_to", "add_www_alias", "remove_www_alias", "port", "pool", "pool_tier"]), "host payload");
+    const host = validHostname(body.host);
+    const root = documentRoot(body.root);
     if (!host || !root) {
       sendJson(res, 400, { ok: false, message: "host and root are required" });
       return true;
@@ -3585,12 +3764,13 @@ async function handleApi(req, res) {
     const defaults = readDefaultPool();
     const presets = readPoolPresets();
 
-    const poolName = sanitizeSectionName(String(body.pool_name || "").trim());
+    const poolInput = String(body.pool_name || "").trim();
+    const poolName = poolInput ? boundedSlug(poolInput, { label: "pool name" }) : "";
     const phpEnabled = body.php_enabled !== false;
     const addWwwAlias = Boolean(body.add_www_alias);
-    const canonicalTo = String(body.canonical_to || "").trim();
+    const canonicalTo = optionalHostname(body.canonical_to);
 
-    let port = phpEnabled ? Number(body.port) : null;
+    let port = phpEnabled ? validPort(body.port, { allowNull: true }) : null;
     if (phpEnabled && poolName) {
       const section = poolsParsed.sections[poolName];
       if (!section || !section.listen) {
@@ -3637,8 +3817,11 @@ async function handleApi(req, res) {
     if (phpEnabled && !poolName) {
       const existingPool = poolsParsed.byPort[port];
       const sectionName = existingPool ? existingPool.name : sanitizeSectionName(host);
-      const incomingPool = body.pool || {};
+      const incomingPool = poolSettings(body.pool);
       const requestedTier = normalizeTier(body.pool_tier || incomingPool.tier || "", presets);
+      if ((body.pool_tier || incomingPool.tier) && !requestedTier) {
+        throw Object.assign(new Error("Unknown pool tier"), { statusCode: 400 });
+      }
       const effectiveTier = requestedTier || normalizeTier(defaults.default_tier, presets) || "medium";
       const basePool = existingPool ? existingPool.settings : {};
       poolsParsed.sections[sectionName] = buildPoolSettings({
@@ -3653,14 +3836,18 @@ async function handleApi(req, res) {
       if (!poolsParsed.sectionOrder.includes(sectionName)) poolsParsed.sectionOrder.push(sectionName);
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsChanged: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: "Host updated" });
     return true;
   }
 
   if (req.method === "DELETE" && (req.url.startsWith("/api/sites/") || req.url.startsWith("/api/hosts/"))) {
-    const host = decodeURIComponent(req.url.replace("/api/sites/", "").replace("/api/hosts/", ""));
+    const host = validHostname(decodeURIComponent(req.url.replace("/api/sites/", "").replace("/api/hosts/", "")));
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
@@ -3684,8 +3871,12 @@ async function handleApi(req, res) {
       poolsParsed.sectionOrder = poolsParsed.sectionOrder.filter((s) => s !== secName);
     }
 
-    writeConfigs({ mapBefore, poolsBefore, mapParsed, poolsParsed });
-    await validateAndReload(mapBefore, poolsBefore);
+    await commitRuntimeConfig(
+      "host",
+      () => ({ hostsRemoved: 1 }),
+      runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      req.auth.email,
+    );
     sendJson(res, 200, { ok: true, message: `Removed ${host}` });
     return true;
   }

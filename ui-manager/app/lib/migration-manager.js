@@ -8,6 +8,7 @@ const { promisify } = require("util");
 const { migrateWordPressUrl, normalizeWordPressPermissions, validateDomain } = require("./provisioner");
 const { normalizeSiteType, siteAdapter, siteDatabaseReference } = require("./site-capabilities");
 const { inspectOpenCart, rewriteOpenCart } = require("./opencart");
+const { allocatePort } = require("./runtime-transaction");
 const {
   parsePools,
   parseSitesMap,
@@ -194,6 +195,7 @@ class MigrationManager {
     this.npm = options.npm;
     this.cloudflare = options.cloudflare;
     this.siteState = options.siteState;
+    this.runtimeTransaction = options.runtimeTransaction || null;
     fs.mkdirSync(this.exportsRoot, { recursive: true });
     fs.mkdirSync(this.importsRoot, { recursive: true });
   }
@@ -811,8 +813,7 @@ class MigrationManager {
     const map = parseSitesMap(mapBefore);
     const pools = parsePools(poolsBefore);
     const presets = this.readPresets();
-    const usedPorts = Object.values(pools.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger);
-    let nextPort = Math.max(9000, ...usedPorts) + 1;
+    const usedPorts = Object.values(pools.sections).map((pool) => Number(pool.listen));
     const configured = [];
     for (const site of sites) {
       const adapter = siteAdapter(site.siteType);
@@ -824,7 +825,8 @@ class MigrationManager {
       let port = null;
       let poolName = "";
       if (adapter.php) {
-        port = nextPort++;
+        port = allocatePort(usedPorts);
+        usedPorts.push(port);
         poolName = sanitizeSectionName(site.domain);
         if (pools.sections[poolName]) throw new Error(`PHP pool already exists: ${poolName}`);
         const tier = presets[site.poolTier] || presets.medium || DEFAULT_PRESETS.medium;
@@ -857,9 +859,36 @@ class MigrationManager {
       }
       configured.push({ ...site, port, poolName });
     }
-    fs.writeFileSync(this.sitesMapPath, renderSitesMap(map), "utf8");
-    fs.writeFileSync(this.poolsPath, renderPools(pools), "utf8");
-    return { configured, mapBefore, poolsBefore };
+    const mapAfter = renderSitesMap(map);
+    const poolsAfter = renderPools(pools);
+    if (this.runtimeTransaction) {
+      return {
+        configured,
+        mapBefore,
+        poolsBefore,
+        mapParsed: map,
+        poolsParsed: pools,
+        mapAfter,
+        poolsAfter,
+        hasPhp: configured.some((site) => Boolean(site.port)),
+        committed: true,
+        applied: false,
+      };
+    }
+    fs.writeFileSync(this.sitesMapPath, mapAfter, "utf8");
+    fs.writeFileSync(this.poolsPath, poolsAfter, "utf8");
+    return {
+      configured,
+      mapBefore,
+      poolsBefore,
+      mapParsed: map,
+        poolsParsed: pools,
+        mapAfter,
+        poolsAfter,
+        hasPhp: configured.some((site) => Boolean(site.port)),
+        committed: false,
+        applied: true,
+    };
   }
 
   async validateAndReload(runtimeChange) {
@@ -959,7 +988,17 @@ class MigrationManager {
         currentStep: "Writing and validating runtime configuration",
       });
       runtimeChange = this.configureRuntime(prepared);
-      await this.validateAndReload(runtimeChange);
+      if (this.runtimeTransaction) {
+        await this.runtimeTransaction.commit({
+          mapBefore: runtimeChange.mapBefore,
+          poolsBefore: runtimeChange.poolsBefore,
+          mapParsed: runtimeChange.mapParsed,
+          poolsParsed: runtimeChange.poolsParsed,
+        });
+        runtimeChange.applied = true;
+      } else {
+        await this.validateAndReload(runtimeChange);
+      }
       for (const site of prepared.filter((item) => item.siteType === "opencart")) {
         const openCart = inspectOpenCart(resolveInside(this.websitesRoot, site.websitePath, "website path"));
         for (const requestPath of ["/", `/${openCart.adminDirectory}/`]) {
@@ -971,7 +1010,18 @@ class MigrationManager {
       }
     } catch (error) {
       const cleanupErrors = [];
-      if (runtimeChange) {
+      if (runtimeChange && runtimeChange.committed === true && runtimeChange.applied) {
+        try {
+          await this.runtimeTransaction.rollback({
+            mapBefore: runtimeChange.mapBefore,
+            poolsBefore: runtimeChange.poolsBefore,
+            expectCurrent: { map: runtimeChange.mapAfter, pools: runtimeChange.poolsAfter },
+          });
+          runtimeChange.applied = false;
+        } catch (cleanupError) {
+          cleanupErrors.push(`runtime: ${cleanupError.message}`);
+        }
+      } else if (runtimeChange && runtimeChange.committed === false) {
         try {
           fs.writeFileSync(this.sitesMapPath, runtimeChange.mapBefore, "utf8");
           fs.writeFileSync(this.poolsPath, runtimeChange.poolsBefore, "utf8");

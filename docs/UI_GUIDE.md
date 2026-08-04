@@ -383,6 +383,15 @@ skipped rather than force-deleted.
 Runtime is the low-level configuration editor. Prefer Sites and Provision for
 normal work; use Runtime for diagnosis and manual correction.
 
+Every pool change in Runtime (and pool creation from Sites/Provision/imports)
+is committed through a serialized, verified runtime transaction: the panel
+writes both runtime files atomically, validates nginx and PHP-FPM, reloads
+both, and verifies that every configured PHP-FPM port accepts a TCP connection
+before reporting success. If any step fails it restores the prior files,
+reloads them, and reports a distinct rollback outcome. There is no new
+Runtime control to learn; these guarantees protect the existing save/preview/
+apply and pool/host controls.
+
 | Control | Function |
 | --- | --- |
 | **Validate** | Runs nginx and PHP-FPM configuration validation without reloading services. |
@@ -398,7 +407,15 @@ normal work; use Runtime for diagnosis and manual correction.
 | **Save pools** | Validates and writes the complete PHP-FPM pool model. |
 | **Save routes** | Validates and writes internal host, alias, document-root, pool, and canonical-route mappings. |
 | **PHP-FPM audit history** | Lists recent profile saves, previews, and applies with operation, operator, time, status, and selected-pool count. Each row has expandable **Safe details** showing profile names, selected/affected pools, changed field names, and the rollback outcome. A **Refresh** button reloads the events. Empty and error states are shown when there is no history or the list cannot load. |
+| **Runtime configuration history** | Lists bounded recent pool, host, provisioning, import, opcache, and removal mutations with category, operator, time, result, rollback outcome, and change counts. A **filter** narrows by category and **Refresh** reloads. Expandable details show internal identifiers only. Empty and error states are shown when there is no matching history or the list cannot load. |
 | **Refresh logs** | Reloads the bounded PHP-FPM log tail. |
+
+The runtime configuration history is read-only, bounded (250 events by
+default), and distinct from the PHP-FPM preset audit: it covers general runtime
+mutations rather than profile save/preview/apply. It stores only timestamps,
+operator, category, status, rollback/verification outcome, bounded counts, and
+internal identifiers — never domains, secrets, submitted payloads, or full
+configuration contents.
 
 The audit history is read-only and bounded (250 events by default). Successful
 saves and applies, failed applies after execution begins (with their rollback

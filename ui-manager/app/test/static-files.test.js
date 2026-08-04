@@ -105,3 +105,60 @@ test("runtime exposes a PHP-FPM audit history section", () => {
   assert.match(server, /error\.rollbackStatus \|\| "not-required"/);
   assert.match(server, /throw error/);
 });
+
+test("all php pool mutations route through the shared runtime transaction", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /require\("\.\/lib\/runtime-transaction"\)/);
+  assert.match(server, /new RuntimeConfigTransaction/);
+  assert.match(server, /runtimeTxn\.commit/);
+  assert.match(server, /runtimeTxn\.rollback/);
+  assert.match(server, /verifyPortsWithRetry/);
+  assert.match(server, /allocatePort/);
+  assert.match(server, /runtimeTxn\.lock\.runExclusive/);
+  assert.doesNotMatch(server, /function writeConfigs/);
+});
+
+test("runtime mutations use shared guarded validation", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /require\("\.\/lib\/runtime-validation"\)/);
+  assert.match(server, /async function readJsonBody/);
+  assert.match(server, /guardBody\(parsed\)/);
+  assert.match(server, /rejectUnknownKeys\(body, new Set\(\["name", "port", "tier", "settings"\]\)/);
+  assert.match(server, /validHostname\(raw\.host\)/);
+  assert.match(server, /documentRoot\(raw\.root\)/);
+  assert.match(server, /validPort\(body\.port/);
+});
+
+test("runtime exposes a bounded runtime-configuration audit history", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="runtimeConfigAuditHistory"/);
+  assert.match(html, /id="refreshRuntimeConfigAudit"/);
+  assert.match(html, /id="runtimeConfigAuditFilter"/);
+  assert.match(source, /api\/runtime-config\/audit/);
+  assert.match(source, /function renderRuntimeConfigAudit/);
+  assert.match(source, /function loadRuntimeConfigAudit/);
+  assert.match(source, /runtimeConfigAuditCountLabel/);
+  assert.match(source, /escapeHtml\(event\.category\)/);
+  assert.match(server, /requestUrl\.pathname === "\/api\/runtime-config\/audit"/);
+  assert.match(server, /runtimeConfigAudit\.recent\(limit, category\)/);
+  assert.match(server, /commitRuntimeConfig\(/);
+});
+
+test("runtime responsive contract: no hidden mobile overflow for preset editor and capacity", () => {
+  const css = fs.readFileSync(path.resolve(__dirname, "../public/styles.css"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  assert.match(css, /\.preset-editor \{ display: grid; grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  // mobile: preset editor collapses to a single column and button rows wrap
+  assert.match(css, /@media \(max-width: 640px\) \{/);
+  assert.match(css, /\.button-row \{ flex-wrap: wrap; \}/);
+  assert.match(css, /\.button-row button \{ min-width: 0; \}/);
+  // capacity grid collapses on small screens
+  assert.match(css, /@media \(max-width: 520px\)/);
+  assert.match(css, /\.pool-capacity \.capacity-grid \{ grid-template-columns: 1fr; \}/);
+  // audit rows wrap long content
+  assert.match(css, /\.php-fpm-audit-row p \{ margin: 0; color: var\(--muted\); overflow-wrap: anywhere; \}/);
+  assert.match(html, /id="poolPresetsEditor"/);
+  assert.match(html, /id="poolCapacity"/);
+});

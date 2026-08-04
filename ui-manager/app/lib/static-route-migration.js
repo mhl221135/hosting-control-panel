@@ -5,6 +5,7 @@ const {
   renderSitesMap,
   sanitizeSectionName,
 } = require("./runtime-config");
+const { allocatePort, collectPoolPorts } = require("./runtime-transaction");
 
 const STATIC_GATE_MARKER = "# Managed static-route isolation.";
 
@@ -39,10 +40,7 @@ function migrateStaticRoutes({
   const reclassified = [];
   const recoveredPools = [];
 
-  let nextPort = Math.max(
-    9000,
-    ...Object.values(pools.sections).map((pool) => Number(pool.listen)).filter(Number.isInteger),
-  ) + 1;
+  const usedPorts = Object.values(pools.sections).map((pool) => Number(pool.listen));
   for (const domain of staticDomains.filter((item) => legacyPhp.has(item))) {
     const route = map.hosts[domain];
     if (!route?.root) {
@@ -52,7 +50,8 @@ function migrateStaticRoutes({
     const routes = Object.values(map.hosts).filter((candidate) => candidate.root === route.root);
     let port = routes.find((candidate) => candidate.phpEnabled !== false && candidate.port)?.port || null;
     if (!port) {
-      port = nextPort++;
+      port = allocatePort(usedPorts);
+      usedPorts.push(port);
       const poolName = sanitizeSectionName(domain);
       if (pools.sections[poolName]) throw new Error(`Cannot recover PHP route ${domain}: pool ${poolName} already exists`);
       pools.sections[poolName] = {
@@ -131,4 +130,107 @@ function migrateStaticRoutes({
   };
 }
 
-module.exports = { STATIC_GATE_MARKER, ensureStaticPhpGate, migrateStaticRoutes };
+function migrationPorts(poolsContent) {
+  return collectPoolPorts(parsePools(poolsContent));
+}
+
+function restoreActivation(deps, before) {
+  const { atomicWrite, sitesMapPath, poolsPath, nginxDefaultPath, statePath } = deps;
+  atomicWrite(sitesMapPath, before.map);
+  atomicWrite(poolsPath, before.pools);
+  atomicWrite(nginxDefaultPath, before.nginx);
+  if (before.stateExisted === false) {
+    try { require("fs").unlinkSync(statePath); } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  } else {
+    atomicWrite(statePath, before.state, before.stateMode || 0o600);
+  }
+}
+
+async function activateStaticMigration({ before, after, deps }) {
+  const {
+    atomicWrite = require("./runtime-transaction").atomicWriteFile,
+    backupFile = () => {},
+    validateModel = require("./runtime-transaction").validateRuntimeModel,
+    validateConfig,
+    reloadPhp,
+    reloadNginx,
+    verifyPorts,
+    stateMode = 0o600,
+    lock = null,
+    readFile = (filePath) => require("fs").readFileSync(filePath, "utf8"),
+  } = deps;
+
+  const run = async () => {
+    const currentState = require("fs").existsSync(deps.statePath) ? readFile(deps.statePath) : "";
+    if (readFile(deps.sitesMapPath) !== before.map
+        || readFile(deps.poolsPath) !== before.pools
+        || readFile(deps.nginxDefaultPath) !== before.nginx
+        || currentState !== before.state) {
+      throw Object.assign(new Error("Runtime configuration changed after static migration preview; preview again"), {
+        statusCode: 409,
+      });
+    }
+    validateModel(parseSitesMap(after.mapContent), parsePools(after.poolsContent));
+
+    backupFile(deps.sitesMapPath, before.map);
+    backupFile(deps.poolsPath, before.pools);
+    backupFile(deps.nginxDefaultPath, before.nginx);
+    if (before.stateExisted !== false) backupFile(deps.statePath, before.state);
+
+    const afterPorts = migrationPorts(after.poolsContent);
+    try {
+      atomicWrite(deps.sitesMapPath, after.mapContent);
+      atomicWrite(deps.poolsPath, after.poolsContent);
+      atomicWrite(deps.nginxDefaultPath, after.nginxContent);
+      atomicWrite(deps.statePath, after.state, stateMode);
+    } catch (writeError) {
+      let restoreError = "";
+      try {
+        restoreActivation(deps, before);
+      } catch (error) {
+        restoreError = String(error?.message || error).slice(0, 300);
+      }
+      throw Object.assign(writeError, {
+        rollback: restoreError ? "failed" : "succeeded",
+        rollbackError: restoreError,
+        statusCode: 500,
+      });
+    }
+
+    let rollback = "not-required";
+    try {
+      await validateConfig();
+      await reloadPhp();
+      await reloadNginx();
+      if (afterPorts.length) await verifyPorts(afterPorts);
+    } catch (error) {
+      let rollbackOutcome = "succeeded";
+      try {
+        restoreActivation(deps, before);
+        await validateConfig();
+        await reloadPhp();
+        await reloadNginx();
+        await verifyPorts(migrationPorts(before.pools));
+      } catch (rollbackError) {
+        rollbackOutcome = "failed";
+        error.rollbackError = String(rollbackError?.message || rollbackError).slice(0, 300);
+      }
+      rollback = rollbackOutcome;
+      error.rollback = rollbackOutcome;
+      if (!error.statusCode) error.statusCode = 502;
+      throw error;
+    }
+    return { rollback };
+  };
+  return lock ? lock.runExclusive(run) : run();
+}
+
+module.exports = {
+  STATIC_GATE_MARKER,
+  activateStaticMigration,
+  ensureStaticPhpGate,
+  migrateStaticRoutes,
+  migrationPorts,
+};

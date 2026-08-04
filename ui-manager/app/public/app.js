@@ -40,6 +40,7 @@ const state = {
   importPreview: null,
   poolPresetApplyPreview: null,
   phpFpmAudit: [],
+  runtimeConfigAudit: [],
 };
 
 let imageOptimizationPollTimer = null;
@@ -347,7 +348,7 @@ function switchTab(name) {
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "transfers") loadTransfers().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
-  if (name === "runtime") { loadLogs(); loadPhpFpmAudit().catch((error) => notice(error.message, "warning")); }
+  if (name === "runtime") { loadLogs(); loadPhpFpmAudit().catch((error) => notice(error.message, "warning")); loadRuntimeConfigAudit().catch((error) => notice(error.message, "warning")); }
   if (name === "settings") loadIntegrationSettings();
 }
 
@@ -1597,6 +1598,48 @@ async function loadPhpFpmAudit() {
   const data = await api("/api/pool-presets/audit");
   state.phpFpmAudit = data.events || [];
   renderPhpFpmAudit();
+}
+
+function runtimeConfigAuditCountLabel(event) {
+  const counts = event.counts || {};
+  const parts = [];
+  const order = [["poolsCreated", "pool(s) created"], ["poolsChanged", "pool(s) changed"], ["poolsRemoved", "pool(s) removed"], ["poolsRecovered", "pool(s) recovered"], ["hostsChanged", "host(s) changed"], ["hostsRemoved", "host(s) removed"], ["routesConverted", "route(s) converted"], ["routesRecovered", "route(s) recovered"]];
+  for (const [key, label] of order) {
+    if (Number.isInteger(counts[key]) && counts[key] > 0) parts.push(`${counts[key]} ${label}`);
+  }
+  return parts.join(" · ") || "no listed changes";
+}
+
+function renderRuntimeConfigAudit() {
+  const events = state.runtimeConfigAudit || [];
+  const container = $("#runtimeConfigAuditHistory");
+  if (!events.length) {
+    container.className = "rows empty";
+    container.innerHTML = "No runtime configuration history matches.";
+    return;
+  }
+  container.className = "rows";
+  container.innerHTML = events.map((event) => `
+    <div class="php-fpm-audit-row runtime-audit-row">
+      <p><span class="badge ${event.result === "failed" ? "danger" : "on"}">${escapeHtml(event.category)}</span>
+        <span class="badge ${event.result === "failed" ? "danger" : "on"}">${escapeHtml(event.result)}</span>
+        <strong>${escapeHtml(event.operator || "system")}</strong>
+        <span class="muted">· ${event.at ? escapeHtml(new Date(event.at).toLocaleString()) : "Unknown"}</span>
+        ${event.rollback && event.rollback !== "not-required" ? `<span class="badge ${event.rollback === "failed" ? "danger" : "on"}">rollback ${escapeHtml(event.rollback)}</span>` : ""}
+        <span class="muted">· ${escapeHtml(runtimeConfigAuditCountLabel(event))}</span>
+      </p>
+      ${event.error ? `<p class="danger-text audit-error">${escapeHtml(event.error)}</p>` : ""}
+      ${event.scope && event.scope.length ? `<details><summary>Safe details</summary><p>${event.scope.map((item) => `<code>${escapeHtml(item)}</code>`).join(" ")}</p></details>` : ""}
+    </div>
+  `).join("");
+}
+
+async function loadRuntimeConfigAudit() {
+  const category = ($("#runtimeConfigAuditFilter")?.value || "").toLowerCase();
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const data = await api(`/api/runtime-config/audit${query}`);
+  state.runtimeConfigAudit = data.events || [];
+  renderRuntimeConfigAudit();
 }
 
 function renderHosts() {
@@ -3486,6 +3529,10 @@ $("#refreshLogs").addEventListener("click", loadLogs);
 $("#refreshPhpFpmAudit").addEventListener("click", async (event) => {
   await withButton(event.currentTarget, "Refreshing...", () => loadPhpFpmAudit());
 });
+$("#refreshRuntimeConfigAudit").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Refreshing...", () => loadRuntimeConfigAudit());
+});
+$("#runtimeConfigAuditFilter").addEventListener("change", () => loadRuntimeConfigAudit());
 
 $("#integrationSettingsForm").addEventListener("submit", async (event) => {
   event.preventDefault();
