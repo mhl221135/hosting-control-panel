@@ -112,6 +112,7 @@ generated and persistent files include:
 - `app-data/ui-manager/jobs.json`: durable background-job history and latest alert status
 - `app-data/ui-manager/site-state.json`: Redis, OPcache, cache, and backup state
 - `app-data/ui-manager/performance-settings.json`: validated global resource limits
+- `app-data/ui-manager/php-fpm-audit.json`: bounded atomic audit history for PHP-FPM profile save, preview, and apply operations
 - `app-data/ui-manager/backup-settings.json`: schedule and retention
 - `app-data/ui-manager/offsite-backup-settings.json`: encrypted off-site settings and schedule state
 - `app-data/billing`: separate billing database and administrator account

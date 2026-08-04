@@ -227,7 +227,12 @@ test("applyPlan rolls back when validation fails", async () => {
       reloadPhp: async () => {},
       verifyPorts: async () => {},
     }),
-    /rolled back/,
+    (error) => {
+      assert.match(error.message, /rolled back/);
+      assert.equal(error.executionStarted, true);
+      assert.equal(error.rollbackStatus, "succeeded");
+      return true;
+    },
   );
   assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
   assert.equal(fs.readFileSync(presetsPath, "utf8"), presetsBefore);
@@ -270,6 +275,79 @@ test("applyPlan rolls back a partial atomic-write failure", async () => {
   );
   assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
   assert.equal(fs.readFileSync(presetsPath, "utf8"), presetsBefore);
+});
+
+test("applyPlan reports a failed rollback", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pool-apply-rollback-failure-"));
+  const poolsPath = path.join(directory, "pools.conf");
+  const presetsPath = path.join(directory, "pool-presets.json");
+  const sitesMapPath = path.join(directory, "sites.map");
+  const poolsBefore = mediumPool("example_com", 9001);
+  fs.writeFileSync(poolsPath, poolsBefore, "utf8");
+  fs.writeFileSync(presetsPath, JSON.stringify(PRESETS), "utf8");
+  fs.writeFileSync(sitesMapPath, "sites map\n", "utf8");
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
+  const plan = buildApplyPlan(proposed, poolsBefore, PRESETS, ["example_com"]);
+
+  await assert.rejects(
+    applyPlan({ ...plan, payload: proposed }, {
+      poolsPath,
+      presetsPath,
+      sitesMapPath,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      writeFile: (filePath, content) => {
+        if (filePath.includes("rollback")) throw new Error("rollback disk failure");
+        fs.writeFileSync(filePath, content, "utf8");
+      },
+      renameFile: (from, to) => fs.renameSync(from, to),
+      backupFile: () => {},
+      validateConfig: async () => { throw new Error("php-fpm -t failed"); },
+      reloadPhp: async () => {},
+      verifyPorts: async () => {},
+    }),
+    (error) => {
+      assert.match(error.message, /rollback failed/);
+      assert.equal(error.executionStarted, true);
+      assert.equal(error.rollbackStatus, "failed");
+      assert.equal(error.rollbackError, "rollback disk failure");
+      return true;
+    },
+  );
+});
+
+test("applyPlan reports backup failure without claiming a rollback", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pool-apply-backup-failure-"));
+  const poolsPath = path.join(directory, "pools.conf");
+  const presetsPath = path.join(directory, "pool-presets.json");
+  const sitesMapPath = path.join(directory, "sites.map");
+  const poolsBefore = mediumPool("example_com", 9001);
+  fs.writeFileSync(poolsPath, poolsBefore, "utf8");
+  fs.writeFileSync(presetsPath, JSON.stringify(PRESETS), "utf8");
+  fs.writeFileSync(sitesMapPath, "sites map\n", "utf8");
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
+  const plan = buildApplyPlan(proposed, poolsBefore, PRESETS, ["example_com"]);
+
+  await assert.rejects(
+    applyPlan({ ...plan, payload: proposed }, {
+      poolsPath,
+      presetsPath,
+      sitesMapPath,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      writeFile: (filePath, content) => fs.writeFileSync(filePath, content, "utf8"),
+      renameFile: (from, to) => fs.renameSync(from, to),
+      backupFile: () => { throw new Error("backup disk full"); },
+      validateConfig: async () => {},
+      reloadPhp: async () => {},
+      verifyPorts: async () => {},
+    }),
+    (error) => {
+      assert.match(error.message, /no configuration was changed/);
+      assert.equal(error.executionStarted, true);
+      assert.equal(error.rollbackStatus, "not-required");
+      return true;
+    },
+  );
+  assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
 });
 
 test("applyPlan rolls back when reload or port verification fails", async () => {
@@ -335,7 +413,12 @@ test("applyPlan rejects pool state changed after preview", async () => {
       reloadPhp: async () => {},
       verifyPorts: async () => {},
     }),
-    /changed after preview/,
+    (error) => {
+      assert.match(error.message, /changed after preview/);
+      assert.notEqual(error.executionStarted, true);
+      assert.equal(error.rollbackStatus, undefined);
+      return true;
+    },
   );
   assert.equal(backups, 0);
 });
