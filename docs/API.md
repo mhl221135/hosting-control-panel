@@ -407,7 +407,8 @@ appears in the apply preview. The capacity summary statuses are stable:
 memory compares estimated and ceiling totals against host RAM (warning at
 >50% estimated or >75% ceiling, critical at >75% estimated or >90% ceiling),
 and CPU compares worker slots per CPU (warning at >4, critical at >8). Missing
-or zero host CPU/RAM is reported safely as `unknown`.
+or zero host CPU/RAM, an unreadable pool source, or malformed/excess pool data
+is reported safely as `unknown` instead of as a healthy empty system.
 
 Successful profile saves and successful pool applications are recorded as
 mutating audit events. Failed applies after execution begins are recorded with

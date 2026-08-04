@@ -344,7 +344,7 @@ value (defaults 96/128/192 MB, bounds 32-4096 MB). It is used only for the
 Runtime **Worker capacity** summary and is never rendered into `pools.conf`.
 Changing only an estimate never makes pools drift or trigger a reload.
 
-Estimates are calc: estimated worker memory per pool = profile estimate ×
+Estimated worker memory per pool is the profile estimate multiplied by
 `pm.max_children` (custom/drifted pools use a conservative 256 MB fallback,
 reported separately). The absolute PHP memory-limit ceiling (configured PHP
 memory limit × workers) is shown alongside and is not misrepresented as
@@ -361,8 +361,9 @@ CPU worker slots per available core:
 - **critical**: > 8 slots per CPU.
 
 These are advisory guardrails, not hard blockers, because ondemand workers are
-not permanently resident. Missing or zero host CPU/RAM is reported as `unknown`
-instead of failing. Use the summary to bound worker counts and host RAM, then
+not permanently resident. Missing or zero host CPU/RAM and unreadable,
+malformed, or excessive pool data are reported as `unknown` instead of as a
+healthy empty system. Use the summary to bound worker counts and host RAM, then
 reload clearly and verify traffic.
 
 ## NPM Internal Service Hosts

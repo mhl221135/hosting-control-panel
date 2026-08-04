@@ -1521,7 +1521,7 @@ function renderPoolCapacity() {
   }
   const ratio = (value) => value === null || value === undefined ? "unavailable" : `${Math.round(value * 100)}%`;
   const statusLabel = (value) => value === "unknown"
-    ? "unknown (no host data)"
+    ? "unknown — capacity source or host data unavailable"
     : value === "critical"
       ? "critical — reduce worker counts or raise host RAM"
       : value === "warning"
@@ -1532,15 +1532,16 @@ function renderPoolCapacity() {
   const memoryPillars = [
     ["Estimated worker memory", guardrails.estimatedWorkerMemoryBytes, guardrails.estimatedRatio],
     ["PHP memory ceiling", guardrails.ceilingBytes, guardrails.ceilingRatio],
-  ].map(([label, bytes, usageRatio]) => `<span><strong>${escapeHtml(label)}</strong> ${formatBytes(bytes)} <small>${ratio(usageRatio)} of host RAM</small></span>`).join("");
+  ].map(([label, bytes, usageRatio]) => `<span><strong>${escapeHtml(label)}</strong> ${bytes === null ? "unavailable" : formatBytes(bytes)} <small>${ratio(usageRatio)} of host RAM</small></span>`).join("");
   box.innerHTML = `
     <div class="capacity-status"><span class="badge ${guardrails.status === "critical" ? "danger" : guardrails.status === "warning" ? "" : "on"}">${escapeHtml(guardrails.status)}</span><span>${escapeHtml(statusLabel(guardrails.status))}</span></div>
     <div class="capacity-grid">
-      <span><strong>${guardrails.workerSlots} worker slots</strong> across ${escapeHtml(state.pools.length)} pools</span>
+      <span><strong>${guardrails.workerSlots === null ? "unavailable" : `${escapeHtml(guardrails.workerSlots)} worker slots`}</strong> across ${escapeHtml(state.pools.length)} pools</span>
       <span><strong>${guardrails.slotsPerCpu === null ? "unavailable" : escapeHtml(guardrails.slotsPerCpu)} slots per CPU</strong> over ${escapeHtml(state.status?.capacity?.cpuCount || "unavailable")} CPUs</span>
       ${memoryPillars}
       <span><strong>Host RAM</strong> ${guardrails.hostRamBytes === null ? "unavailable" : formatBytes(guardrails.hostRamBytes)}</span>
-      <span><strong>${guardrails.fallbackPoolCount} custom pool${guardrails.fallbackPoolCount === 1 ? "" : "s"}</strong> use a ${escapeHtml(guardrails.fallbackMemoryMb)} MB fallback estimate each</span>
+      ${guardrails.sourceAvailable ? `<span><strong>${escapeHtml(guardrails.fallbackPoolCount)} custom pool${guardrails.fallbackPoolCount === 1 ? "" : "s"}</strong> use a ${escapeHtml(guardrails.fallbackMemoryMb)} MB fallback estimate each</span>` : ""}
+      ${guardrails.invalidPoolCount ? `<span><strong>Capacity unavailable</strong> ${escapeHtml(guardrails.invalidPoolCount)} invalid or excess pool record${guardrails.invalidPoolCount === 1 ? "" : "s"}</span>` : ""}
     </div>
     <small>Estimates are planning metadata based on profile memory settings multiplied by configured workers. They are not guaranteed usage: ondemand workers are not permanently resident.</small>
   `;

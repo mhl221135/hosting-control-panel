@@ -663,6 +663,7 @@ function capacityGuardrails() {
       pools: [],
       presets: readPoolPresets(),
       host: { cpuCount, memoryTotalBytes, phpMemoryLimitMb },
+      sourceAvailable: false,
     });
   }
 }

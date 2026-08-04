@@ -12,6 +12,8 @@ const CEILING_WARNING_RATIO = 0.75;
 const CEILING_CRITICAL_RATIO = 0.9;
 const CPU_SLOTS_WARNING = 4;
 const CPU_SLOTS_CRITICAL = 8;
+const MAX_POOLS = 10_000;
+const MAX_WORKERS_PER_POOL = 10_000;
 
 function boundedMemoryMb(value, fallback) {
   const parsed = Number(value);
@@ -50,7 +52,7 @@ function summarizeStatus(memoryStatus, cpuStatus) {
   return "healthy";
 }
 
-function computeCapacitySummary({ pools = [], presets = {}, host = {} } = {}) {
+function computeCapacitySummary({ pools = [], presets = {}, host = {}, sourceAvailable = true } = {}) {
   const cpuCount = Number(host.cpuCount);
   const memoryTotalBytes = Number(host.memoryTotalBytes);
   const phpMemoryLimitMb = Number(host.phpMemoryLimitMb);
@@ -63,10 +65,15 @@ function computeCapacitySummary({ pools = [], presets = {}, host = {} } = {}) {
   let ceilingBytes = 0;
   let customPools = 0;
   let fallbackPools = 0;
+  const poolRows = Array.isArray(pools) ? pools.slice(0, MAX_POOLS) : [];
+  let invalidPools = Array.isArray(pools) ? Math.max(0, pools.length - MAX_POOLS) : 1;
 
-  for (const pool of pools) {
+  for (const pool of poolRows) {
     const maxChildren = Number(pool?.maxChildren);
-    if (!Number.isInteger(maxChildren) || maxChildren < 0) continue;
+    if (!Number.isSafeInteger(maxChildren) || maxChildren < 0 || maxChildren > MAX_WORKERS_PER_POOL) {
+      invalidPools += 1;
+      continue;
+    }
     const { mb, fallback } = poolEstimateMb(pool, presets);
     const children = Math.max(0, maxChildren);
     workerSlots += children;
@@ -79,8 +86,10 @@ function computeCapacitySummary({ pools = [], presets = {}, host = {} } = {}) {
   const slotsPerCpu = knownCpu ? workerSlots / cpuCount : null;
   const estimatedRatio = knownRam ? estimatedMemoryBytes / memoryTotalBytes : null;
   const ceilingRatio = knownRam && ceilingBytes > 0 ? ceilingBytes / memoryTotalBytes : null;
+  const complete = sourceAvailable === true && invalidPools === 0;
 
   const memoryStatus = (() => {
+    if (!complete) return "unknown";
     if (!knownRam || !knownLimit) return "unknown";
     const estimated = estimatedRatio !== null ? statusForRatio(MEMORY_WARNING_RATIO, MEMORY_CRITICAL_RATIO, estimatedRatio) : "healthy";
     const ceiling = ceilingRatio !== null ? statusForRatio(CEILING_WARNING_RATIO, CEILING_CRITICAL_RATIO, ceilingRatio) : "healthy";
@@ -90,6 +99,7 @@ function computeCapacitySummary({ pools = [], presets = {}, host = {} } = {}) {
   })();
 
   const cpuStatus = (() => {
+    if (!complete) return "unknown";
     if (!knownCpu) return "unknown";
     const ratio = workerSlots / cpuCount;
     if (ratio > CPU_SLOTS_CRITICAL) return "critical";
@@ -98,19 +108,21 @@ function computeCapacitySummary({ pools = [], presets = {}, host = {} } = {}) {
   })();
 
   return {
-    workerSlots,
-    slotsPerCpu: slotsPerCpu === null ? null : Math.round(slotsPerCpu * 10) / 10,
-    estimatedWorkerMemoryBytes: estimatedMemoryBytes,
-    ceilingBytes,
+    sourceAvailable: complete,
+    invalidPoolCount: invalidPools,
+    workerSlots: complete ? workerSlots : null,
+    slotsPerCpu: complete && slotsPerCpu !== null ? Math.round(slotsPerCpu * 10) / 10 : null,
+    estimatedWorkerMemoryBytes: complete ? estimatedMemoryBytes : null,
+    ceilingBytes: complete && knownLimit ? ceilingBytes : null,
     hostRamBytes: knownRam ? memoryTotalBytes : null,
-    estimatedRatio: estimatedRatio === null ? null : Math.round(estimatedRatio * 1000) / 1000,
-    ceilingRatio: ceilingRatio === null ? null : Math.round(ceilingRatio * 1000) / 1000,
-    slotsPerCpuRatio: slotsPerCpu === null ? null : Math.round(slotsPerCpu * 10) / 10,
+    estimatedRatio: complete && estimatedRatio !== null ? Math.round(estimatedRatio * 1000) / 1000 : null,
+    ceilingRatio: complete && ceilingRatio !== null ? Math.round(ceilingRatio * 1000) / 1000 : null,
+    slotsPerCpuRatio: complete && slotsPerCpu !== null ? Math.round(slotsPerCpu * 10) / 10 : null,
     memoryStatus,
     cpuStatus,
     status: summarizeStatus(memoryStatus, cpuStatus),
-    customPoolCount: customPools,
-    fallbackPoolCount: fallbackPools,
+    customPoolCount: complete ? customPools : null,
+    fallbackPoolCount: complete ? fallbackPools : null,
     fallbackMemoryMb: CUSTOM_FALLBACK_MEMORY_MB,
     thresholds: {
       memoryWarningRatio: MEMORY_WARNING_RATIO,
@@ -135,6 +147,8 @@ module.exports = {
   DEFAULT_WORKER_MEMORY_MB,
   MEMORY_CRITICAL_RATIO,
   MEMORY_WARNING_RATIO,
+  MAX_POOLS,
+  MAX_WORKERS_PER_POOL,
   WORKER_MEMORY_MB_KEY,
   WORKER_MEMORY_MAX_MB,
   WORKER_MEMORY_MIN_MB,
