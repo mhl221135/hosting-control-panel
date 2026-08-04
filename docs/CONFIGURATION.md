@@ -75,6 +75,12 @@ Paths below are relative to `app-data/ui-manager`.
 | `telegram-command-state.json` | Bot API cursor and bounded command audit metadata | no |
 | `wordpress-packages/` | ZIPs and package metadata | user content |
 
+All JSON settings files are written atomically (temp-file + rename, mode 0600)
+by the owning module and fail closed on validation or write errors. Secret
+values are stored only inside the encrypted settings files; a blank or omitted
+secret field preserves the current value and only an explicit clear flag
+removes it.
+
 These files are operational data, not source. Back them up, but never commit
 them.
 

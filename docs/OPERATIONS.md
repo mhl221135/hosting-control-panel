@@ -431,6 +431,21 @@ configuration contents — with redacted bounded errors. View it in Runtime's
 This is separate from the PHP-FPM preset audit, which records only profile
 save/preview/apply.
 
+### Non-runtime settings mutations
+
+Performance, backup and off-site backup, notification, integration, health,
+billing provisioning/observer/enforcement, Cloudflare automation, server IP,
+and DNS-preset settings are written only after guarded body parsing (plain
+object, prototype-pollution, depth/size/count, unknown-field, and
+CR/LF/NUL-control rejection — see `lib/runtime-validation.js`) plus each
+module's own bounds/enum/URL/hostname/port/schedule validation. All settings
+persist atomically (temp-file + rename, mode 0600) and fail closed. Secrets are
+kept only in the encrypted settings mechanism; leaving a secret field blank or
+omitting it preserves the current secret, and only an explicit clear flag
+removes it. Performance changes additionally roll back the previously generated
+PHP/nginx/Redis/MySQL files if validation, reload, or application fails. The
+full endpoint inventory is in `docs/API.md`.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

@@ -667,9 +667,9 @@ custom/drifted pools as preserved. Preview validation performs no writes.
 Manual PHP-FPM reloads now connect to every configured pool port before the
 panel reports success.
 
-- Extend the same bounded validation and responsive/operations coverage to
-  non-runtime configuration mutations (performance, backup, notification, and
-  integration settings) that are not yet routed through shared validators.
+- Extend the same bounded validation and responsive/operations coverage to the
+  remaining configuration mutations that are still served by dedicated managers
+  (site-state switches, maintenance pins, and image-optimization schedules).
 
 The Runtime and provisioning/host/pool APIs now use shared pure validators in
 `lib/runtime-validation.js` (guarded JSON body parsing that rejects
@@ -682,6 +682,14 @@ Runtime history section) that stores counts, scope identifiers, status,
 verification and rollback outcome, and redacted errors — never domains, secrets,
 or full configuration contents. The PHP-FPM preset audit remains the dedicated
 stream for profile save/preview/apply.
+
+Non-runtime configuration mutations (performance, backup and off-site backup,
+notification, health, billing provisioning/observer/enforcement, Cloudflare
+automation, server IP, and DNS-preset settings) are now routed through the same
+guarded body parsing and shared validators, with reject-unknown-fields,
+control-character/injection rejection, bounded numerics/enums/URLs/hostnames/
+ports/schedules, and secret preservation. Settings persistence is atomic and
+fail-closed. See `docs/API.md` for the full endpoint inventory.
 
 Every runtime map/pool mutation now runs through a shared, cross-process serialized, verified
 transaction in `lib/runtime-transaction.js` (`RuntimeConfigTransaction`). It
