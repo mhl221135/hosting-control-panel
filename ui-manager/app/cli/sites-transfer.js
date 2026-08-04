@@ -9,6 +9,11 @@ const { CloudflareClient, NpmClient } = require("../lib/integrations");
 const { MigrationManager, newestDatabaseDump, validateIpv4, validateManifest } = require("../lib/migration-manager");
 const { SiteState } = require("../lib/site-state");
 const { validateDomain } = require("../lib/provisioner");
+const { RuntimeConfigTransaction, collectPoolPorts, verifyPortsWithRetry } = require("../lib/runtime-transaction");
+const { parsePools } = require("../lib/runtime-config");
+const { execFile } = require("child_process");
+const { promisify } = require("util");
+const execFileAsync = promisify(execFile);
 
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
@@ -22,6 +27,22 @@ const settings = new IntegrationSettings(DATA_DIR);
 const npm = new NpmClient(() => settings.resolved());
 const cloudflare = new CloudflareClient(() => settings.resolved());
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
+const phpHost = process.env.PHP_CONTAINER || "hosting-php-fpm";
+const runtimeTxn = new RuntimeConfigTransaction({
+  sitesMapPath: SITES_MAP_PATH,
+  poolsPath: POOLS_PATH,
+  validate: async () => {
+    await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-t"], { timeout: 30_000 });
+    await execFileAsync("docker", ["exec", phpHost, "php-fpm", "-t"], { timeout: 30_000 });
+  },
+  reloadNginx: async () => {
+    await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-s", "reload"], { timeout: 30_000 });
+  },
+  reloadPhp: async () => {
+    await execFileAsync("docker", ["exec", phpHost, "sh", "-c", "kill -USR2 1"], { timeout: 30_000 });
+  },
+  verifyPorts: async (ports) => verifyPortsWithRetry(ports, { host: process.env.PHP_FPM_HOST || phpHost }),
+});
 const manager = new MigrationManager({
   dataDir: DATA_DIR,
   exportsRoot: EXPORTS_ROOT,
@@ -30,10 +51,11 @@ const manager = new MigrationManager({
   sitesMapPath: SITES_MAP_PATH,
   poolsPath: POOLS_PATH,
   mysqlContainer: process.env.MYSQL_CONTAINER || "hosting-db",
-  phpContainer: process.env.PHP_CONTAINER || "hosting-php-fpm",
+  phpContainer: phpHost,
   npm,
   cloudflare,
   siteState,
+  runtimeTransaction: runtimeTxn,
 });
 
 const terminal = readline.createInterface({ input: stdin, output: stdout });
