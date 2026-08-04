@@ -6,6 +6,7 @@ const { execFile, spawn } = require("child_process");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
 const { siteAdapter, siteDatabaseReference } = require("./site-capabilities");
+const { atomicWriteJson } = require("./safe-write");
 
 const execFileAsync = promisify(execFile);
 const MYSQL_RESTORE_SQL_MODE = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
@@ -233,10 +234,7 @@ class BackupManager {
     if (typeof patch.siteBackupsEnabled === "boolean") next.siteBackupsEnabled = patch.siteBackupsEnabled;
     if (typeof patch.appDataEnabled === "boolean") next.appDataEnabled = patch.appDataEnabled;
     if (patch.lastScheduledDate !== undefined) next.lastScheduledDate = String(patch.lastScheduledDate);
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return next;
   }
 

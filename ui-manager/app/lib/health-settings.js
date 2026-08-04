@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 const DEFAULTS = {
   enabled: false,
@@ -101,10 +102,7 @@ class HealthSettings {
 
   save(payload) {
     const settings = validate(payload);
-    fs.writeFileSync(this.path, JSON.stringify({ ...settings, updatedAt: new Date().toISOString() }, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.path, { ...settings, updatedAt: new Date().toISOString() }, 0o600);
     return settings;
   }
 }

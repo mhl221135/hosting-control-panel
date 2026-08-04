@@ -57,6 +57,32 @@ function rejectUnknownKeys(obj, allowed, label = "object") {
   return obj;
 }
 
+// Rejects carriage return, line feed, NUL, and other C0 control characters that
+// could break generated configuration or log/settings boundaries.
+function rejectControlChars(value, { label = "value" } = {}) {
+  const raw = value === undefined || value === null ? "" : String(value);
+  if (/[\u0000-\u001f\u007f]/.test(raw)) {
+    throw validationError(`${label} contains unsupported control characters`, 400);
+  }
+  return raw;
+}
+
+function rejectObjectControlChars(obj, { stringKeys = [], label = "settings" } = {}) {
+  for (const key of stringKeys) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) rejectControlChars(obj[key], { label: `${label}.${key}` });
+  }
+  return obj;
+}
+
+// Combines plain-object/pollution/size/depth guards with unknown-field rejection
+// and boundary control-character checks for settings mutations.
+function guardSettingsBody(body, { allowed = new Set(), stringKeys = [], label = "settings" } = {}) {
+  const guarded = guardBody(body);
+  rejectUnknownKeys(guarded, allowed, label);
+  rejectObjectControlChars(guarded, { stringKeys, label });
+  return guarded;
+}
+
 function boundedSlug(value, { label, max = MAX_NAME_LENGTH, plural = "" } = {}) {
   const raw = String(value ?? "");
   const text = raw.trim();
@@ -189,12 +215,15 @@ module.exports = {
   documentRoot,
   durationSeconds,
   guardBody,
+  guardSettingsBody,
   hasPollutionKey,
   isPlainObject,
   optionalBoolean,
   optionalHostname,
   poolSettings,
   processManager,
+  rejectControlChars,
+  rejectObjectControlChars,
   rejectUnknownKeys,
   validHostname,
   validPort,

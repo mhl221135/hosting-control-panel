@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 const SUPPORTED_TYPES = ["A", "AAAA", "CNAME", "TXT", "MX", "CAA"];
 
@@ -95,7 +96,7 @@ class DnsPresetStore {
     const preset = this.validate(payload, id);
     if (existingIndex >= 0) presets[existingIndex] = preset;
     else presets.push(preset);
-    fs.writeFileSync(this.filePath, JSON.stringify(presets, null, 2), { encoding: "utf8", mode: 0o600 });
+    atomicWriteJson(this.filePath, presets, 0o600);
     return preset;
   }
 
@@ -107,7 +108,7 @@ class DnsPresetStore {
       error.statusCode = 404;
       throw error;
     }
-    fs.writeFileSync(this.filePath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
+    atomicWriteJson(this.filePath, next, 0o600);
   }
 
   resolveAll(id, domain) {

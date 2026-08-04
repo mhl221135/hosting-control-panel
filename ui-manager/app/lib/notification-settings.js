@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 function validationError(message) {
   return Object.assign(new Error(message), { statusCode: 400 });
@@ -218,10 +219,7 @@ class NotificationSettings {
       throw validationError("Enter valid SMTP sender and recipient addresses");
     }
 
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return this.publicView();
   }
 }

@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 class IntegrationSettings {
   constructor(dataDir) {
@@ -144,10 +145,7 @@ class IntegrationSettings {
       error.statusCode = 400;
       throw error;
     }
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return this.publicView();
   }
 }
