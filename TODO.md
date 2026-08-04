@@ -667,10 +667,6 @@ custom/drifted pools as preserved. Preview validation performs no writes.
 Manual PHP-FPM reloads now connect to every configured pool port before the
 panel reports success.
 
-- Extend the same bounded validation and responsive/operations coverage to the
-  remaining configuration mutations that are still served by dedicated managers
-  (site-state switches, maintenance pins, and image-optimization schedules).
-
 The Runtime and provisioning/host/pool APIs now use shared pure validators in
 `lib/runtime-validation.js` (guarded JSON body parsing that rejects
 prototype-pollution keys, oversized/unknown structures, malformed hosts,
@@ -680,6 +676,8 @@ recorded to a separate bounded runtime-configuration audit
 (`app-data/ui-manager/runtime-config-audit.json`, `GET /api/runtime-config/audit`,
 Runtime history section) that stores counts, scope identifiers, status,
 verification and rollback outcome, and redacted errors — never domains, secrets,
+
+
 or full configuration contents. The PHP-FPM preset audit remains the dedicated
 stream for profile save/preview/apply.
 
@@ -690,6 +688,18 @@ guarded body parsing and shared validators, with reject-unknown-fields,
 control-character/injection rejection, bounded numerics/enums/URLs/hostnames/
 ports/schedules, and secret preservation. Settings persistence is atomic and
 fail-closed. See `docs/API.md` for the full endpoint inventory.
+
+Site-state switches, cache purge, image-optimization schedules, maintenance
+settings, and WordPress update pins are also validated through the shared
+guarded parser (explicit schemas, prototype-pollution and control-character
+rejection, capability restrictions for WordPress/generic-PHP/static, and
+www-alias rejection). Site-state mutations (and cache purge) run through a
+single-lock site-state transaction coordinator
+(`lib/site-state-transaction.js`) that snapshots site-state.json, cache.map,
+sites.map, and pools.conf, writes them atomically, validates and reloads the
+affected services, verifies pool ports, and restores every file with a distinct
+rollback outcome on failure. Image/maintenance settings and update pins persist
+atomically; update pins remain fail-closed on corrupted state.
 
 Every runtime map/pool mutation now runs through a shared, cross-process serialized, verified
 transaction in `lib/runtime-transaction.js` (`RuntimeConfigTransaction`). It
