@@ -34,6 +34,14 @@ const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
+const {
+  CUSTOM_FALLBACK_MEMORY_MB,
+  DEFAULT_WORKER_MEMORY_MB,
+  WORKER_MEMORY_MAX_MB,
+  WORKER_MEMORY_MIN_MB,
+  boundedMemoryMb,
+  computeCapacitySummary,
+} = require("./lib/php-fpm-capacity");
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
@@ -110,6 +118,7 @@ const DEFAULT_POOL_PRESETS = {
     process_idle_timeout: "20s",
     request_terminate_timeout: "120s",
     max_requests: "400",
+    estimated_memory_mb: String(DEFAULT_WORKER_MEMORY_MB.low),
   },
   medium: {
     pm: "ondemand",
@@ -120,6 +129,7 @@ const DEFAULT_POOL_PRESETS = {
     process_idle_timeout: "30s",
     request_terminate_timeout: "120s",
     max_requests: "500",
+    estimated_memory_mb: String(DEFAULT_WORKER_MEMORY_MB.medium),
   },
   high: {
     pm: "dynamic",
@@ -130,6 +140,7 @@ const DEFAULT_POOL_PRESETS = {
     process_idle_timeout: "45s",
     request_terminate_timeout: "120s",
     max_requests: "700",
+    estimated_memory_mb: String(DEFAULT_WORKER_MEMORY_MB.high),
   },
 };
 
@@ -490,6 +501,10 @@ function readPoolPresets() {
       process_idle_timeout: String(preset.process_idle_timeout || merged[name]?.process_idle_timeout || "30s"),
       request_terminate_timeout: String(preset.request_terminate_timeout || merged[name]?.request_terminate_timeout || "120s"),
       max_requests: String(preset.max_requests || merged[name]?.max_requests || "500"),
+      estimated_memory_mb: String(boundedMemoryMb(
+        preset.estimated_memory_mb ?? merged[name]?.estimated_memory_mb,
+        DEFAULT_WORKER_MEMORY_MB[name] !== undefined ? DEFAULT_WORKER_MEMORY_MB[name] : CUSTOM_FALLBACK_MEMORY_MB,
+      )),
     };
   }
   return merged;
@@ -533,6 +548,12 @@ function validatePoolPresets(payload, current = readPoolPresets()) {
       process_idle_timeout: duration(preset.process_idle_timeout ?? existing.process_idle_timeout, `${name} idle timeout`),
       request_terminate_timeout: duration(preset.request_terminate_timeout ?? existing.request_terminate_timeout, `${name} request timeout`),
       max_requests: boundedInteger(preset.max_requests ?? existing.max_requests, 1, 10000, `${name} maximum requests`),
+      estimated_memory_mb: boundedInteger(
+        preset.estimated_memory_mb ?? existing.estimated_memory_mb,
+        WORKER_MEMORY_MIN_MB,
+        WORKER_MEMORY_MAX_MB,
+        `${name} estimated worker memory`,
+      ),
     };
     if (Number(out[name].min_spare_servers) > Number(out[name].max_spare_servers)
         || Number(out[name].max_spare_servers) > Number(out[name].max_children)
@@ -614,6 +635,36 @@ function profileDiff(before, after) {
 function normalizeTier(tier, presets = readPoolPresets()) {
   const key = String(tier || "").trim().toLowerCase();
   return Object.prototype.hasOwnProperty.call(presets, key) ? key : "";
+}
+
+function capacityGuardrails() {
+  const cpuCount = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  const memoryTotalBytes = os.totalmem();
+  const phpMemoryLimitMb = performanceSettings.read().php.memoryLimitMb;
+  try {
+    const pools = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const presets = readPoolPresets();
+    const rows = pools.sectionOrder.map((name) => {
+      const settings = pools.sections[name] || {};
+      const maxChildren = Number(settings["pm.max_children"]);
+      return {
+        name,
+        maxChildren: Number.isInteger(maxChildren) ? maxChildren : 0,
+        tier: detectTier(settings, presets),
+      };
+    });
+    return computeCapacitySummary({
+      pools: rows,
+      presets,
+      host: { cpuCount, memoryTotalBytes, phpMemoryLimitMb },
+    });
+  } catch {
+    return computeCapacitySummary({
+      pools: [],
+      presets: readPoolPresets(),
+      host: { cpuCount, memoryTotalBytes, phpMemoryLimitMb },
+    });
+  }
 }
 
 function detectTier(pool, presets = readPoolPresets()) {
@@ -1714,6 +1765,7 @@ async function handleApi(req, res) {
         cpuCount: typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length,
         memoryTotalBytes: os.totalmem(),
         phpMemoryLimitMb: performanceSettings.read().php.memoryLimitMb,
+        guardrails: capacityGuardrails(),
       },
       integrations: {
         npm: npm.configured(),

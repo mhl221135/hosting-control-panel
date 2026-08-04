@@ -337,6 +337,34 @@ never store passwords, tokens, environment values, website contents, full
 configuration files, customer data, or request headers, so the file is not a
 secret store and no dedicated rotation is required beyond the bounded retention.
 
+### PHP-FPM capacity planning (advisory)
+
+Each Low/Medium/High profile stores a validated `estimated_memory_mb` planning
+value (defaults 96/128/192 MB, bounds 32-4096 MB). It is used only for the
+Runtime **Worker capacity** summary and is never rendered into `pools.conf`.
+Changing only an estimate never makes pools drift or trigger a reload.
+
+Estimates are calc: estimated worker memory per pool = profile estimate ×
+`pm.max_children` (custom/drifted pools use a conservative 256 MB fallback,
+reported separately). The absolute PHP memory-limit ceiling (configured PHP
+memory limit × workers) is shown alongside and is not misrepresented as
+guaranteed usage. Statuses compared against host RAM:
+
+- **healthy**: estimated ≤ 50% and ceiling ≤ 75% of host RAM;
+- **warning**: estimated > 50% or ceiling > 75%;
+- **critical**: estimated > 75% or ceiling > 90%.
+
+CPU worker slots per available core:
+
+- **healthy**: ≤ 4 slots per CPU;
+- **warning**: > 4 slots per CPU;
+- **critical**: > 8 slots per CPU.
+
+These are advisory guardrails, not hard blockers, because ondemand workers are
+not permanently resident. Missing or zero host CPU/RAM is reported as `unknown`
+instead of failing. Use the summary to bound worker counts and host RAM, then
+reload clearly and verify traffic.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

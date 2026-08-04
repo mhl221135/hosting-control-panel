@@ -1506,21 +1506,44 @@ function renderPoolPresets() {
       <label>Idle timeout<input data-preset-field="process_idle_timeout" pattern="[0-9]+s" value="${escapeHtml(preset.process_idle_timeout)}" required /></label>
       <label>Request timeout<input data-preset-field="request_terminate_timeout" pattern="[0-9]+s" value="${escapeHtml(preset.request_terminate_timeout)}" required /></label>
       <label>Maximum requests<input data-preset-field="max_requests" type="number" min="1" max="10000" value="${escapeHtml(preset.max_requests)}" required /></label>
+      <label>Estimated memory per worker<input data-preset-field="estimated_memory_mb" type="number" min="32" max="4096" value="${escapeHtml(preset.estimated_memory_mb)}" required /><small>Planning estimate in MB per worker. Used for capacity summaries only and never written into PHP-FPM pool configuration.</small></label>
     </fieldset>
   `).join("");
 }
 
 function renderPoolCapacity() {
-  const capacity = state.status?.capacity || {};
-  const workerSlots = state.pools.reduce((total, pool) =>
-    total + Number(pool.settings?.["pm.max_children"] || 0), 0);
-  const memoryLimitMb = Number(capacity.phpMemoryLimitMb || 0);
-  const memoryTotalBytes = Number(capacity.memoryTotalBytes || 0);
-  const configuredBytes = workerSlots * memoryLimitMb * 1024 * 1024;
-  const warning = memoryTotalBytes > 0 && configuredBytes / memoryTotalBytes > 0.75;
+  const guardrails = state.status?.capacity?.guardrails;
   const box = $("#poolCapacity");
-  box.className = `pool-capacity${warning ? " warning" : ""}`;
-  box.innerHTML = `<strong>${workerSlots} worker slots</strong><span>Worst-case PHP ceiling: ${formatBytes(configuredBytes)} across ${state.pools.length} pools · Host RAM: ${formatBytes(memoryTotalBytes)} · ${escapeHtml(capacity.cpuCount || 0)} CPUs</span>${warning ? "<small>This configured ceiling exceeds 75% of host RAM. Ondemand pools do not reserve it, but concurrent load can exhaust the host.</small>" : ""}`;
+  if (!guardrails) {
+    box.className = "pool-capacity";
+    box.innerHTML = "<strong>Capacity</strong><span>Loading capacity summary…</span>";
+    return;
+  }
+  const ratio = (value) => value === null || value === undefined ? "unavailable" : `${Math.round(value * 100)}%`;
+  const statusLabel = (value) => value === "unknown"
+    ? "unknown (no host data)"
+    : value === "critical"
+      ? "critical — reduce worker counts or raise host RAM"
+      : value === "warning"
+        ? "warning — high configured usage"
+        : "healthy";
+  const statusClass = guardrails.status === "critical" ? " critical" : guardrails.status === "warning" ? " warning" : "";
+  box.className = `pool-capacity${statusClass}`;
+  const memoryPillars = [
+    ["Estimated worker memory", guardrails.estimatedWorkerMemoryBytes, guardrails.estimatedRatio],
+    ["PHP memory ceiling", guardrails.ceilingBytes, guardrails.ceilingRatio],
+  ].map(([label, bytes, usageRatio]) => `<span><strong>${escapeHtml(label)}</strong> ${formatBytes(bytes)} <small>${ratio(usageRatio)} of host RAM</small></span>`).join("");
+  box.innerHTML = `
+    <div class="capacity-status"><span class="badge ${guardrails.status === "critical" ? "danger" : guardrails.status === "warning" ? "" : "on"}">${escapeHtml(guardrails.status)}</span><span>${escapeHtml(statusLabel(guardrails.status))}</span></div>
+    <div class="capacity-grid">
+      <span><strong>${guardrails.workerSlots} worker slots</strong> across ${escapeHtml(state.pools.length)} pools</span>
+      <span><strong>${guardrails.slotsPerCpu === null ? "unavailable" : escapeHtml(guardrails.slotsPerCpu)} slots per CPU</strong> over ${escapeHtml(state.status?.capacity?.cpuCount || "unavailable")} CPUs</span>
+      ${memoryPillars}
+      <span><strong>Host RAM</strong> ${guardrails.hostRamBytes === null ? "unavailable" : formatBytes(guardrails.hostRamBytes)}</span>
+      <span><strong>${guardrails.fallbackPoolCount} custom pool${guardrails.fallbackPoolCount === 1 ? "" : "s"}</strong> use a ${escapeHtml(guardrails.fallbackMemoryMb)} MB fallback estimate each</span>
+    </div>
+    <small>Estimates are planning metadata based on profile memory settings multiplied by configured workers. They are not guaranteed usage: ondemand workers are not permanently resident.</small>
+  `;
 }
 
 function poolPresetDraft() {

@@ -64,7 +64,7 @@ Paths below are relative to `app-data/ui-manager`.
 | `wordpress-update-history.json` | bounded controlled-update and rollback audit | no |
 | `wordpress-update-pins.json` | per-site core/package update exclusions and last editor metadata | no |
 | `default-pool.json` | default PHP pool choice | no |
-| `pool-presets.json` | low/medium/high worker definitions | no |
+| `pool-presets.json` | low/medium/high worker definitions plus per-profile `estimated_memory_mb` planning value | no |
 | `image-optimization-status.json` | persisted bulk-job progress | no |
 | `jobs.json` | durable queue, progress, results, and bounded history | no; secret fields are rejected |
 | `provisioning-credentials.json` | encrypted, expiring one-time provisioning records | yes |

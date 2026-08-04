@@ -427,10 +427,19 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .preset-editor { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .pool-preset { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; min-width: 0; }
 .pool-preset legend { font-weight: 700; text-transform: capitalize; }
-.pool-capacity { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; align-items: baseline; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #f7f9fa; font-size: 12px; }
+.pool-capacity { display: grid; gap: 8px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; background: #f7f9fa; font-size: 12px; }
 .pool-capacity span { color: var(--muted); overflow-wrap: anywhere; }
-.pool-capacity small { grid-column: 1 / -1; color: var(--warning); }
+.pool-capacity strong { color: var(--text); }
+.pool-capacity small { color: var(--muted); }
+.pool-capacity .capacity-status { display: flex; align-items: center; gap: 8px; color: var(--muted); overflow-wrap: anywhere; }
+.pool-capacity .capacity-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 6px 16px; }
+.pool-capacity .capacity-grid span { display: grid; gap: 2px; }
 .pool-capacity.warning { border-color: #f1cf9e; background: #fff7e8; }
+.pool-capacity.critical { border-color: #f2b8b5; background: #fdf1f0; }
+
+@media (max-width: 520px) {
+  .pool-capacity .capacity-grid { grid-template-columns: 1fr; }
+}
 .pool-drift { display: block; margin-top: 5px; max-width: 220px; color: var(--warning); line-height: 1.35; }
 .pool-preset-preview { margin-bottom: 14px; border-left: 3px solid var(--accent); padding: 8px 12px; background: #f4f8f8; font-size: 12px; }
 .pool-preset-preview p { margin: 5px 0; }
