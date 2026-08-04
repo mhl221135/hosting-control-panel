@@ -3,6 +3,7 @@ const test = require("node:test");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
   DEFAULT_WORKER_MEMORY_MB,
+  MAX_WORKERS_PER_POOL,
   WORKER_MEMORY_MAX_MB,
   WORKER_MEMORY_MIN_MB,
   boundedMemoryMb,
@@ -36,13 +37,8 @@ test("worker-memory estimates are bound and sanitized", () => {
   assert.equal(boundedMemoryMb(null, 96), 96);
 });
 
-test("estimate-only profile changes never affect pool classification or apply preview", () => {
-  const base = {
-    medium: { ...DEFAULT_WORKER_MEMORY_MB, max_children: "6", pm: "ondemand" },
-  };
-  const withEstimate = { ...workerMemoryMbForTier("medium", base) };
+test("profile estimates are independent planning metadata", () => {
   assert.equal(workerMemoryMbForTier("medium", { medium: { estimated_memory_mb: "256" } }), 256);
-  // The capacity library never binds the estimate to a pool tier membership check.
   const unknown = workerMemoryMbForTier("nope", {});
   assert.ok(unknown >= WORKER_MEMORY_MIN_MB && unknown <= WORKER_MEMORY_MAX_MB);
 });
@@ -115,6 +111,34 @@ test("missing or zero host capacity is handled safely as unknown", () => {
   assert.equal(summary.workerSlots, 6);
 });
 
+test("unavailable or malformed pool sources never report a healthy empty system", () => {
+  const unavailable = computeCapacitySummary({
+    pools: [],
+    presets: {},
+    host: { cpuCount: 8, memoryTotalBytes: 16 * GB, phpMemoryLimitMb: 256 },
+    sourceAvailable: false,
+  });
+  assert.equal(unavailable.sourceAvailable, false);
+  assert.equal(unavailable.status, "unknown");
+  assert.equal(unavailable.workerSlots, null);
+  assert.equal(unavailable.estimatedWorkerMemoryBytes, null);
+  assert.equal(unavailable.ceilingBytes, null);
+  assert.equal(unavailable.customPoolCount, null);
+  assert.equal(unavailable.fallbackPoolCount, null);
+
+  const malformed = computeCapacitySummary({
+    pools: [{ tier: "medium", maxChildren: MAX_WORKERS_PER_POOL + 1 }],
+    presets: {},
+    host: { cpuCount: 8, memoryTotalBytes: 16 * GB, phpMemoryLimitMb: 256 },
+  });
+  assert.equal(malformed.sourceAvailable, false);
+  assert.equal(malformed.invalidPoolCount, 1);
+  assert.equal(malformed.status, "unknown");
+  assert.equal(malformed.workerSlots, null);
+  assert.equal(JSON.stringify(malformed).includes("null"), true);
+  assert.doesNotMatch(JSON.stringify(malformed), /Infinity|NaN/);
+});
+
 test("missing host memory with known CPU still reports CPU health and unknown memory", () => {
   const summary = computeCapacitySummary({
     pools: [{ tier: "high", maxChildren: 10 }],
@@ -138,7 +162,8 @@ test("output is bounded and free of sensitive configuration contents", () => {
   assert.deepEqual(Object.keys(summary).sort(), [
     "ceilingBytes", "ceilingRatio", "cpuStatus", "customPoolCount", "estimatedRatio",
     "estimatedWorkerMemoryBytes", "fallbackMemoryMb", "fallbackPoolCount", "hostRamBytes",
-    "memoryStatus", "slotsPerCpu", "slotsPerCpuRatio", "status", "thresholds", "workerSlots",
+    "invalidPoolCount", "memoryStatus", "slotsPerCpu", "slotsPerCpuRatio", "sourceAvailable",
+    "status", "thresholds", "workerSlots",
   ].sort());
   for (const key of ["workerSlots", "estimatedWorkerMemoryBytes", "ceilingBytes"]) {
     assert.equal(Number.isFinite(summary[key]), true, key);
