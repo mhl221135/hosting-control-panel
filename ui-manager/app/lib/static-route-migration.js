@@ -5,7 +5,7 @@ const {
   renderSitesMap,
   sanitizeSectionName,
 } = require("./runtime-config");
-const { allocatePort } = require("./runtime-transaction");
+const { allocatePort, collectPoolPorts } = require("./runtime-transaction");
 
 const STATIC_GATE_MARKER = "# Managed static-route isolation.";
 
@@ -130,4 +130,87 @@ function migrateStaticRoutes({
   };
 }
 
-module.exports = { STATIC_GATE_MARKER, ensureStaticPhpGate, migrateStaticRoutes };
+function migrationPorts(poolsContent) {
+  return collectPoolPorts(parsePools(poolsContent));
+}
+
+function restoreActivation(deps, before) {
+  const { atomicWrite, sitesMapPath, poolsPath, nginxDefaultPath, statePath } = deps;
+  atomicWrite(sitesMapPath, before.map);
+  atomicWrite(poolsPath, before.pools);
+  atomicWrite(nginxDefaultPath, before.nginx);
+  atomicWrite(statePath, before.state, before.stateMode || 0o600);
+}
+
+async function activateStaticMigration({ before, after, deps }) {
+  const {
+    atomicWrite = require("./runtime-transaction").atomicWriteFile,
+    backupFile = () => {},
+    validateModel = require("./runtime-transaction").validateRuntimeModel,
+    validateConfig,
+    reloadPhp,
+    reloadNginx,
+    verifyPorts,
+    stateMode = 0o600,
+  } = deps;
+
+  validateModel(parseSitesMap(after.mapContent), parsePools(after.poolsContent));
+
+  backupFile(deps.sitesMapPath, before.map);
+  backupFile(deps.poolsPath, before.pools);
+  backupFile(deps.nginxDefaultPath, before.nginx);
+  backupFile(deps.statePath, before.state);
+
+  const afterPorts = migrationPorts(after.poolsContent);
+  try {
+    atomicWrite(deps.sitesMapPath, after.mapContent);
+    atomicWrite(deps.poolsPath, after.poolsContent);
+    atomicWrite(deps.nginxDefaultPath, after.nginxContent);
+    atomicWrite(deps.statePath, after.state, stateMode);
+  } catch (writeError) {
+    let restoreError = "";
+    try {
+      restoreActivation(deps, before);
+    } catch (error) {
+      restoreError = String(error?.message || error).slice(0, 300);
+    }
+    throw Object.assign(writeError, {
+      rollback: restoreError ? "failed" : "succeeded",
+      rollbackError: restoreError,
+      statusCode: 500,
+    });
+  }
+
+  let rollback = "not-required";
+  try {
+    await validateConfig();
+    await reloadPhp();
+    await reloadNginx();
+    if (afterPorts.length) await verifyPorts(afterPorts);
+  } catch (error) {
+    let rollbackOutcome = "succeeded";
+    try {
+      restoreActivation(deps, before);
+      await validateConfig();
+      await reloadPhp();
+      await reloadNginx();
+      await verifyPorts(migrationPorts(before.pools));
+    } catch (rollbackError) {
+      rollbackOutcome = "failed";
+      error.rollbackError = String(rollbackError?.message || rollbackError).slice(0, 300);
+    }
+    rollback = rollbackOutcome;
+    error.rollback = rollbackOutcome;
+    if (!error.statusCode) error.statusCode = 502;
+    throw error;
+  }
+  return { rollback };
+}
+
+module.exports = {
+  STATIC_GATE_MARKER,
+  activateStaticMigration,
+  ensureStaticPhpGate,
+  migrateStaticRoutes,
+  migrationPorts,
+};

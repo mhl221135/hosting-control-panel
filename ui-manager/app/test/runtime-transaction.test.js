@@ -7,6 +7,7 @@ const {
   AsyncLock,
   RuntimeConfigTransaction,
   allocatePort,
+  atomicWriteFile: atomicWriteFileBuiltin,
   collectPoolPorts,
   validateRuntimeModel,
   verifyPortsWithRetry,
@@ -380,6 +381,48 @@ test("transaction never embeds full configuration contents in results or errors"
         && !error.message.includes(poolsBefore)
         && !JSON.stringify(error).includes("super secret"),
     );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("partial write failure restores both files and reports rollback", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "txn-partialwrite-"));
+  try {
+    const { txn, mapPath, poolsPath, mapBefore, poolsBefore } = makeTxn(dir, {
+      atomicWrite: (() => {
+        let failed = false;
+        return (filePath, content) => {
+          if (filePath === poolsPath && !failed) {
+            failed = true;
+            throw Object.assign(new Error("disk full"), { statusCode: 500 });
+          }
+          atomicWriteFileBuiltin(filePath, content);
+        };
+      })(),
+    });
+    const mapParsed = parseSitesMap(mapBefore);
+    const poolsParsed = parsePools(poolsBefore);
+    addPool(mapParsed, poolsParsed, "newsite_com", 9001);
+    await assert.rejects(
+      txn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }),
+      (error) => error.message.includes("disk full") && error.rollback === "succeeded",
+    );
+    assert.equal(fs.readFileSync(mapPath, "utf8"), mapBefore);
+    assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("failed atomic write cleans up its temporary file", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "txn-tmpclean-"));
+  try {
+    const blocker = path.join(dir, "blocked.conf");
+    fs.mkdirSync(blocker);
+    assert.throws(() => atomicWriteFileBuiltin(blocker, "x"));
+    const leftovers = fs.readdirSync(dir).filter((name) => name.endsWith(".tmp"));
+    assert.deepEqual(leftovers, []);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

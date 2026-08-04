@@ -4,8 +4,9 @@ const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
-const { migrateStaticRoutes } = require("../lib/static-route-migration");
+const { migrateStaticRoutes, activateStaticMigration } = require("../lib/static-route-migration");
 const { parseSitesMap } = require("../lib/runtime-config");
+const { atomicWriteFile, verifyPortsWithRetry } = require("../lib/runtime-transaction");
 
 const execFileAsync = promisify(execFile);
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -13,6 +14,7 @@ const SITES_MAP_PATH = process.env.SITES_MAP_PATH || "/srv/configs/nginx/conf.d/
 const POOLS_PATH = process.env.POOLS_PATH || "/srv/configs/php-fpm/pools.conf";
 const NGINX_DEFAULT_PATH = process.env.NGINX_DEFAULT_PATH || "/srv/configs/nginx/conf.d/default.conf";
 const WEBSITES_ROOT = process.env.WEBSITES_ROOT || "/srv/websites";
+const STATE_PATH = `${DATA_DIR}/site-state.json`;
 
 function containsPhpFiles(directory) {
   const stack = [directory];
@@ -31,15 +33,37 @@ function containsPhpFiles(directory) {
   return false;
 }
 
+function writePlan(result) {
+  process.stdout.write(
+    `Static isolation plan: ${result.converted.length} route(s), ${result.removedPools.length} unused pool(s)`
+    + `, ${result.reclassified.length} PHP site(s) reclassified`
+    + `${result.recoveredPools.length ? `, ${result.recoveredPools.length} pool(s) recovered` : ""}`
+    + `${result.skipped.length ? `, ${result.skipped.length} missing route(s)` : ""}.\n`
+    + `Routes: ${result.converted.join(", ") || "none"}\n`
+    + `Pools to remove: ${result.removedPools.join(", ") || "none"}\n`
+    + `Generic PHP: ${result.reclassified.join(", ") || "none"}\n`,
+  );
+}
+
 async function main() {
-  const dryRun = process.argv.includes("--dry-run");
+  const args = new Set(process.argv.slice(2));
+  const apply = args.has("--apply");
+  const preview = args.has("--dry-run") || !apply;
+
   const before = {
     map: fs.readFileSync(SITES_MAP_PATH, "utf8"),
     pools: fs.readFileSync(POOLS_PATH, "utf8"),
     nginx: fs.readFileSync(NGINX_DEFAULT_PATH, "utf8"),
   };
-  const statePath = `${DATA_DIR}/site-state.json`;
-  const siteState = fs.existsSync(statePath) ? JSON.parse(fs.readFileSync(statePath, "utf8")) : { sites: {} };
+  const statePath = STATE_PATH;
+  const rawState = fs.existsSync(statePath) ? fs.readFileSync(statePath, "utf8") : "";
+  let siteState;
+  try {
+    siteState = rawState ? JSON.parse(rawState) : { sites: {} };
+  } catch {
+    siteState = { sites: {} };
+  }
+  const beforeState = JSON.stringify(siteState, null, 2);
   const currentMap = parseSitesMap(before.map);
   const legacyPhpDomains = Object.entries(siteState.sites || {})
     .filter(([, state]) => state?.siteType === "static")
@@ -58,50 +82,56 @@ async function main() {
     siteState,
     legacyPhpDomains,
   });
-  const stateBefore = JSON.stringify(siteState, null, 2);
-  const stateAfter = JSON.stringify(result.siteState, null, 2);
+  const afterState = JSON.stringify(result.siteState, null, 2);
   const changed = result.mapContent !== before.map
     || result.poolsContent !== before.pools
     || result.nginxContent !== before.nginx
-    || stateAfter !== stateBefore;
+    || afterState !== beforeState;
+
   if (!changed) {
     process.stdout.write("Static route isolation is already current.\n");
     return;
   }
-  if (dryRun) {
-    process.stdout.write(
-      `Static isolation preview: ${result.converted.length} route(s), ${result.removedPools.length} unused pool(s)`
-      + `, ${result.reclassified.length} PHP site(s) reclassified`
-      + `${result.skipped.length ? `, ${result.skipped.length} missing route(s)` : ""}.\n`
-      + `Routes: ${result.converted.join(", ") || "none"}\n`
-      + `Pools: ${result.removedPools.join(", ") || "none"}\n`
-      + `Generic PHP: ${result.reclassified.join(", ") || "none"}\n`,
-    );
+  writePlan(result);
+
+  if (!apply) {
+    process.stdout.write("Preview only: no files were changed. Re-run with --apply to commit this plan.\n");
     return;
   }
 
-  try {
-    fs.writeFileSync(SITES_MAP_PATH, result.mapContent, "utf8");
-    fs.writeFileSync(POOLS_PATH, result.poolsContent, "utf8");
-    fs.writeFileSync(NGINX_DEFAULT_PATH, result.nginxContent, "utf8");
-    fs.writeFileSync(statePath, `${stateAfter}\n`, { encoding: "utf8", mode: 0o600 });
-    await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-t"], { timeout: 30_000 });
-    await execFileAsync("docker", ["exec", process.env.PHP_CONTAINER || "hosting-php-fpm", "php-fpm", "-t"], { timeout: 30_000 });
+  const phpHost = process.env.PHP_CONTAINER || "hosting-php-fpm";
+  const reloadNginx = async () => {
     await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-s", "reload"], { timeout: 30_000 });
-    await execFileAsync("docker", [
-      "exec", process.env.PHP_CONTAINER || "hosting-php-fpm", "sh", "-c", "kill -USR2 1",
-    ], { timeout: 30_000 });
-  } catch (error) {
-    fs.writeFileSync(SITES_MAP_PATH, before.map, "utf8");
-    fs.writeFileSync(POOLS_PATH, before.pools, "utf8");
-    fs.writeFileSync(NGINX_DEFAULT_PATH, before.nginx, "utf8");
-    fs.writeFileSync(statePath, `${stateBefore}\n`, { encoding: "utf8", mode: 0o600 });
-    await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-s", "reload"], { timeout: 30_000 }).catch(() => {});
-    await execFileAsync("docker", [
-      "exec", process.env.PHP_CONTAINER || "hosting-php-fpm", "sh", "-c", "kill -USR2 1",
-    ], { timeout: 30_000 }).catch(() => {});
-    throw error;
-  }
+  };
+  const reloadPhp = async () => {
+    await execFileAsync("docker", ["exec", phpHost, "sh", "-c", "kill -USR2 1"], { timeout: 30_000 });
+  };
+  await activateStaticMigration({
+    before: { ...before, state: beforeState, stateMode: 0o600 },
+    after: {
+      mapContent: result.mapContent,
+      poolsContent: result.poolsContent,
+      nginxContent: result.nginxContent,
+      state: `${afterState}\n`,
+      stateMode: 0o600,
+    },
+    deps: {
+      sitesMapPath: SITES_MAP_PATH,
+      poolsPath: POOLS_PATH,
+      nginxDefaultPath: NGINX_DEFAULT_PATH,
+      statePath,
+      stateMode: 0o600,
+      atomicWrite: (filePath, content, mode) => atomicWriteFile(filePath, content, mode),
+      backupFile: () => {},
+      validateConfig: async () => {
+        await execFileAsync("docker", ["exec", "hosting-nginx", "nginx", "-t"], { timeout: 30_000 });
+        await execFileAsync("docker", ["exec", phpHost, "php-fpm", "-t"], { timeout: 30_000 });
+      },
+      reloadNginx,
+      reloadPhp,
+      verifyPorts: async (ports) => verifyPortsWithRetry(ports, { host: process.env.PHP_FPM_HOST || phpHost }),
+    },
+  });
 
   process.stdout.write(
     `Static isolation applied: ${result.converted.length} route(s), ${result.removedPools.length} unused pool(s) removed`

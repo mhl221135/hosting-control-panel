@@ -130,7 +130,7 @@ compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-agent hosting-files hosting-ui hosting-billing hosting-php-fpm hosting-npm
 compose up -d hosting-agent
-compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js
+compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js --apply
 compose run --rm --no-deps hosting-ui node /app/cli/migrate-commerce-cache.js
 compose up -d
 sh "$project_dir/scripts/migrate-webp-cache.sh"
