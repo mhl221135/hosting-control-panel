@@ -25,6 +25,7 @@ function detectTier(pool, presets) {
     "pm.min_spare_servers",
     "pm.max_spare_servers",
     "pm.process_idle_timeout",
+    "request_terminate_timeout",
     "pm.max_requests",
   ];
   for (const [tierName, tier] of Object.entries(presets || {})) {
@@ -110,6 +111,11 @@ async function applyPlan(plan, deps) {
       throw error;
     }
     for (const change of pool.changes) {
+      if (String(settings[change.field] || "") !== String(change.from || "")) {
+        const error = new Error(`Pool '${pool.name}' changed after preview; preview again before applying`);
+        error.statusCode = 409;
+        throw error;
+      }
       settings[change.field] = change.to;
     }
   }
@@ -120,24 +126,31 @@ async function applyPlan(plan, deps) {
   backupFile(poolsPath, poolsBefore);
   backupFile(sitesMapPath, sitesMapBefore);
 
-  const presetsTmp = `${presetsPath}.${process.pid}.tmp`;
-  writeFile(presetsTmp, JSON.stringify(newPresets, null, 2));
-  renameFile(presetsTmp, presetsPath);
-  const poolsTmp = `${poolsPath}.${process.pid}.tmp`;
-  writeFile(poolsTmp, poolsAfter);
-  renameFile(poolsTmp, poolsPath);
-
   const restore = async () => {
-    writeFile(poolsPath, poolsBefore);
-    writeFile(presetsPath, presetsBefore);
-    writeFile(sitesMapPath, sitesMapBefore);
+    const restoreFile = (filePath, content) => {
+      const temporary = `${filePath}.${process.pid}.rollback.tmp`;
+      writeFile(temporary, content);
+      renameFile(temporary, filePath);
+    };
+    restoreFile(poolsPath, poolsBefore);
+    restoreFile(presetsPath, presetsBefore);
   };
 
   try {
+    const presetsTmp = `${presetsPath}.${process.pid}.tmp`;
+    writeFile(presetsTmp, JSON.stringify(newPresets, null, 2));
+    renameFile(presetsTmp, presetsPath);
+    const poolsTmp = `${poolsPath}.${process.pid}.tmp`;
+    writeFile(poolsTmp, poolsAfter);
+    renameFile(poolsTmp, poolsPath);
     await validateConfig();
   } catch (error) {
-    await restore();
-    error.message = `Configuration validation failed; changes were rolled back. ${error.message}`;
+    try {
+      await restore();
+    } catch (rollbackError) {
+      error.rollbackError = rollbackError.message;
+    }
+    error.message = `Configuration write or validation failed; changes were rolled back. ${error.message}`;
     throw error;
   }
 

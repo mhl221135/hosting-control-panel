@@ -58,4 +58,8 @@ test("runtime exposes an editable PHP-FPM profile form", () => {
   assert.match(source, /Existing pools were not changed/);
   assert.match(source, /pool ports verified/);
   assert.match(server, /resolvePoolSectionName/);
+  assert.match(html, /Apply to existing pools/);
+  assert.match(source, /poolPresetApplyPreview\.tiers/);
+  assert.match(source, /change\.field/);
+  assert.match(source, /Preset values changed after preview/);
 });

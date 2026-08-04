@@ -123,6 +123,17 @@ test("preview preserves exact pool names containing dots", () => {
   assert.equal(affected[0].name, "viniah.co");
 });
 
+test("request-timeout-only drift is classified as custom", () => {
+  const content = mediumPool("timeout_drift", 9001).replace(
+    "request_terminate_timeout = 120s",
+    "request_terminate_timeout = 90s",
+  );
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
+  const { affected, customPools } = previewApply(proposed, content, PRESETS);
+  assert.deepEqual(affected, []);
+  assert.deepEqual(customPools, [{ name: "timeout_drift", tier: "custom" }]);
+});
+
 test("buildApplyPlan rejects selecting custom or unaffected pools", () => {
   const content = mediumPool("example_com", 9001) + customPool("custom_pool", 9002);
   const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
@@ -223,6 +234,44 @@ test("applyPlan rolls back when validation fails", async () => {
   assert.equal(fs.readFileSync(sitesMapPath, "utf8"), sitesMapBefore);
 });
 
+test("applyPlan rolls back a partial atomic-write failure", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pool-apply-write-failure-"));
+  const poolsPath = path.join(directory, "pools.conf");
+  const presetsPath = path.join(directory, "pool-presets.json");
+  const sitesMapPath = path.join(directory, "sites.map");
+  const poolsBefore = mediumPool("example_com", 9001);
+  const presetsBefore = JSON.stringify(PRESETS, null, 2);
+  fs.writeFileSync(poolsPath, poolsBefore, "utf8");
+  fs.writeFileSync(presetsPath, presetsBefore, "utf8");
+  fs.writeFileSync(sitesMapPath, "sites map\n", "utf8");
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
+  const plan = buildApplyPlan(proposed, poolsBefore, PRESETS, ["example_com"]);
+  let failedOnce = false;
+  await assert.rejects(
+    applyPlan({ ...plan, payload: proposed }, {
+      poolsPath,
+      presetsPath,
+      sitesMapPath,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      writeFile: (filePath, content) => {
+        if (filePath.startsWith(`${poolsPath}.`) && !filePath.includes("rollback") && !failedOnce) {
+          failedOnce = true;
+          throw new Error("disk write failed");
+        }
+        fs.writeFileSync(filePath, content, "utf8");
+      },
+      renameFile: (from, to) => fs.renameSync(from, to),
+      backupFile: () => {},
+      validateConfig: async () => {},
+      reloadPhp: async () => {},
+      verifyPorts: async () => {},
+    }),
+    /rolled back.*disk write failed/,
+  );
+  assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
+  assert.equal(fs.readFileSync(presetsPath, "utf8"), presetsBefore);
+});
+
 test("applyPlan rolls back when reload or port verification fails", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pool-apply-reload-"));
   const poolsPath = path.join(directory, "pools.conf");
@@ -248,13 +297,47 @@ test("applyPlan rolls back when reload or port verification fails", async () => 
       backupFile: (filePath, content) => fs.writeFileSync(`${filePath}.bak`, content, "utf8"),
       validateConfig: async () => {},
       reloadPhp: async () => {},
-      verifyPorts: async () => { throw new Error("port 9001 did not accept connections"); },
+      verifyPorts: async () => {
+        fs.writeFileSync(sitesMapPath, "concurrent sites map update\n", "utf8");
+        throw new Error("port 9001 did not accept connections");
+      },
     }),
     /rolled back/,
   );
   assert.equal(fs.readFileSync(poolsPath, "utf8"), poolsBefore);
   assert.equal(fs.readFileSync(presetsPath, "utf8"), presetsBefore);
-  assert.equal(fs.readFileSync(sitesMapPath, "utf8"), sitesMapBefore);
+  assert.equal(fs.readFileSync(sitesMapPath, "utf8"), "concurrent sites map update\n");
+});
+
+test("applyPlan rejects pool state changed after preview", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "pool-apply-stale-"));
+  const poolsPath = path.join(directory, "pools.conf");
+  const presetsPath = path.join(directory, "pool-presets.json");
+  const sitesMapPath = path.join(directory, "sites.map");
+  const poolsBefore = mediumPool("example_com", 9001);
+  fs.writeFileSync(poolsPath, poolsBefore, "utf8");
+  fs.writeFileSync(presetsPath, JSON.stringify(PRESETS), "utf8");
+  fs.writeFileSync(sitesMapPath, "sites map\n", "utf8");
+  const proposed = { ...PRESETS, medium: { ...PRESETS.medium, max_children: "8" } };
+  const plan = buildApplyPlan(proposed, poolsBefore, PRESETS, ["example_com"]);
+  fs.writeFileSync(poolsPath, poolsBefore.replace("pm.max_children = 6", "pm.max_children = 7"), "utf8");
+  let backups = 0;
+  await assert.rejects(
+    applyPlan({ ...plan, payload: proposed }, {
+      poolsPath,
+      presetsPath,
+      sitesMapPath,
+      readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+      writeFile: (filePath, content) => fs.writeFileSync(filePath, content, "utf8"),
+      renameFile: (from, to) => fs.renameSync(from, to),
+      backupFile: () => { backups += 1; },
+      validateConfig: async () => {},
+      reloadPhp: async () => {},
+      verifyPorts: async () => {},
+    }),
+    /changed after preview/,
+  );
+  assert.equal(backups, 0);
 });
 
 test("applyPlan rejects an empty selection", async () => {
