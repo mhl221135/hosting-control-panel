@@ -117,3 +117,14 @@ test("all php pool mutations route through the shared runtime transaction", () =
   assert.match(server, /runtimeTxn\.lock\.runExclusive/);
   assert.doesNotMatch(server, /function writeConfigs/);
 });
+
+test("runtime mutations use shared guarded validation", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /require\("\.\/lib\/runtime-validation"\)/);
+  assert.match(server, /async function readJsonBody/);
+  assert.match(server, /guardBody\(parsed\)/);
+  assert.match(server, /rejectUnknownKeys\(body, new Set\(\["name", "port", "tier", "settings"\]\)/);
+  assert.match(server, /validHostname\(raw\.host\)/);
+  assert.match(server, /documentRoot\(raw\.root\)/);
+  assert.match(server, /validPort\(body\.port/);
+});

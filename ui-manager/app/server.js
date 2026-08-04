@@ -34,6 +34,7 @@ const { PerformanceSettings } = require("./lib/performance-settings");
 const { annotateSiteAliases, setPoolOpcache } = require("./lib/runtime-config");
 const { applyPlan: applyPoolPresetPlan, buildApplyPlan: buildPoolPresetApplyPlan, previewApply: previewPoolPresetApply } = require("./lib/pool-preset-apply");
 const { RuntimeConfigTransaction, allocatePort, collectPoolPorts, verifyPortsWithRetry } = require("./lib/runtime-transaction");
+const { guardBody, boundedSlug, validHostname, documentRoot, validPort, rejectUnknownKeys, boundedInteger } = require("./lib/runtime-validation");
 const { PhpFpmAudit } = require("./lib/php-fpm-audit");
 const {
   CUSTOM_FALLBACK_MEMORY_MB,
@@ -491,6 +492,17 @@ function readBinaryBody(req, limit = 128 * 1024 * 1024) {
 
 function sanitizeSectionName(host) {
   return host.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "pool";
+}
+
+async function readJsonBody(req) {
+  const raw = (await readBody(req)) || "{}";
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw Object.assign(new Error("Request body is not valid JSON"), { statusCode: 400 });
+  }
+  return guardBody(parsed);
 }
 
 function resolvePoolSectionName(value, poolsParsed) {
@@ -3122,7 +3134,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && req.url === "/api/pool-presets") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const current = readPoolPresets();
     const proposed = validatePoolPresets(body.tiers || {}, current);
     writePoolPresets(proposed);
@@ -3149,7 +3161,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/preview") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const affected = previewPoolPresetChanges(body.tiers || {});
     tryRecordPhpFpmAudit(() => ({
       operation: "preview",
@@ -3165,7 +3177,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/apply/preview") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     const current = readPoolPresets();
     const proposed = validatePoolPresets(body.tiers || {}, current);
     const poolsContent = fs.readFileSync(POOLS_PATH, "utf8");
@@ -3184,7 +3196,7 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pool-presets/apply") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
     if (body.confirm !== "APPLY") {
       sendJson(res, 400, { ok: false, message: "Type APPLY to confirm applying the reviewed PHP-FPM profiles" });
       return true;
@@ -3291,14 +3303,15 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pools/upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["name", "port", "tier", "settings"]), "pool payload");
     const mapBefore = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
     const mapParsed = parseSitesMap(mapBefore);
     const poolsParsed = parsePools(poolsBefore);
     const name = resolvePoolSectionName(body.name, poolsParsed);
-    const port = Number(body.port);
-    if (!name || !Number.isInteger(port)) {
+    const port = validPort(body.port);
+    if (!name) {
       sendJson(res, 400, { ok: false, message: "name and integer port are required" });
       return true;
     }
@@ -3343,7 +3356,8 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/pools/bulk-upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["pools"]), "bulk pool payload");
     const items = Array.isArray(body.pools) ? body.pools : [];
     if (items.length === 0) {
       sendJson(res, 400, { ok: false, message: "pools array is required" });
@@ -3360,9 +3374,14 @@ async function handleApi(req, res) {
     const plannedNames = new Set();
     const plannedPorts = new Set();
     for (const raw of items) {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        sendJson(res, 400, { ok: false, message: "Each pool row must be an object" });
+        return true;
+      }
+      rejectUnknownKeys(raw, new Set(["name", "port", "tier", "settings"]), "pool row");
       const name = resolvePoolSectionName(raw.name, poolsParsed);
-      const port = Number(raw.port);
-      if (!name || !Number.isInteger(port)) {
+      const port = validPort(raw.port);
+      if (!name) {
         sendJson(res, 400, { ok: false, message: "Each pool row requires valid name and integer port" });
         return true;
       }
@@ -3507,7 +3526,8 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && req.url === "/api/hosts/bulk-upsert") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["hosts"]), "bulk host payload");
     const items = Array.isArray(body.hosts) ? body.hosts : [];
     if (items.length === 0) {
       sendJson(res, 400, { ok: false, message: "hosts array is required" });
@@ -3520,8 +3540,13 @@ async function handleApi(req, res) {
     const poolsParsed = parsePools(poolsBefore);
 
     for (const raw of items) {
-      const host = String(raw.host || "").trim().toLowerCase();
-      const root = String(raw.root || "").trim();
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        sendJson(res, 400, { ok: false, message: "Each host row must be an object" });
+        return true;
+      }
+      rejectUnknownKeys(raw, new Set(["host", "root", "pool_name", "php_enabled", "canonical_to", "add_www_alias"]), "host row");
+      const host = validHostname(raw.host);
+      const root = documentRoot(raw.root);
       const poolName = sanitizeSectionName(String(raw.pool_name || "").trim());
       const phpEnabled = raw.php_enabled !== false && Boolean(poolName);
       const canonicalTo = String(raw.canonical_to || "").trim();
@@ -3580,9 +3605,10 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "POST" && (req.url === "/api/hosts/upsert" || req.url === "/api/sites/upsert")) {
-    const body = JSON.parse((await readBody(req)) || "{}");
-    const host = String(body.host || "").trim().toLowerCase();
-    const root = String(body.root || "").trim();
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["host", "root", "pool_name", "php_enabled", "canonical_to", "add_www_alias", "remove_www_alias", "port", "pool", "pool_tier"]), "host payload");
+    const host = validHostname(body.host);
+    const root = documentRoot(body.root);
     if (!host || !root) {
       sendJson(res, 400, { ok: false, message: "host and root are required" });
       return true;
@@ -3600,7 +3626,7 @@ async function handleApi(req, res) {
     const addWwwAlias = Boolean(body.add_www_alias);
     const canonicalTo = String(body.canonical_to || "").trim();
 
-    let port = phpEnabled ? Number(body.port) : null;
+    let port = phpEnabled ? validPort(body.port, { allowNull: true }) : null;
     if (phpEnabled && poolName) {
       const section = poolsParsed.sections[poolName];
       if (!section || !section.listen) {
