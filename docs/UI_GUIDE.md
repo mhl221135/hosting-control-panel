@@ -407,7 +407,15 @@ apply and pool/host controls.
 | **Save pools** | Validates and writes the complete PHP-FPM pool model. |
 | **Save routes** | Validates and writes internal host, alias, document-root, pool, and canonical-route mappings. |
 | **PHP-FPM audit history** | Lists recent profile saves, previews, and applies with operation, operator, time, status, and selected-pool count. Each row has expandable **Safe details** showing profile names, selected/affected pools, changed field names, and the rollback outcome. A **Refresh** button reloads the events. Empty and error states are shown when there is no history or the list cannot load. |
+| **Runtime configuration history** | Lists bounded recent pool, host, provisioning, import, opcache, and removal mutations with category, operator, time, result, rollback outcome, and change counts. A **filter** narrows by category and **Refresh** reloads. Expandable details show internal identifiers only. Empty and error states are shown when there is no matching history or the list cannot load. |
 | **Refresh logs** | Reloads the bounded PHP-FPM log tail. |
+
+The runtime configuration history is read-only, bounded (250 events by
+default), and distinct from the PHP-FPM preset audit: it covers general runtime
+mutations rather than profile save/preview/apply. It stores only timestamps,
+operator, category, status, rollback/verification outcome, bounded counts, and
+internal identifiers — never domains, secrets, submitted payloads, or full
+configuration contents.
 
 The audit history is read-only and bounded (250 events by default). Successful
 saves and applies, failed applies after execution begins (with their rollback

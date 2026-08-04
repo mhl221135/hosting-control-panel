@@ -434,22 +434,50 @@ prior validated/reloaded/verified files on failure. Commit responses are sent
 only after every required port accepts a TCP connection. Failures preserve the
 original error and attach a bounded, distinct rollback outcome
 (`not-required`, `succeeded`, or `failed`); `rolled back` is never reported
-unless restored files were validated, reloaded, and verified.
+unless restored files were validated, reloaded, and verified. Partial writes
+(when one file is written but the next fails) restore both captured files
+before reporting. Request bodies for the pool/host/preset routes are parsed
+through a guarded helper (`readJsonBody`) that rejects non-object bodies,
+prototype-pollution keys (`__proto__`/`constructor`/`prototype`), oversized or
+unknown structures, and returns bounded errors; field-level validation
+(`lib/runtime-validation.js`) rejects malformed hosts, unsafe document roots,
+non-integer/out-of-range ports, invalid tiers/process managers, and unsupported
+fields while preserving backward compatibility for valid existing state.
 
-Mutation matrix for operations that can allocate or change a listen port:
+Mutation matrix (operation, files changed, port allocation, validation,
+transaction, reload, verification, rollback, audit):
 
-| Operation | Creates/changes port | Verified transaction |
-|---|---|---|
-| `POST /api/pools/upsert` | yes | yes |
-| `POST /api/pools/bulk-upsert` | yes | yes |
-| `POST /api/hosts/upsert` / `POST /api/sites/upsert` (creates a pool) | yes | yes |
-| Fresh WordPress/Generic-PHP/OpenCart provisioning | yes (gap-aware) | yes |
-| MigrationManager portable & provisioning import | yes (gap-aware) | yes |
-| Static-route reclassification/recovery | yes (gap-aware) | yes |
-| OPcache change (`POST /api/site-state`) | no | yes (serialized) |
-| Site removal (`POST /api/site-removal`) | no (may delete pool) | yes (serialized) |
-| `POST /api/pools/:name` DELETE (unused pool) | no (delete only) | yes (serialized) |
-| `POST /api/pool-presets/apply` | changes pools | preset's own verification, serialized under the same lock |
+| Operation | Files changed | Changes/allocates port | Validation | Transaction | Reload | Port verify | Rollback | Audit |
+|---|---|---|---|---|---|---|---|---|
+| `POST /api/pools/upsert` | pools.conf, sites.map | yes | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| `POST /api/pools/bulk-upsert` | pools.conf, sites.map | yes | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| `DELETE /api/pools/:name` | pools.conf, sites.map | no | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| `POST /api/hosts/bulk-upsert` | sites.map | no | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| `POST /api/hosts/upsert`, `/api/sites/upsert` | sites.map (+pools.conf) | yes | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| `DELETE /api/hosts/:host`, `/api/sites/:host` | sites.map (+pools.conf) | no | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| Fresh WordPress/Generic-PHP/OpenCart provisioning | sites.map, pools.conf | yes (gap-aware) | shared | runtimeTxn | nginx+php | yes | verified + post-failure rollback | runtime-config |
+| Provisioning import | sites.map, pools.conf | yes (gap-aware) | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| Portable import (MigrationManager/CLI) | sites.map, pools.conf | yes (gap-aware) | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| OPcache change (`POST /api/site-state`) | pools.conf | no | shared | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| Site removal (`POST /api/site-removal`) | sites.map, pools.conf | no (may delete pool) | model | runtimeTxn | nginx+php | yes | verified | runtime-config |
+| Static-route reclassification/recovery | sites.map, pools.conf, default.conf, site-state | yes (gap-aware) | model | offline CLI via `--apply`; shared `activateStaticMigration` | nginx+php | yes | verified | none (offline) |
+| `POST /api/pool-presets/apply` | pools.conf, sites.map, pool-presets.json | changes pools | preset | preset's own verification, serialized under the same lock | php | yes | verified | php-fpm preset audit |
+
+### Runtime-configuration audit
+
+`GET /api/runtime-config/audit` (authenticated read-only, optional `limit`
+capped at 250 and optional `category` filter) returns bounded recent runtime
+mutation events for pool, host, provisioning, import, opcache, removal, and
+reclassification activity. Entries store the timestamp, operator, category,
+mutating flag, result, verification, rollback outcome, bounded counts, and a
+bounded scope of internal identifiers — not domains, secrets, submitted
+payloads, or full configuration contents. Errors are bounded and redacted
+(bearer/token/password/URL-credential/domain patterns). Storage is
+`app-data/ui-manager/runtime-config-audit.json`, atomic mode 0600, versioned
+history bounded at 250, tolerant of missing/corrupt files, and entries are
+re-sanitized on read. This stream is distinct from the PHP-FPM preset audit
+(`/api/pool-presets/audit`), which records only profile save/preview/apply; the
+runtime-configuration audit covers all other runtime mutations.
 
 Invalid requests are rejected before reload: ports outside 1-65535, duplicate
 listen ports, malformed/non-integer ports, a site upstream that disagrees with

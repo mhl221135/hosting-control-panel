@@ -397,6 +397,34 @@ verification and is serialized under the same lock. This boundary does not own
 website files, databases, DNS, or NPM cleanup; those remain owned by the
 operations that already perform them.
 
+Request bodies for the pool/host/preset routes are guarded: non-object bodies,
+prototype-pollution keys, oversized or unknown structures, malformed hosts,
+unsafe document roots, and invalid ports/tiers are rejected with bounded
+errors before any write (see `lib/runtime-validation.js`). Valid existing state
+remains accepted (backward compatible).
+
+### Static route migration CLI boundary
+
+`scripts/migrate-static-routes.js` is an offline upgrade-time migration. It is
+**non-mutating by default**: it prints a plan and changes nothing unless run
+with `--apply`. `scripts/upgrade.sh` passes `--apply`. Apply commits through the
+shared `activateStaticMigration` activation (atomic writes of
+`sites.map`/`pools.conf`/`default.conf`/`site-state.json`, model validation,
+nginx + PHP-FPM validation and reload, and bounded port verification, with
+verified rollback on failure). `--dry-run` prints the plan without mutating. Do
+not run it against a live runtime outside an upgrade or without `--apply`.
+
+### Runtime configuration audit
+
+Runtime mutations (pool, host, provisioning, import, opcache, removal) are
+recorded to `app-data/ui-manager/runtime-config-audit.json` (bounded 250,
+atomic, mode 0600, tolerant of missing/corrupt files). It stores counts and
+internal identifiers only — no domains, secrets, submitted payloads, or full
+configuration contents — with redacted bounded errors. View it in Runtime's
+**Runtime configuration history** section or `GET /api/runtime-config/audit`.
+This is separate from the PHP-FPM preset audit, which records only profile
+save/preview/apply.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example
