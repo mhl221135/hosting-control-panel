@@ -46,6 +46,25 @@ and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
 health, but returns `503` during backup or restore maintenance. The complete
 contract and recovery workflow are in `BILLING.md`.
 
+The remote WordPress enforcement enrollment endpoints use the standard billing
+admin session and CSRF rules. All enrollment bodies are guarded (reject
+non-object bodies, prototype-pollution keys, unknown fields, and CR/LF/NUL
+control characters; validate UUIDs, domains, code shape, and integer expiry
+bounds; bound request size), and errors never echo submitted codes or
+credentials.
+
+| Method/path | Purpose |
+|---|---|
+| `POST /api/enrollment/codes` | Admin only. Create a one-time, short-lived enrollment code (1-168 hours) for an eligible remote/shared-hosting service, targeted at its canonical primary domain. Returns the plaintext code exactly once. |
+| `POST /api/enrollment/codes/revoke` | Admin only. Idempotently revoke a pending enrollment code. |
+| `POST /api/enrollment/installations/revoke` | Admin only. Idempotently revoke an installation credential. |
+| `GET /api/enrollment/installations?service_id=...` | Admin only. Bounded list of installations for a service; never contains hashes or credentials. |
+| `POST /api/enrollment/exchange` | Public one-time route. Exchange a code for a new installation ID and a per-installation credential, which is revealed exactly once. Atomic; rejects replay, expiry, revocation, archived/ineligible services, and canonical-domain mismatch. |
+
+Eligible services are non-archived records with `location` `shared`; local
+payment-page enforcement and notification-only records are ineligible. Only
+hashes of enrollment codes and installation credentials are stored.
+
 `POST /internal/v1/services` requires the same bearer token plus a bounded
 `Idempotency-Key`. It is a create-only provisioning adapter: duplicate primary
 domains return the existing stable service and it never exposes billing
