@@ -117,6 +117,38 @@ installation may exist per service/domain.
 - Exchange/install tables are excluded from portable CSV exports, which carry
   only service inventory.
 
+## Remote Entitlement Signing (Backend)
+
+Phase A2 adds authenticated, asymmetrically signed entitlement delivery for
+enrolled installations and signing-key lifecycle management.
+
+An enrolled remote WordPress installation authenticates with its installation
+ID and one-time credential via `POST /remote/v1/entitlement`. The credential
+is hashed and looked up; authentication errors never reveal which identifier
+or credential failed. On success, a deterministic, allowlisted entitlement
+payload (contract version, installation ID, canonical domain, entitlement
+state, freshness timestamps, renewal URL, display-safe price/currency/period,
+enforcement-enabled flag, and key ID) is signed with the active Ed25519
+signing key and returned with the signature and key ID. The plugin verifies
+the signature using the public key served by `GET /remote/v1/keys`, which
+returns only the active and still-overlapping previous public keys.
+
+Missing or ambiguous billing data produces a signed fail-open/non-enforcing
+entitlement (not a suspension). Entitlements are short-lived (5-minute TTL).
+Successful retrievals write throttled heartbeat fields (`last_seen_at`,
+`last_success_at`); failed polls do not update those fields.
+
+Signing keys are managed by authenticated billing administrators through
+`POST /api/enrollment/signing/initialize` (explicit confirmation, requires
+`BILLING_SETTINGS_KEY`), `rotate` (replaces the active key; the previous key
+remains available for a bounded overlap), and `retire` (removes a previous key
+after its overlap expires; emergency retirement before expiry requires
+separate confirmation). Private keys are stored only as AES-256-GCM encrypted
+blobs; plaintext private keys are never returned, logged, audited, exported, or
+backed up. Exactly one active signing key is maintained; rotation creates a new
+one and retires expired previous keys. Key operations are atomic and audited
+with only key IDs, safe timestamps, and non-secret metadata.
+
 ## WooCommerce Payments
 
 Open **Payments** and configure:
