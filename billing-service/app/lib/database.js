@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate } = require("./validation");
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -239,7 +239,67 @@ class BillingDatabase {
         COMMIT;
       `);
     }
-    if (current < 6) {
+    if (current < 7) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE enrollment_codes (
+          code_id TEXT PRIMARY KEY,
+          code_hash TEXT NOT NULL UNIQUE,
+          service_id TEXT NOT NULL,
+          canonical_domain TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          used_at TEXT,
+          used_by_installation_id TEXT,
+          created_at TEXT NOT NULL,
+          revoked_at TEXT,
+          created_by TEXT NOT NULL,
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT
+        );
+        CREATE INDEX enrollment_codes_service_created ON enrollment_codes(service_id, created_at DESC);
+        CREATE INDEX enrollment_codes_hash ON enrollment_codes(code_hash);
+
+        CREATE TABLE wp_installations (
+          installation_id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          credential_hash TEXT NOT NULL,
+          credential_created_at TEXT NOT NULL,
+          credential_revoked_at TEXT,
+          canonical_domain TEXT NOT NULL,
+          enrollment_code_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT,
+          FOREIGN KEY(enrollment_code_id) REFERENCES enrollment_codes(code_id) ON DELETE SET NULL
+        );
+        CREATE INDEX wp_installations_service ON wp_installations(service_id);
+        CREATE INDEX wp_installations_domain ON wp_installations(canonical_domain);
+
+        CREATE TABLE wp_installation_keys (
+          key_id TEXT PRIMARY KEY,
+          installation_id TEXT NOT NULL,
+          public_key TEXT NOT NULL,
+          private_key_encrypted TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          FOREIGN KEY(installation_id) REFERENCES wp_installations(installation_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE entitlement_audit (
+          audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+          installation_id TEXT NOT NULL,
+          event_type TEXT NOT NULL,
+          event_data_json TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY(installation_id) REFERENCES wp_installations(installation_id) ON DELETE CASCADE
+        );
+        CREATE INDEX entitlement_audit_installation ON entitlement_audit(installation_id);
+        CREATE INDEX entitlement_audit_created ON entitlement_audit(created_at);
+
+        PRAGMA user_version=7;
+        COMMIT;
+      `);
+    }
       this.db.exec(`
         BEGIN IMMEDIATE;
         ALTER TABLE payments ADD COLUMN review_required INTEGER NOT NULL DEFAULT 0

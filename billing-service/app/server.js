@@ -615,6 +615,143 @@ async function api(req, res) {
   return false;
 }
 
+// Enrollment API endpoints
+if (req.method === "POST" && url.pathname === "/api/enrollment/codes") {
+  if (!sessionRequired(req)) return true;
+  const body = await readJson(req);
+  const { service_id, canonical_domain, expires_in_hours } = body || {};
+  if (!service_id || !canonical_domain) {
+    sendJson(res, 400, { ok: false, message: "service_id and canonical_domain are required" });
+    return true;
+  }
+  const service = database.service(service_id);
+  if (!service) {
+    sendJson(res, 404, { ok: false, message: "Service not found" });
+    return true;
+  }
+  if (service.archived) {
+    sendJson(res, 400, { ok: false, message: "Service is archived" });
+    return true;
+  }
+  const domain = validateDomain(canonical_domain);
+  if (domain !== service.primary_domain && !service.aliases.includes(domain)) {
+    sendJson(res, 400, { ok: false, message: "Domain does not belong to this service" });
+    return true;
+  }
+  if (service.enforcement_mode === "payment_page") {
+    sendJson(res, 400, { ok: false, message: "Remote enrollment not available for payment_page enforcement" });
+    return true;
+  }
+  if (service.location !== "local") {
+    sendJson(res, 400, { ok: false, message: "Remote enrollment only available for locally hosted services" });
+    return true;
+  }
+  const existing = database.db.prepare(
+    "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at IS NULL"
+  ).get(service.service_id, domain);
+  if (existing) {
+    sendJson(res, 409, { ok: false, message: "An active installation already exists for this domain" });
+    return true;
+  }
+  const pendingCode = database.db.prepare(
+    "SELECT 1 FROM enrollment_codes WHERE service_id=? AND canonical_domain=? AND used_at IS NULL AND expires_at > datetime('now')"
+  ).get(service.service_id, domain);
+  if (pendingCode) {
+    sendJson(res, 409, { ok: false, message: "A valid enrollment code already exists for this domain" });
+    return true;
+  }
+  const hours = integer(expires_in_hours, 1, 168, 24);
+  const code = crypto.randomBytes(18).toString("base64url");
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+  const codeId = crypto.randomUUID();
+  database.db.prepare(`
+    INSERT INTO enrollment_codes(code_id, code_hash, service_id, canonical_domain, expires_at, created_at, created_by)
+    VALUES(?, ?, ?, ?, ?, datetime('now'), ?)
+  `).run(crypto.randomUUID(), codeHash, service.service_id, domain, expiresAt, session.email);
+  database.auditEntry(session.email, "enrollment.code_create", codeId, {
+    serviceId: service.service_id,
+    domain,
+    expiresAt,
+    createdBy: session.email,
+  });
+  sendJson(res, 200, { ok: true, code, expiresAt });
+  return true;
+}
+
+if (req.method === "POST" && requestUrl.pathname === "/api/enrollment/exchange") {
+  const body = await readJson(req);
+  const { code, domain: claimedDomain } = body || {};
+  if (!code || !claimedDomain) {
+    sendJson(res, 400, { ok: false, message: "code and domain are required" });
+    return true;
+  }
+  const domain = validateDomain(claimedDomain);
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  const codeRow = database.db.prepare(
+    "SELECT * FROM enrollment_codes WHERE code_hash=? AND expires_at > datetime('now') AND used_at IS NULL"
+  ).get(codeHash);
+  if (!codeRow) {
+    sendJson(res, 404, { ok: false, message: "Invalid or expired enrollment code" });
+    return true;
+  }
+  const service = database.service(codeRow.service_id);
+  if (!service) {
+    sendJson(res, 404, { ok: false, message: "Service not found" });
+    return true;
+  }
+  const domainMatch = validateDomain(codeRow.canonical_domain);
+  if (domain !== domainMatch) {
+    sendJson(res, 400, { ok: false, message: "Domain does not match enrollment code" });
+    return true;
+  }
+  if (domain !== service.primary_domain && !service.aliases.includes(domain)) {
+    sendJson(res, 400, { ok: false, message: "Domain does not belong to this service" });
+    return true;
+  }
+  const installationId = crypto.randomUUID();
+  const credential = crypto.randomBytes(32).toString("base64url");
+  const credentialHash = crypto.createHash("sha256").update(credential).digest("hex");
+  const now = new Date().toISOString();
+  database.db.prepare(`
+    INSERT INTO wp_installations(installation_id, service_id, credential_hash, credential_created_at, canonical_domain, enrollment_code_id, created_at, updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(crypto.randomUUID(), codeRow.service_id, credentialHash, now, domain, codeRow.code_id, now, now);
+  database.db.prepare("UPDATE enrollment_codes SET used_at=?, used_by_installation_id=? WHERE code_id=?")
+    .run(new Date().toISOString(), installationId, codeRow.code_id);
+  database.auditEntry("system", "enrollment.exchange", installationId, {
+    codeId: codeRow.code_id,
+    serviceId: codeRow.service_id,
+    domain,
+    installationId,
+  });
+  sendJson(res, 200, { ok: true, installation_id: installationId, credential });
+  return true;
+}
+
+if (req.method === "POST" && requestUrl.pathname === "/api/enrollment/codes/revoke") {
+  if (!sessionRequired(req)) return true;
+  const body = await readJson(req);
+  const { code_id } = body || {};
+  if (!code_id) {
+    sendJson(res, 400, { ok: false, message: "code_id is required" });
+    return true;
+  }
+  const codeRow = database.db.prepare("SELECT * FROM enrollment_codes WHERE code_id=?").get(code_id);
+  if (!codeRow) {
+    sendJson(res, 404, { ok: false, message: "Enrollment code not found" });
+    return true;
+  }
+  if (codeRow.revoked_at) {
+    sendJson(res, 409, { ok: false, message: "Enrollment code already revoked" });
+    return true;
+  }
+  database.db.prepare("UPDATE enrollment_codes SET revoked_at=datetime('now') WHERE code_id=?").run(code_id);
+  database.auditEntry(session.email, "enrollment.code_revoke", code_id, { code_id });
+  sendJson(res, 200, { ok: true, message: "Enrollment code revoked" });
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "http://billing.local");
