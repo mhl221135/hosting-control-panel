@@ -131,9 +131,16 @@ Active copies live under `app-data/configs` and are bind-mounted into services.
 | `php-fpm/pools.conf` | PHP-FPM and panel | panel/importer |
 | `wp/wp-global.php` | every WordPress request | installer/source template |
 
+The complete `php-fpm` configuration directory is mounted at
+`/runtime-php-fpm`; the main configuration includes only its `pools.conf`.
+This directory bind is required because the panel replaces `pools.conf`
+atomically and a single-file Docker bind would continue reading the replaced
+file's old inode.
+
 The installer copies a template directory only when its marker is missing. It
-does not refresh active configuration during upgrades. Directive migrations
-therefore need an explicit idempotent migration script.
+does not generally refresh active configuration during upgrades. Required
+directive migrations therefore use explicit idempotent steps; install and
+upgrade ensure that the runtime `pools.conf` include is present.
 
 ## Cloudflare Credentials
 

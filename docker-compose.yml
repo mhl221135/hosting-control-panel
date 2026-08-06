@@ -41,7 +41,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.38
+    image: hosting-ui:2.39
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -162,7 +162,7 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/www
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini:/usr/local/etc/php/conf.d/000-global.ini:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.conf:ro
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/pools.conf:/usr/local/etc/php-fpm.d/www.conf:ro
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/runtime-php-fpm:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp/wp-global.php:/global/wp-global.php:ro
       - ./global-configs-new-upd/wp/opcache-status.php:/global/opcache-status.php:ro
     networks:
