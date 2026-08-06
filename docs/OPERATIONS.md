@@ -447,6 +447,24 @@ removes it. Performance changes additionally roll back the previously generated
 PHP/nginx/Redis/MySQL files if validation, reload, or application fails. The
 full endpoint inventory is in `docs/API.md`.
 
+### Site-state, maintenance, image, and update-pin recovery
+
+Site-state switches, cache purge, image-optimization schedules, maintenance
+settings, and WordPress update pins are validated through the shared guarded
+parser with explicit schemas and capability restrictions (Redis/image
+optimization only for WordPress; PHP controls rejected for static HTML; `www`
+aliases are rejected as separately managed). Site-state mutations and cache
+purge run through a single-lock site-state transaction coordinator that
+snapshots `site-state.json`, `cache.map`, `sites.map`, and `pools.conf`, writes
+them atomically, validates nginx + PHP-FPM, reloads the affected services,
+verifies pool ports, and applies Redis integration inside the same coordinated
+operation. A failure after execution begins restores every file and compensates
+an attempted Redis change; pre-write validation failures do not reload services.
+Each failure has a distinct rollback outcome. WordPress update pins fail closed: if
+`wordpress-update-pins.json` is unreadable or corrupt, update exclusions are
+blocked until the file is repaired, and an active update job blocks pin
+changes. Image and maintenance settings persist atomically.
+
 ## NPM Internal Service Hosts
 
 Use Docker DNS names and internal ports for stack services, for example

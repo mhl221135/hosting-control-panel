@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { validateOperations, validateRevisionRetention } = require("./wordpress-maintenance");
+const { atomicWriteJson } = require("./safe-write");
 
 const DEFAULT_SETTINGS = {
   enabled: false,
@@ -122,7 +123,7 @@ class MaintenanceManager {
     if (patch.operations !== undefined) next.operations = validateOperations(patch.operations);
     if (patch.revisionRetention !== undefined) next.revisionRetention = validateRevisionRetention(patch.revisionRetention);
     if (patch.lastScheduledDate !== undefined) next.lastScheduledDate = String(patch.lastScheduledDate);
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return next;
   }
 

@@ -79,6 +79,9 @@ The panel provides:
 - Bounded, atomic, guarded non-runtime settings persistence (performance,
   backup/off-site, notifications, integrations, health, billing, Cloudflare,
   IP, DNS presets) with encrypted secret preservation and fail-closed rolls
+- Guarded, capability-safe site-state switches, cache purge, image-optimization
+  schedules, maintenance settings, and WordPress update pins, with a single-lock
+  atomic site-state transaction that restores all runtime files on failure
 - CPU-aware PHP-FPM capacity planning: per-profile worker-memory estimates,
   worker slots, slots per CPU, estimated/RAM-ceiling summaries, and
   healthy/warning/critical guardrails, with a conservative fallback for

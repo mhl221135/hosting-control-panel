@@ -51,6 +51,7 @@ into dedicated directories.
 - Cross-process serialized, rollback-safe PHP-FPM/nginx runtime transactions with gap-aware port allocation, stale-state rejection, validation, and verified port activation for every pool mutation
 - Shared guarded request validation (prototype-pollution, bounded, malformed-input rejection) and a bounded runtime-configuration mutation audit with a read-only Runtime history view
 - Bounded, atomic, guarded persistence for non-runtime settings (performance, backup/off-site, notifications, integrations, health, billing, Cloudflare, IP, DNS presets) with encrypted secret preservation and fail-closed rollback of generated configuration
+- Guarded, capability-safe site-state switches, cache purge, image-optimization schedules, maintenance settings, and WordPress update pins, with a single-lock atomic site-state transaction that restores all runtime files on failure
 - On-demand server, container, PHP-pool, Redis, FastCGI, website disk, and recent traffic statistics
 - Explicit on-demand IPinfo enrichment for current public traffic addresses, with protected-range filtering and a bounded 24-hour cache
 - Encrypted NPM and Cloudflare credentials at rest

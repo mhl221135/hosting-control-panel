@@ -521,6 +521,40 @@ reload, or application failure.
 | `PUT /api/cloudflare/ip-addresses` | `addresses[]` (valid IPv4s, ≤50) | none | `lib/ip-addresses.js` | `cloudflare-ip-addresses.json` | atomic |
 | `POST /api/dns-presets` | `id`, `label`, `records`/DNS fields | none | `lib/dns-presets.js` | `dns-presets.json` | atomic |
 
+### Manager-backed mutation inventory
+
+These mutations are served by dedicated managers and are validated through the
+same guarded body parser (`readJsonBody` + `guardSettingsBody`) with explicit
+schemas: only listed properties are accepted, prototype-pollution keys and
+recursive C0 control characters are rejected, and bounds/enums/schedules are
+checked by each manager. Capability rules are enforced server-side (Redis and
+image optimization only for WordPress; PHP controls rejected for static HTML),
+and `domain` must resolve to a configured primary host — `www` aliases are not
+separately manageable and are rejected. Omitted optional fields preserve the
+existing value.
+
+| Endpoint | Accepted fields | Restriction / bounds | Manager | Persistent file | Persistence / rollback |
+|---|---|---|---|---|---|
+| `PUT /api/site-state` | `domain`, `fastcgi_cache`, `redis`, `opcache`, `backup_enabled`, `image_optimization_enabled`, `maintenance_enabled`, `notes` | Redis/image-opt require WordPress; opcache/fastcgi per adapter; notes ≤2000 | `lib/site-state.js` | `site-state.json` + generated `cache.map` (+`pools.conf`/`sites.map` for opcache) | atomic site-state transaction (single lock, full restore) |
+| `POST /api/site-state/purge` | `domain` | primary host only | `lib/site-state.js` | `site-state.json` + `cache.map` | atomic site-state transaction |
+| `PUT /api/sites/images/settings` | `enabled`, `schedule_time` (24h `HH:MM`) | schedule regex | `lib/image-optimization-manager.js` | `image-optimization-settings.json` | atomic |
+| `PUT /api/maintenance/settings` | `enabled`, `weekday` (0-6), `schedule_time`, `operations[]`, `revision_retention` (1-100) | weekday/schedule/operations/revision bounds | `lib/maintenance-manager.js` | `maintenance-settings.json` | atomic |
+| `PUT /api/maintenance/updates/pins` | `domain`, `site`, `core`, `plugins[]`, `themes[]`, `plugin_package_ids[]`, `theme_package_ids[]`, `note` | WordPress primary only; package ids resolved; note ≤300 | `lib/wordpress-update-manager.js` | `wordpress-update-pins.json` | atomic; fail-closed on corrupt state; active-update conflict blocked |
+
+Site-state transaction details (`lib/site-state-transaction.js`): runs under
+the shared runtime transaction lock (single boundary, no nesting/deadlock),
+snapshots `site-state.json`, `cache.map`, `sites.map`, and `pools.conf`, builds
+and validates the proposed outputs, writes every affected file atomically,
+validates nginx + PHP-FPM, reloads PHP-FPM and nginx (nginx only for cache-map
+changes), verifies pool ports, and applies the WordPress Redis integration
+before reporting success. If execution has begun and any step fails, it
+restores all snapshots and compensates any attempted Redis change; only
+services whose activation was attempted are reloaded and re-verified. Failures
+before the first write report `not-required` without disrupting services. The
+transaction attaches a bounded redacted rollback error and reports `rollback` as
+`not-required`, `succeeded`, or `failed` — `rolled back` is never reported
+unless every restoration step succeeds.
+
 ## Adding Or Changing Routes
 
 1. Validate and normalize input at the boundary.

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { atomicWriteJson } = require("./safe-write");
 
 const DEFAULT_SETTINGS = {
   enabled: false,
@@ -101,10 +102,7 @@ class ImageOptimizationManager {
       next.scheduleTime = value;
     }
     if (patch.lastScheduledDate !== undefined) next.lastScheduledDate = String(patch.lastScheduledDate);
-    fs.writeFileSync(this.settingsPath, JSON.stringify(next, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    atomicWriteJson(this.settingsPath, next, 0o600);
     return next;
   }
 

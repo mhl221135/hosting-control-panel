@@ -25,6 +25,15 @@ const {
   wordpressDatabaseConfig,
 } = require("./lib/provisioner");
 const { SiteState } = require("./lib/site-state");
+const { applySiteStateTransaction } = require("./lib/site-state-transaction");
+const {
+  requirePrimarySite,
+  validateCachePurgeMutation,
+  validateImageSettingsMutation,
+  validateMaintenanceSettingsMutation,
+  validateSiteStateMutation,
+  validateUpdatePinsMutation,
+} = require("./lib/manager-mutation-validation");
 const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPressRedis } = require("./lib/site-capabilities");
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
@@ -1041,6 +1050,34 @@ async function verifyPhpPoolPorts() {
     throw error;
   }
   return ports;
+}
+
+// Shared dependency set for the site-state transaction coordinator so it can be
+// reused for both state updates and cache purge without re-reading Docker paths.
+function siteStateTxnDeps() {
+  const phpHost = process.env.PHP_FPM_HOST || "hosting-php-fpm";
+  return {
+    sitesMapPath: SITES_MAP_PATH,
+    poolsPath: POOLS_PATH,
+    siteStatePath: siteState.path,
+    cacheMapPath: siteState.cacheMapPath,
+    readFile: (filePath) => fs.readFileSync(filePath, "utf8"),
+    exists: (filePath) => fs.existsSync(filePath),
+    removeFile: (filePath) => fs.rmSync(filePath, { force: true }),
+    backupFile: (filePath, content) => backupFile(filePath, content),
+    validateConfig: async () => {
+      await execCommand("docker exec hosting-nginx nginx -t && docker exec hosting-php-fpm php-fpm -t", 20_000);
+    },
+    reloadPhp: async () => {
+      await execCommand("docker exec hosting-php-fpm sh -c 'kill -USR2 1'");
+    },
+    reloadNginx: async () => {
+      await execCommand("docker exec hosting-nginx nginx -s reload");
+    },
+    verifyPorts: async (ports) => verifyPortsWithRetry(ports, { host: phpHost }),
+    collectPorts: (poolsContent) => collectPoolPorts(parsePools(poolsContent)),
+    lock: runtimeTxn.lock,
+  };
 }
 
 function execCommand(command, timeout = 30_000) {
@@ -2866,15 +2903,15 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/site-state") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = validateSiteStateMutation(guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["domain", "fastcgi_cache", "redis", "opcache", "backup_enabled", "image_optimization_enabled", "maintenance_enabled", "notes"]),
+      stringKeys: ["notes"],
+      label: "site state",
+    }));
     const domain = validateDomain(body.domain);
     const mapContent = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const mapParsed = parseSitesMap(mapContent);
-    const site = mapParsed.hosts[domain];
-    if (!site) {
-      sendJson(res, 404, { ok: false, message: "Site is not configured" });
-      return true;
-    }
+    const site = requirePrimarySite(mapParsed, domain, "Manage the primary website, not a www alias");
     const currentState = siteState.get(domain);
     const adapter = siteAdapter(currentState.siteType);
     if (body.redis === true && !supportsWordPressRedis(currentState.siteType)) {
@@ -2885,7 +2922,7 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: `${adapter.label} websites do not support FastCGI page cache` });
       return true;
     }
-    if (body.opcache === true && !adapter.opcache) {
+    if (body.opcache !== undefined && !adapter.opcache) {
       sendJson(res, 400, { ok: false, message: `${adapter.label} websites do not support OPcache` });
       return true;
     }
@@ -2893,57 +2930,90 @@ async function handleApi(req, res) {
       sendJson(res, 400, { ok: false, message: `Daily image optimization is available only for WordPress websites` });
       return true;
     }
-    if (typeof body.redis === "boolean" && body.redis !== Boolean(currentState.redis)) {
-      const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
-      await setRedis(directory, domain, body.redis);
-    }
-    let opcacheChanged = false;
-    let mapBefore = null;
-    let poolsBefore = null;
-    if (typeof body.opcache === "boolean" && body.opcache !== Boolean(currentState.opcache)) {
-      mapBefore = mapContent;
-      poolsBefore = fs.readFileSync(POOLS_PATH, "utf8");
-      const poolsParsed = parsePools(poolsBefore);
-      const pool = poolsParsed.byPort[site.port];
-      if (!pool) {
-        sendJson(res, 400, { ok: false, message: "The site's PHP pool was not found" });
-        return true;
+    const directory = String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, "");
+    const redisChanged = typeof body.redis === "boolean" && body.redis !== Boolean(currentState.redis);
+    const opcache = typeof body.opcache === "boolean" && body.opcache !== Boolean(currentState.opcache)
+      ? body.opcache
+      : undefined;
+    let result;
+    try {
+      result = await applySiteStateTransaction({
+        site,
+        opcache,
+        applyExternal: redisChanged ? () => setRedis(directory, domain, body.redis) : null,
+        rollbackExternal: redisChanged ? () => setRedis(directory, domain, Boolean(currentState.redis)) : null,
+        buildState: (snap) => {
+          const data = snap.stateExists ? JSON.parse(snap.stateContent) : { sites: {} };
+          if (!data.sites || typeof data.sites !== "object") data.sites = {};
+          const current = { ...siteState.defaults(), ...(data.sites[domain] || {}) };
+          data.sites[domain] = {
+            ...current,
+            ...(typeof body.fastcgi_cache === "boolean" ? { fastcgiCache: body.fastcgi_cache } : {}),
+            ...(typeof body.redis === "boolean" ? { redis: body.redis } : {}),
+            ...(typeof body.opcache === "boolean" ? { opcache: body.opcache } : {}),
+            ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
+            ...(typeof body.image_optimization_enabled === "boolean" ? { imageOptimizationEnabled: body.image_optimization_enabled } : {}),
+            ...(typeof body.maintenance_enabled === "boolean" ? { maintenanceEnabled: body.maintenance_enabled } : {}),
+            ...(typeof body.notes === "string" ? { notes: body.notes } : {}),
+            updatedAt: new Date().toISOString(),
+          };
+          return data;
+        },
+        deps: siteStateTxnDeps(),
+      });
+    } catch (error) {
+      if (opcache !== undefined) {
+        tryRecordRuntimeAudit(() => ({
+          category: "opcache",
+          operator: req.auth.email,
+          result: "failed",
+          verification: "failed",
+          rollback: error?.rollback || "not-required",
+          error: error?.message,
+        }));
       }
-      setPoolOpcache(pool.settings, body.opcache);
-      await commitRuntimeConfig(
-        "opcache",
-        () => ({ poolsChanged: 1 }),
-        runtimeTxn.commit({ mapBefore, poolsBefore, mapParsed, poolsParsed }, { expectBefore: { map: mapBefore, pools: poolsBefore } }),
-        req.auth.email,
-      );
-      opcacheChanged = true;
+      throw error;
     }
-    const state = siteState.update(domain, {
-      ...(typeof body.fastcgi_cache === "boolean" ? { fastcgiCache: body.fastcgi_cache } : {}),
-      ...(typeof body.redis === "boolean" ? { redis: body.redis } : {}),
-      ...(typeof body.opcache === "boolean" ? { opcache: body.opcache } : {}),
-      ...(typeof body.backup_enabled === "boolean" ? { backupEnabled: body.backup_enabled } : {}),
-      ...(typeof body.image_optimization_enabled === "boolean" ? { imageOptimizationEnabled: body.image_optimization_enabled } : {}),
-      ...(typeof body.maintenance_enabled === "boolean" ? { maintenanceEnabled: body.maintenance_enabled } : {}),
-      ...(typeof body.notes === "string" ? { notes: body.notes.slice(0, 2000) } : {}),
-    });
-    if (
-      typeof body.fastcgi_cache === "boolean" ||
-      typeof body.redis === "boolean" ||
-      (typeof body.opcache === "boolean" && !opcacheChanged)
-    ) {
-      await validateAndReload();
+    if (opcache !== undefined) {
+      tryRecordRuntimeAudit(() => ({
+        category: "opcache",
+        operator: req.auth.email,
+        result: "success",
+        verification: "success",
+        rollback: result?.rollback || "not-required",
+        counts: { poolsChanged: 1 },
+      }));
     }
-    sendJson(res, 200, { ok: true, state });
+    sendJson(res, 200, { ok: true, state: result.state });
     return true;
   }
 
   if (req.method === "POST" && requestUrl.pathname === "/api/site-state/purge") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = validateCachePurgeMutation(guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["domain"]),
+      label: "cache purge",
+    }));
     const domain = validateDomain(body.domain);
-    const state = siteState.purge(domain);
-    await execCommand("docker exec hosting-nginx nginx -s reload");
-    sendJson(res, 200, { ok: true, state });
+    const mapContent = fs.readFileSync(SITES_MAP_PATH, "utf8");
+    const mapParsed = parseSitesMap(mapContent);
+    const site = requirePrimarySite(mapParsed, domain, "Manage the primary website, not a www alias");
+    const result = await applySiteStateTransaction({
+      site,
+      opcache: undefined,
+      buildState: (snap) => {
+        const data = snap.stateExists ? JSON.parse(snap.stateContent) : { sites: {} };
+        if (!data.sites || typeof data.sites !== "object") data.sites = {};
+        const current = { ...siteState.defaults(), ...(data.sites[domain] || {}) };
+        data.sites[domain] = {
+          ...current,
+          cacheVersion: Number(current.cacheVersion || 1) + 1,
+          updatedAt: new Date().toISOString(),
+        };
+        return data;
+      },
+      deps: siteStateTxnDeps(),
+    });
+    sendJson(res, 200, { ok: true, state: result.state });
     return true;
   }
 
@@ -2972,7 +3042,11 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/sites/images/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = validateImageSettingsMutation(guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["enabled", "schedule_time"]),
+      stringKeys: ["schedule_time"],
+      label: "image optimization settings",
+    }));
     const settings = imageOptimizationManager.updateSettings({
       enabled: body.enabled,
       scheduleTime: body.schedule_time,
@@ -3016,7 +3090,11 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/maintenance/settings") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = validateMaintenanceSettingsMutation(guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["enabled", "weekday", "schedule_time", "operations", "revision_retention"]),
+      stringKeys: ["schedule_time"],
+      label: "maintenance settings",
+    }));
     const settings = maintenanceManager.updateSettings({
       enabled: body.enabled,
       weekday: body.weekday,
@@ -3111,7 +3189,11 @@ async function handleApi(req, res) {
   }
 
   if (req.method === "PUT" && requestUrl.pathname === "/api/maintenance/updates/pins") {
-    const body = JSON.parse((await readBody(req)) || "{}");
+    const body = validateUpdatePinsMutation(guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["domain", "site", "core", "plugins", "themes", "plugin_package_ids", "theme_package_ids", "note"]),
+      stringKeys: ["note"],
+      label: "update pins",
+    }));
     const domain = validateDomain(body.domain);
     const pin = await wordpressUpdateManager.updatePins(domain, {
       site: body.site,

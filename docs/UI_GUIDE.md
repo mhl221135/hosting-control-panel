@@ -20,9 +20,16 @@ jobs continue independently after the request has started.
 
 ## Sites
 
-The Sites workspace is the daily operations view. Summary counters show
-configured primary hosts, PHP pools, FastCGI-enabled sites, and Redis-enabled
+The Sites workspace is the daily operations view. Summary counters showconfigured primary hosts, PHP pools, FastCGI-enabled sites, and Redis-enabled
 sites. **Search domains** filters primary domains and aliases.
+
+Site and cache state changes (FastCGI, Redis, OPcache, backup, image, and
+maintenance switches; cache purge) are validated server-side with capability
+restrictions (Redis and image optimization only for WordPress; PHP controls
+disabled for static sites), persist atomically, and reject `www` aliases as
+separately managed. The same guarded validation and atomic persistence cover
+image-optimization schedules, maintenance settings, and WordPress update
+exclusion pins.
 
 Each website row shows its document root, aliases, PHP-FPM pool and port, pool
 profile, cache state, and backup state.
