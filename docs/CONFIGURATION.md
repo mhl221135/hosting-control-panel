@@ -52,7 +52,7 @@ Paths below are relative to `app-data/ui-manager`.
 | `admin-account.json` | email and scrypt password record | password hash |
 | `integration-settings.json` | endpoints and encrypted credentials | yes |
 | `integration-settings.key` | generated AES key if env key is absent | yes |
-| `site-state.json` | cache, OPcache, Redis, backup switches | no |
+| `site-state.json` | cache, OPcache, Redis, backup switches (written atomically with the generated `cache.map`) | no |
 | `backup-settings.json` | global enablement, local time, retention | no |
 | `performance-settings.json` | validated performance values | no |
 | `dns-presets.json` | Cloudflare record template sets | no |
@@ -62,7 +62,7 @@ Paths below are relative to `app-data/ui-manager`.
 | `cloudflare-incidents.json` | temporary mitigation audit and expiry state | no |
 | `wordpress-inventory.json` | latest bounded read-only WordPress package snapshot | no |
 | `wordpress-update-history.json` | bounded controlled-update and rollback audit | no |
-| `wordpress-update-pins.json` | per-site core/package update exclusions and last editor metadata | no |
+| `wordpress-update-pins.json` | per-site core/package update exclusions and last editor metadata (atomic; fail-closed on corruption) | no |
 | `default-pool.json` | default PHP pool choice | no |
 | `pool-presets.json` | low/medium/high worker definitions plus per-profile `estimated_memory_mb` planning value | no |
 | `php-fpm-audit.json` | bounded atomic PHP-FPM profile save/preview/apply audit | no |

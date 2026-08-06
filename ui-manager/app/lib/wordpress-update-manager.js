@@ -3,6 +3,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { validatePackageNames } = require("./wordpress-maintenance");
+const { atomicWriteJson } = require("./safe-write");
 
 function boundedText(value, maximum = 500) {
   return String(value || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, maximum);
@@ -142,12 +143,7 @@ class WordPressUpdateManager {
   }
 
   savePins(pins) {
-    const temporary = `${this.pinsPath}.tmp`;
-    fs.writeFileSync(temporary, JSON.stringify({ version: 1, pins }, null, 2), {
-      encoding: "utf8",
-      mode: 0o600,
-    });
-    fs.renameSync(temporary, this.pinsPath);
+    atomicWriteJson(this.pinsPath, { version: 1, pins }, 0o600);
   }
 
   pinsFor(domain) {

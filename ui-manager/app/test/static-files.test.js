@@ -227,3 +227,19 @@ test("settings responsive contract: no mobile overflow and secret inputs masked"
   assert.match(server, /label: "DNS preset"/);
   assert.match(server, /nested: \{[\s\S]*php: \{ allowed:/);
 });
+
+test("manager-backed mutations use guarded parsing and the site-state transaction", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const sst = fs.readFileSync(path.resolve(__dirname, "../lib/site-state-transaction.js"), "utf8");
+  assert.match(server, /require\("\.\/lib\/site-state-transaction"\)/);
+  assert.match(server, /applySiteStateTransaction\(\{/);
+  assert.match(server, /requirePrimarySite\(mapParsed, domain/);
+  for (const path of ["/api/site-state", "/api/site-state/purge", "/api/sites/images/settings", "/api/maintenance/settings", "/api/maintenance/updates/pins"]) {
+    assert.ok(server.includes(`requestUrl.pathname === "${path}"`), path);
+  }
+  assert.ok((server.match(/guardSettingsBody\(await readJsonBody\(req\)/g) || []).length >= 16);
+  assert.match(sst, /lock\.runExclusive\(async \(\) =>/);
+  assert.match(sst, /atomicWriteJson\(siteStatePath/);
+  assert.match(sst, /restore\(snap\)/);
+  assert.match(sst, /renderCacheMapContent/);
+});
