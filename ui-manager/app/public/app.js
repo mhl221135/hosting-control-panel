@@ -1642,21 +1642,6 @@ async function loadRuntimeConfigAudit() {
   renderRuntimeConfigAudit();
 }
 
-function renderHosts() {
-  const poolOptions = state.pools.map((pool) => pool.name);
-  $("#hostsTable").innerHTML = state.sites.map((site) => `
-    <tr>
-      <td><input data-host-field="host" value="${escapeHtml(site.host)}" /></td>
-      <td><input data-host-field="root" value="${escapeHtml(site.root)}" /></td>
-      <td><select data-host-field="pool_name">${site.phpEnabled === false ? '<option value="" selected>No PHP</option>' : ""}${poolOptions.map((name) =>
-        `<option value="${escapeHtml(name)}" ${name === site.poolName ? "selected" : ""}>${escapeHtml(name)}</option>`
-      ).join("")}</select></td>
-      <td><input data-host-field="canonical_to" value="${escapeHtml(site.canonicalTo || "")}" /></td>
-      <td><input data-host-field="add_www_alias" type="checkbox" ${!site.host.startsWith("www.") && state.sites.some((entry) => entry.host === `www.${site.host}` && entry.root === site.root && entry.port === site.port) ? "checked" : ""} /></td>
-    </tr>
-  `).join("");
-}
-
 async function loadData() {
   const [status, siteData, poolData, presetData, backupData, imageOptimization, maintenance, dnsData, ipData, packages, automation] = await Promise.all([
     api("/api/status"),
@@ -1691,7 +1676,6 @@ async function loadData() {
   renderPools();
   renderPoolPresets();
   renderPoolCapacity();
-  renderHosts();
   renderImageOptimization();
   renderMaintenance();
   renderDnsPresets();
@@ -3497,23 +3481,6 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
 $("#poolPresetsEditor").addEventListener("input", () => {
   state.poolPresetApplyPreview = null;
   $("#poolPresetApply").classList.add("hidden");
-});
-
-$("#saveHosts").addEventListener("click", async (event) => {
-  const hosts = $$("#hostsTable tr").map((row) => ({
-    host: row.querySelector('[data-host-field="host"]').value,
-    root: row.querySelector('[data-host-field="root"]').value,
-    pool_name: row.querySelector('[data-host-field="pool_name"]').value,
-    php_enabled: Boolean(row.querySelector('[data-host-field="pool_name"]').value),
-    canonical_to: row.querySelector('[data-host-field="canonical_to"]').value,
-    add_www_alias: row.querySelector('[data-host-field="add_www_alias"]').checked,
-  }));
-  try {
-    await withButton(event.currentTarget, "Saving...", () => api("/api/hosts/bulk-upsert", { method: "POST", body: JSON.stringify({ hosts }) }));
-    await api("/api/validate", { method: "POST" });
-    notice("Routes saved and validated.");
-    await loadData();
-  } catch (error) { notice(error.message, "warning"); }
 });
 
 const runtimeActions = {

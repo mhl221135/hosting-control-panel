@@ -122,6 +122,11 @@ exports_dir="${exports_dir:-$hosting_root/exports}"
 mkdir -p "$hosting_root/app-data/billing" "$backups_dir/billing"
 chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"
 
+php_fpm_config="$hosting_root/app-data/configs/php-fpm/php-fpm.conf"
+if ! grep -qxF 'include=/runtime-php-fpm/pools.conf' "$php_fpm_config"; then
+  printf '\ninclude=/runtime-php-fpm/pools.conf\n' >> "$php_fpm_config"
+fi
+
 HOSTING_ROOT="$hosting_root" BACKUPS_DIR="$backups_dir" EXPORTS_DIR="$exports_dir" \
   sh "$project_dir/scripts/migrate-ui-permissions.sh"
 

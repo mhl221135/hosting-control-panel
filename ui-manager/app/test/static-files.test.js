@@ -24,6 +24,29 @@ test("backup restore UI exposes an explicit opt-in billing choice", () => {
   assert.match(source, /JSON\.stringify\(formObject\(form\)\)/);
 });
 
+test("provisioning startup loads uploaded WordPress package choices", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(html, /id="provisionPluginPackages"/);
+  assert.match(html, /id="provisionThemePackages"/);
+  assert.match(source, /api\("\/api\/wordpress-packages"\)/);
+  assert.match(source, /state\.wordpressPackages = packages/);
+  assert.match(source, /renderWordPressPackages\(\)/);
+  assert.doesNotMatch(source, /#saveHosts|#hostsTable/);
+});
+
+test("PHP-FPM uses a directory bind so atomic pool replacements remain visible", () => {
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  const mainConfig = fs.readFileSync(path.resolve(__dirname, "../../../global-configs-new-upd/php-fpm/php-fpm.conf"), "utf8");
+  const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
+  const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  assert.match(compose, /app-data\/configs\/php-fpm:\/runtime-php-fpm:ro/);
+  assert.doesNotMatch(compose, /pools\.conf:\/usr\/local\/etc\/php-fpm\.d\/www\.conf/);
+  assert.match(mainConfig, /include=\/runtime-php-fpm\/pools\.conf/);
+  assert.match(install, /include=\/runtime-php-fpm\/pools\.conf/);
+  assert.match(upgrade, /include=\/runtime-php-fpm\/pools\.conf/);
+});
+
 test("settings expose guarded billing enforcement controls", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
