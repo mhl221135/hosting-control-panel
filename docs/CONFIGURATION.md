@@ -102,6 +102,14 @@ value pointing at `hosting-ui`; both services receive the same
 `BILLING_API_TOKEN`. Notification provider credentials remain only in
 `app-data/ui-manager`.
 
+The remote WordPress enforcement enrollment backend stores only hashes in
+`billing.sqlite`: `enrollment_codes.code_hash` is a SHA-256 hash of the
+one-time enrollment code and `wp_installations.credential_hash` is a SHA-256
+hash of the per-installation credential. Plaintext codes and credentials are
+never persisted, logged, audited, or exported; they are revealed at most once
+during creation or exchange. These tables are never included in portable CSV
+exports.
+
 `app-data/ui-manager/billing-observer-settings.json` stores only the
 disabled-by-default poll interval and freshness policy. Compose also supplies
 the internal `ENTITLEMENT_REFRESH_API_URL` to billing. It carries no secret;

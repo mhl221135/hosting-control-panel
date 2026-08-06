@@ -84,6 +84,39 @@ domain-renewal period without changing dates or prices. Canonical CSV exports
 include both periods and the archived state; legacy `Domain Months` is mapped
 to the domain period.
 
+## Remote WordPress Enrollment (Backend)
+
+Phase A1 adds the secure enrollment backend for remotely hosted WordPress
+services. It does not include the WordPress plugin, usable heartbeat visibility,
+frontend suspension, asymmetric entitlement signatures, or package distribution;
+those remain future work.
+
+An authenticated billing administrator creates a short-lived, one-time
+enrollment code for an eligible service (a non-archived record whose
+`location` is `shared`, i.e. remote/shared hosting). The enrollment target must
+be the service's canonical primary domain; aliases are not automatically
+treated as a new canonical identity. Only one usable pending code and one active
+installation may exist per service/domain.
+
+- `enrollment_codes` stores the code as a SHA-256 hash only (`code_hash`). The
+  plaintext code is revealed to the administrator exactly once at creation and
+  never persisted, logged, or audited.
+- `wp_installations` stores the per-installation credential as a SHA-256 hash
+  only (`credential_hash`). The plaintext credential is revealed exactly once
+  during the public exchange and never persisted, logged, or audited.
+- The public `POST /api/enrollment/exchange` consumes the code and creates the
+  installation inside a single `BEGIN IMMEDIATE` transaction. Concurrent or
+  replayed exchanges are rejected (`409`/`410`) and never create two
+  installations; the same generated IDs are used in storage, the response,
+  foreign keys, and audit entries.
+- Rejected exchanges due to invalid, used, revoked, expired, archived,
+  ineligible, or domain-mismatched codes are recorded as bounded
+  `enrollment.exchange_rejected` audit entries containing no secrets.
+- Enrollment codes and installation credentials can be revoked idempotently.
+  Revoked or used codes are never accepted again.
+- Exchange/install tables are excluded from portable CSV exports, which carry
+  only service inventory.
+
 ## WooCommerce Payments
 
 Open **Payments** and configure:

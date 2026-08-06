@@ -95,6 +95,14 @@ remain a later optional adapter.
 
 ### Remote WordPress Enforcement Plugin
 
+Phase A1 (backend foundation) is implemented. It adds the enrollment schema and
+secure enrollment/exchange/revocation backend for remote WordPress services:
+only hashes of one-time enrollment codes and per-installation credentials are
+stored, the exchange is atomic and single-use, and bounded redacted audit
+events and CSV exclusion are enforced. The WordPress plugin, billing UI,
+heartbeat, asymmetric entitlement signatures, and suspension remain future
+work below.
+
 - Add a separately versioned WordPress plugin for websites hosted outside
   OPI5. Prefer a normal managed plugin with a minimal MU-plugin loader so the
   enforcement bootstrap remains active across ordinary plugin deactivation and
@@ -103,18 +111,15 @@ remain a later optional adapter.
 - Do not authorize a remote site merely because its current domain matches a
   billing record. Domain ownership can change, staging copies can reuse a
   database, and cloned WordPress installations can retain old options.
-- Add an explicit enrollment workflow:
-  1. Select a remote WordPress billing service in the Billing UI.
-  2. Generate a short-lived, one-time enrollment code.
-  3. Enter the code in the plugin settings while authenticated as a WordPress
-     administrator.
-  4. Billing validates the expected canonical domain and records a generated
-     site installation ID.
-  5. Exchange the code for a revocable per-installation credential; never
-     return the enrollment code again.
-- Store only a hashed/revocable credential server-side. Keep the plugin
-  credential in a protected WordPress option and never include it in URLs,
-  logs, support bundles, telemetry, or portable billing CSV exports.
+- Add the Billing UI enrollment workflow (select a remote WordPress service,
+  generate a code, view installation health, revoke credentials, approve a
+  canonical-domain change), entering the generated code in the plugin settings
+  while authenticated as a WordPress administrator. The backend code
+  generation, one-time exchange, and revocable per-installation credential are
+  implemented; the UI and plugin-side entry are pending.
+- Add the WordPress plugin that stores the credential in a protected option and
+  never includes it in URLs, logs, support bundles, telemetry, or portable
+  billing CSV exports.
 - Use a narrow remote API that returns only the service state, freshness,
   renewal-page URL, display-safe price/period details, and key-rotation
   metadata. It must not expose client contact details, internal notes,
