@@ -162,6 +162,49 @@ async function readJson(req) {
   }
 }
 
+const POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+function rejectPollution(value) {
+  if (value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value) rejectPollution(item);
+    return;
+  }
+  for (const key of Object.keys(value)) {
+    if (POLLUTION_KEYS.has(key)) {
+      throw Object.assign(new Error("Unsupported request structure"), { statusCode: 400 });
+    }
+    rejectPollution(value[key]);
+  }
+}
+
+async function readGuardedJson(req, allowed, stringKeys = []) {
+  const body = await readJson(req);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw Object.assign(new Error("Request body must be a JSON object"), { statusCode: 400 });
+  }
+  rejectPollution(body);
+  const unknown = Object.keys(body).filter((key) => !allowed.has(key));
+  if (unknown.length) {
+    throw Object.assign(new Error(`Unsupported field: ${unknown[0]}`), { statusCode: 400 });
+  }
+  for (const key of stringKeys) {
+    if (Object.prototype.hasOwnProperty.call(body, key)
+      && /[\u0000-\u001f\u007f]/.test(String(body[key]))) {
+      throw Object.assign(new Error(`Invalid characters in ${key}`), { statusCode: 400 });
+    }
+  }
+  return body;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(value || ""));
+}
+
+function enrollmentCodeShape(value) {
+  return /^[A-Za-z0-9_-]{20,}$/.test(String(value || ""));
+}
+
 function sessionRequired(req) {
   const session = auth.session(req);
   if (!session) throw Object.assign(new Error("Authentication required"), { statusCode: 401 });
@@ -338,6 +381,18 @@ async function api(req, res) {
     sessionRequired(req);
     auth.logout(req);
     json(res, 200, { ok: true }, { "Set-Cookie": auth.cookie(req, "", true) });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/enrollment/exchange") {
+    publicRateLimit(req);
+    const body = await readGuardedJson(req, new Set(["code", "domain"]), ["code", "domain"]);
+    const code = String(body.code || "");
+    if (!enrollmentCodeShape(code)) {
+      throw Object.assign(new Error("Enrollment code shape is invalid"), { statusCode: 400 });
+    }
+    const result = database.exchangeEnrollmentCode({ code, domain: String(body.domain || "") });
+    json(res, 200, { ok: true, installation_id: result.installationId, credential: result.credential });
     return true;
   }
 
@@ -610,6 +665,39 @@ async function api(req, res) {
       if (body.confirm !== id) throw Object.assign(new Error(`Type ${id} to confirm restore`), { statusCode: 400 });
       json(res, 200, { ok: true, result: await backups.restore(id, session.email) });
     }
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/enrollment/codes") {
+    const body = await readGuardedJson(req, new Set(["service_id", "canonical_domain", "expires_in_hours"]));
+    const result = database.createEnrollmentCode({
+      serviceId: String(body.service_id || ""),
+      canonicalDomain: String(body.canonical_domain || ""),
+      expiresInHours: body.expires_in_hours,
+      actor: session.email,
+    });
+    json(res, 201, { ok: true, codeId: result.codeId, code: result.code, expiresAt: result.expiresAt });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/enrollment/codes/revoke") {
+    const body = await readGuardedJson(req, new Set(["code_id"]));
+    if (!isUuid(body.code_id)) {
+      throw Object.assign(new Error("code_id must be a UUID"), { statusCode: 400 });
+    }
+    json(res, 200, { ok: true, ...database.revokeEnrollmentCode(body.code_id, session.email) });
+    return true;
+  }
+  if (req.method === "POST" && url.pathname === "/api/enrollment/installations/revoke") {
+    const body = await readGuardedJson(req, new Set(["installation_id"]));
+    if (!isUuid(body.installation_id)) {
+      throw Object.assign(new Error("installation_id must be a UUID"), { statusCode: 400 });
+    }
+    json(res, 200, { ok: true, ...database.revokeInstallationCredential(body.installation_id, session.email) });
+    return true;
+  }
+  if (req.method === "GET" && url.pathname === "/api/enrollment/installations") {
+    const serviceId = String(url.searchParams.get("service_id") || "");
+    const installations = serviceId ? database.listInstallationsForService(serviceId) : [];
+    json(res, 200, { ok: true, serviceId, installations });
     return true;
   }
   return false;
