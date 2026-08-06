@@ -2,9 +2,9 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
-const { stateForDate } = require("./validation");
+const { stateForDate, domain, integer, bounded } = require("./validation");
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -51,6 +51,12 @@ function nextTimestamp(previous = "") {
   const now = Date.now();
   const prior = Date.parse(previous);
   return new Date(Number.isFinite(prior) ? Math.max(now, prior + 1) : now).toISOString();
+}
+
+// One-way hash for enrollment codes and installation credentials. Only hashes
+// are stored; plaintext secrets are revealed at most once and never persisted.
+function enrollmentHash(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
 function auditSnapshot(service) {
@@ -250,6 +256,43 @@ class BillingDatabase {
         CREATE INDEX payments_review_created
           ON payments(review_required, created_at DESC);
         PRAGMA user_version=6;
+        COMMIT;
+      `);
+    }
+    if (current < 7) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE enrollment_codes (
+          code_id TEXT PRIMARY KEY,
+          code_hash TEXT NOT NULL UNIQUE,
+          service_id TEXT NOT NULL,
+          canonical_domain TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL DEFAULT '',
+          used_at TEXT NOT NULL DEFAULT '',
+          used_by_installation_id TEXT NOT NULL DEFAULT '',
+          revoked_at TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT
+        );
+        CREATE INDEX idx_enrollment_codes_service ON enrollment_codes(service_id, created_at);
+        CREATE INDEX idx_enrollment_codes_hash ON enrollment_codes(code_hash);
+        CREATE TABLE wp_installations (
+          installation_id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          canonical_domain TEXT NOT NULL,
+          credential_hash TEXT NOT NULL,
+          credential_created_at TEXT NOT NULL,
+          credential_revoked_at TEXT NOT NULL DEFAULT '',
+          enrollment_code_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT,
+          FOREIGN KEY(enrollment_code_id) REFERENCES enrollment_codes(code_id) ON DELETE SET NULL
+        );
+        CREATE INDEX idx_wp_installations_service ON wp_installations(service_id);
+        CREATE INDEX idx_wp_installations_domain ON wp_installations(canonical_domain);
+        PRAGMA user_version=7;
         COMMIT;
       `);
     }
@@ -1016,6 +1059,175 @@ class BillingDatabase {
     `).all(Math.min(500, Math.max(1, Number(limit) || 100)));
   }
 
+  enrollmentActive(service) {
+    return service && !service.archived && service.location === "shared";
+  }
+
+  createEnrollmentCode({ serviceId, canonicalDomain, expiresInHours, actor }) {
+    const service = this.service(serviceId);
+    if (!service) throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
+    if (service.archived) throw Object.assign(new Error("Billing service is archived"), { statusCode: 409 });
+    if (!this.enrollmentActive(service)) {
+      throw Object.assign(
+        new Error("Enrollment is available only for remote/shared-hosting WordPress services"),
+        { statusCode: 400 },
+      );
+    }
+    const target = domain(canonicalDomain);
+    if (target !== service.primary_domain) {
+      throw Object.assign(new Error("Enrollment target must be the service's canonical domain"), { statusCode: 400 });
+    }
+    const now = new Date().toISOString();
+    const activeInstallation = this.db.prepare(
+      "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
+    ).get(service.service_id, target);
+    if (activeInstallation) {
+      throw Object.assign(new Error("An active installation already exists for this service"), { statusCode: 409 });
+    }
+    const pendingCode = this.db.prepare(
+      "SELECT 1 FROM enrollment_codes WHERE service_id=? AND canonical_domain=? AND used_at='' AND revoked_at='' AND expires_at>?",
+    ).get(service.service_id, target, now);
+    if (pendingCode) {
+      throw Object.assign(new Error("A pending enrollment code already exists for this service"), { statusCode: 409 });
+    }
+    const hours = integer(expiresInHours, 1, 168, 24);
+    const codeId = crypto.randomUUID();
+    const code = crypto.randomBytes(24).toString("base64url");
+    const codeHash = enrollmentHash(code);
+    const expiresAt = new Date(Date.now() + hours * 3_600_000).toISOString();
+    const createdBy = bounded(actor, 160);
+    this.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO enrollment_codes(code_id,code_hash,service_id,canonical_domain,expires_at,created_at,created_by)
+        VALUES(?,?,?,?,?,?,?)
+      `).run(codeId, codeHash, service.service_id, target, expiresAt, now, createdBy);
+    });
+    this.auditEntry(createdBy || "admin", "enrollment.code_created", codeId, {
+      serviceId: service.service_id,
+      domain: target,
+      expiresAt,
+    });
+    return { codeId, code, expiresAt };
+  }
+
+  exchangeEnrollmentCode({ code, domain: claimedDomain }) {
+    const codeHash = enrollmentHash(code);
+    const now = new Date().toISOString();
+    let result = null;
+    let rejected = null;
+    this.transaction(() => {
+      const row = this.db.prepare(
+        "SELECT code_id,code_hash,service_id,canonical_domain,expires_at,used_at,revoked_at FROM enrollment_codes WHERE code_hash=?",
+      ).get(codeHash);
+      if (!row) {
+        rejected = { statusCode: 404, message: "Enrollment code is invalid" };
+        return;
+      }
+      if (row.used_at) {
+        rejected = { statusCode: 409, message: "Enrollment code was already used" };
+        return;
+      }
+      if (row.revoked_at) {
+        rejected = { statusCode: 409, message: "Enrollment code was revoked" };
+        return;
+      }
+      if (!row.expires_at || row.expires_at <= now) {
+        rejected = { statusCode: 410, message: "Enrollment code has expired" };
+        return;
+      }
+      const service = this.service(row.service_id);
+      if (!service) {
+        rejected = { statusCode: 404, message: "Billing service was not found" };
+        return;
+      }
+      if (service.archived) {
+        rejected = { statusCode: 409, message: "Billing service is archived" };
+        return;
+      }
+      if (!this.enrollmentActive(service)) {
+        rejected = { statusCode: 400, message: "Enrollment is not available for this service" };
+        return;
+      }
+      const target = domain(claimedDomain);
+      if (target !== row.canonical_domain) {
+        rejected = { statusCode: 400, message: "Domain does not match this enrollment" };
+        return;
+      }
+      const activeInstallation = this.db.prepare(
+        "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
+      ).get(row.service_id, target);
+      if (activeInstallation) {
+        rejected = { statusCode: 409, message: "An active installation already exists for this service" };
+        return;
+      }
+      const installationId = crypto.randomUUID();
+      const credential = crypto.randomBytes(32).toString("base64url");
+      const credentialHash = enrollmentHash(credential);
+      this.db.prepare(`
+        INSERT INTO wp_installations(
+          installation_id,service_id,canonical_domain,credential_hash,credential_created_at,
+          enrollment_code_id,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)
+      `).run(installationId, row.service_id, target, credentialHash, now, row.code_id, now, now);
+      const consumed = this.db.prepare(
+        "UPDATE enrollment_codes SET used_at=?, used_by_installation_id=? WHERE code_id=? AND used_at=''",
+      ).run(now, installationId, row.code_id);
+      if (consumed.changes !== 1) {
+        throw Object.assign(new Error("Enrollment code was already used"), { statusCode: 409 });
+      }
+      result = { installationId, credential, serviceId: row.service_id, canonicalDomain: target };
+    });
+    if (rejected) {
+      this.auditEntry("system", "enrollment.exchange_rejected", String(codeHash).slice(0, 16), {
+        reason: bounded(rejected.message, 120),
+      });
+      throw Object.assign(new Error(rejected.message), { statusCode: rejected.statusCode });
+    }
+    if (result) {
+      this.auditEntry("system", "enrollment.exchanged", result.installationId, {
+        serviceId: result.serviceId,
+        canonicalDomain: result.canonicalDomain,
+      });
+      return { installationId: result.installationId, credential: result.credential };
+    }
+    throw Object.assign(new Error("Enrollment could not be completed"), { statusCode: 500 });
+  }
+
+  revokeEnrollmentCode(codeId, actor) {
+    const row = this.db.prepare("SELECT code_id FROM enrollment_codes WHERE code_id=?").get(String(codeId || ""));
+    if (!row) throw Object.assign(new Error("Enrollment code was not found"), { statusCode: 404 });
+    this.db.prepare("UPDATE enrollment_codes SET revoked_at=? WHERE code_id=? AND revoked_at=''")
+      .run(new Date().toISOString(), row.code_id);
+    this.auditEntry(bounded(actor, 160) || "admin", "enrollment.code_revoked", row.code_id, {});
+    return { codeId: row.code_id };
+  }
+
+  revokeInstallationCredential(installationId, actor) {
+    const row = this.db.prepare("SELECT installation_id FROM wp_installations WHERE installation_id=?")
+      .get(String(installationId || ""));
+    if (!row) throw Object.assign(new Error("Installation was not found"), { statusCode: 404 });
+    this.db.prepare("UPDATE wp_installations SET credential_revoked_at=?, updated_at=? WHERE installation_id=? AND credential_revoked_at=''")
+      .run(new Date().toISOString(), new Date().toISOString(), row.installation_id);
+    this.auditEntry(bounded(actor, 160) || "admin", "enrollment.installation_revoked", row.installation_id, {});
+    return { installationId: row.installation_id };
+  }
+
+  listInstallationsForService(serviceId, limit = 50) {
+    return this.db.prepare(`
+      SELECT installation_id, service_id, canonical_domain, credential_created_at,
+             credential_revoked_at, created_at, updated_at
+      FROM wp_installations WHERE service_id=? ORDER BY created_at LIMIT ?
+    `).all(String(serviceId || ""), Math.min(500, Math.max(1, Number(limit) || 50)));
+  }
+
+  getInstallationHealth(installationId) {
+    return this.db.prepare(`
+      SELECT installation_id, service_id, canonical_domain, credential_created_at,
+             credential_revoked_at, created_at, updated_at
+      FROM wp_installations WHERE installation_id=?
+    `).get(String(installationId || "")) || null;
+  }
+
   integrity() {
     const result = this.db.prepare("PRAGMA integrity_check").get();
     return String(result.integrity_check || "").toLowerCase() === "ok";
@@ -1031,4 +1243,4 @@ class BillingDatabase {
   }
 }
 
-module.exports = { BillingDatabase, SCHEMA_VERSION, rowView };
+module.exports = { BillingDatabase, SCHEMA_VERSION, enrollmentHash, rowView };
