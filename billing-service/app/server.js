@@ -13,6 +13,14 @@ const { PublicReference } = require("./lib/public-reference");
 const { NotificationClient, ReminderManager } = require("./lib/reminders");
 const { WooCommerceClient, WooCommerceSettings } = require("./lib/woocommerce-settings");
 const { domain, integer, isoDate, normalizeService } = require("./lib/validation");
+const {
+  buildEntitlementPayload,
+  decryptPrivateKey,
+  encryptPrivateKey,
+  generateSigningKey,
+  loadEncryptionKey,
+  signPayload,
+} = require("./lib/enrollment-signing");
 
 const PORT = Number(process.env.PORT || 8787);
 const DATA_DIR = path.resolve(process.env.DATA_DIR || "/app/data");
@@ -34,6 +42,8 @@ const publicReference = new PublicReference(DATA_DIR);
 const reminderManager = new ReminderManager(database, new NotificationClient());
 const entitlementRefresh = new EntitlementRefreshClient();
 const publicRequests = new Map();
+const installationRequests = new Map();
+const SIGNING_ENCRYPTION_KEY = loadEncryptionKey(process.env.BILLING_SETTINGS_KEY || "");
 
 function headers(extra = {}) {
   return {
@@ -88,6 +98,32 @@ function publicRateLimit(req) {
   if (publicRequests.size > 1000) {
     for (const [address, value] of publicRequests) {
       if (now - value.startedAt >= 60_000) publicRequests.delete(address);
+    }
+  }
+}
+
+// Rate-limit remote installation requests: per-installation and per-IP, suitable
+// for periodic plugin polling. Authentication errors also consume quota.
+function remoteRateLimit(req, installationId = "") {
+  const ip = String(req.socket.remoteAddress || "unknown");
+  const now = Date.now();
+  const keys = [];
+  if (installationId) keys.push(`install:${installationId}`);
+  keys.push(`ip:${ip}`);
+  for (const key of keys) {
+    const current = installationRequests.get(key);
+    if (!current || now - current.startedAt >= 60_000) {
+      installationRequests.set(key, { startedAt: now, count: 1 });
+      continue;
+    }
+    current.count += 1;
+    if (current.count > 60) {
+      throw Object.assign(new Error("Too many requests"), { statusCode: 429 });
+    }
+  }
+  if (installationRequests.size > 2000) {
+    for (const [k, v] of installationRequests) {
+      if (now - v.startedAt >= 60_000) installationRequests.delete(k);
     }
   }
 }
@@ -396,6 +432,69 @@ async function api(req, res) {
     return true;
   }
 
+  if (req.method === "GET" && url.pathname === "/remote/v1/keys") {
+    const keys = database.allPublicKeys().map((k) => ({
+      key_id: k.key_id,
+      public_key: k.public_key,
+    }));
+    json(res, 200, { ok: true, keys });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/remote/v1/entitlement") {
+    const auth = String(req.headers.authorization || "");
+    const match = /^Bearer ([A-Za-z0-9_-]{20,})$/.exec(auth);
+    if (!match) {
+      remoteRateLimit(req);
+      json(res, 401, { ok: false, message: "Installation authentication required" });
+      return true;
+    }
+    const credential = match[1];
+    const installationId = String(req.headers["x-installation-id"] || "");
+    if (!installationId) {
+      remoteRateLimit(req);
+      json(res, 401, { ok: false, message: "Installation authentication required" });
+      return true;
+    }
+    const installation = database.authenticateInstallation(installationId, credential);
+    if (!installation) {
+      remoteRateLimit(req, installationId);
+      json(res, 401, { ok: false, message: "Installation authentication required" });
+      return true;
+    }
+    remoteRateLimit(req, installation.installation_id);
+    if (!SIGNING_ENCRYPTION_KEY) {
+      json(res, 503, { ok: false, message: "Entitlement signing is not configured" });
+      return true;
+    }
+    const activeKey = database.activeSigningKeyRaw();
+    if (!activeKey) {
+      json(res, 503, { ok: false, message: "No active signing key is available" });
+      return true;
+    }
+    const service = database.service(installation.service_id);
+    const privateKey = decryptPrivateKey(activeKey.private_key_encrypted, SIGNING_ENCRYPTION_KEY);
+    if (!privateKey) {
+      json(res, 503, { ok: false, message: "Entitlement signing is not configured" });
+      return true;
+    }
+    const payload = buildEntitlementPayload({
+      installation,
+      service,
+      keyId: activeKey.key_id,
+      publicBillingUrl: wooSettings.public().publicBillingUrl,
+    });
+    const { canonical, signature } = signPayload(privateKey, payload);
+    database.heartbeatInstallation(installation.installation_id, true);
+    json(res, 200, {
+      ok: true,
+      payload,
+      signature,
+      canonical,
+    });
+    return true;
+  }
+
   const session = sessionRequired(req);
   if (backups.active) throw Object.assign(new Error("Billing maintenance is in progress"), { statusCode: 503 });
 
@@ -700,6 +799,74 @@ async function api(req, res) {
     json(res, 200, { ok: true, serviceId, installations });
     return true;
   }
+
+  const installPreviewMatch = /^\/api\/enrollment\/installations\/([0-9a-f-]{36})\/entitlement-preview$/.exec(url.pathname);
+  if (req.method === "GET" && installPreviewMatch) {
+    const installation = database.getInstallationHealth(installPreviewMatch[1]);
+    if (!installation) throw Object.assign(new Error("Installation was not found"), { statusCode: 404 });
+    const service = database.service(installation.service_id);
+    const key = database.activePublicKey();
+    const payload = buildEntitlementPayload({
+      installation,
+      service: service ? service : null,
+      keyId: key ? key.keyId : "no-active-key",
+      publicBillingUrl: wooSettings.public().publicBillingUrl,
+    });
+    json(res, 200, { ok: true, preview: payload, signed: false });
+    return true;
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/enrollment/signing/status") {
+    json(res, 200, { ok: true, status: database.signingKeyStatus(), configured: Boolean(SIGNING_ENCRYPTION_KEY) });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/enrollment/signing/initialize") {
+    const body = await readGuardedJson(req, new Set(["confirm"]));
+    if (body.confirm !== "INITIALIZE") {
+      throw Object.assign(new Error("Type INITIALIZE to create the first signing key"), { statusCode: 400 });
+    }
+    if (!SIGNING_ENCRYPTION_KEY) {
+      throw Object.assign(new Error("Set BILLING_SETTINGS_KEY before enabling signing"), { statusCode: 503 });
+    }
+    const key = generateSigningKey();
+    const privateKeyEncrypted = encryptPrivateKey(key.privateKey, SIGNING_ENCRYPTION_KEY);
+    const keyId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 90 * 24 * 3600_000).toISOString();
+    const result = database.initSigningKey(keyId, key.publicKey, privateKeyEncrypted, expiresAt, 720, session.email);
+    json(res, 201, { ok: true, keyId: result, publicKey: key.publicKey });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/enrollment/signing/rotate") {
+    const body = await readGuardedJson(req, new Set(["confirm"]));
+    if (body.confirm !== "ROTATE") {
+      throw Object.assign(new Error("Type ROTATE to replace the active signing key"), { statusCode: 400 });
+    }
+    if (!SIGNING_ENCRYPTION_KEY) throw Object.assign(new Error("Set BILLING_SETTINGS_KEY before enabling signing"), { statusCode: 503 });
+    const key = generateSigningKey();
+    const privateKeyEncrypted = encryptPrivateKey(key.privateKey, SIGNING_ENCRYPTION_KEY);
+    const keyId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + 90 * 24 * 3600_000).toISOString();
+    const overlapHours = 720;
+    const result = database.rotateSigningKey(keyId, key.publicKey, privateKeyEncrypted, expiresAt, overlapHours, session.email);
+    json(res, 201, { ok: true, keyId: result, publicKey: key.publicKey, previousKeyRotated: true });
+    return true;
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/enrollment/signing/retire") {
+    const body = await readGuardedJson(req, new Set(["key_id", "confirm"]));
+    if (!isUuid(body.key_id)) throw Object.assign(new Error("key_id must be a UUID"), { statusCode: 400 });
+    const emergency = body.confirm === "EMERGENCY";
+    const allowed = emergency || body.confirm === "RETIRE";
+    if (!allowed) {
+      throw Object.assign(new Error("Type RETIRE (or EMERGENCY to skip the overlap window)"), { statusCode: 400 });
+    }
+    const result = database.retireSigningKey(body.key_id, emergency, session.email);
+    json(res, 200, { ok: true, keyId: result });
+    return true;
+  }
+
   return false;
 }
 
