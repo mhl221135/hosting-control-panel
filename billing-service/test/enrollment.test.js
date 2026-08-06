@@ -31,11 +31,11 @@ function legacyService(domain = "local.example.com", source = "66") {
   return { ...service, location: "local" };
 }
 
-test("fresh schema creates enrollment tables at version 7", () => {
+test("fresh schema creates enrollment tables at version 8", () => {
   const value = fixture();
   try {
-    assert.equal(SCHEMA_VERSION, 7);
-    assert.equal(value.database.db.prepare("PRAGMA user_version").get().user_version, 7);
+    assert.equal(SCHEMA_VERSION, 8);
+    assert.equal(value.database.db.prepare("PRAGMA user_version").get().user_version, 8);
     const enrollmentColumns = value.database.db.prepare("PRAGMA table_info(enrollment_codes)").all().map((c) => c.name);
     const installationColumns = value.database.db.prepare("PRAGMA table_info(wp_installations)").all().map((c) => c.name);
     assert.ok(enrollmentColumns.includes("code_id"));
@@ -46,13 +46,19 @@ test("fresh schema creates enrollment tables at version 7", () => {
     assert.ok(installationColumns.includes("installation_id"));
     assert.ok(installationColumns.includes("credential_hash"));
     assert.ok(installationColumns.includes("enrollment_code_id"));
+    assert.ok(installationColumns.includes("last_seen_at"));
+    assert.ok(installationColumns.includes("last_success_at"));
+    const signingColumns = value.database.db.prepare("PRAGMA table_info(signing_keys)").all().map((c) => c.name);
+    assert.ok(signingColumns.includes("public_key"));
+    assert.ok(signingColumns.includes("private_key_encrypted"));
+    assert.ok(signingColumns.includes("is_active"));
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });
   }
 });
 
-test("migrates a schema-six database to version 7 and preserves data", () => {
+test("migrates a schema-six database to version 8 and preserves data", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-enroll-migration-"));
   const data = path.join(root, "data");
   fs.mkdirSync(data, { recursive: true });
@@ -96,9 +102,12 @@ test("migrates a schema-six database to version 7 and preserves data", () => {
   legacy.close();
   const database = new BillingDatabase(data);
   try {
-    assert.equal(database.db.prepare("PRAGMA user_version").get().user_version, 7);
-    const table = database.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('enrollment_codes','wp_installations')").all();
-    assert.equal(table.length, 2);
+    assert.equal(database.db.prepare("PRAGMA user_version").get().user_version, 8);
+    const table = database.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('enrollment_codes','wp_installations','signing_keys')").all();
+    assert.equal(table.length, 3);
+    const heartbeatColumns = database.db.prepare("PRAGMA table_info(wp_installations)").all().map((c) => c.name);
+    assert.ok(heartbeatColumns.includes("last_seen_at"));
+    assert.ok(heartbeatColumns.includes("last_success_at"));
     const service = database.service("svc_legacy");
     assert.equal(service.primary_domain, "example.com");
     assert.equal(service.renewal_months, 18);
