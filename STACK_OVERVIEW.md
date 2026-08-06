@@ -68,6 +68,8 @@ The panel provides:
 - Independent billing CSV inventory, renewal states, encrypted WooCommerce
   payment links/webhooks, durable Telegram/SMTP reminders, audit, and verified
   SQLite restore points
+- Remote WordPress enrollment (hashed enrollment codes, Ed25519-signed
+  entitlement delivery, encrypted signing-key storage, throttled heartbeats)
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Cross-process serialized, rollback-safe runtime transactions for every PHP-FPM pool

@@ -99,8 +99,16 @@ Phase A1 (backend foundation) is implemented. It adds the enrollment schema and
 secure enrollment/exchange/revocation backend for remote WordPress services:
 only hashes of one-time enrollment codes and per-installation credentials are
 stored, the exchange is atomic and single-use, and bounded redacted audit
-events and CSV exclusion are enforced. The WordPress plugin, billing UI,
-heartbeat, asymmetric entitlement signatures, and suspension remain future
+events and CSV exclusion are enforced.
+
+Phase A2 (signing and entitlement delivery) is implemented. It adds Ed25519
+entitlement signing with deterministic canonicalization, encrypted signing-key
+storage, key lifecycle management (initialize/rotate/retire), authenticated
+remote entitlement delivery (`POST /remote/v1/entitlement`), public key
+distribution (`GET /remote/v1/keys`), installation authentication, throttled
+heartbeat, and administrator key status/preview APIs. The WordPress plugin,
+billing UI enrollment workflow, heartbeat visibility, frontend suspension, cache
+purge, signed package distribution, and production qualification remain future
 work below.
 
 - Add a separately versioned WordPress plugin for websites hosted outside

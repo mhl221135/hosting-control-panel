@@ -110,6 +110,13 @@ never persisted, logged, audited, or exported; they are revealed at most once
 during creation or exchange. These tables are never included in portable CSV
 exports.
 
+Signing-key material is stored in the `signing_keys` table (`billing.sqlite`).
+Private keys are encrypted with AES-256-GCM using the service's existing key
+material; only public keys are returned by the remote API. Signing is
+unconfigured by default and requires `BILLING_SETTINGS_KEY` to be set before the
+first key is initialized. Plaintext private keys are never returned, logged,
+audited, backed up, or exported.
+
 `app-data/ui-manager/billing-observer-settings.json` stores only the
 disabled-by-default poll interval and freshness policy. Compose also supplies
 the internal `ENTITLEMENT_REFRESH_API_URL` to billing. It carries no secret;
