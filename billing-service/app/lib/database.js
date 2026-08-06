@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate, domain, integer, bounded } = require("./validation");
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -293,6 +293,30 @@ class BillingDatabase {
         CREATE INDEX idx_wp_installations_service ON wp_installations(service_id);
         CREATE INDEX idx_wp_installations_domain ON wp_installations(canonical_domain);
         PRAGMA user_version=7;
+        COMMIT;
+      `);
+    }
+    if (current < 8) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE signing_keys (
+          key_id TEXT PRIMARY KEY,
+          public_key TEXT NOT NULL,
+          private_key_encrypted TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          rotated_at TEXT NOT NULL DEFAULT '',
+          retired_at TEXT NOT NULL DEFAULT '',
+          overlap_hours INTEGER NOT NULL DEFAULT 720,
+          created_by TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX idx_signing_keys_active ON signing_keys(is_active);
+        ALTER TABLE wp_installations ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE wp_installations ADD COLUMN last_success_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE wp_installations ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE wp_installations ADD COLUMN safe_status TEXT NOT NULL DEFAULT '';
+        PRAGMA user_version=8;
         COMMIT;
       `);
     }
@@ -1223,9 +1247,142 @@ class BillingDatabase {
   getInstallationHealth(installationId) {
     return this.db.prepare(`
       SELECT installation_id, service_id, canonical_domain, credential_created_at,
-             credential_revoked_at, created_at, updated_at
+             credential_revoked_at, created_at, updated_at,
+             last_seen_at, last_success_at, contract_version, safe_status
       FROM wp_installations WHERE installation_id=?
     `).get(String(installationId || "")) || null;
+  }
+
+  // --- signing keys ---
+
+  activeSigningKeyRaw() {
+    return this.db.prepare(
+      "SELECT key_id, public_key, private_key_encrypted, is_active FROM signing_keys WHERE is_active=1 LIMIT 1",
+    ).get() || null;
+  }
+
+  activePublicKey() {
+    const row = this.activeSigningKeyRaw();
+    if (!row) return null;
+    return { keyId: row.key_id, publicKey: row.public_key };
+  }
+
+  allPublicKeys() {
+    return this.db.prepare(
+      "SELECT key_id, public_key, created_at, expires_at, rotated_at FROM signing_keys ORDER BY created_at",
+    ).all();
+  }
+
+  signingKeyStatus() {
+    const active = this.activeSigningKeyRaw();
+    const keys = this.db.prepare(
+      "SELECT key_id, public_key, is_active, created_at, expires_at, rotated_at, retired_at, overlap_hours FROM signing_keys ORDER BY created_at DESC",
+    ).all();
+    return {
+      configured: Boolean(active),
+      active: active ? { keyId: active.key_id, publicKey: active.public_key } : null,
+      keys: keys.map((k) => ({
+        keyId: k.key_id,
+        publicKey: k.public_key,
+        active: Boolean(k.is_active),
+        createdAt: k.created_at,
+        expiresAt: k.expires_at,
+        rotatedAt: k.rotated_at,
+        retiredAt: k.retired_at,
+      })),
+    };
+  }
+
+  initSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor) {
+    const existing = this.activeSigningKeyRaw();
+    if (existing) throw Object.assign(new Error("A signing key is already active; use rotation"), { statusCode: 409 });
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
+        VALUES(?,?,?,1,?,?,?,?)
+      `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+    });
+    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_initialized", keyId, { keyId });
+    return keyId;
+  }
+
+  rotateSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor) {
+    const active = this.activeSigningKeyRaw();
+    if (!active) throw Object.assign(new Error("No active signing key exists; use initialize"), { statusCode: 400 });
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      this.db.prepare(
+        "UPDATE signing_keys SET is_active=0, rotated_at=? WHERE key_id=? AND is_active=1",
+      ).run(now, active.key_id);
+      this.db.prepare(
+        "DELETE FROM signing_keys WHERE is_active=0 AND rotated_at != '' AND retired_at != '' AND datetime(rotated_at, ? || ' hours') <= datetime('now')",
+      ).run(String(overlapHours || 720));
+      this.db.prepare(`
+        INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
+        VALUES(?,?,?,1,?,?,?,?)
+      `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+    });
+    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_rotated", keyId, { previousKeyId: active.key_id, keyId });
+    return keyId;
+  }
+
+  retireSigningKey(keyId, emergency, actor) {
+    const key = this.db.prepare("SELECT key_id, is_active, rotated_at, expires_at FROM signing_keys WHERE key_id=?")
+      .get(String(keyId || ""));
+    if (!key) throw Object.assign(new Error("Signing key was not found"), { statusCode: 404 });
+    if (key.is_active) throw Object.assign(new Error("Cannot retire the active key; rotate first"), { statusCode: 409 });
+    if (key.retired_at) throw Object.assign(new Error("Signing key is already retired"), { statusCode: 409 });
+    if (!emergency && key.expires_at && key.expires_at > new Date().toISOString()) {
+      throw Object.assign(
+        new Error("Key overlap has not expired; use emergency confirmation to retire early"),
+        { statusCode: 409 },
+      );
+    }
+    this.db.prepare("UPDATE signing_keys SET retired_at=? WHERE key_id=?")
+      .run(new Date().toISOString(), key.key_id);
+    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_retired", keyId, { keyId, emergency });
+    return key.key_id;
+  }
+
+  // --- heartbeat ---
+
+  heartbeatInstallation(installationId, success) {
+    const HEARTBEAT_MIN_MS = 60_000;
+    const now = new Date().toISOString();
+    const install = this.getInstallationHealth(installationId);
+    if (!install) return null;
+    const lastSeen = Date.parse(install.last_seen_at || "");
+    const shouldWrite = !lastSeen || !Number.isFinite(lastSeen) || (Date.now() - lastSeen >= HEARTBEAT_MIN_MS);
+    if (shouldWrite) {
+      const updates = ["last_seen_at=?", "updated_at=?"];
+      const params = [now, now];
+      if (success) {
+        updates.push("last_success_at=?");
+        params.push(now);
+      }
+      this.db.prepare(
+        `UPDATE wp_installations SET ${updates.join(",")} WHERE installation_id=?`,
+      ).run(...params, installationId);
+    }
+    return this.getInstallationHealth(installationId);
+  }
+
+  // --- installation authentication ---
+
+  authenticateInstallation(installationId, credential) {
+    if (!installationId || !credential) return null;
+    const hash = enrollmentHash(credential);
+    const installation = this.db.prepare(
+      "SELECT installation_id, service_id, canonical_domain, credential_revoked_at FROM wp_installations WHERE credential_hash=?",
+    ).get(hash);
+    if (!installation) return null;
+    if (installation.installation_id !== installationId) return null;
+    if (installation.credential_revoked_at) return null;
+    const service = this.service(installation.service_id);
+    if (!service || service.archived) return null;
+    if (!this.enrollmentActive(service)) return null;
+    return installation;
   }
 
   integrity() {
