@@ -1,11 +1,16 @@
 const crypto = require("crypto");
+const { execFile } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { promisify } = require("util");
+const { verifyArtifactManifest } = require("./backup-manager");
 
-const DEFAULT_FRESHNESS_HOURS = 24;
+const execFileAsync = promisify(execFile);
+const VERIFY_TIMEOUT = 60_000;
+const PREFLIGHT_TIMEOUT_MS = 120_000;
 const SAFE_ARTIFACT_NAMES = new Set(["website.tar.gz", "database.sql.gz"]);
 
-function result(status, reason) {
+function check(status, reason) {
   return { status, reason };
 }
 
@@ -14,10 +19,65 @@ function readSiteManifest(manifestPath) {
   try {
     const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     if (!parsed || parsed.version !== 2 || parsed.type !== "site") return null;
-    if (!parsed.domain || !parsed.artifacts || typeof parsed.artifacts !== "object") return null;
+    if (!parsed.domain || !parsed.websitePath || !parsed.startedAt || !parsed.completedAt) return null;
+    if (!parsed.artifacts || typeof parsed.artifacts !== "object" || Array.isArray(parsed.artifacts)) return null;
+    for (const [name, record] of Object.entries(parsed.artifacts)) {
+      if (typeof record !== "object" || record === null) return null;
+      if (!Number.isSafeInteger(record.size) || record.size < 1) return null;
+      if (typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)) return null;
+    }
     return parsed;
   } catch {
     return null;
+  }
+}
+
+function validateManifestSet(manifest, setId, siteHost) {
+  const issues = [];
+  if (manifest.id !== setId) issues.push("manifest.id does not match backup set directory name");
+  if (manifest.domain !== siteHost) issues.push("manifest.domain does not match site directory");
+  if (!/^[a-z0-9._-]+$/.test(manifest.websitePath || "")) issues.push("manifest.websitePath is unsafe");
+  if (!isFinite(Date.parse(manifest.startedAt)) || !isFinite(Date.parse(manifest.completedAt))) {
+    issues.push("manifest timestamps are invalid");
+  }
+  for (const name of Object.keys(manifest.artifacts)) {
+    if (!SAFE_ARTIFACT_NAMES.has(name)) issues.push(`unsafe artifact name: ${name}`);
+  }
+  return issues;
+}
+
+function requireSiteDatabase(siteType) {
+  if (siteType === "wordpress" || siteType === "opencart") return "required";
+  if (siteType === "generic-php") return "manifest"; // depends on manifest.database
+  return "none";
+}
+
+// Validate an actual gzip/tar archive: runs tar -tzf, rejects unsafe paths.
+async function validateTar(filePath) {
+  try {
+    const { stdout } = await execFileAsync("tar", ["-tzf", filePath], {
+      timeout: VERIFY_TIMEOUT, maxBuffer: 256 * 1024,
+    });
+    const entries = String(stdout).trim().split("\n").filter(Boolean);
+    if (entries.length === 0) return { ok: false, reason: "archive is empty" };
+    for (const entry of entries) {
+      if (entry.startsWith("/") || entry.includes("..")) {
+        return { ok: false, reason: `archive contains unsafe path: ${entry}` };
+      }
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "website.tar.gz is not a valid gzip/tar archive" };
+  }
+}
+
+// Validate gzip integrity.
+async function validateGzip(filePath) {
+  try {
+    await execFileAsync("gzip", ["-t", filePath], { timeout: VERIFY_TIMEOUT });
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "file is not valid gzip" };
   }
 }
 
@@ -31,266 +91,227 @@ function diskFreeBytes(directory) {
   }
 }
 
-// Verify an artifact file matches its manifest record: size first, then
-// stream the file into SHA-256. Never loads the archive into memory.
-function verifyArtifact(artifactPath, expected) {
-  if (!fs.existsSync(artifactPath)) return { ok: false, reason: "file missing" };
-  const stat = fs.statSync(artifactPath);
-  if (stat.size !== expected.size) return { ok: false, reason: `size mismatch (expected ${expected.size}, got ${stat.size})` };
-  try {
-    const hash = crypto.createHash("sha256");
-    const stream = fs.createReadStream(artifactPath, { highWaterMark: 64 * 1024 });
-    return new Promise((resolve) => {
-      let bytes = 0;
-      stream.on("data", (chunk) => {
-        bytes += chunk.length;
-        if (bytes > 100 * 1024 * 1024 * 1024) { // safety cap per file
-          stream.destroy();
-          resolve({ ok: false, reason: "artifact exceeds size limit" });
-        }
-        hash.update(chunk);
-      });
-      stream.on("end", () => {
-        const actual = hash.digest("hex");
-        resolve(actual === expected.sha256
-          ? { ok: true, reason: "verified" }
-          : { ok: false, reason: "checksum mismatch" });
-      });
-      stream.on("error", () => resolve({ ok: false, reason: "read error" }));
-    });
-  } catch {
-    return { ok: false, reason: "read error" };
-  }
-}
+async function runPreflight(opts = {}) {
+  const timer = setTimeout(() => {}, PREFLIGHT_TIMEOUT_MS);
+  const race = new Promise((resolve) => setTimeout(() => {
+    resolve({ ready: false, checkedAt: new Date().toISOString(), checks: [{ status: "fail", reason: "Preflight timed out" }], summary: { total: 1, pass: 0, warning: 0, fail: 1 } });
+  }, PREFLIGHT_TIMEOUT_MS));
 
-function requireSiteDatabase(siteType) {
-  if (siteType === "wordpress" || siteType === "opencart") return "required";
-  if (siteType === "generic-php") return "optional"; // recorded in manifest
-  return "none";
-}
+  const work = (async () => {
+    const {
+      isStandby = false,
+      sites = [],
+      backupsRoot = "",
+      websitesRoot = "",
+      sourcesRoot = "",
+      dataRoot = "",
+      ingressMode = "",
+      env = {},
+      maxBackupAgeHours = 24,
+      receiver = null,
+      docker = null,
+      ingress = null,
+    } = opts;
+    const freshnessMs = Number(maxBackupAgeHours) * 3_600_000;
+    const checks = [];
 
-function runPreflight(opts = {}) {
-  const {
-    isStandby = false,
-    sites = [],
-    backupsRoot = "",
-    websitesRoot = "",
-    sourcesRoot = "",
-    dataRoot = "",
-    ingressMode = "",
-    env = {},
-    maxBackupAgeHours = DEFAULT_FRESHNESS_HOURS,
-    // optional DI for receiver/runtime checks
-    receiver = null,
-    dockerImages = [],
-    systemdUnit = "",
-  } = opts;
-  const freshnessMs = Number(maxBackupAgeHours) * 3_600_000;
-  const checks = [];
+    checks.push(check(isStandby ? "pass" : "fail",
+      isStandby ? "Server is in standby role" : "Server is not in standby role"));
 
-  // ── Role ──
-  checks.push(result(
-    isStandby ? "pass" : "fail",
-    isStandby ? "Server is in standby role" : "Server is not in standby role; promotion requires standby mode",
-  ));
-
-  // ── Role config file ──
-  const roleFile = path.join(dataRoot, "server-role.json");
-  const roleOk = (() => {
-    try {
-      if (!fs.existsSync(roleFile)) return "absent";
-      const parsed = JSON.parse(fs.readFileSync(roleFile, "utf8"));
-      return parsed && parsed.version === 1 ? "valid" : "corrupt";
-    } catch { return "corrupt"; }
-  })();
-  checks.push(result(
-    roleOk === "valid" ? "pass" : roleOk === "absent" ? "warning" : "fail",
-    roleOk === "valid" ? "Server metadata is readable"
-      : roleOk === "absent" ? "Server metadata has not been created yet"
-      : "Server metadata is corrupt",
-  ));
-
-  // ── Backup inventory (real layout: BACKUPS_ROOT/<domain>/<set>) ──
-  let newestAge = 0;
-  let totalManifests = 0;
-  const siteEntries = new Set(sites.map((s) => s.host));
-  const siteChecks = new Map();
-  const foundSites = new Set();
-  for (const site of sites) siteChecks.set(site.host, []);
-
-  if (fs.existsSync(backupsRoot)) {
-    for (const entry of fs.readdirSync(backupsRoot, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      if (entry.name === "app-data" || entry.name === "exports" || entry.name.startsWith(".")) continue;
-      if (!siteEntries.has(entry.name)) continue;
-      const siteDir = path.join(backupsRoot, entry.name);
-      const sets = fs.readdirSync(siteDir).filter((name) =>
-        /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(name)).sort().reverse();
-      if (!sets.length) continue;
-      const latestSetDir = path.join(siteDir, sets[0]);
-      const manifestFile = path.join(latestSetDir, "manifest.json");
-      const manifest = readSiteManifest(manifestFile);
-      if (!manifest) continue;
-      totalManifests += 1;
-      foundSites.add(entry.name);
-      const startedAt = Date.parse(manifest.startedAt);
-      if (Number.isFinite(startedAt)) {
-        const age = Date.now() - startedAt;
-        if (age > newestAge) newestAge = age;
-      }
-      const list = siteChecks.get(entry.name);
-      if (!list) continue;
-      // Artifact names must only contain safe names
-      for (const artifactName of Object.keys(manifest.artifacts)) {
-        if (!SAFE_ARTIFACT_NAMES.has(artifactName)) {
-          list.push({ status: "fail", reason: `unsafe manifest artifact name: ${artifactName}` });
-        }
-      }
-      // Website archive must exist
-      const archivePath = path.join(latestSetDir, "website.tar.gz");
-      const archiveArtifact = manifest.artifacts["website.tar.gz"];
-      if (!fs.existsSync(archivePath) || !archiveArtifact) {
-        list.push({ status: "fail", reason: "website archive missing" });
-      }
-      // Database dump by type
-      const siteType = sites.find((s) => s.host === entry.name)?.siteType || "wordpress";
-      const dbRequirement = requireSiteDatabase(siteType);
-      const databaseArtifact = manifest.artifacts["database.sql.gz"];
-      const databasePath = path.join(latestSetDir, "database.sql.gz");
-      if (dbRequirement === "required" && (!databaseArtifact || !fs.existsSync(databasePath))) {
-        list.push({ status: "fail", reason: "required database dump missing" });
-      }
-    }
-  }
-
-  if (totalManifests === 0) {
-    checks.push(result("fail", "No valid version-2 site backup manifests were found"));
-  } else {
-    const ageHours = Math.round(newestAge / 3_600_000);
-    const thresholdHours = Math.round(freshnessMs / 3_600_000);
-    const stale = newestAge > freshnessMs;
-    checks.push(result(
-      stale ? "warning" : "pass",
-      `Latest backup age is ${ageHours}h (threshold ${thresholdHours}h)`,
+    const roleFile = path.join(dataRoot, "server-role.json");
+    const roleOk = (() => {
+      try {
+        if (!fs.existsSync(roleFile)) return "absent";
+        return JSON.parse(fs.readFileSync(roleFile, "utf8"))?.version === 1 ? "valid" : "corrupt";
+      } catch { return "corrupt"; }
+    })();
+    checks.push(check(
+      roleOk === "valid" ? "pass" : roleOk === "absent" ? "warning" : "fail",
+      roleOk === "valid" ? "Server metadata is readable" : roleOk === "absent" ? "Server metadata has not been created yet" : "Server metadata is corrupt",
     ));
-  }
 
-  // Per-site results
-  for (const site of sites) {
-    if (!foundSites.has(site.host)) {
-      checks.push(result("fail", `${site.host}: no stored backup sets`));
-      continue;
+    let newestAge = 0;
+    let totalManifests = 0;
+    const siteEntries = new Set(sites.map((s) => s.host));
+    const foundSites = new Set();
+    const siteIssues = new Map();
+    for (const site of sites) siteIssues.set(site.host, []);
+
+    if (fs.existsSync(backupsRoot)) {
+      for (const entry of fs.readdirSync(backupsRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        if (entry.name === "app-data" || entry.name === "exports" || entry.name.startsWith(".")) continue;
+        if (!siteEntries.has(entry.name)) continue;
+        const siteDir = path.join(backupsRoot, entry.name);
+        const sets = fs.readdirSync(siteDir).filter((n) =>
+          /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(n)).sort().reverse();
+        if (!sets.length) continue;
+        const setId = sets[0];
+        const setDir = path.join(siteDir, setId);
+        const manifestFile = path.join(setDir, "manifest.json");
+        const manifest = readSiteManifest(manifestFile);
+        if (!manifest) { siteIssues.get(entry.name).push("manifest is missing, corrupt, or invalid"); continue; }
+        const manifestIssues = validateManifestSet(manifest, setId, entry.name);
+        for (const m of manifestIssues) siteIssues.get(entry.name).push(m);
+
+        // Check for unexpected files/symlinks
+        try {
+          for (const f of fs.readdirSync(setDir, { withFileTypes: true })) {
+            if (f.name === "manifest.json") continue;
+            if (f.isSymbolicLink()) { siteIssues.get(entry.name).push(`symlink detected: ${f.name}`); }
+            if (!SAFE_ARTIFACT_NAMES.has(f.name) && f.isFile()) {
+              siteIssues.get(entry.name).push(`unexpected file: ${f.name}`);
+            }
+          }
+        } catch {}
+
+        // Website archive
+        const archivePath = path.join(setDir, "website.tar.gz");
+        const archiveArtifact = manifest.artifacts["website.tar.gz"];
+        if (!fs.existsSync(archivePath) || !archiveArtifact) {
+          siteIssues.get(entry.name).push("website archive missing");
+        }
+
+        // Database checks
+        const siteType = sites.find((s) => s.host === entry.name)?.siteType || "wordpress";
+        const dbReq = requireSiteDatabase(siteType);
+        const dbArtifact = manifest.artifacts["database.sql.gz"];
+        const dbPath = path.join(setDir, "database.sql.gz");
+        const hasDb = fs.existsSync(dbPath) && dbArtifact;
+        if (dbReq === "required" && !hasDb) siteIssues.get(entry.name).push("required database dump missing");
+        if (dbReq === "manifest" && manifest.database !== null && !hasDb) siteIssues.get(entry.name).push("manifest records a database but dump is missing");
+        if (manifest.database === null && dbArtifact) siteIssues.get(entry.name).push("manifest has no database but a database dump record is present");
+
+        // Archive validation and artifact verification only when pre-checks clean
+        if (siteIssues.get(entry.name).length === 0) {
+          if (await validateTar(archivePath).then((r) => !r.ok)) {
+            siteIssues.get(entry.name).push("website.tar.gz is not a valid tar archive");
+          }
+          if (hasDb && await validateGzip(dbPath).then((r) => !r.ok)) {
+            siteIssues.get(entry.name).push("database.sql.gz is not valid gzip");
+          }
+        }
+        if (siteIssues.get(entry.name).length === 0) {
+          const requiredFiles = ["website.tar.gz"];
+          if (hasDb) requiredFiles.push("database.sql.gz");
+          try {
+            await verifyArtifactManifest(setDir, manifest, requiredFiles);
+          } catch (error) {
+            siteIssues.get(entry.name).push(`artifact verification failed: ${String(error.message).slice(0, 120)}`);
+          }
+        }
+
+        totalManifests += 1;
+        foundSites.add(entry.name);
+        const startedAt = Date.parse(manifest.startedAt);
+        if (Number.isFinite(startedAt)) {
+          const age = Date.now() - startedAt;
+          if (age > newestAge) newestAge = age;
+        }
+      }
     }
-    const list = siteChecks.get(site.host) || [];
-    if (list.length === 0) {
-      checks.push(result("pass", `${site.host}: latest backup set and artifacts verified`));
+
+    if (totalManifests === 0) {
+      checks.push(check("fail", "No valid version-2 site backup manifests were found"));
     } else {
-      for (const c of list) checks.push(result(c.status, `${site.host}: ${c.reason}`));
+      const ageH = Math.round(newestAge / 3_600_000);
+      checks.push(check(newestAge > freshnessMs ? "warning" : "pass",
+        `Latest backup age is ${ageH}h (threshold ${Math.round(freshnessMs / 3_600_000)}h)`));
     }
-  }
 
-  // ── Filesystem ──
-  for (const [label, dir] of [["Backups", backupsRoot], ["Websites", websitesRoot], ["Sources", sourcesRoot]]) {
-    checks.push(result(fs.existsSync(dir) ? "pass" : "fail", `${label} path exists`));
-  }
-  const backupFree = diskFreeBytes(backupsRoot);
-  const hostRoot = path.resolve(path.join(backupsRoot, ".."));
-  const websitesFree = diskFreeBytes(websitesRoot.length > 0 ? websitesRoot : hostRoot);
-  for (const [label, free] of [["Backup filesystem", backupFree], ["Target filesystem", websitesFree]]) {
-    const gb = free > 0 ? (free / 1_000_000_000).toFixed(1) : "unknown";
-    checks.push(result(
-      free <= 0 ? "warning" : free >= 1_000_000_000 ? "pass" : "fail",
-      `${label}: ${gb} GB free`,
-    ));
-  }
-
-  // ── Environment ──
-  for (const key of ["UI_SETTINGS_KEY", "BILLING_API_TOKEN", "SERVER_ID"]) {
-    checks.push(result(
-      Boolean(env[key]) ? "pass" : "warning",
-      `${key} is ${env[key] ? "configured" : "not configured"}`,
-    ));
-  }
-
-  // ── Docker (async via DI; synchronous fallback) ──
-  if (receiver && typeof receiver.dockerAvailable === "function") {
-    // injected for tests; handled synchronously
-    checks.push(result(
-      receiver.dockerAvailable() ? "pass" : "warning",
-      "Docker daemon",
-    ));
-  } else {
-    checks.push(result("warning", "Docker daemon (not checked)"));
-  }
-
-  // ── Receiver readiness ──
-  if (receiver) {
-    if (receiver.receiverState) {
-      const state = receiver.receiverState;
-      checks.push(result(
-        state.active !== true ? "pass" : "warning",
-        `Receiver state: ${state.active ? "active receive in progress" : "idle"}`,
-      ));
-      if (state.lastSuccess) {
-        const lastMs = Date.now() - state.lastSuccess;
-        const lastH = Math.round(lastMs / 3_600_000);
-        checks.push(result(
-          lastMs < 7 * 24 * 3_600_000 ? "pass" : "warning",
-          `Last successful reception: ${lastH}h ago`,
-        ));
+    for (const site of sites) {
+      if (!foundSites.has(site.host)) {
+        checks.push(check("fail", `${site.host}: no valid backup set`));
       } else {
-        checks.push(result("warning", "No successful receiver run recorded"));
+        const issues = siteIssues.get(site.host) || [];
+        checks.push(issues.length === 0
+          ? check("pass", `${site.host}: backup verified`)
+          : check("fail", `${site.host}: ${issues.join("; ")}`));
       }
-      checks.push(result(
-        state.verifiedCount > 0 ? "pass" : "warning",
-        `Receiver verified inventory: ${state.verifiedCount || 0} sets`,
-      ));
     }
-    if (systemdUnit) {
-      checks.push(result("warning", `systemctl check for ${systemdUnit} unavailable in preflight`));
+
+    for (const [label, dir] of [["Backups", backupsRoot], ["Websites", websitesRoot], ["Sources", sourcesRoot]]) {
+      checks.push(check(fs.existsSync(dir) ? "pass" : "fail", `${label} path exists`));
     }
-  }
-  if (dockerImages && dockerImages.length) {
-    for (const img of dockerImages) {
-      checks.push(result(
-        img.exists ? "pass" : "fail",
-        `Docker image: ${img.name} ${img.exists ? "present" : "missing"}`,
-      ));
+    const hostRoot = path.resolve(path.join(backupsRoot, ".."));
+    for (const [label, free] of [["Backup filesystem", diskFreeBytes(backupsRoot)], ["Target filesystem", diskFreeBytes(websitesRoot || hostRoot)]]) {
+      checks.push(check(free <= 0 ? "warning" : free >= 1_000_000_000 ? "pass" : "fail",
+        `${label}: ${free > 0 ? (free / 1_000_000_000).toFixed(1) : "unknown"} GB free`));
     }
-  }
 
-  // ── Ingress readiness ──
-  if (ingressMode === "cloudflare_tunnel") {
-    const tunnelUrl = String(env.CLOUDFLARED_TUNNEL_URL || "");
-    checks.push(result(
-      tunnelUrl ? "pass" : "fail",
-      "Tunnel: cloudflared tunnel URL is configured",
-    ));
-  } else if (ingressMode === "direct_npm") {
-    checks.push(result("pass", "Ingress: direct NPM (no additional config required)"));
-  } else {
-    checks.push(result("warning", "Ingress mode is not configured"));
-  }
+    for (const key of ["UI_SETTINGS_KEY", "BILLING_API_TOKEN", "SERVER_ID"]) {
+      checks.push(check(Boolean(env[key]) ? "pass" : "warning", `${key} is ${env[key] ? "configured" : "not configured"}`));
+    }
 
-  const ready = checks.every((c) => c.status !== "fail");
+    // Receiver
+    if (receiver) {
+      try {
+        const state = await receiver.receiverState();
+        if (state.error && isStandby) checks.push(check("fail", `Receiver: ${state.error}`));
+        else if (state.active) checks.push(check("warning", "Receiver: active receive in progress"));
+        checks.push(check(state.verifiedCount > 0 ? "pass" : "warning", `Receiver: ${state.verifiedCount || 0} verified backup sets`));
+        if (state.lastSuccess > 0) {
+          const h = Math.round((Date.now() - state.lastSuccess) / 3_600_000);
+          checks.push(check(h < 168 ? "pass" : "warning", `Last successful receive: ${h}h ago`));
+        } else if (isStandby) {
+          checks.push(check("warning", "No successful receive recorded"));
+        }
+        const hasLock = await receiver.hasActiveLock();
+        if (hasLock && isStandby) checks.push(check("fail", "Receiver lock is held; another receive may be in progress"));
+        const timer = await receiver.timerState();
+        if (isStandby && !timer.enabled) checks.push(check("warning", "Receiver timer is disabled"));
+      } catch (err) {
+        checks.push(check(isStandby ? "fail" : "warning", `Receiver check failed: ${String(err.message).slice(0, 120)}`));
+      }
+    } else if (isStandby) {
+      checks.push(check("warning", "Receiver state could not be queried"));
+    }
 
-  return {
-    ready,
-    checkedAt: new Date().toISOString(),
-    checks,
-    summary: {
-      total: checks.length,
-      pass: checks.filter((c) => c.status === "pass").length,
-      warning: checks.filter((c) => c.status === "warning").length,
-      fail: checks.filter((c) => c.status === "fail").length,
-    },
-  };
+    // Docker
+    if (docker) {
+      const daemonOk = await docker.daemonAvailable();
+      checks.push(check(daemonOk ? "pass" : "fail", "Docker daemon"));
+      if (daemonOk) {
+        const images = await docker.imageCheck();
+        for (const img of images) {
+          checks.push(check(img.exists ? "pass" : "fail", `Docker image: ${img.name}`));
+        }
+      }
+    } else if (isStandby) {
+      checks.push(check("warning", "Docker daemon (not checked)"));
+    }
+
+    // Ingress
+    if (ingress) {
+      for (const c of ingress.checks()) checks.push(c);
+    } else {
+      checks.push(check("warning", "Ingress mode is not configured"));
+    }
+
+    return {
+      ready: checks.every((c) => c.status !== "fail"),
+      checkedAt: new Date().toISOString(),
+      checks,
+      summary: {
+        total: checks.length,
+        pass: checks.filter((c) => c.status === "pass").length,
+        warning: checks.filter((c) => c.status === "warning").length,
+        fail: checks.filter((c) => c.status === "fail").length,
+      },
+    };
+  })();
+
+  const result = await Promise.race([work, race]);
+  clearTimeout(timer);
+  return result;
 }
 
 module.exports = {
-  DEFAULT_FRESHNESS_HOURS,
+  DEFAULT_FRESHNESS_HOURS: 24,
   runPreflight,
   readSiteManifest,
   requireSiteDatabase,
-  verifyArtifact,
+  validateManifestSet,
+  validateTar,
+  validateGzip,
 };
