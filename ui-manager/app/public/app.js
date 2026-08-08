@@ -342,13 +342,17 @@ function applyInstallationRole(installation) {
   badge.textContent = `${role.toUpperCase()} · ${installation.serverId || "hosting-server"}`;
   badge.classList.toggle("hidden", role === "standalone");
   const standby = role === "standby";
-  const allowed = new Set(["sites", "stats", "health", "jobs", "account"]);
+  const allowed = new Set(["sites", "stats", "replication", "health", "jobs", "settings", "account"]);
   $$('[data-tab-link]').forEach((element) => {
     if (element.classList.contains("brand")) return;
-    element.hidden = standby && !allowed.has(element.dataset.tabLink);
+    element.hidden = (!standby && element.hasAttribute("data-standby-only"))
+      || (standby && !allowed.has(element.dataset.tabLink));
   });
-  $$("#mobileNavigation option").forEach((option) => { option.hidden = standby && !allowed.has(option.value); });
-  if (standby && !allowed.has(state.activeTab)) switchTab("sites");
+  $$("#mobileNavigation option").forEach((option) => {
+    option.hidden = (!standby && option.hasAttribute("data-standby-only"))
+      || (standby && !allowed.has(option.value));
+  });
+  if (standby && (state.activeTab === "sites" || !allowed.has(state.activeTab))) switchTab("replication");
   const identity = $("#preflightServerIdentity");
   if (identity) identity.textContent = `${installation.serverId || "hosting-server"} · ${role}`;
   const ingress = String(installation.ingressMode || "");
@@ -361,12 +365,13 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", replication: "Replication", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
     .catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
+  if (name === "replication") loadPreflight().catch((error) => notice(error.message, "warning"));
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));

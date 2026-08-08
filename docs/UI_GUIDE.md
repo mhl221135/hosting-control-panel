@@ -112,6 +112,18 @@ active temporary mitigations remain in the Security workspace.
 checkbox on each new website. Defaults start disabled. Protected addresses in
 this section can never be selected for a traffic mitigation.
 
+## Replication
+
+On a standby server, the panel opens this workspace after login. It shows the
+last received recovery point, estimated recovery age, verified set and website
+counts, deep-verification freshness, ingress preference, and the complete
+non-mutating promotion preflight. Saving the ingress preference does not alter
+DNS or activate routes. Promotion remains a separate fenced runbook operation.
+
+Mutating operational sections are hidden on a standby and their server APIs
+remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,
+and Account views remain available.
+
 ## Health
 
 | Control or section | Function |

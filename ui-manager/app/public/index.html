@@ -27,6 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
+            <option value="replication" data-standby-only hidden>Replication</option>
             <option value="health">Health</option>
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
@@ -44,6 +45,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
+          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication" data-standby-only hidden>Replication</button>
           <button class="nav-item" data-tab-link="health" data-short="HL" title="Health">Health</button>
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
@@ -183,8 +185,12 @@
             </article>
           </div>
 
-          <article id="promotionPreflightCard" class="panel hidden">
-            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Non-mutating checks to verify the standby server is ready for controlled promotion. No files, databases, DNS, or ingress are changed.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="replication">
+          <div class="section-head"><div><h2>Standby replication</h2><p>Received recovery points and non-mutating promotion readiness.</p></div></div>
+          <article id="promotionPreflightCard" class="panel">
+            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Checks do not promote the server or change files, databases, DNS, or public ingress.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
             <form id="standbyIngressForm" class="standby-ingress-form">
               <div><span class="muted">Server</span><strong id="preflightServerIdentity">-</strong></div>
               <fieldset><legend>Ingress</legend><div class="segmented-control">
@@ -193,10 +199,10 @@
               </div></fieldset>
               <button type="submit" class="secondary">Save ingress</button>
             </form>
-            <div id="preflightSummary" class="metrics" style="margin-bottom:10px"><article><span>Ready</span><strong id="preflightReady">-</strong></article><article><span>Pass</span><strong id="preflightPass">0</strong></article><article><span>Warnings</span><strong id="preflightWarn">0</strong></article><article><span>Failures</span><strong id="preflightFail">0</strong></article></div>
+            <div id="preflightSummary" class="metrics standby-summary-metrics"><article><span>Ready</span><strong id="preflightReady">-</strong></article><article><span>Pass</span><strong id="preflightPass">0</strong></article><article><span>Warnings</span><strong id="preflightWarn">0</strong></article><article><span>Failures</span><strong id="preflightFail">0</strong></article></div>
             <div class="metrics standby-replication-metrics"><article><span>Last receive</span><strong id="preflightLastReceive">-</strong></article><article><span>Recovery age</span><strong id="preflightRecoveryAge">-</strong></article><article><span>Verified sets</span><strong id="preflightVerifiedSets">0</strong></article><article><span>Website groups</span><strong id="preflightWebsiteGroups">0</strong></article><article><span>Deep verify</span><strong id="preflightDeepState">-</strong></article></div>
             <div id="preflightChecks" class="rows empty">No preflight checks have run. Refresh to begin.</div>
-            <small class="muted">Promotion is not available from this panel; use the documented runbook when ready.</small>
+            <small class="muted">Promotion remains a separate fenced runbook operation.</small>
           </article>
         </section>
 
