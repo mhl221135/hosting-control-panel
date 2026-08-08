@@ -8,6 +8,7 @@ const state = {
   services: [],
   selectedServiceId: "",
   reminderDays: 30,
+  remoteServices: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -68,6 +69,7 @@ function showView(view) {
   if (view === "services") loadServiceManager();
   if (view === "payments") loadPayments();
   if (view === "reminders") loadReminders();
+  if (view === "remote") loadRemoteEnrollment();
   if (view === "backups") loadBackups();
   if (view === "audit") loadAudit();
   if (view === "account") loadReferenceStatus();
@@ -378,6 +380,63 @@ async function loadReminders() {
   }
 }
 
+function remoteStatusClass(value) {
+  return value === "pending" ? "reminder" : value === "used" ? "active" : "exempt";
+}
+
+async function loadRemoteService(serviceId) {
+  if (!serviceId) {
+    $("#enrollmentCodesBody").innerHTML = "";
+    $("#remoteInstallationsBody").innerHTML = "";
+    $("#emptyEnrollmentCodes").hidden = false;
+    $("#emptyRemoteInstallations").hidden = false;
+    return;
+  }
+  const [codesResult, installationsResult] = await Promise.all([
+    api(`/api/enrollment/codes?service_id=${encodeURIComponent(serviceId)}`),
+    api(`/api/enrollment/installations?service_id=${encodeURIComponent(serviceId)}`),
+  ]);
+  $("#enrollmentCodesBody").innerHTML = codesResult.codes.map((code) => `
+    <tr><td>${escapeHtml(formatDateTime(code.createdAt))}</td><td>${escapeHtml(formatDateTime(code.expiresAt))}</td>
+    <td><span class="state state-${remoteStatusClass(code.status)}">${escapeHtml(code.status)}</span></td>
+    <td>${code.status === "pending" ? `<button class="danger" data-revoke-code="${escapeHtml(code.codeId)}">Revoke</button>` : ""}</td></tr>`).join("");
+  $("#emptyEnrollmentCodes").hidden = codesResult.codes.length > 0;
+  $("#remoteInstallationsBody").innerHTML = installationsResult.installations.map((installation) => `
+    <tr><td><strong>${escapeHtml(installation.canonical_domain)}</strong><small>${escapeHtml(installation.installation_id)}</small></td>
+    <td><span class="state state-${installation.credential_revoked_at ? "exempt" : "active"}">${installation.credential_revoked_at ? "revoked" : "active"}</span></td>
+    <td>${escapeHtml(formatDateTime(installation.last_success_at))}</td><td>${Number(installation.contract_version || 0) || "-"}</td>
+    <td>${escapeHtml(installation.safe_status || "Not reported")}</td>
+    <td>${installation.credential_revoked_at ? "" : `<button class="danger" data-revoke-installation="${escapeHtml(installation.installation_id)}">Revoke</button>`}</td></tr>`).join("");
+  $("#emptyRemoteInstallations").hidden = installationsResult.installations.length > 0;
+}
+
+async function loadRemoteEnrollment() {
+  try {
+    const selected = $("#remoteService").value;
+    const [servicesResult, signingResult] = await Promise.all([
+      api("/api/services?archived="),
+      api("/api/enrollment/signing/status"),
+    ]);
+    state.remoteServices = servicesResult.services.filter((service) => service.location === "shared" && !service.archived);
+    $("#remoteService").innerHTML = state.remoteServices.length
+      ? state.remoteServices.map((service) => `<option value="${escapeHtml(service.service_id)}">${escapeHtml(service.primary_domain)}</option>`).join("")
+      : '<option value="">No eligible shared-hosting service</option>';
+    if (selected && state.remoteServices.some((service) => service.service_id === selected)) $("#remoteService").value = selected;
+    const active = signingResult.status.active;
+    $("#signingStatus").textContent = !signingResult.configured
+      ? "Unavailable: BILLING_SETTINGS_KEY is not configured."
+      : active
+        ? `Active key ${active.keyId}. Rotation keeps the previous public key during overlap.`
+        : "Configured, but no signing key has been initialized.";
+    $("#initializeSigningForm").hidden = !signingResult.configured || Boolean(active);
+    $("#rotateSigningForm").hidden = !active;
+    $("#rotateSigningForm").elements.expected_key_id.value = active?.keyId || "";
+    await loadRemoteService($("#remoteService").value);
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
 async function loadBackups() {
   try {
     const result = await api("/api/backups");
@@ -472,6 +531,99 @@ $("#logoutButton").addEventListener("click", async () => {
 
 $$("[data-view]").forEach((button) => button.addEventListener("click", () => showView(button.dataset.view)));
 $("#mobileNav").addEventListener("change", (event) => showView(event.target.value));
+$("#refreshRemote").addEventListener("click", loadRemoteEnrollment);
+$("#remoteService").addEventListener("change", (event) => {
+  $("#enrollmentCodeResult").hidden = true;
+  loadRemoteService(event.target.value).catch((error) => notice(error.message, true));
+});
+$("#enrollmentCodeForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type='submit']");
+  const service = state.remoteServices.find((item) => item.service_id === form.elements.service_id.value);
+  if (!service) return notice("Select an eligible shared-hosting service.", true);
+  try {
+    await busy(button, async () => {
+      const result = await api("/api/enrollment/codes", {
+        method: "POST",
+        body: JSON.stringify({
+          service_id: service.service_id,
+          canonical_domain: service.primary_domain,
+          expires_in_hours: Number(form.elements.expires_in_hours.value),
+        }),
+      });
+      $("#enrollmentCodeValue").value = result.code;
+      $("#enrollmentCodeExpiry").textContent = `Expires ${formatDateTime(result.expiresAt)}. It will not be shown again.`;
+      $("#enrollmentCodeResult").hidden = false;
+      await loadRemoteService(service.service_id);
+    });
+  } catch (error) {
+    notice(error.message, true);
+  }
+});
+$("#copyEnrollmentCode").addEventListener("click", async () => {
+  const value = $("#enrollmentCodeValue").value;
+  if (!value) return;
+  try {
+    await navigator.clipboard.writeText(value);
+    notice("Enrollment code copied.");
+  } catch {
+    $("#enrollmentCodeValue").select();
+    notice("Clipboard access was blocked. Copy the selected code.", true);
+  }
+});
+$("#enrollmentCodesBody").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-code]");
+  if (!button || !window.confirm("Revoke this pending enrollment code?")) return;
+  try {
+    await busy(button, async () => {
+      await api("/api/enrollment/codes/revoke", { method: "POST", body: JSON.stringify({ code_id: button.dataset.revokeCode }) });
+      $("#enrollmentCodeResult").hidden = true;
+      await loadRemoteService($("#remoteService").value);
+      notice("Enrollment code revoked.");
+    });
+  } catch (error) { notice(error.message, true); }
+});
+$("#remoteInstallationsBody").addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-revoke-installation]");
+  if (!button || !window.confirm("Revoke this installation credential? The remote site will fail open and require re-enrollment.")) return;
+  try {
+    await busy(button, async () => {
+      await api("/api/enrollment/installations/revoke", { method: "POST", body: JSON.stringify({ installation_id: button.dataset.revokeInstallation }) });
+      await loadRemoteService($("#remoteService").value);
+      notice("Installation credential revoked.");
+    });
+  } catch (error) { notice(error.message, true); }
+});
+$("#initializeSigningForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  try {
+    await busy(button, async () => {
+      await api("/api/enrollment/signing/initialize", { method: "POST", body: JSON.stringify({ confirm: form.elements.confirm.value }) });
+      form.reset();
+      await loadRemoteEnrollment();
+      notice("Signing key initialized.");
+    });
+  } catch (error) { notice(error.message, true); }
+});
+$("#rotateSigningForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button");
+  try {
+    await busy(button, async () => {
+      await api("/api/enrollment/signing/rotate", {
+        method: "POST",
+        body: JSON.stringify({ confirm: form.elements.confirm.value, expected_key_id: form.elements.expected_key_id.value }),
+      });
+      form.reset();
+      await loadRemoteEnrollment();
+      notice("Signing key rotated. The previous public key remains in overlap.");
+    });
+  } catch (error) { notice(error.message, true); }
+});
 $("#refreshServices").addEventListener("click", loadOverview);
 $("#stateFilter").addEventListener("change", loadOverview);
 let searchTimer;

@@ -70,6 +70,8 @@ The panel provides:
   SQLite restore points
 - Remote WordPress enrollment (hashed enrollment codes, Ed25519-signed
   entitlement delivery, encrypted signing-key storage, throttled heartbeats)
+- Fail-open remote WordPress consumer package with encrypted credentials,
+  signature checks, cron/manual polling, and Site Health status
 - Durable ownership-aware website deletion with safe cancellation boundaries
 - Runtime reload, OPcache clear, and log views
 - Cross-process serialized, rollback-safe runtime transactions for every PHP-FPM pool

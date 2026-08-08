@@ -134,6 +134,20 @@ Queued rows identify the active job blocking them. A panel restart preserves
 queued work and history but marks interrupted running work failed, because an
 external command cannot be assumed complete after the process disappears.
 
+## Billing Remote WordPress
+
+The separate Billing UI has a **Remote WP** workspace for `shared` service
+records. Select a service to create a short-lived one-time enrollment code,
+review code status, inspect safe installation heartbeat state, or revoke a
+pending code or installation credential. The code is displayed only in the
+creation result and must be entered in **Settings > HostPilot Billing** on the
+remote WordPress site.
+
+Signing-key initialization and rotation require the exact confirmation text
+shown by the form. Rotation retains the previous public key during its overlap
+window. The current plugin verifies and reports entitlement state but does not
+block or redirect the public website.
+
 ## Maintenance
 
 The Maintenance workspace runs low-priority WP-CLI cleanup sequentially and

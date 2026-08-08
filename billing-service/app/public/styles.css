@@ -127,6 +127,11 @@ td small { color: var(--muted); margin-top: 3px; }
 .payment-error { margin: 0; padding: 11px 12px; border: 1px solid #f3b7b2; background: #fff0ef; color: var(--danger); }
 .payment-total { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 12px; border: 1px solid var(--line); background: #f8f9fa; }
 .compact-form { margin-bottom: 22px; }
+.secret-result { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 12px; border: 1px solid #d8bd72; background: #fff8df; }
+.secret-result strong, .secret-result small { grid-column: 1 / -1; }
+.secret-result input { font-family: ui-monospace, monospace; }
+.inline-confirm { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
+.remote-settings .form-grid { max-width: none; }
 .toggle-row { display: flex; align-items: center; gap: 9px; min-height: 40px; }
 .toggle-row input { width: 18px; min-height: 18px; }
 .service-workspace { display: grid; grid-template-columns: minmax(280px, 390px) minmax(0, 1fr); gap: 18px; align-items: start; }
@@ -231,6 +236,8 @@ td small { color: var(--muted); margin-top: 3px; }
   .manual-actions > div:first-child { align-items: start; flex-direction: column; }
   .manual-action-buttons { display: grid; grid-template-columns: 1fr; }
   .manual-action-buttons button { width: 100%; }
+  .secret-result, .inline-confirm { grid-template-columns: 1fr; }
+  .secret-result strong, .secret-result small { grid-column: auto; }
   .renewal-shell { width: min(calc(100% - 24px), 820px); padding-top: 28px; }
   .renewal-header { grid-template-columns: 42px minmax(0, 1fr); gap: 12px; }
   .renewal-header .brand-mark { width: 42px; height: 42px; }

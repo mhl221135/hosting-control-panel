@@ -30,3 +30,4 @@ backup_websites.sh
 # Local caches
 node_modules/
 coverage/
+wordpress-plugin/dist/

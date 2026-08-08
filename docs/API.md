@@ -56,6 +56,7 @@ credentials.
 | Method/path | Purpose |
 |---|---|
 | `POST /api/enrollment/codes` | Admin only. Create a one-time, short-lived enrollment code (1-168 hours) for an eligible remote/shared-hosting service, targeted at its canonical primary domain. Returns the plaintext code exactly once. |
+| `GET /api/enrollment/codes?service_id=...` | Admin only. Bounded code history with pending/used/revoked/expired status; never returns plaintext codes or hashes. |
 | `POST /api/enrollment/codes/revoke` | Admin only. Idempotently revoke a pending enrollment code. |
 | `POST /api/enrollment/installations/revoke` | Admin only. Idempotently revoke an installation credential. |
 | `GET /api/enrollment/installations?service_id=...` | Admin only. Bounded list of installations for a service; never contains hashes or credentials. |

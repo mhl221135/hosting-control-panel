@@ -841,6 +841,17 @@ async function api(req, res) {
     json(res, 200, { ok: true, ...database.revokeEnrollmentCode(body.code_id, session.email) });
     return true;
   }
+  if (req.method === "GET" && url.pathname === "/api/enrollment/codes") {
+    const serviceId = String(url.searchParams.get("service_id") || "");
+    if (!serviceIdShape(serviceId)) {
+      throw Object.assign(new Error("service_id is required and must be valid"), { statusCode: 400 });
+    }
+    if (!database.service(serviceId)) {
+      throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
+    }
+    json(res, 200, { ok: true, serviceId, codes: database.listEnrollmentCodesForService(serviceId) });
+    return true;
+  }
   if (req.method === "POST" && url.pathname === "/api/enrollment/installations/revoke") {
     const body = await readGuardedJson(req, new Set(["installation_id"]));
     if (!isUuid(body.installation_id)) {

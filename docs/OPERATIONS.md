@@ -56,6 +56,11 @@ same value as `expected_key_id`; a `409` means another operator changed the key
 and the status must be refreshed. Keep the previous public key through its
 overlap window unless an emergency compromise requires early retirement.
 
+Build the fail-open remote package with
+`./scripts/build-remote-wordpress-plugin.sh`; installation and enrollment are
+documented in `docs/REMOTE_WORDPRESS_PLUGIN.md`. This package currently observes
+and verifies entitlement only. Frontend suspension remains a separate pilot.
+
 ## Standard Upgrade
 
 ```bash
