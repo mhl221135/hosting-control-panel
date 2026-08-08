@@ -38,7 +38,7 @@ const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPress
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
-const { ServerRoleStore } = require("./lib/server-role-store");
+const { PanelMetadataStore } = require("./lib/panel-metadata-store");
 const { runPreflight } = require("./lib/promotion-preflight");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
@@ -164,7 +164,7 @@ const DEFAULT_POOL_PRESETS = {
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
-const serverRoleStore = new ServerRoleStore({ dataDir: DATA_DIR });
+const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -1862,16 +1862,37 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
 
 async function handleApi(req, res) {
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
-    sendJson(res, 200, { ok: true, installation: serverRoleStore.publicView() });
+    sendJson(res, 200, {
+      ok: true,
+      installation: {
+        role: installationRole.state.role,
+        serverId: installationRole.state.serverId,
+        source: installationRole.state.source,
+        mutable: !installationRole.isStandby(),
+        ingressMode: panelMeta.read().ingressMode,
+      },
+    });
     return true;
   }
   if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
-    const body = JSON.parse((await readBody(req)) || "{}");
-    sendJson(res, 200, { ok: true, installation: serverRoleStore.save({
-      role: body.role,
-      server_id: body.server_id,
-      ingress_mode: body.ingress_mode,
-    }) });
+    const body = guardBody(JSON.parse((await readBody(req)) || "{}"));
+    // Only ingress_mode is safe to change through the panel. The machine-local
+    // marker is the single authoritative role source; promotion/demotion is
+    // not available from the panel yet.
+    if (body.role !== undefined || body.server_id !== undefined) {
+      sendJson(res, 409, {
+        ok: false,
+        message: "Server role and identity are managed through the machine-local role marker. Controlled promotion will be available in a future release.",
+      });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, installation: {
+      role: installationRole.state.role,
+      serverId: installationRole.state.serverId,
+      source: installationRole.state.source,
+      mutable: !installationRole.isStandby(),
+      ingressMode: panelMeta.save({ ingress_mode: body.ingress_mode }).ingressMode,
+    }});
     return true;
   }
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/promotion-preflight") {
@@ -1890,18 +1911,18 @@ async function handleApi(req, res) {
       }
     })();
     const result = runPreflight({
-      isStandby: serverRoleStore.isStandby(),
+      isStandby: installationRole.isStandby(),
       sites,
       backupsRoot: BACKUPS_ROOT,
       websitesRoot: WEBSITES_ROOT,
       sourcesRoot: path.resolve(__dirname, "../../.."),
       dataRoot: DATA_DIR,
+      ingressMode: panelMeta.read().ingressMode,
       env: {
         UI_SETTINGS_KEY: String(process.env.UI_SETTINGS_KEY || ""),
         BILLING_API_TOKEN: String(process.env.BILLING_API_TOKEN || ""),
         SERVER_ID: String(process.env.SERVER_ID || process.env.COMPOSE_PROJECT_NAME || ""),
       },
-      tunnelUrl: String(process.env.CLOUDFLARED_TUNNEL_URL || ""),
     });
     sendJson(res, 200, { ok: true, ...result });
     return true;
@@ -4068,7 +4089,10 @@ async function handleAuthApi(req, res) {
       email: session.email,
       csrf: session.csrf,
       mustChangePassword: Boolean(account.mustChangePassword),
-      installation: serverRoleStore.publicView(),
+      installation: {
+        ...installationRole.publicView(),
+        ingressMode: panelMeta.read().ingressMode,
+      },
     });
     return true;
   }
@@ -4084,7 +4108,10 @@ async function handleAuthApi(req, res) {
         email: result.session.email,
         csrf: result.session.csrf,
         mustChangePassword: result.mustChangePassword,
-        installation: serverRoleStore.publicView(),
+        installation: {
+        ...installationRole.publicView(),
+        ingressMode: panelMeta.read().ingressMode,
+      },
       },
       { "Set-Cookie": auth.cookie(req, result.session.id) },
     );
