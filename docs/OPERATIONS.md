@@ -49,6 +49,13 @@ hosting panel, open Billing **Reminders**, review every due service and date,
 run one manual batch, inspect delivery history, and only then enable a daily
 time.
 
+Remote WordPress signing is also inert until an administrator initializes a
+key. Before initialization, verify `BILLING_SETTINGS_KEY` is stored outside the
+host and its backups. Record the active key ID before rotation and submit that
+same value as `expected_key_id`; a `409` means another operator changed the key
+and the status must be refreshed. Keep the previous public key through its
+overlap window unless an emergency compromise requires early retirement.
+
 ## Standard Upgrade
 
 ```bash

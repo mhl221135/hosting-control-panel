@@ -2,9 +2,9 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
-const { stateForDate } = require("./validation");
+const { stateForDate, domain, integer, bounded } = require("./validation");
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 9;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -51,6 +51,12 @@ function nextTimestamp(previous = "") {
   const now = Date.now();
   const prior = Date.parse(previous);
   return new Date(Number.isFinite(prior) ? Math.max(now, prior + 1) : now).toISOString();
+}
+
+// One-way hash for enrollment codes and installation credentials. Only hashes
+// are stored; plaintext secrets are revealed at most once and never persisted.
+function enrollmentHash(value) {
+  return crypto.createHash("sha256").update(String(value)).digest("hex");
 }
 
 function auditSnapshot(service) {
@@ -250,6 +256,81 @@ class BillingDatabase {
         CREATE INDEX payments_review_created
           ON payments(review_required, created_at DESC);
         PRAGMA user_version=6;
+        COMMIT;
+      `);
+    }
+    if (current < 7) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE enrollment_codes (
+          code_id TEXT PRIMARY KEY,
+          code_hash TEXT NOT NULL UNIQUE,
+          service_id TEXT NOT NULL,
+          canonical_domain TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          created_by TEXT NOT NULL DEFAULT '',
+          used_at TEXT NOT NULL DEFAULT '',
+          used_by_installation_id TEXT NOT NULL DEFAULT '',
+          revoked_at TEXT NOT NULL DEFAULT '',
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT
+        );
+        CREATE INDEX idx_enrollment_codes_service ON enrollment_codes(service_id, created_at);
+        CREATE INDEX idx_enrollment_codes_hash ON enrollment_codes(code_hash);
+        CREATE TABLE wp_installations (
+          installation_id TEXT PRIMARY KEY,
+          service_id TEXT NOT NULL,
+          canonical_domain TEXT NOT NULL,
+          credential_hash TEXT NOT NULL,
+          credential_created_at TEXT NOT NULL,
+          credential_revoked_at TEXT NOT NULL DEFAULT '',
+          enrollment_code_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(service_id) REFERENCES services(service_id) ON DELETE RESTRICT,
+          FOREIGN KEY(enrollment_code_id) REFERENCES enrollment_codes(code_id) ON DELETE SET NULL
+        );
+        CREATE INDEX idx_wp_installations_service ON wp_installations(service_id);
+        CREATE INDEX idx_wp_installations_domain ON wp_installations(canonical_domain);
+        PRAGMA user_version=7;
+        COMMIT;
+      `);
+    }
+    if (current < 8) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE signing_keys (
+          key_id TEXT PRIMARY KEY,
+          public_key TEXT NOT NULL,
+          private_key_encrypted TEXT NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          rotated_at TEXT NOT NULL DEFAULT '',
+          retired_at TEXT NOT NULL DEFAULT '',
+          overlap_hours INTEGER NOT NULL DEFAULT 720,
+          created_by TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX idx_signing_keys_active ON signing_keys(is_active);
+        ALTER TABLE wp_installations ADD COLUMN last_seen_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE wp_installations ADD COLUMN last_success_at TEXT NOT NULL DEFAULT '';
+        ALTER TABLE wp_installations ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE wp_installations ADD COLUMN safe_status TEXT NOT NULL DEFAULT '';
+        PRAGMA user_version=8;
+        COMMIT;
+      `);
+    }
+    if (current < 9) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE UNIQUE INDEX idx_wp_installations_credential
+          ON wp_installations(credential_hash);
+        CREATE UNIQUE INDEX idx_wp_installations_active_service_domain
+          ON wp_installations(service_id, canonical_domain)
+          WHERE credential_revoked_at='';
+        CREATE UNIQUE INDEX idx_signing_keys_single_active
+          ON signing_keys(is_active) WHERE is_active=1;
+        PRAGMA user_version=9;
         COMMIT;
       `);
     }
@@ -1016,6 +1097,362 @@ class BillingDatabase {
     `).all(Math.min(500, Math.max(1, Number(limit) || 100)));
   }
 
+  enrollmentActive(service) {
+    return service && !service.archived && service.location === "shared";
+  }
+
+  createEnrollmentCode({ serviceId, canonicalDomain, expiresInHours, actor }) {
+    const hours = integer(expiresInHours, 1, 168, 24);
+    const codeId = crypto.randomUUID();
+    const code = crypto.randomBytes(24).toString("base64url");
+    const codeHash = enrollmentHash(code);
+    const target = domain(canonicalDomain);
+    const now = new Date().toISOString();
+    const expiresAt = new Date(Date.now() + hours * 3_600_000).toISOString();
+    const createdBy = bounded(actor, 160);
+    this.transaction(() => {
+      const service = this.service(serviceId);
+      if (!service) throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
+      if (service.archived) throw Object.assign(new Error("Billing service is archived"), { statusCode: 409 });
+      if (!this.enrollmentActive(service)) {
+        throw Object.assign(
+          new Error("Enrollment is available only for remote/shared-hosting WordPress services"),
+          { statusCode: 400 },
+        );
+      }
+      if (target !== service.primary_domain) {
+        throw Object.assign(new Error("Enrollment target must be the service's canonical domain"), { statusCode: 400 });
+      }
+      const activeInstallation = this.db.prepare(
+        "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
+      ).get(service.service_id, target);
+      if (activeInstallation) {
+        throw Object.assign(new Error("An active installation already exists for this service"), { statusCode: 409 });
+      }
+      const pendingCode = this.db.prepare(
+        "SELECT 1 FROM enrollment_codes WHERE service_id=? AND canonical_domain=? AND used_at='' AND revoked_at='' AND expires_at>?",
+      ).get(service.service_id, target, now);
+      if (pendingCode) {
+        throw Object.assign(new Error("A pending enrollment code already exists for this service"), { statusCode: 409 });
+      }
+      this.db.prepare(`
+        INSERT INTO enrollment_codes(code_id,code_hash,service_id,canonical_domain,expires_at,created_at,created_by)
+        VALUES(?,?,?,?,?,?,?)
+      `).run(codeId, codeHash, service.service_id, target, expiresAt, now, createdBy);
+      this.auditEntry(createdBy || "admin", "enrollment.code_created", codeId, {
+        serviceId: service.service_id,
+        expiresAt,
+      });
+    });
+    return { codeId, code, expiresAt };
+  }
+
+  exchangeEnrollmentCode({ code, domain: claimedDomain }) {
+    const codeHash = enrollmentHash(code);
+    const now = new Date().toISOString();
+    let result = null;
+    let rejected = null;
+    this.transaction(() => {
+      const row = this.db.prepare(
+        "SELECT code_id,code_hash,service_id,canonical_domain,expires_at,used_at,revoked_at FROM enrollment_codes WHERE code_hash=?",
+      ).get(codeHash);
+      if (!row) {
+        rejected = { statusCode: 404, message: "Enrollment code is invalid" };
+        return;
+      }
+      if (row.used_at) {
+        rejected = { statusCode: 409, message: "Enrollment code was already used" };
+        return;
+      }
+      if (row.revoked_at) {
+        rejected = { statusCode: 409, message: "Enrollment code was revoked" };
+        return;
+      }
+      if (!row.expires_at || row.expires_at <= now) {
+        rejected = { statusCode: 410, message: "Enrollment code has expired" };
+        return;
+      }
+      const service = this.service(row.service_id);
+      if (!service) {
+        rejected = { statusCode: 404, message: "Billing service was not found" };
+        return;
+      }
+      if (service.archived) {
+        rejected = { statusCode: 409, message: "Billing service is archived" };
+        return;
+      }
+      if (!this.enrollmentActive(service)) {
+        rejected = { statusCode: 400, message: "Enrollment is not available for this service" };
+        return;
+      }
+      if (service.primary_domain !== row.canonical_domain) {
+        rejected = { statusCode: 409, message: "Enrollment domain approval is no longer current" };
+        return;
+      }
+      const target = domain(claimedDomain);
+      if (target !== row.canonical_domain) {
+        rejected = { statusCode: 400, message: "Domain does not match this enrollment" };
+        return;
+      }
+      const activeInstallation = this.db.prepare(
+        "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
+      ).get(row.service_id, target);
+      if (activeInstallation) {
+        rejected = { statusCode: 409, message: "An active installation already exists for this service" };
+        return;
+      }
+      const installationId = crypto.randomUUID();
+      const credential = crypto.randomBytes(32).toString("base64url");
+      const credentialHash = enrollmentHash(credential);
+      this.db.prepare(`
+        INSERT INTO wp_installations(
+          installation_id,service_id,canonical_domain,credential_hash,credential_created_at,
+          enrollment_code_id,created_at,updated_at
+        ) VALUES(?,?,?,?,?,?,?,?)
+      `).run(installationId, row.service_id, target, credentialHash, now, row.code_id, now, now);
+      const consumed = this.db.prepare(
+        "UPDATE enrollment_codes SET used_at=?, used_by_installation_id=? WHERE code_id=? AND used_at=''",
+      ).run(now, installationId, row.code_id);
+      if (consumed.changes !== 1) {
+        throw Object.assign(new Error("Enrollment code was already used"), { statusCode: 409 });
+      }
+      result = { installationId, credential, serviceId: row.service_id, canonicalDomain: target };
+      this.auditEntry("system", "enrollment.exchanged", installationId, {
+        codeId: row.code_id,
+        serviceId: row.service_id,
+      });
+    });
+    if (rejected) {
+      this.auditEntry("system", "enrollment.exchange_rejected", "unknown", {
+        reason: bounded(rejected.message, 120),
+      });
+      throw Object.assign(new Error(rejected.message), { statusCode: rejected.statusCode });
+    }
+    if (result) {
+      return { installationId: result.installationId, credential: result.credential };
+    }
+    throw Object.assign(new Error("Enrollment could not be completed"), { statusCode: 500 });
+  }
+
+  revokeEnrollmentCode(codeId, actor) {
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT code_id,revoked_at FROM enrollment_codes WHERE code_id=?")
+        .get(String(codeId || ""));
+      if (!row) throw Object.assign(new Error("Enrollment code was not found"), { statusCode: 404 });
+      if (row.revoked_at) return { codeId: row.code_id, alreadyRevoked: true };
+      this.db.prepare("UPDATE enrollment_codes SET revoked_at=? WHERE code_id=? AND revoked_at=''")
+        .run(new Date().toISOString(), row.code_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "enrollment.code_revoked", row.code_id, {});
+      return { codeId: row.code_id, alreadyRevoked: false };
+    });
+  }
+
+  revokeInstallationCredential(installationId, actor) {
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT installation_id,credential_revoked_at FROM wp_installations WHERE installation_id=?")
+        .get(String(installationId || ""));
+      if (!row) throw Object.assign(new Error("Installation was not found"), { statusCode: 404 });
+      if (row.credential_revoked_at) return { installationId: row.installation_id, alreadyRevoked: true };
+      const now = new Date().toISOString();
+      this.db.prepare("UPDATE wp_installations SET credential_revoked_at=?, updated_at=? WHERE installation_id=? AND credential_revoked_at=''")
+        .run(now, now, row.installation_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "enrollment.installation_revoked", row.installation_id, {});
+      return { installationId: row.installation_id, alreadyRevoked: false };
+    });
+  }
+
+  listInstallationsForService(serviceId, limit = 50) {
+    return this.db.prepare(`
+      SELECT installation_id, service_id, canonical_domain, credential_created_at,
+             credential_revoked_at, created_at, updated_at,
+             last_seen_at, last_success_at, contract_version, safe_status
+      FROM wp_installations WHERE service_id=? ORDER BY created_at LIMIT ?
+    `).all(String(serviceId || ""), Math.min(500, Math.max(1, Number(limit) || 50)));
+  }
+
+  getInstallationHealth(installationId) {
+    return this.db.prepare(`
+      SELECT installation_id, service_id, canonical_domain, credential_created_at,
+             credential_revoked_at, created_at, updated_at,
+             last_seen_at, last_success_at, contract_version, safe_status
+      FROM wp_installations WHERE installation_id=?
+    `).get(String(installationId || "")) || null;
+  }
+
+  // --- signing keys ---
+
+  activeSigningKeyRaw(now = new Date()) {
+    return this.db.prepare(
+      "SELECT key_id, public_key, private_key_encrypted, is_active, expires_at FROM signing_keys WHERE is_active=1 AND retired_at='' AND expires_at>? LIMIT 1",
+    ).get(now.toISOString()) || null;
+  }
+
+  activePublicKey() {
+    const row = this.activeSigningKeyRaw();
+    if (!row) return null;
+    return { keyId: row.key_id, publicKey: row.public_key };
+  }
+
+  eligiblePublicKeys(now = new Date()) {
+    const timestamp = now.valueOf();
+    return this.db.prepare(`
+      SELECT key_id,public_key,is_active,created_at,expires_at,rotated_at,overlap_hours
+      FROM signing_keys WHERE retired_at='' ORDER BY created_at DESC
+    `).all().filter((key) => {
+      if (key.is_active) return Date.parse(key.expires_at) > timestamp;
+      const rotatedAt = Date.parse(key.rotated_at);
+      return Date.parse(key.expires_at) > timestamp
+        && Number.isFinite(rotatedAt)
+        && rotatedAt + Number(key.overlap_hours) * 3_600_000 > timestamp;
+    }).map((key) => ({
+      key_id: key.key_id,
+      public_key: key.public_key,
+      active: Boolean(key.is_active),
+      created_at: key.created_at,
+      expires_at: key.expires_at,
+      rotated_at: key.rotated_at,
+      overlap_ends_at: key.is_active ? "" : new Date(Math.min(
+        Date.parse(key.expires_at),
+        Date.parse(key.rotated_at) + Number(key.overlap_hours) * 3_600_000,
+      )).toISOString(),
+    }));
+  }
+
+  signingKeyStatus() {
+    const active = this.activeSigningKeyRaw();
+    const keys = this.db.prepare(
+      "SELECT key_id, public_key, is_active, created_at, expires_at, rotated_at, retired_at, overlap_hours FROM signing_keys ORDER BY created_at DESC",
+    ).all();
+    return {
+      configured: Boolean(active),
+      active: active ? { keyId: active.key_id, publicKey: active.public_key } : null,
+      keys: keys.map((k) => ({
+        keyId: k.key_id,
+        publicKey: k.public_key,
+        active: Boolean(k.is_active),
+        createdAt: k.created_at,
+        expiresAt: k.expires_at,
+        rotatedAt: k.rotated_at,
+        retiredAt: k.retired_at,
+      })),
+    };
+  }
+
+  initSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor) {
+    const now = new Date().toISOString();
+    this.transaction(() => {
+      const existing = this.db.prepare("SELECT key_id FROM signing_keys WHERE is_active=1").get();
+      if (existing) throw Object.assign(new Error("A signing key is already active; use rotation"), { statusCode: 409 });
+      this.db.prepare(`
+        INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
+        VALUES(?,?,?,1,?,?,?,?)
+      `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_initialized", keyId, { keyId });
+    });
+    return keyId;
+  }
+
+  rotateSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor, expectedActiveKeyId) {
+    const now = new Date().toISOString();
+    let previousKeyId = "";
+    this.transaction(() => {
+      const active = this.db.prepare("SELECT key_id FROM signing_keys WHERE is_active=1").get();
+      if (!active) throw Object.assign(new Error("No active signing key exists; use initialize"), { statusCode: 400 });
+      if (active.key_id !== expectedActiveKeyId) {
+        throw Object.assign(new Error("Active signing key changed; refresh status before rotating"), { statusCode: 409 });
+      }
+      previousKeyId = active.key_id;
+      this.db.prepare(
+        "UPDATE signing_keys SET is_active=0, rotated_at=?, private_key_encrypted='' WHERE key_id=? AND is_active=1",
+      ).run(now, active.key_id);
+      this.db.prepare(`
+        INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
+        VALUES(?,?,?,1,?,?,?,?)
+      `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_rotated", keyId, {
+        previousKeyId,
+        keyId,
+      });
+    });
+    return keyId;
+  }
+
+  retireSigningKey(keyId, emergency, actor) {
+    return this.transaction(() => {
+      const key = this.db.prepare(
+        "SELECT key_id,is_active,expires_at,rotated_at,retired_at,overlap_hours FROM signing_keys WHERE key_id=?",
+      ).get(String(keyId || ""));
+      if (!key) throw Object.assign(new Error("Signing key was not found"), { statusCode: 404 });
+      if (key.is_active) throw Object.assign(new Error("Cannot retire the active key; rotate first"), { statusCode: 409 });
+      if (key.retired_at) return { keyId: key.key_id, alreadyRetired: true };
+      const overlapEndsAt = Math.min(
+        Date.parse(key.expires_at),
+        Date.parse(key.rotated_at) + Number(key.overlap_hours) * 3_600_000,
+      );
+      if (!emergency && (!Number.isFinite(overlapEndsAt) || overlapEndsAt > Date.now())) {
+        throw Object.assign(
+          new Error("Key overlap has not expired; use emergency confirmation to retire early"),
+          { statusCode: 409 },
+        );
+      }
+      this.db.prepare("UPDATE signing_keys SET retired_at=?, private_key_encrypted='' WHERE key_id=?")
+        .run(new Date().toISOString(), key.key_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_retired", key.key_id, {
+        keyId: key.key_id,
+        emergency: Boolean(emergency),
+      });
+      return { keyId: key.key_id, alreadyRetired: false };
+    });
+  }
+
+  // --- heartbeat ---
+
+  heartbeatInstallation(installationId, { contractVersion = 0, safeStatus = "" } = {}) {
+    const HEARTBEAT_MIN_MS = 60_000;
+    const now = new Date().toISOString();
+    const install = this.getInstallationHealth(installationId);
+    if (!install) return null;
+    const lastSeen = Date.parse(install.last_seen_at || "");
+    const shouldWrite = !lastSeen || !Number.isFinite(lastSeen) || (Date.now() - lastSeen >= HEARTBEAT_MIN_MS);
+    if (shouldWrite) {
+      const updates = [
+        "last_seen_at=?", "last_success_at=?", "contract_version=?", "safe_status=?", "updated_at=?",
+      ];
+      const params = [
+        now,
+        now,
+        Number.isInteger(contractVersion) ? contractVersion : 0,
+        bounded(safeStatus, 40),
+        now,
+      ];
+      this.db.prepare(
+        `UPDATE wp_installations SET ${updates.join(",")} WHERE installation_id=?`,
+      ).run(...params, installationId);
+    }
+    return this.getInstallationHealth(installationId);
+  }
+
+  // --- installation authentication ---
+
+  authenticateInstallation(installationId, credential) {
+    if (!installationId || !credential) return null;
+    const hash = enrollmentHash(credential);
+    const installation = this.db.prepare(
+      "SELECT installation_id,service_id,canonical_domain,credential_hash,credential_revoked_at FROM wp_installations WHERE installation_id=?",
+    ).get(String(installationId));
+    const expected = Buffer.from(installation?.credential_hash || "0".repeat(64), "hex");
+    const supplied = Buffer.from(hash, "hex");
+    const credentialMatches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+    if (!installation || !credentialMatches) return null;
+    if (installation.credential_revoked_at) return null;
+    const service = this.service(installation.service_id);
+    if (!service || service.archived) return null;
+    if (!this.enrollmentActive(service)) return null;
+    if (service.primary_domain !== installation.canonical_domain) return null;
+    delete installation.credential_hash;
+    return installation;
+  }
+
   integrity() {
     const result = this.db.prepare("PRAGMA integrity_check").get();
     return String(result.integrity_check || "").toLowerCase() === "ok";
@@ -1031,4 +1468,4 @@ class BillingDatabase {
   }
 }
 
-module.exports = { BillingDatabase, SCHEMA_VERSION, rowView };
+module.exports = { BillingDatabase, SCHEMA_VERSION, enrollmentHash, rowView };

@@ -46,6 +46,56 @@ and an HMAC-SHA256 signature. `/health` is unauthenticated and reports schema
 health, but returns `503` during backup or restore maintenance. The complete
 contract and recovery workflow are in `BILLING.md`.
 
+The remote WordPress enforcement enrollment endpoints use the standard billing
+admin session and CSRF rules. All enrollment bodies are guarded (reject
+non-object bodies, prototype-pollution keys, unknown fields, and CR/LF/NUL
+control characters; validate UUIDs, domains, code shape, and integer expiry
+bounds; bound request size), and errors never echo submitted codes or
+credentials.
+
+| Method/path | Purpose |
+|---|---|
+| `POST /api/enrollment/codes` | Admin only. Create a one-time, short-lived enrollment code (1-168 hours) for an eligible remote/shared-hosting service, targeted at its canonical primary domain. Returns the plaintext code exactly once. |
+| `POST /api/enrollment/codes/revoke` | Admin only. Idempotently revoke a pending enrollment code. |
+| `POST /api/enrollment/installations/revoke` | Admin only. Idempotently revoke an installation credential. |
+| `GET /api/enrollment/installations?service_id=...` | Admin only. Bounded list of installations for a service; never contains hashes or credentials. |
+| `POST /api/enrollment/exchange` | Public one-time route. Exchange a code for a new installation ID and a per-installation credential, which is revealed exactly once. Atomic; rejects replay, expiry, revocation, archived/ineligible services, and canonical-domain mismatch. |
+
+Eligible services are non-archived records with `location` `shared`; local
+payment-page enforcement and notification-only records are ineligible. Only
+hashes of enrollment codes and installation credentials are stored.
+
+### Remote entitlement and signing-key lifecycle
+
+`POST /remote/v1/entitlement` authenticates a remote WordPress installation
+by installation ID (header `X-Installation-Id`) and its one-time credential
+(header `Authorization: Bearer <credential>`). The credential is hashed before
+comparison and authentication errors are generic. The response contains only
+`ok`, the deterministic allowlisted entitlement payload, and its Ed25519
+signature. The renewal URL uses an opaque public reference rather than the
+internal service ID. Rate limiting is per authenticated installation (60
+requests/minute) and per IP; invalid callers cannot consume another
+installation's quota by spoofing its ID.
+
+`GET /remote/v1/keys` returns only the active and still-overlapping previous
+public keys; private keys and encrypted material are never exposed.
+
+Authenticated billing administrators manage signing keys:
+
+| Method/path | Purpose |
+|---|---|
+| `GET /api/enrollment/signing/status` | Return active and previous keys, configured state |
+| `POST /api/enrollment/signing/initialize` | Confirm `INITIALIZE`; create the first active Ed25519 signing key; requires `BILLING_SETTINGS_KEY` environment variable |
+| `POST /api/enrollment/signing/rotate` | Confirm `ROTATE` and supply the last observed `expected_key_id`; atomically replace that active key and retain its public key for a bounded overlap window. A stale expected key returns `409`. |
+| `POST /api/enrollment/signing/retire` | Confirm `RETIRE` (or `EMERGENCY` to bypass the overlap window); remove a previously rotated key |
+| `GET /api/enrollment/installations/:id/entitlement-preview` | Administrator preview of a single installation's entitlement payload without signing or a usable credential |
+
+Signing private keys are stored encrypted (AES-256-GCM, same key hierarchy as
+other billing secrets); plaintext private keys are never logged, audited,
+exported, or returned. Exactly one active key is maintained by a database
+constraint. Rotation erases the previous encrypted private key immediately;
+only its public key remains during overlap.
+
 `POST /internal/v1/services` requires the same bearer token plus a bounded
 `Idempotency-Key`. It is a create-only provisioning adapter: duplicate primary
 domains return the existing stable service and it never exposes billing
