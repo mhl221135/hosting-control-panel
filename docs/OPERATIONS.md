@@ -200,6 +200,20 @@ replicated, verified backup sets. See
 [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md) for state ownership, RPO/RTO
 levels, promotion order, public traffic switching, validation, and failback.
 
+## Promotion Readiness Preflight
+
+Before beginning a promotion, use the non-mutating preflight from the panel
+Health tab or `GET /api/system/promotion-preflight`. It audits the standby
+without changing configuration, containers, DNS, databases, or ingress. Each
+check returns `pass`, `warning`, or `fail`; the aggregate `ready` flag is
+false when any check fails. Preflight checks include standby role, server
+configuration, backup inventory and freshness, per-site manifest coverage
+(version-2 manifests, website archives, and database dumps by site type),
+filesystem free space, required configuration key presence, Docker
+availability, and Cloudflare tunnel readiness. The preflight is a planning
+tool; actual promotion requires the runbook in
+[HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md).
+
 ## Backup Verification
 
 Do not treat file existence as proof of a backup. Periodically verify:

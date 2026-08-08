@@ -11,11 +11,17 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
 - `PUT /api/auth/account` changes email/password using the current password.
 - Every other `/api/*` route requires an authenticated session.
 - `POST`, `PUT`, `PATCH`, and `DELETE` requests require `X-CSRF-Token`.
-- `GET /api/system/role` returns role, server identity, marker source, and
-  whether normal mutations are allowed.
-- A standby rejects every normal non-GET API operation with HTTP `423 Locked`
-  before route execution. Login, logout, and account maintenance remain
-  available through `/api/auth/*`.
+- `GET /api/system/role` returns the persisted server role, ingress mode
+  (`direct_npm` or `cloudflare_tunnel`), server identity, and whether normal
+  mutations are allowed.
+- `PUT /api/system/role` validates and atomically persists the role,
+  `server_id`, and `ingress_mode`.
+- `GET /api/system/promotion-preflight` returns structured read-only readiness
+  checks with pass/warning/fail statuses and an aggregate `ready` flag. It
+  verifies standby role, configuration, backup inventory/freshness, per-site
+  manifests/archives/dumps, filesystem free space, required configuration keys,
+  Docker availability, and tunnel readiness. No files, databases, DNS, or
+  ingress are modified.
 
 Errors use HTTP status codes and this shape:
 

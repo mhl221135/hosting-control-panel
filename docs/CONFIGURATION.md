@@ -42,6 +42,9 @@ The installer writes `HOSTING_MACHINE_STATE_DIR/role.json` atomically and
 refuses to overwrite a marker whose role or server identity differs. Editing
 `.env` or replicated application data cannot promote a standby. Controlled
 role transition remains part of the pending promotion workflow.
+The panel also persists role and ingress-mode metadata in
+`app-data/ui-manager/server-role.json`; the machine marker remains the
+authoritative source for runtime behavior.
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |
