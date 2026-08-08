@@ -234,6 +234,11 @@ docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysq
 compose stop hosting-db
 database_started=0
 
+# Materialize the promotion runtime without starting writable or public services.
+# Preflight can then verify the exact images and container definitions that a
+# controlled promotion would start.
+compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx >/dev/null
+
 rm -rf "$previous_app" "$previous_websites"
 previous_app=""
 previous_websites=""

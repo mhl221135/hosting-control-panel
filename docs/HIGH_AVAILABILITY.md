@@ -206,6 +206,9 @@ replica database runtime, checks it, stops the database again, and records the
 recovery point in `/etc/hosting-control/standby-recovery.json`. Failure after
 the directory swap restores the prior local standby directories. It does not
 promote the role, enable schedulers, or create/switch website tunnel routes.
+After database verification it creates, but does not start, the stopped DB,
+Redis, PHP-FPM, and internal nginx containers so readiness checks can inspect
+the exact promotion runtime without exposing or enabling it.
 
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
