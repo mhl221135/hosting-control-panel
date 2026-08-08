@@ -116,7 +116,8 @@ class JobManager {
     this.schedule();
   }
 
-  start() {
+  start({ allowlist } = {}) {
+    this.allowlist = allowlist instanceof Set ? allowlist : null;
     this.started = true;
     this.schedule();
   }
@@ -209,6 +210,7 @@ class JobManager {
           launched = false;
           for (const job of this.jobs.filter((item) => item.status === "queued")) {
             if (!this.handlers.has(job.type) || this.blockers(job).length) continue;
+            if (this.allowlist && !this.allowlist.has(job.type)) continue;
             this.launch(job);
             launched = true;
           }

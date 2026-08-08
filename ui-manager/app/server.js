@@ -40,6 +40,7 @@ const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
 const { PanelMetadataStore } = require("./lib/panel-metadata-store");
 const { runPreflight } = require("./lib/promotion-preflight");
+const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -222,6 +223,7 @@ const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
 });
+const deepVerifyManager = new DeepVerifyManager({ jobManager, backupsRoot: BACKUPS_ROOT });
 const cloudflareAutomation = new CloudflareAutomationManager({
   dataDir: DATA_DIR,
   client: cloudflareSecurity,
@@ -1876,7 +1878,7 @@ async function handleApi(req, res) {
   }
 if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
     const body = await readJsonBody(req);
-    rejectUnknownKeys(body, new Set(["ingress_mode"]), "ingress settings");
+    rejectUnknownKeys(body, new Set(["ingress_mode", "role", "server_id"]), "ingress settings");
     if (body.role !== undefined || body.server_id !== undefined) {
       sendJson(res, 409, {
         ok: false,
@@ -1924,6 +1926,27 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     return true;
   }
   const requestUrl = new URL(req.url, "http://ui-manager.local");
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/system/deep-verify") {
+    rejectUnknownKeys(await readJsonBody(req), new Set(), "deep verification");
+    if (!installationRole.isStandby()) {
+      sendJson(res, 409, { ok: false, message: "Deep standby verification is available only on a standby server" });
+      return true;
+    }
+    const job = jobManager.create({
+      type: "standby.deep-verify",
+      label: "Deep standby backup verification",
+      operator: req.auth.email,
+      trigger: "manual",
+      targets: ["standby-backups"],
+      conflicts: ["backup-storage", "standby.deep-verify"],
+      idempotencyKey: "standby.deep-verify",
+      cancellable: true,
+      retryable: true,
+    });
+    sendJson(res, 202, { ok: true, job: decorateJob(job, req.auth.email) });
+    return true;
+  }
 
   if (req.method === "GET" && requestUrl.pathname === "/api/jobs") {
     sendJson(res, 200, {
@@ -2000,6 +2023,13 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
         cloudflareSecurity: cloudflareSecurity.configured(),
         ipinfo: ipinfo.configured(),
         mysql: true,
+      },
+      installation: {
+        role: installationRole.state.role,
+        serverId: installationRole.state.serverId,
+        source: installationRole.state.source,
+        mutable: !installationRole.isStandby(),
+        ingressMode: panelMeta.read().ingressMode,
       },
     });
     return true;
@@ -4204,8 +4234,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.auth = session;
-      const isRoleSettingsPut = req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role";
-      if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !isRoleSettingsPut) {
+      const apiPath = new URL(req.url, "http://ui-manager.local").pathname;
+      const standbySafeMutation = (req.method === "PUT" && apiPath === "/api/system/role")
+        || (req.method === "POST" && apiPath === "/api/system/deep-verify");
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !standbySafeMutation) {
         installationRole.requireMutable();
       }
       const handled = await handleApi(req, res);
@@ -4239,7 +4271,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`UI manager listening on :${PORT}`);
+  const address = server.address();
+  console.log(`UI manager listening on :${typeof address === "object" && address ? address.port : PORT}`);
   healthMonitor.start();
   if (!installationRole.isStandby()) {
     notificationManager.start(jobManager);
@@ -4253,6 +4286,7 @@ server.listen(PORT, "0.0.0.0", () => {
     imageOptimizationManager.startScheduler();
     maintenanceManager.startScheduler();
   } else {
+    jobManager.start({ allowlist: new Set(["standby.deep-verify"]) });
     console.log(`Standby mode active for ${installationRole.publicView().serverId}; mutating schedulers are suppressed`);
   }
   if (!installationRole.isStandby() && fs.existsSync(performanceSettings.path)) {

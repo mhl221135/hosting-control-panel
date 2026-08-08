@@ -1,37 +1,122 @@
 const { execFile } = require("child_process");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
-
-const PREFLIGHT_TIMEOUT_MS = 90_000;
+const DEFAULT_FRESHNESS_HOURS = 24;
+const SET_ID_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/;
+const HEX_SHA256 = /^[a-f0-9]{64}$/;
+const SERVER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const DOMAIN_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
+const RECEIPT_KEYS = new Set(["version", "completedAt", "result", "sourceServerId", "verifiedCount", "sets"]);
+const RECEIPT_SET_KEYS = new Set(["domain", "setId", "manifestSha256"]);
+const SITE_KEYS = new Set(["version", "type", "id", "domain", "websitePath", "database", "startedAt", "completedAt", "artifacts"]);
+const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt", "completedAt", "artifacts"]);
+const ARTIFACT_KEYS = new Set(["size", "sha256"]);
 
 function check(status, reason) {
-  return { status, reason };
+  return { status, reason: String(reason).slice(0, 500) };
 }
 
-function readSiteManifest(manifestPath) {
-  if (!fs.existsSync(manifestPath)) return null;
+function exactKeys(value, allowed) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).every((key) => allowed.has(key));
+}
+
+function validDate(value) {
+  return typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
+}
+
+function validDomain(value) {
+  return typeof value === "string" && DOMAIN_PATTERN.test(value);
+}
+
+function validRelativePath(value) {
+  if (typeof value !== "string" || !value || value.length > 1024 || value.startsWith("/") || CONTROL_CHARS.test(value)) return false;
+  return !value.split(/[\\/]/).some((part) => part === ".." || part === "");
+}
+
+function validateArtifact(meta) {
+  return exactKeys(meta, ARTIFACT_KEYS)
+    && Number.isSafeInteger(meta.size) && meta.size >= 1
+    && typeof meta.sha256 === "string" && HEX_SHA256.test(meta.sha256);
+}
+
+function validateArtifacts(value, expected) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const names = Object.keys(value).sort();
+  return names.length === expected.length
+    && names.every((name, index) => name === [...expected].sort()[index] && validateArtifact(value[name]));
+}
+
+function validateReceiverReceipt(parsed) {
+  if (!exactKeys(parsed, RECEIPT_KEYS) || parsed.version !== 1 || parsed.result !== "success") return null;
+  if (!SERVER_ID_PATTERN.test(String(parsed.sourceServerId || "")) || !validDate(parsed.completedAt)) return null;
+  if (!Number.isInteger(parsed.verifiedCount) || parsed.verifiedCount < 1 || parsed.verifiedCount > 5000) return null;
+  if (!Array.isArray(parsed.sets) || parsed.sets.length !== parsed.verifiedCount) return null;
+  const seen = new Set();
+  for (const entry of parsed.sets) {
+    if (!exactKeys(entry, RECEIPT_SET_KEYS)) return null;
+    if (!(entry.domain === "app-data" || validDomain(entry.domain))) return null;
+    if (!SET_ID_PATTERN.test(String(entry.setId || "")) || !HEX_SHA256.test(String(entry.manifestSha256 || ""))) return null;
+    const key = `${entry.domain}/${entry.setId}`;
+    if (seen.has(key)) return null;
+    seen.add(key);
+  }
+  return parsed;
+}
+
+function validateSiteManifest(parsed) {
+  if (!exactKeys(parsed, SITE_KEYS) || parsed.version !== 2 || parsed.type !== "site") return null;
+  if (!SET_ID_PATTERN.test(String(parsed.id || "")) || !validDomain(parsed.domain) || !validRelativePath(parsed.websitePath)) return null;
+  if (!(parsed.database === null || (typeof parsed.database === "string" && /^[A-Za-z0-9_$-]{1,64}$/.test(parsed.database)))) return null;
+  if (!validDate(parsed.startedAt) || !validDate(parsed.completedAt) || Date.parse(parsed.completedAt) < Date.parse(parsed.startedAt)) return null;
+  const expected = parsed.database === null ? ["website.tar.gz"] : ["database.sql.gz", "website.tar.gz"];
+  return validateArtifacts(parsed.artifacts, expected) ? parsed : null;
+}
+
+function validateAppDataManifest(parsed) {
+  if (!exactKeys(parsed, APP_DATA_KEYS) || parsed.version !== 2 || parsed.type !== "app-data") return null;
+  if (!SET_ID_PATTERN.test(String(parsed.id || "")) || !Array.isArray(parsed.excluded) || parsed.excluded.length > 100) return null;
+  if (!parsed.excluded.every((item) => typeof item === "string" && item.length <= 200 && !CONTROL_CHARS.test(item))) return null;
+  if (!validDate(parsed.startedAt) || !validDate(parsed.completedAt) || Date.parse(parsed.completedAt) < Date.parse(parsed.startedAt)) return null;
+  return validateArtifacts(parsed.artifacts, ["app-data.tar.gz", "databases.sql.gz"]) ? parsed : null;
+}
+
+function readJson(filePath, validator) {
   try {
-    const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    if (!parsed || parsed.version !== 2 || parsed.type !== "site") return null;
-    if (!parsed.domain || !parsed.websitePath || !parsed.startedAt || !parsed.completedAt) return null;
-    if (!parsed.artifacts || typeof parsed.artifacts !== "object" || Array.isArray(parsed.artifacts)) return null;
-    return parsed;
+    if (!fs.statSync(filePath).isFile() || fs.statSync(filePath).size > 2_000_000) return null;
+    return validator(JSON.parse(fs.readFileSync(filePath, "utf8")));
   } catch {
     return null;
   }
 }
 
+function readSiteManifest(filePath) { return readJson(filePath, validateSiteManifest); }
+function readReceiverState(root) { return readJson(path.join(root, "receiver-state.json"), validateReceiverReceipt); }
+
+function receiverReceiptSha256(root) {
+  try { return crypto.createHash("sha256").update(fs.readFileSync(path.join(root, "receiver-state.json"))).digest("hex"); }
+  catch { return ""; }
+}
+
+function readDeepVerifyState(root) {
+  return readJson(path.join(root, "deep-verify-state.json"), (value) => {
+    if (!exactKeys(value, new Set(["version", "completedAt", "result", "verifiedCount", "receiverReceiptSha256", "verifiedSets"]))) return null;
+    if (value.version !== 1 || value.result !== "success" || !validDate(value.completedAt) || !HEX_SHA256.test(String(value.receiverReceiptSha256 || ""))) return null;
+    if (!Number.isInteger(value.verifiedCount) || !Array.isArray(value.verifiedSets) || value.verifiedSets.length !== value.verifiedCount) return null;
+    return value;
+  });
+}
+
 function diskFreeBytes(directory) {
   try {
     const stat = fs.statfsSync(path.resolve(directory));
-    if (stat && typeof stat.bfree === "bigint") return Number(stat.bfree * stat.bsize);
-    return 0;
-  } catch {
-    return 0;
-  }
+    return Number(BigInt(stat.bavail) * BigInt(stat.bsize));
+  } catch { return 0; }
 }
 
 function requireSiteDatabase(siteType) {
@@ -40,229 +125,136 @@ function requireSiteDatabase(siteType) {
   return "none";
 }
 
-// Reads the receiver state file written atomically by receive-backups.sh.
-// Format: {version:1, lastRun, serverId, verifiedCount, sets:[{domain,setId,manifestSha256}]}
-function readReceiverState(backupsRoot) {
+async function dockerChecks(checks, ingressMode, dockerInfo) {
+  if (dockerInfo && typeof dockerInfo.check === "function") {
+    const result = await dockerInfo.check();
+    checks.push(check(result.ok ? "pass" : "fail", result.reason || "Docker check"));
+    return;
+  }
   try {
-    const filePath = path.join(backupsRoot, "receiver-state.json");
-    if (!fs.existsSync(filePath)) return null;
-    const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
-    if (!parsed || parsed.version !== 1) return null;
-    return parsed;
-  } catch {
-    return null;
+    const { stdout } = await execFileAsync("docker", ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}\t{{.Status}}"], { timeout: 10_000, maxBuffer: 256_000 });
+    const containers = new Map(stdout.trim().split("\n").filter(Boolean).map((line) => {
+      const [name, ...rest] = line.split("\t");
+      return [name, rest.join("\t")];
+    }));
+    for (const name of ["hosting-agent", "hosting-ui"]) {
+      checks.push(check(String(containers.get(name) || "").toLowerCase().startsWith("up") ? "pass" : "fail", `Required container running: ${name}`));
+    }
+    for (const name of ["hosting-db", "hosting-redis", "hosting-php-fpm", "hosting-nginx"]) {
+      checks.push(check(containers.has(name) ? "pass" : "fail", `Container configured: ${name}`));
+    }
+    if (ingressMode === "direct_npm") checks.push(check(containers.has("hosting-npm") ? "pass" : "fail", "NPM container configured"));
+    if (ingressMode === "cloudflare_tunnel") {
+      const status = String(containers.get("hosting-cloudflared") || "").toLowerCase();
+      checks.push(check(status.startsWith("up") ? "pass" : "fail", "Cloudflare tunnel container running"));
+    }
+  } catch (error) {
+    checks.push(check("fail", `Docker check failed: ${error.code === "ETIMEDOUT" ? "timed out" : error.message}`));
   }
 }
 
-// Quick preflight: verifies manifests exist, artifacts present, no symlinks/traversal,
-// and receiver receipts match. No streaming checksums (moved to deep-verify job).
 async function runPreflight(opts = {}) {
-  let timedOut = false;
-  let timeoutHandle = null;
-  let aborted = false;
+  const {
+    isStandby = false, sites = [], backupsRoot = "", websitesRoot = "", sourcesRoot = "", dataRoot = "",
+    ingressMode = "", env = {}, maxBackupAgeHours = DEFAULT_FRESHNESS_HOURS, dockerInfo = null,
+    receiverState = undefined, markerPath = "/run/hosting-machine/role.json",
+  } = opts;
+  const checks = [];
+  const freshnessMs = Math.max(1, Number(maxBackupAgeHours) || DEFAULT_FRESHNESS_HOURS) * 3_600_000;
+  checks.push(check(isStandby ? "pass" : "fail", isStandby ? "Server is in standby role" : "Server is not in standby role"));
+  checks.push(check(fs.existsSync(markerPath) ? "pass" : isStandby ? "fail" : "warning", fs.existsSync(markerPath) ? "Machine role marker is present" : "Machine role marker is missing"));
+  checks.push(check(fs.existsSync(path.join(dataRoot, "server-role.json")) ? "pass" : "warning", "Panel ingress metadata"));
 
-  const timeoutPromise = new Promise((resolve) => {
-    timeoutHandle = setTimeout(() => {
-      timedOut = true;
-      aborted = true;
-      resolve({
-        ready: false,
-        checkedAt: new Date().toISOString(),
-        checks: [{ status: "fail", reason: "Preflight timed out" }],
-        summary: { total: 1, pass: 0, warning: 0, fail: 1 },
-      });
-    }, PREFLIGHT_TIMEOUT_MS);
-  });
+  const receipt = receiverState === undefined ? readReceiverState(backupsRoot) : validateReceiverReceipt(receiverState);
+  if (!receipt) checks.push(check(isStandby ? "fail" : "warning", "No valid successful receiver receipt found"));
+  else {
+    const age = Date.now() - Date.parse(receipt.completedAt);
+    checks.push(check(age >= 0 && age <= freshnessMs ? "pass" : "fail", `Last receiver run: ${Number.isFinite(age) && age >= 0 ? Math.round(age / 3_600_000) : "invalid"}h ago`));
+  }
 
-  const work = (async () => {
-    const {
-      isStandby = false,
-      sites = [],
-      backupsRoot = "",
-      websitesRoot = "",
-      sourcesRoot = "",
-      dataRoot = "",
-      ingressMode = "",
-      env = {},
-      maxBackupAgeHours = 24,
-      dockerInfo = null,
-      receiverState = null,
-    } = opts;
-    const freshnessMs = Number(maxBackupAgeHours) * 3_600_000;
-    const checks = [];
-    const SAFE_NAMES = new Set(["website.tar.gz", "database.sql.gz"]);
+  try {
+    const incoming = fs.readdirSync(path.join(backupsRoot, ".incoming"));
+    if (incoming.length) checks.push(check("fail", "Partial or active receiver content exists"));
+  } catch {}
 
-    if (aborted) return timeoutPromise;
+  const receiptHash = receiverState === undefined ? receiverReceiptSha256(backupsRoot) : crypto.createHash("sha256").update(JSON.stringify(receiverState)).digest("hex");
+  const deep = readDeepVerifyState(backupsRoot);
+  checks.push(check(deep && deep.receiverReceiptSha256 === receiptHash ? "pass" : "warning", deep ? "Deep verification receipt binding" : "No deep verification result found"));
 
-    checks.push(check(isStandby ? "pass" : "fail",
-      isStandby ? "Server is in standby role" : "Server is not in standby role"));
-
-    // Machine marker
-    const markerPath = opts.markerPath || "/run/hosting-machine/role.json";
-    const markerOk = fs.existsSync(markerPath);
-    checks.push(check(markerOk ? "pass" : isStandby ? "fail" : "warning",
-      markerOk ? "Machine role marker is present" : isStandby ? "Machine role marker is missing" : "Machine role marker not on this platform"));
-
-    // Metadata
-    const roleFile = path.join(dataRoot, "server-role.json");
-    const metaExists = fs.existsSync(roleFile);
-    checks.push(check(metaExists ? "pass" : "warning", "Panel metadata"));
-
-    // Receiver state
-    const rcpt = receiverState || readReceiverState(backupsRoot);
-    if (rcpt) {
-      const age = Date.now() - Date.parse(rcpt.lastRun || "");
-      checks.push(check(age < 7 * 24 * 3_600_000 ? "pass" : "warning",
-        `Last receiver run: ${Math.round(age / 3_600_000)}h ago`));
-      checks.push(check(rcpt.verifiedCount > 0 ? "pass" : "warning",
-        `Receiver verified ${rcpt.verifiedCount || 0} sets`));
-    } else if (isStandby) {
-      checks.push(check("warning", "No receiver state found"));
+  const receiptEntries = new Map((receipt?.sets || []).map((entry) => [`${entry.domain}/${entry.setId}`, entry]));
+  let oldestAge = 0;
+  let appDataSet = "";
+  try { appDataSet = fs.readdirSync(path.join(backupsRoot, "app-data"), { withFileTypes: true }).filter((e) => e.isDirectory() && SET_ID_PATTERN.test(e.name)).map((e) => e.name).sort().at(-1) || ""; } catch {}
+  const appDataDir = path.join(backupsRoot, "app-data", appDataSet);
+  const appDataManifestPath = path.join(appDataDir, "manifest.json");
+  const appDataManifest = appDataSet ? readJson(appDataManifestPath, validateAppDataManifest) : null;
+  const appDataIssues = [];
+  if (!appDataManifest || appDataManifest.id !== appDataSet) appDataIssues.push("no valid app-data backup set");
+  else {
+    const entry = receiptEntries.get(`app-data/${appDataSet}`);
+    if (!entry) appDataIssues.push("not in receiver receipt");
+    else if (crypto.createHash("sha256").update(fs.readFileSync(appDataManifestPath)).digest("hex") !== entry.manifestSha256) appDataIssues.push("manifest changed after reception");
+    for (const [name, meta] of Object.entries(appDataManifest.artifacts)) {
+      try {
+        const stat = fs.lstatSync(path.join(appDataDir, name));
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== meta.size) appDataIssues.push(`${name} missing or size mismatch`);
+      } catch { appDataIssues.push(`${name} missing or size mismatch`); }
     }
+    oldestAge = Math.max(oldestAge, Date.now() - Date.parse(appDataManifest.completedAt));
+  }
+  checks.push(check(appDataIssues.length ? "fail" : "pass", `app-data: ${appDataIssues.join("; ") || "receiver receipt verified"}`));
 
-    // Backup inventory (quick: no streaming checksums)
-    let newestAge = 0;
-    let totalManifests = 0;
-    const siteEntries = new Set(sites.map((s) => s.host));
-    const foundSites = new Set();
-    const siteIssues = new Map();
-    for (const site of sites) siteIssues.set(site.host, []);
-
-    if (fs.existsSync(backupsRoot)) {
-      for (const entry of fs.readdirSync(backupsRoot, { withFileTypes: true })) {
-        if (aborted) return timeoutPromise;
-        if (!entry.isDirectory()) continue;
-        if (entry.name === "app-data" || entry.name === "exports" || entry.name.startsWith(".")) continue;
-        if (!siteEntries.has(entry.name)) continue;
-        const siteDir = path.join(backupsRoot, entry.name);
-        const sets = fs.readdirSync(siteDir).filter((n) =>
-          /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(n)).sort().reverse();
-        if (!sets.length) continue;
-        const setId = sets[0];
-        const setDir = path.join(siteDir, setId);
-        const manifestFile = path.join(setDir, "manifest.json");
-        const manifest = readSiteManifest(manifestFile);
-        if (!manifest) { siteIssues.get(entry.name).push("manifest missing or invalid"); continue; }
-        if (setId !== manifest.id) siteIssues.get(entry.name).push("manifest.id mismatch");
-        if (entry.name !== manifest.domain) siteIssues.get(entry.name).push("domain mismatch");
-
-        // Check manifest hash against receiver receipt
-        if (rcpt) {
-          const receiptEntry = (rcpt.sets || []).find((s) => s.domain === entry.name && s.setId === setId);
-          if (!receiptEntry) {
-            siteIssues.get(entry.name).push("not in receiver receipt");
-          } else {
-            const manifestHash = require("crypto").createHash("sha256")
-              .update(fs.readFileSync(manifestFile)).digest("hex");
-            if (manifestHash !== receiptEntry.manifestSha256) {
-              siteIssues.get(entry.name).push("manifest changed since receiver verification");
-            }
-          }
-        }
-
+  for (const site of sites) {
+    const group = String(site.host || "").toLowerCase();
+    const issues = [];
+    let latest = "";
+    try { latest = fs.readdirSync(path.join(backupsRoot, group), { withFileTypes: true }).filter((e) => e.isDirectory() && SET_ID_PATTERN.test(e.name)).map((e) => e.name).sort().at(-1) || ""; } catch {}
+    const setDir = path.join(backupsRoot, group, latest);
+    const manifestPath = path.join(setDir, "manifest.json");
+    const manifest = latest ? readSiteManifest(manifestPath) : null;
+    if (!manifest) issues.push("no valid backup set");
+    else {
+      if (manifest.id !== latest || manifest.domain !== group) issues.push("manifest identity mismatch");
+      const entry = receiptEntries.get(`${group}/${latest}`);
+      if (!entry) issues.push("not in receiver receipt");
+      else {
+        const digest = crypto.createHash("sha256").update(fs.readFileSync(manifestPath)).digest("hex");
+        if (digest !== entry.manifestSha256) issues.push("manifest changed after reception");
+      }
+      for (const [name, meta] of Object.entries(manifest.artifacts)) {
         try {
-          for (const f of fs.readdirSync(setDir, { withFileTypes: true })) {
-            if (f.name === "manifest.json") continue;
-            if (f.isSymbolicLink()) siteIssues.get(entry.name).push(`symlink: ${f.name}`);
-            if (!SAFE_NAMES.has(f.name) && f.isFile()) siteIssues.get(entry.name).push(`unexpected file: ${f.name}`);
-          }
-        } catch {}
-
-        const archivePath = path.join(setDir, "website.tar.gz");
-        if (!fs.existsSync(archivePath)) siteIssues.get(entry.name).push("website archive missing");
-
-        const dbArtifact = manifest.artifacts["database.sql.gz"];
-        const dbPath = path.join(setDir, "database.sql.gz");
-        const hasDb = fs.existsSync(dbPath) && dbArtifact;
-        const siteType = sites.find((s) => s.host === entry.name)?.siteType || "wordpress";
-        const dbReq = requireSiteDatabase(siteType);
-        if (dbReq === "required" && !hasDb) siteIssues.get(entry.name).push("required database dump missing");
-        if (dbReq === "manifest" && manifest.database !== null && !hasDb) siteIssues.get(entry.name).push("manifest records a database but dump missing");
-        if (manifest.database === null && dbArtifact) siteIssues.get(entry.name).push("manifest has no db but artifact present");
-
-        totalManifests += 1;
-        foundSites.add(entry.name);
-        const startedAt = Date.parse(manifest.startedAt);
-        if (Number.isFinite(startedAt)) {
-          const age = Date.now() - startedAt;
-          if (age > newestAge) newestAge = age;
-        }
+          const stat = fs.lstatSync(path.join(setDir, name));
+          if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== meta.size) issues.push(`${name} missing or size mismatch`);
+        } catch { issues.push(`${name} missing or size mismatch`); }
       }
+      const mode = requireSiteDatabase(site.siteType || "wordpress");
+      if (mode === "required" && manifest.database === null) issues.push("required database dump missing");
+      const age = Date.now() - Date.parse(manifest.completedAt);
+      if (Number.isFinite(age)) oldestAge = Math.max(oldestAge, age);
     }
+    checks.push(check(issues.length ? "fail" : "pass", `${group}: ${issues.join("; ") || "receiver receipt verified"}`));
+  }
+  if (!sites.length) checks.push(check("warning", "No configured websites found"));
+  else checks.push(check(oldestAge <= freshnessMs ? "pass" : "fail", `Oldest selected recovery point age is ${Math.round(oldestAge / 3_600_000)}h`));
 
-    if (aborted) return timeoutPromise;
-    if (totalManifests === 0) {
-      checks.push(check("fail", "No valid version-2 site backup manifests were found"));
-    } else {
-      const ageH = Math.round(newestAge / 3_600_000);
-      checks.push(check(newestAge > freshnessMs ? "warning" : "pass",
-        `Latest backup age is ${ageH}h`));
-    }
+  for (const [label, dir] of [["Backups", backupsRoot], ["Websites", websitesRoot], ["Sources", sourcesRoot]]) checks.push(check(fs.existsSync(dir) ? "pass" : "fail", `${label} path exists`));
+  for (const [label, dir] of [["Backup", backupsRoot], ["Target", websitesRoot || backupsRoot]]) {
+    const free = diskFreeBytes(dir);
+    checks.push(check(!free ? "warning" : free >= 1_000_000_000 ? "pass" : "fail", `${label}: ${free ? (free / 1_000_000_000).toFixed(1) : "unknown"} GB free`));
+  }
+  for (const key of ["UI_SETTINGS_KEY", "BILLING_API_TOKEN", "SERVER_ID"]) checks.push(check(env[key] ? "pass" : "warning", `${key} is ${env[key] ? "configured" : "not configured"}`));
+  if (isStandby) await dockerChecks(checks, ingressMode, dockerInfo);
+  checks.push(check(["direct_npm", "cloudflare_tunnel"].includes(ingressMode) ? "pass" : isStandby ? "fail" : "warning", ingressMode ? `Ingress: ${ingressMode}` : "Ingress mode not configured"));
 
-    for (const site of sites) {
-      if (!foundSites.has(site.host)) {
-        checks.push(check("fail", `${site.host}: no valid backup set`));
-      } else {
-        const issues = siteIssues.get(site.host) || [];
-        checks.push(issues.length === 0
-          ? check("pass", `${site.host}: receipt verified`)
-          : check("fail", `${site.host}: ${issues.join("; ")}`));
-      }
-    }
-
-    for (const [label, dir] of [["Backups", backupsRoot], ["Websites", websitesRoot], ["Sources", sourcesRoot]]) {
-      checks.push(check(fs.existsSync(dir) ? "pass" : "fail", `${label} path exists`));
-    }
-    for (const [label, free] of [["Backup", diskFreeBytes(backupsRoot)], ["Target", diskFreeBytes(websitesRoot || path.resolve(path.join(backupsRoot, "..")))]]) {
-      checks.push(check(free <= 0 ? "warning" : free >= 1_000_000_000 ? "pass" : "fail",
-        `${label}: ${free > 0 ? (free / 1_000_000_000).toFixed(1) : "unknown"} GB free`));
-    }
-
-    for (const key of ["UI_SETTINGS_KEY", "BILLING_API_TOKEN", "SERVER_ID"]) {
-      checks.push(check(Boolean(env[key]) ? "pass" : "warning", `${key} is ${env[key] ? "configured" : "not configured"}`));
-    }
-
-    if (aborted) return timeoutPromise;
-
-    // Docker through hosting-agent or direct
-    if (dockerInfo && typeof dockerInfo.check === "function") {
-      const result = await dockerInfo.check();
-      checks.push(check(result.ok ? "pass" : "fail", result.reason || "Docker check"));
-    } else if (isStandby) {
-      checks.push(check("warning", "Docker: not checked"));
-    }
-
-    // Ingress
-    if (ingressMode === "cloudflare_tunnel") {
-      const tokenOk = Boolean(process.env.CLOUDFLARED_TUNNEL_URL);
-      checks.push(check(tokenOk ? "pass" : "fail", "Tunnel URL configured"));
-    } else if (ingressMode === "direct_npm") {
-      checks.push(check("pass", "Ingress: direct NPM"));
-    } else {
-      checks.push(check(isStandby ? "fail" : "warning", "Ingress mode not configured"));
-    }
-
-    return {
-      ready: checks.every((c) => c.status !== "fail"),
-      checkedAt: new Date().toISOString(),
-      checks,
-      summary: {
-        total: checks.length,
-        pass: checks.filter((c) => c.status === "pass").length,
-        warning: checks.filter((c) => c.status === "warning").length,
-        fail: checks.filter((c) => c.status === "fail").length,
-      },
-    };
-  })();
-
-  const result = timedOut ? timeoutPromise : await Promise.race([work, timeoutPromise]);
-  if (timeoutHandle) clearTimeout(timeoutHandle);
-  return result;
+  return {
+    ready: checks.every((item) => item.status !== "fail"),
+    checkedAt: new Date().toISOString(), checks,
+    summary: { total: checks.length, pass: checks.filter((c) => c.status === "pass").length, warning: checks.filter((c) => c.status === "warning").length, fail: checks.filter((c) => c.status === "fail").length },
+  };
 }
 
 module.exports = {
-  DEFAULT_FRESHNESS_HOURS: 24,
-  runPreflight,
-  readSiteManifest,
-  requireSiteDatabase,
+  DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, runPreflight, readSiteManifest, readReceiverState,
+  readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
+  validateSiteManifest, validateAppDataManifest, validDomain, validRelativePath,
 };

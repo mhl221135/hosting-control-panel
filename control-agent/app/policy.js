@@ -10,6 +10,7 @@ const INSPECT_CONTAINERS = new Set([
   ...CONTAINERS,
   "hosting-agent",
   "hosting-billing",
+  "hosting-cloudflared",
   "hosting-files",
   "hosting-npm",
   "hosting-phpmyadmin",
@@ -234,11 +235,21 @@ function validateArgs(input) {
   if (argv[0] === "inspect") {
     const name = argv[argv.length - 1];
     validContainer(name, INSPECT_CONTAINERS);
-    if (argv.length !== 4 || argv[1] !== "--format" || argv[2] !== "{{json .State}}") deny("Inspect operation is not allowed");
+    const ALLOWED_INSPECT_FORMATS = new Set([
+      "{{json .State}}",
+      "{{json .State.Status}}",
+      "{{json .State.Health}}",
+      "{{json .Config.Image}}",
+    ]);
+    if (argv.length !== 4 || argv[1] !== "--format" || !ALLOWED_INSPECT_FORMATS.has(argv[2])) deny("Inspect operation is not allowed");
     return argv;
   }
   if (argv[0] === "ps") {
-    if (argv.join("\0") !== ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}"].join("\0")) deny("List operation is not allowed");
+    const psFormats = [
+      ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}"],
+      ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}\t{{.Status}}"],
+    ];
+    if (!psFormats.some(fmt => argv.join("\0") === fmt.join("\0"))) deny("List operation is not allowed");
     return argv;
   }
   if (argv[0] === "stats") {
