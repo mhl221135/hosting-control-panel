@@ -22,6 +22,10 @@ On a standby, the header displays a `STANDBY` badge and server identity.
 Navigation is reduced to read-only Sites, Stats, Health, Jobs, and Account
 views. Site action and job mutation controls are hidden. The server remains the
 authorization boundary and rejects direct mutation requests with HTTP 423.
+The Health view shows the authoritative server identity, an ingress segmented
+control, quick promotion-readiness checks, and **Deep verification**. Saving
+ingress changes metadata only. Deep verification runs as a durable background
+job and never starts services, restores data, changes DNS, or promotes the host.
 
 ## Sites
 

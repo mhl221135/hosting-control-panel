@@ -43,6 +43,11 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(html, /id="installationRole"/);
   assert.match(source, /function applyInstallationRole/);
   assert.match(source, /new Set\(\["sites", "stats", "health", "jobs", "account"\]\)/);
+  assert.match(html, /id="standbyIngressForm"/);
+  assert.match(html, /id="runDeepVerify"/);
+  assert.match(source, /api\("\/api\/system\/deep-verify"/);
+  assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\) \}\)/);
+  assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);
 });
 
 test("backup restore UI exposes an explicit opt-in billing choice", () => {

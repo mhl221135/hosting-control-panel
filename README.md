@@ -902,6 +902,11 @@ not invoked or modified by this panel.
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
 - `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception with independent retention and disk reserve
 - `scripts/prepare-standby.sh`: guarded restore of received sets into a fenced, non-public standby
+
+Successful reception records a bounded source identity and the exact retained
+set manifests in `receiver-state.json`. The standby Health view provides a
+quick receipt-bound readiness preflight and a cancellable deep-verification job.
+These checks do not restore, promote, or switch public traffic.
 - [docs/API.md](docs/API.md): authenticated panel API route index
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics
 - [docs/WORDPRESS_UPDATES.md](docs/WORDPRESS_UPDATES.md): controlled update and rollback workflow

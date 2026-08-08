@@ -474,15 +474,16 @@ guarded backup-based standby preparation command are also implemented.
 Pairing, live replication, lag reporting, and controlled promotion remain
 future work.
 
-A persisted server-role store (`app-data/ui-manager/server-role.json`, atomic
-writes), `PUT /api/system/role` and `GET /api/system/role` API endpoints
-with ingress-mode metadata (`direct_npm`/`cloudflare_tunnel`), and a
+A machine-local authoritative role marker, ingress-only metadata store,
+`PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
 + card in Health with pass/warning/fail checks) are implemented. The preflight
-verifies role, configuration, backup inventory and freshness, per-site
-manifests/archives/dumps, filesystem free space, environment required keys,
-Docker availability, and tunnel readiness — entirely read-only, with no
-service start, mutation, or promotion. Actual promotion, DNS/tunnel cutover,
+verifies role, current receiver receipt, app-data and per-site manifests,
+artifact presence/size, freshness, filesystem space, configuration, Docker,
+and ingress. A durable allowlisted deep-verification job streams checksums,
+checks archive integrity and safe entry types, and binds its result to the exact
+receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
+covered by tests. Actual promotion, DNS/tunnel cutover,
 replication lag/health/recovery-point reporting, and the pairing API remain
 future work.
 

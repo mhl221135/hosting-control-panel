@@ -42,9 +42,9 @@ The installer writes `HOSTING_MACHINE_STATE_DIR/role.json` atomically and
 refuses to overwrite a marker whose role or server identity differs. Editing
 `.env` or replicated application data cannot promote a standby. Controlled
 role transition remains part of the pending promotion workflow.
-The panel also persists role and ingress-mode metadata in
-`app-data/ui-manager/server-role.json`; the machine marker remains the
-authoritative source for runtime behavior.
+The panel persists only ingress-mode metadata in
+`UI_DATA_DIR/server-role.json`. Role and server identity are read only from the
+machine marker and cannot be changed through this settings file.
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |
@@ -63,6 +63,7 @@ Paths below are relative to `app-data/ui-manager`.
 |---|---|---|
 | `admin-account.json` | email and scrypt password record | password hash |
 | `integration-settings.json` | endpoints and encrypted credentials | yes |
+| `server-role.json` | ingress mode only; never role or server identity | no |
 | `integration-settings.key` | generated AES key if env key is absent | yes |
 | `site-state.json` | cache, OPcache, Redis, backup switches (written atomically with the generated `cache.map`) | no |
 | `backup-settings.json` | global enablement, local time, retention | no |

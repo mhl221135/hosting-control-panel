@@ -103,6 +103,7 @@ The initial checksum-verified receiver is available as:
 sudo ./scripts/receive-backups.sh \
   --source backup-reader@primary:/media/seagate/websites-backups-v2 \
   --destination /ssdmount/websites-v2/backups \
+  --source-server-id primary-1 \
   --retention 2 --reserve-gb 20 --dry-run
 ```
 
@@ -111,10 +112,19 @@ receiver selects the newest requested sets per website and for `app-data`,
 copies missing sets into `.incoming`, validates the version-2 manifest,
 declared byte lengths and SHA-256 hashes, checks gzip/tar integrity and archive
 path confinement, then atomically promotes each set. Destination retention is
-applied only to groups that received a newer verified set; source deletions are
-never mirrored. Use a restricted SSH account that can read only completed
+applied independently to every selected group; source deletions are never
+mirrored. A successful run atomically writes mode-`0600`
+`receiver-state.json`, containing the bounded source identity and the exact
+manifest hash for every retained selected set. A failed or dry run preserves
+the previous receipt. Use a restricted SSH account that can read only completed
 backup directories. Do not grant it Docker, shell administration, website, or
 database access.
+
+On the standby panel, run the quick preflight before a drill. Queue **Deep
+verification** when full evidence is required. It verifies every set named in
+the current receiver receipt and writes `deep-verify-state.json` bound to the
+receipt hash. A later receiver run makes the older deep result stale. Neither
+operation performs promotion.
 
 For SSH sources, install `scripts/backup-reader-command.sh` as a root-owned
 mode-0755 command on the primary, store the single allowed source directory in

@@ -346,6 +346,11 @@ function applyInstallationRole(installation) {
   });
   $$("#mobileNavigation option").forEach((option) => { option.hidden = standby && !allowed.has(option.value); });
   if (standby && !allowed.has(state.activeTab)) switchTab("sites");
+  const identity = $("#preflightServerIdentity");
+  if (identity) identity.textContent = `${installation.serverId || "hosting-server"} · ${role}`;
+  const ingress = String(installation.ingressMode || "");
+  const input = $(`#standbyIngressForm input[value="${ingress}"]`);
+  if (input) input.checked = true;
 }
 
 function switchTab(name) {
@@ -928,6 +933,7 @@ function jobTypeLabel(type) {
     "sites.import": "Website import",
     "sites.import-cleanup": "Import staging cleanup",
     "sites.import-upload-stage": "Portable bundle staging",
+    "standby.deep-verify": "Deep standby verification",
   }[type] || type;
 }
 
@@ -1701,6 +1707,7 @@ async function loadData() {
     api("/api/cloudflare/automation"),
   ]);
   state.status = status;
+  applyInstallationRole(status.installation || { role: "standalone", serverId: "hosting-server", mutable: true });
   state.sites = siteData.sites || [];
   state.pools = poolData.pools || [];
   state.tiers = presetData.tiers || {};
@@ -1947,6 +1954,7 @@ async function loadIntegrationSettings() {
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
+
     const form = $("#integrationSettingsForm");
     form.elements.npmApiUrl.value = settings.npmApiUrl || "";
     form.elements.npmIdentity.value = settings.npmIdentity || "";
@@ -3524,6 +3532,29 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
 
 $("#refreshPreflight").addEventListener("click", async (event) => {
   await withButton(event.currentTarget, "Checking...", () => loadPreflight());
+});
+
+$("#runDeepVerify").addEventListener("click", async (event) => {
+  try {
+    const data = await withButton(event.currentTarget, "Queueing...", () => api("/api/system/deep-verify", { method: "POST" }));
+    rememberJob(data.job, "Deep verification queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#standbyIngressForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const selected = event.currentTarget.elements.ingress_mode.value;
+  if (!selected) return notice("Select an ingress mode.", "warning");
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/system/role", {
+      method: "PUT", body: JSON.stringify({ ingress_mode: selected }),
+    }));
+    state.status.installation = data.installation;
+    applyInstallationRole(data.installation);
+    notice("Standby ingress saved.");
+    await loadPreflight();
+  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#poolPresetsEditor").addEventListener("input", () => {

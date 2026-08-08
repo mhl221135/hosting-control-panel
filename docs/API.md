@@ -24,6 +24,14 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   manifests/archives/dumps, filesystem free space, required configuration keys,
   Docker availability, and tunnel readiness. No files, databases, DNS, or
   ingress are modified.
+- `POST /api/system/deep-verify` is the only standby job mutation. It queues a
+  cancellable, deduplicated verification of every set in the current receiver
+  receipt. The worker checks the receipt/manifest binding, streams artifact
+  SHA-256 hashes, validates gzip streams, and rejects unsafe tar paths, links,
+  and special files. Success writes a mode-`0600` receipt bound to the exact
+  `receiver-state.json`; it does not restore data or promote the server.
+- On a standby, every other non-read API request returns `423 Locked`. The
+  standby job worker executes only `standby.deep-verify` jobs.
 
 Errors use HTTP status codes and this shape:
 

@@ -28,7 +28,9 @@ database operations required by supported workflows.
 
 Machine-local `standalone`, `primary`, and `standby` roles are supported. A
 standby starts only the agent and read-only panel, rejects normal mutations
-with HTTP 423, and suppresses mutating schedulers.
+with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
+exception is the allowlisted deep backup-verification job; ingress metadata can
+also be saved without changing traffic or role.
 
 ## Services
 

@@ -194,6 +194,8 @@ Source rollback and data rollback are different operations.
 
 ## Host Failover
 
+**WARNING: Do not run standby mutation commands like `docker compose restart`, `docker compose up`, or database migrations on a standby machine.** Standby machines must remain in a strict fail-closed state where services are only activated through the controlled promotion process.
+
 Do not start a second writable stack for the same websites without first
 fencing the old primary. The supported baseline is manual recovery from
 replicated, verified backup sets. See
@@ -213,6 +215,12 @@ filesystem free space, required configuration key presence, Docker
 availability, and Cloudflare tunnel readiness. The preflight is a planning
 tool; actual promotion requires the runbook in
 [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md).
+
+For rigorous testing, the **Deep verification** background job (`POST
+/api/system/deep-verify`) validates every set in the current receiver receipt.
+It streams SHA-256 hashes and checks archive/gzip integrity and safe tar entry
+types without loading archives into memory. Success writes mode-`0600`
+`deep-verify-state.json` bound to the exact receiver-receipt hash.
 
 ## Backup Verification
 

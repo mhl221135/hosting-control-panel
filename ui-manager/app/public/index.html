@@ -184,7 +184,15 @@
           </div>
 
           <article id="promotionPreflightCard" class="panel hidden">
-            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Non-mutating checks to verify the standby server is ready for controlled promotion. No files, databases, DNS, or ingress are changed.</p></div><button id="refreshPreflight" class="secondary">Refresh</button></div>
+            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Non-mutating checks to verify the standby server is ready for controlled promotion. No files, databases, DNS, or ingress are changed.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
+            <form id="standbyIngressForm" class="standby-ingress-form">
+              <div><span class="muted">Server</span><strong id="preflightServerIdentity">-</strong></div>
+              <fieldset><legend>Ingress</legend><div class="segmented-control">
+                <label><input type="radio" name="ingress_mode" value="direct_npm" /><span>Direct NPM</span></label>
+                <label><input type="radio" name="ingress_mode" value="cloudflare_tunnel" /><span>Cloudflare tunnel</span></label>
+              </div></fieldset>
+              <button type="submit" class="secondary">Save ingress</button>
+            </form>
             <div id="preflightSummary" class="metrics" style="margin-bottom:10px"><article><span>Ready</span><strong id="preflightReady">-</strong></article><article><span>Pass</span><strong id="preflightPass">0</strong></article><article><span>Warnings</span><strong id="preflightWarn">0</strong></article><article><span>Failures</span><strong id="preflightFail">0</strong></article></div>
             <div id="preflightChecks" class="rows empty">No preflight checks have run. Refresh to begin.</div>
             <small class="muted">Promotion is not available from this panel; use the documented runbook when ready.</small>
@@ -781,6 +789,7 @@
 
         <section class="tab-panel hidden" data-tab-panel="settings">
           <div class="section-head"><div><h2>Integration settings</h2><p>Credentials are encrypted in the persistent panel data volume.</p></div></div>
+
           <form id="integrationSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>Nginx Proxy Manager</h3><p>Used to create edge hosts and manage Let's Encrypt certificates.</p></div>
             <label>NPM API URL<input name="npmApiUrl" placeholder="http://hosting-npm:81/api" required /></label>
