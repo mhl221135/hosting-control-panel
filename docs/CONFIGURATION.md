@@ -115,7 +115,10 @@ Private keys are encrypted with AES-256-GCM using the service's existing key
 material; only public keys are returned by the remote API. Signing is
 unconfigured by default and requires `BILLING_SETTINGS_KEY` to be set before the
 first key is initialized. Plaintext private keys are never returned, logged,
-audited, backed up, or exported.
+audited, backed up, or exported. Verified SQLite backups contain only the
+AES-256-GCM encrypted active-key blob. Recovery therefore also requires the
+matching `BILLING_SETTINGS_KEY`, which must be kept in an independent secret
+store and is intentionally absent from backup artifacts.
 
 `app-data/ui-manager/billing-observer-settings.json` stores only the
 disabled-by-default poll interval and freshness policy. Compose also supplies

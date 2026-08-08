@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { Worker } = require("node:worker_threads");
 const { DatabaseSync } = require("node:sqlite");
 const { importCsv } = require("../app/lib/csv");
 const { exportCsv } = require("../app/lib/csv");
@@ -31,11 +32,50 @@ function legacyService(domain = "local.example.com", source = "66") {
   return { ...service, location: "local" };
 }
 
-test("fresh schema creates enrollment tables at version 8", () => {
+async function raceDatabaseCalls(dataDir, operation, args) {
+  const gate = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2);
+  const state = new Int32Array(gate);
+  const databaseModule = path.resolve(__dirname, "../app/lib/database.js");
+  const source = `
+    const { parentPort, workerData } = require("node:worker_threads");
+    const { BillingDatabase } = require(workerData.databaseModule);
+    const state = new Int32Array(workerData.gate);
+    const database = new BillingDatabase(workerData.dataDir);
+    Atomics.add(state, 0, 1);
+    Atomics.notify(state, 0);
+    Atomics.wait(state, 1, 0);
+    try {
+      const value = database[workerData.operation](workerData.args);
+      parentPort.postMessage({ ok: true, value });
+    } catch (error) {
+      parentPort.postMessage({ ok: false, statusCode: error.statusCode || 0, message: error.message });
+    } finally {
+      database.close();
+    }
+  `;
+  const workers = Array.from({ length: 2 }, () => new Worker(source, {
+    eval: true,
+    workerData: { databaseModule, dataDir, operation, args, gate },
+  }));
+  const results = workers.map((worker) => new Promise((resolve, reject) => {
+    worker.once("message", resolve);
+    worker.once("error", reject);
+  }));
+  const deadline = Date.now() + 5_000;
+  while (Atomics.load(state, 0) < 2 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.equal(Atomics.load(state, 0), 2, "both database workers reached the race gate");
+  Atomics.store(state, 1, 1);
+  Atomics.notify(state, 1, 2);
+  return Promise.all(results);
+}
+
+test("fresh schema creates enrollment tables at version 9", () => {
   const value = fixture();
   try {
-    assert.equal(SCHEMA_VERSION, 8);
-    assert.equal(value.database.db.prepare("PRAGMA user_version").get().user_version, 8);
+    assert.equal(SCHEMA_VERSION, 9);
+    assert.equal(value.database.db.prepare("PRAGMA user_version").get().user_version, 9);
     const enrollmentColumns = value.database.db.prepare("PRAGMA table_info(enrollment_codes)").all().map((c) => c.name);
     const installationColumns = value.database.db.prepare("PRAGMA table_info(wp_installations)").all().map((c) => c.name);
     assert.ok(enrollmentColumns.includes("code_id"));
@@ -58,7 +98,7 @@ test("fresh schema creates enrollment tables at version 8", () => {
   }
 });
 
-test("migrates a schema-six database to version 8 and preserves data", () => {
+test("migrates a schema-six database to version 9 and preserves data", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-enroll-migration-"));
   const data = path.join(root, "data");
   fs.mkdirSync(data, { recursive: true });
@@ -102,7 +142,7 @@ test("migrates a schema-six database to version 8 and preserves data", () => {
   legacy.close();
   const database = new BillingDatabase(data);
   try {
-    assert.equal(database.db.prepare("PRAGMA user_version").get().user_version, 8);
+    assert.equal(database.db.prepare("PRAGMA user_version").get().user_version, 9);
     const table = database.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('enrollment_codes','wp_installations','signing_keys')").all();
     assert.equal(table.length, 3);
     const heartbeatColumns = database.db.prepare("PRAGMA table_info(wp_installations)").all().map((c) => c.name);
@@ -240,6 +280,39 @@ test("duplicate active installation and pending code are rejected atomically", (
   }
 });
 
+test("concurrent code creation and exchange allow exactly one winner", async () => {
+  const value = fixture();
+  try {
+    const service = value.database.createService(sharedService("race.example.com", "130"), "admin@example.com");
+    const dataDir = path.dirname(value.database.path);
+    const createResults = await raceDatabaseCalls(dataDir, "createEnrollmentCode", {
+      serviceId: service.service_id,
+      canonicalDomain: service.primary_domain,
+      expiresInHours: 24,
+      actor: "admin@example.com",
+    });
+    assert.equal(createResults.filter((result) => result.ok).length, 1);
+    assert.equal(createResults.filter((result) => result.statusCode === 409).length, 1);
+    assert.equal(value.database.db.prepare(
+      "SELECT COUNT(*) AS count FROM enrollment_codes WHERE service_id=? AND used_at='' AND revoked_at=''",
+    ).get(service.service_id).count, 1);
+
+    const winner = createResults.find((result) => result.ok).value;
+    const exchangeResults = await raceDatabaseCalls(dataDir, "exchangeEnrollmentCode", {
+      code: winner.code,
+      domain: service.primary_domain,
+    });
+    assert.equal(exchangeResults.filter((result) => result.ok).length, 1);
+    assert.equal(exchangeResults.filter((result) => result.statusCode === 409).length, 1);
+    assert.equal(value.database.db.prepare(
+      "SELECT COUNT(*) AS count FROM wp_installations WHERE service_id=? AND credential_revoked_at=''",
+    ).get(service.service_id).count, 1);
+  } finally {
+    value.database.close();
+    fs.rmSync(value.root, { recursive: true, force: true });
+  }
+});
+
 test("credential and code revocation are idempotent and list views omit hashes", () => {
   const value = fixture();
   try {
@@ -277,6 +350,9 @@ test("audit and CSV export exclude plaintext codes, credentials, and hashes", ()
     assert.equal(audit.includes(created.code), false);
     assert.equal(audit.includes(exchanged.credential), false);
     assert.equal(audit.includes(enrollmentHash(exchanged.credential)), false);
+    assert.equal(audit.includes(enrollmentHash(created.code).slice(0, 16)), false);
+    const enrollmentAudit = value.database.audit().filter((entry) => entry.action.startsWith("enrollment."));
+    assert.equal(JSON.stringify(enrollmentAudit).includes(service.primary_domain), false);
     const csv = exportCsv(value.database.services());
     assert.equal(csv.includes(created.code), false);
     assert.equal(csv.includes(exchanged.credential), false);
