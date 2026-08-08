@@ -131,8 +131,8 @@ payload (contract version, installation ID, canonical domain, entitlement
 state, freshness timestamps, renewal URL, display-safe price/currency/period,
 enforcement-enabled flag, and key ID) is signed with the active Ed25519
 signing key and returned with its signature. The payload contains the key ID.
-A future plugin verifies the signature using the public key served by
-`GET /remote/v1/keys`, which
+The fail-open WordPress plugin verifies the signature using the public key
+served by `GET /remote/v1/keys`, which
 returns only the active and still-overlapping previous public keys.
 
 Missing, mismatched, or ambiguous billing data produces a signed fail-open
@@ -157,6 +157,13 @@ so disaster recovery also requires the independently stored
 creates a new one and immediately erases the old encrypted private key. Key
 operations are atomic and audited
 with only key IDs, safe timestamps, and non-secret metadata.
+
+The Billing **Remote WP** workspace exposes the safe operator workflow without
+returning stored codes, credentials, or hashes. It lists eligible shared-hosting
+services, creates and revokes one-time codes, shows installation heartbeat
+state, revokes installation credentials, and initializes or rotates signing
+keys with explicit confirmation. The companion fail-open consumer and package
+build are documented in `docs/REMOTE_WORDPRESS_PLUGIN.md`.
 
 ## WooCommerce Payments
 

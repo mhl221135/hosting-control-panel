@@ -107,12 +107,13 @@ storage, key lifecycle management (initialize/rotate/retire), authenticated
 remote entitlement delivery (`POST /remote/v1/entitlement`), public key
 distribution (`GET /remote/v1/keys`), installation authentication, throttled
 heartbeat, opaque renewal references, transactional race guards, and
-administrator key status/preview APIs. The WordPress plugin,
-billing UI enrollment workflow, heartbeat visibility, frontend suspension, cache
-purge, signed package distribution, and production qualification remain future
-work below.
+administrator key status/preview APIs. A fail-open WordPress consumer, Billing
+enrollment workspace, encrypted plugin credential storage, signed cron/manual
+polling, Site Health visibility, and deterministic ZIP builds are implemented.
+Frontend suspension, cache purge, signed update distribution, and production
+qualification remain future work below.
 
-- Add a separately versioned WordPress plugin for websites hosted outside
+- Extend the separately versioned WordPress plugin for websites hosted outside
   OPI5. Prefer a normal managed plugin with a minimal MU-plugin loader so the
   enforcement bootstrap remains active across ordinary plugin deactivation and
   updates. Document that a hosting administrator with filesystem access can
@@ -120,15 +121,15 @@ work below.
 - Do not authorize a remote site merely because its current domain matches a
   billing record. Domain ownership can change, staging copies can reuse a
   database, and cloned WordPress installations can retain old options.
-- Add the Billing UI enrollment workflow (select a remote WordPress service,
+- Extend the Billing UI enrollment workflow (select a remote WordPress service,
   generate a code, view installation health, revoke credentials, approve a
   canonical-domain change), entering the generated code in the plugin settings
   while authenticated as a WordPress administrator. The backend code
-  generation, one-time exchange, and revocable per-installation credential are
-  implemented; the UI and plugin-side entry are pending.
-- Add the WordPress plugin that stores the credential in a protected option and
-  never includes it in URLs, logs, support bundles, telemetry, or portable
-  billing CSV exports.
+  generation, one-time exchange, code status, installation health, and
+  revocation are implemented; canonical-domain change approval is pending.
+- Harden the WordPress plugin that stores the credential in an encrypted,
+  protected option and never includes it in URLs, logs, support bundles,
+  telemetry, or portable billing CSV exports.
 - Use a narrow remote API that returns only the service state, freshness,
   renewal-page URL, display-safe price/period details, and key-rotation
   metadata. It must not expose client contact details, internal notes,
@@ -136,9 +137,10 @@ work below.
 - Sign entitlement responses with an asymmetric key so distributing the plugin
   verification key does not distribute a server signing secret. Support
   overlapping public keys during controlled rotation.
-- Poll outbound over HTTPS on a bounded interval and after relevant WordPress
-  admin/page requests. Use WP-Cron or Action Scheduler as a convenience, but do
-  not assume low-traffic sites execute WP-Cron reliably. Show the last
+- Extend the implemented bounded HTTPS WP-Cron/manual polling after relevant
+  WordPress admin/page requests. Use WP-Cron or Action Scheduler as a
+  convenience, but do not assume low-traffic sites execute WP-Cron reliably.
+  Show the last
   successful verification and next retry in Site Health.
 - Fail open when entitlement is missing, expired, has an invalid signature,
   uses an unsupported contract version, changes to an unapproved domain, or
@@ -160,9 +162,10 @@ work below.
 - After a verified payment, the next successful signed poll must restore the
   public site automatically. Provide an authenticated **Check billing now**
   action for immediate recovery when WP-Cron is delayed.
-- Add heartbeat visibility to the Billing UI: installation ID, approved
-  canonical domain, plugin version, WordPress/PHP compatibility, last
-  successful check, current applied state, and bounded error. Do not collect
+- Extend Billing heartbeat visibility with plugin/PHP compatibility details:
+  installation ID, approved canonical domain, plugin version, WordPress/PHP
+  compatibility, last successful check, current applied state, and bounded
+  error. Do not collect
   visitor analytics, content, user lists, or unrelated site data.
 - Support credential revoke/re-enroll, domain-change approval, staging-copy
   detection, and uninstall cleanup. A cloned installation must fail open and

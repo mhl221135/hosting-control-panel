@@ -120,6 +120,12 @@ AES-256-GCM encrypted active-key blob. Recovery therefore also requires the
 matching `BILLING_SETTINGS_KEY`, which must be kept in an independent secret
 store and is intentionally absent from backup artifacts.
 
+Remote WordPress plugin state uses three non-autoloaded WordPress options named
+`hostpilot_remote_config`, `hostpilot_remote_entitlement`, and
+`hostpilot_remote_status`. The installation credential inside the config is
+encrypted with libsodium secretbox and a key derived from `AUTH_KEY` and
+`SECURE_AUTH_KEY`; changing those salts requires re-enrollment.
+
 `app-data/ui-manager/billing-observer-settings.json` stores only the
 disabled-by-default poll interval and freshness policy. Compose also supplies
 the internal `ENTITLEMENT_REFRESH_API_URL` to billing. It carries no secret;

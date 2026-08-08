@@ -91,3 +91,16 @@ test("WooCommerce settings expose a bounded public support destination", () => {
   assert.match(source, /settings\.supportUrl/);
   assert.match(source, /settings\.supportLabel/);
 });
+
+test("remote WordPress enrollment UI reveals codes once and exposes no credential fields", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../app/public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../app/public/app.js"), "utf8");
+  assert.match(html, /data-section="remote"/);
+  assert.match(html, /id="enrollmentCodeResult"/);
+  assert.match(html, /Type INITIALIZE/);
+  assert.match(html, /Type ROTATE/);
+  assert.match(source, /api\/enrollment\/codes\?service_id=/);
+  assert.match(source, /api\/enrollment\/installations\/revoke/);
+  assert.match(source, /expected_key_id/);
+  assert.doesNotMatch(html, /credential_hash|code_hash/);
+});

@@ -63,6 +63,9 @@ into dedicated directories.
 - Hosting-side entitlement verification with HMAC freshness checks, an atomic
   last-known-good snapshot, local inventory drift preview, and disabled-by-
   default exact-site nginx enforcement with immediate rollback
+- Fail-open remote WordPress plugin package and Billing enrollment workspace
+  with encrypted installation credentials, Ed25519 verification, scheduled
+  checks, and Site Health visibility
 
 ## Architecture
 

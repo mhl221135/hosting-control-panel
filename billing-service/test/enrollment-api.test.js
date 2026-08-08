@@ -124,6 +124,11 @@ test("creates and exchanges a code revealing each secret exactly once", { timeou
     const created = await createdResponse.json();
     assert.ok(created.code);
     assert.ok(created.codeId);
+    const pendingCodes = await (await env.admin(`/api/enrollment/codes?service_id=${service.service_id}`)).json();
+    assert.equal(pendingCodes.codes.length, 1);
+    assert.equal(pendingCodes.codes[0].status, "pending");
+    assert.equal(JSON.stringify(pendingCodes).includes(created.code), false);
+    assert.equal("code_hash" in pendingCodes.codes[0], false);
 
     // Exchange as the public one-time route (no session/cookie).
     const exchange = await fetch(`${env.baseUrl}/api/enrollment/exchange`, {
@@ -145,6 +150,8 @@ test("creates and exchanges a code revealing each secret exactly once", { timeou
       body: JSON.stringify({ code: created.code, domain: service.primary_domain }),
     });
     assert.equal(replay.status, 409);
+    const usedCodes = await (await env.admin(`/api/enrollment/codes?service_id=${service.service_id}`)).json();
+    assert.equal(usedCodes.codes[0].status, "used");
 
     // Admin can list installations for the service.
     const list = await (await env.admin(`/api/enrollment/installations?service_id=${service.service_id}`)).json();

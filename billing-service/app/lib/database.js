@@ -1261,6 +1261,21 @@ class BillingDatabase {
     });
   }
 
+  listEnrollmentCodesForService(serviceId, limit = 50) {
+    const now = new Date().toISOString();
+    return this.db.prepare(`
+      SELECT code_id,service_id,canonical_domain,expires_at,created_at,used_at,revoked_at
+      FROM enrollment_codes WHERE service_id=? ORDER BY created_at DESC LIMIT ?
+    `).all(String(serviceId || ""), Math.min(100, Math.max(1, Number(limit) || 50))).map((row) => ({
+      codeId: row.code_id,
+      serviceId: row.service_id,
+      canonicalDomain: row.canonical_domain,
+      expiresAt: row.expires_at,
+      createdAt: row.created_at,
+      status: row.revoked_at ? "revoked" : row.used_at ? "used" : row.expires_at <= now ? "expired" : "pending",
+    }));
+  }
+
   listInstallationsForService(serviceId, limit = 50) {
     return this.db.prepare(`
       SELECT installation_id, service_id, canonical_domain, credential_created_at,

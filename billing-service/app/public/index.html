@@ -31,6 +31,7 @@
         <button data-view="services">Services</button>
         <button data-view="payments">Payments</button>
         <button data-view="reminders">Reminders</button>
+        <button data-view="remote">Remote WP</button>
         <button data-view="import">Import</button>
         <button data-view="backups">Backups</button>
         <button data-view="audit">Audit</button>
@@ -41,6 +42,7 @@
         <option value="services">Services</option>
         <option value="payments">Payments</option>
         <option value="reminders">Reminders</option>
+        <option value="remote">Remote WP</option>
         <option value="import">Import</option>
         <option value="backups">Backups</option>
         <option value="audit">Audit</option>
@@ -319,6 +321,52 @@
           </table>
         </div>
         <p id="emptyPaymentOptionPreview" class="empty" hidden>No due payment options require action.</p>
+      </section>
+
+      <section data-section="remote" hidden>
+        <div class="section-heading">
+          <div><p class="eyebrow">Remote WordPress</p><h1>Enrollment and signing</h1></div>
+          <button id="refreshRemote" class="secondary">Refresh</button>
+        </div>
+        <div class="settings-layout remote-settings">
+          <form id="enrollmentCodeForm" class="form-grid compact-form">
+            <h2>Create enrollment code</h2>
+            <label class="wide">Eligible service
+              <select name="service_id" id="remoteService" required></select>
+            </label>
+            <label>Lifetime (hours)<input name="expires_in_hours" type="number" min="1" max="168" value="24" required></label>
+            <button class="primary" type="submit">Create one-time code</button>
+            <div id="enrollmentCodeResult" class="wide secret-result" hidden>
+              <strong>Copy this code now</strong>
+              <input id="enrollmentCodeValue" readonly autocomplete="off">
+              <button id="copyEnrollmentCode" class="secondary" type="button">Copy code</button>
+              <small id="enrollmentCodeExpiry"></small>
+            </div>
+          </form>
+          <div class="form-grid compact-form">
+            <h2>Signing key</h2>
+            <p id="signingStatus" class="wide field-status"></p>
+            <form id="initializeSigningForm" class="inline-confirm wide">
+              <label>Type INITIALIZE<input name="confirm" autocomplete="off" required></label>
+              <button class="primary" type="submit">Initialize</button>
+            </form>
+            <form id="rotateSigningForm" class="inline-confirm wide" hidden>
+              <input name="expected_key_id" type="hidden">
+              <label>Type ROTATE<input name="confirm" autocomplete="off" required></label>
+              <button class="danger" type="submit">Rotate key</button>
+            </form>
+          </div>
+        </div>
+        <h2 class="subheading">Enrollment codes</h2>
+        <div class="table-wrap">
+          <table><thead><tr><th>Created</th><th>Expires</th><th>Status</th><th>Action</th></tr></thead><tbody id="enrollmentCodesBody"></tbody></table>
+        </div>
+        <p id="emptyEnrollmentCodes" class="empty" hidden>No enrollment codes for this service.</p>
+        <h2 class="subheading">Installations</h2>
+        <div class="table-wrap">
+          <table><thead><tr><th>Domain</th><th>Credential</th><th>Last success</th><th>Contract</th><th>Safe state</th><th>Action</th></tr></thead><tbody id="remoteInstallationsBody"></tbody></table>
+        </div>
+        <p id="emptyRemoteInstallations" class="empty" hidden>No enrolled installation for this service.</p>
       </section>
 
       <section data-section="import" hidden>

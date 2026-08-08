@@ -140,6 +140,12 @@ the provider delivery ID to `hosting-ui`; the panel independently refreshes the
 signed feed and reconciles. Scheduled observation is required while enforcement
 is armed and provides the callback-failure fallback.
 
+The separately packaged `wordpress-plugin/hostpilot-remote` is the remote
+consumer for WordPress sites outside the stack. It exchanges a one-time code,
+encrypts its installation credential with WordPress salts, verifies the narrow
+Ed25519 contract, and retains only last-known-good safe state. It has no
+frontend enforcement path in the current phase.
+
 ## Authentication And Secrets
 
 The first panel account is created from `UI_ADMIN_EMAIL` and
