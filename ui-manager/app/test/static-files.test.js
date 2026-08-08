@@ -19,6 +19,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   const bootstrap = fs.readFileSync(path.resolve(__dirname, "../../../bootstrap.sh"), "utf8");
   const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
   const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  const prepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-standby.sh"), "utf8");
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
@@ -31,6 +32,12 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(compose, /hosting-cloudflared:[\s\S]*cap_drop:[\s\S]*- ALL/);
   assert.doesNotMatch(compose, /hosting-cloudflared:[\s\S]*\/var\/run\/docker\.sock/);
   assert.match(upgrade, /compose stop hosting-files hosting-billing/);
+  assert.match(prepare, /--confirm PREPARE-STANDBY/);
+  assert.match(prepare, /\.role == "standby"/);
+  assert.match(prepare, /hosting-backup-receiver\/lock/);
+  assert.match(prepare, /Writable hosting containers are running/);
+  assert.match(prepare, /databases\.sql\.gz/);
+  assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
   assert.match(server, /if \(!installationRole\.isStandby\(\)\)/);
   assert.match(html, /id="installationRole"/);

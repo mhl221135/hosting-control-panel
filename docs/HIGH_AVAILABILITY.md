@@ -176,6 +176,23 @@ and Cloudflare/API authority before promoting the standby.
 
 ## Backup-Based Promotion
 
+After reception is idle, prepare a fenced standby from its newest complete
+sets without changing its role or public traffic:
+
+```bash
+sudo ./scripts/prepare-standby.sh --dry-run
+sudo ./scripts/prepare-standby.sh --apply --confirm PREPARE-STANDBY
+```
+
+The command requires the machine-local `standby` role, takes the receiver
+lock, refuses unexpected running hosting containers or interrupted staging,
+revalidates manifests/checksums/archives, stages extraction, swaps website and
+app-data directories, imports the logical all-databases dump into a temporary
+replica database runtime, checks it, stops the database again, and records the
+recovery point in `/etc/hosting-control/standby-recovery.json`. Failure after
+the directory swap restores the prior local standby directories. It does not
+promote the role, enable schedulers, or create/switch website tunnel routes.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 
