@@ -116,7 +116,9 @@ applied independently to every selected group; source deletions are never
 mirrored. A successful run atomically writes mode-`0600`
 `receiver-state.json`, containing the bounded source identity and the exact
 manifest hash for every retained selected set. A failed or dry run preserves
-the previous receipt. Use a restricted SSH account that can read only completed
+the previous receipt. The receipt inherits the destination directory's numeric
+owner and group so the unprivileged panel can read it without making it group-
+or world-readable. Use a restricted SSH account that can read only completed
 backup directories. Do not grant it Docker, shell administration, website, or
 database access.
 

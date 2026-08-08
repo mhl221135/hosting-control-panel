@@ -68,6 +68,18 @@ if [ ! -d "$dst/example.com/2026-08-08T00-00-00Z" ]; then
   exit 1
 fi
 
+receipt_mode=$(stat -f '%Lp' "$dst/receiver-state.json" 2>/dev/null || stat -c '%a' "$dst/receiver-state.json")
+if [ "$receipt_mode" != "600" ]; then
+  echo "FAIL: Receipt mode is $receipt_mode, expected 600"
+  exit 1
+fi
+destination_owner=$(ls -nd "$dst" | awk '{print $3 ":" $4}')
+receipt_owner=$(ls -nd "$dst/receiver-state.json" | awk '{print $3 ":" $4}')
+if [ "$receipt_owner" != "$destination_owner" ]; then
+  echo "FAIL: Receipt owner $receipt_owner does not match destination owner $destination_owner"
+  exit 1
+fi
+
 receipt_sets=$(jq '.sets | length' "$dst/receiver-state.json")
 if [ "$receipt_sets" -ne 1 ]; then
   echo "FAIL: Expected 1 set in receipt, got $receipt_sets"

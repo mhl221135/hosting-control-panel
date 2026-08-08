@@ -249,6 +249,11 @@ if [ "$dry_run" -eq 0 ]; then
     --argjson sets "$sets_json" \
     '{version: 1, completedAt: $completedAt, result: "success", sourceServerId: $sourceServerId, verifiedCount: $verifiedCount, sets: $sets}' > "$tmp_receipt"
   chmod 600 "$tmp_receipt"
+  destination_owner=$(ls -nd "$destination" | awk '{print $3 ":" $4}')
+  receipt_owner=$(ls -nd "$tmp_receipt" | awk '{print $3 ":" $4}')
+  if [ "$receipt_owner" != "$destination_owner" ]; then
+    chown "$destination_owner" "$tmp_receipt"
+  fi
   mv "$tmp_receipt" "$destination/receiver-state.json"
 fi
 
