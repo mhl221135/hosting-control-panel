@@ -48,6 +48,13 @@ async function artifactManifest(directory, fileNames) {
   return artifacts;
 }
 
+function setBackupSetPermissions(directory) {
+  fs.chmodSync(directory, 0o750);
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    if (entry.isFile()) fs.chmodSync(path.join(directory, entry.name), 0o640);
+  }
+}
+
 async function verifyArtifactManifest(directory, manifest, requiredFiles) {
   if (manifest.version === 1 && manifest.artifacts === undefined) return { checksums: false, legacy: true };
   if (manifest.version !== 2 || !manifest.artifacts || typeof manifest.artifacts !== "object") {
@@ -524,7 +531,8 @@ class BackupManager {
         completedAt: new Date().toISOString(),
         artifacts: await artifactManifest(partial, requiredFiles),
       };
-      fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+      fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
+      setBackupSetPermissions(partial);
       fs.renameSync(partial, complete);
       this.applyRetention(site.host, retention);
       return { ok: true, ...manifest, size: directorySize(complete) };
@@ -572,7 +580,8 @@ class BackupManager {
         completedAt: new Date().toISOString(),
         artifacts: await artifactManifest(partial, ["app-data.tar.gz", "databases.sql.gz"]),
       };
-      fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+      fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
+      setBackupSetPermissions(partial);
       fs.renameSync(partial, complete);
       this.applyRetention("app-data", retention);
       return { ok: true, ...manifest, size: directorySize(complete) };
@@ -621,7 +630,7 @@ class BackupManager {
       if (stderr.length < 64 * 1024) stderr += chunk.toString();
     });
     const gzip = zlib.createGzip({ level: 6 });
-    const output = fs.createWriteStream(outputPath, { mode: 0o600 });
+    const output = fs.createWriteStream(outputPath, { mode: 0o640 });
     await Promise.all([
       pipeline(process.stdout, gzip, output),
       new Promise((resolve, reject) => {
@@ -878,5 +887,6 @@ module.exports = {
   MYSQL_RESTORE_SQL_MODE,
   artifactManifest,
   backupId,
+  setBackupSetPermissions,
   verifyArtifactManifest,
 };

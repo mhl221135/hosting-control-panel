@@ -8,6 +8,7 @@ const {
   BackupManager,
   MYSQL_RESTORE_SQL_MODE,
   artifactManifest,
+  setBackupSetPermissions,
   verifyArtifactManifest,
 } = require("../lib/backup-manager");
 
@@ -33,6 +34,20 @@ function managerFixture() {
 test("site restore mode accepts legacy zero-date schemas without weakening global MySQL mode", () => {
   assert.match(MYSQL_RESTORE_SQL_MODE, /STRICT_TRANS_TABLES/);
   assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
+});
+
+test("backup sets remain private while allowing the replica group to read artifacts", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-backup-mode-"));
+  try {
+    fs.writeFileSync(path.join(root, "manifest.json"), "{}", { mode: 0o600 });
+    fs.writeFileSync(path.join(root, "database.sql.gz"), "database", { mode: 0o600 });
+    setBackupSetPermissions(root);
+    assert.equal(fs.statSync(root).mode & 0o777, 0o750);
+    assert.equal(fs.statSync(path.join(root, "manifest.json")).mode & 0o777, 0o640);
+    assert.equal(fs.statSync(path.join(root, "database.sql.gz")).mode & 0o777, 0o640);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runs optional billing registration after a successful restore", async () => {

@@ -10,7 +10,7 @@ case "$root" in *[!A-Za-z0-9_./-]*|*..*) printf 'Configured backup root is unsaf
 [ -d "$root" ] || { printf 'Configured backup root does not exist.\n' >&2; exit 1; }
 
 inventory() {
-  find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print | while IFS= read -r manifest; do
+  find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print 2>/dev/null | while IFS= read -r manifest; do
     set_dir=${manifest%/manifest.json}
     id=${set_dir##*/}
     group_dir=${set_dir%/*}

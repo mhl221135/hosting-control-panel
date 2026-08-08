@@ -136,6 +136,26 @@ therefore retention `2`, one reception run per day, destination
 run after large site additions; measured capacity, not this historical figure,
 is authoritative.
 
+The hp-server deployment uses the reviewed units in `examples/systemd/`.
+`hosting-backup-receiver.timer` runs daily at 04:00 local time with a bounded
+random delay; `flock` prevents overlap. The service is low-priority, has a
+read-only system view, and can write only the received-backup destination and
+its runtime lock. Adjust source addresses and paths before using these example
+units on another installation.
+
+Backup set directories are `0750` and their artifacts are `0640`. On the
+primary, add the locked forced-command receiver account to the backup writer's
+group; do not grant it sudo or interactive shell access. Existing sets created
+before this policy must be migrated to the same group-readable modes once.
+
+`examples/systemd/hosting-cloudflared.service` is the initial host-level
+connector for the replica's separate hosting tunnel. It runs as a dedicated
+unprivileged user and reads a root-provisioned, non-replicated token file. The
+existing hp-server administration tunnel remains a separate service and must
+not be replaced. Replica service hostnames use the `-r` suffix (for example,
+`ui-v2-r.mishaweb.com`); production website hostnames are attached only during
+a fenced promotion.
+
 ## Promotion Preconditions
 
 Promotion requires an operator decision. Before starting:
