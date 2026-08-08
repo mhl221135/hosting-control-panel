@@ -217,6 +217,11 @@ After database verification it creates, but does not start, the stopped DB,
 Redis, PHP-FPM, and internal nginx containers so readiness checks can inspect
 the exact promotion runtime without exposing or enabling it.
 
+Successful preparation writes `/etc/hosting-control/standby-recovery.json`.
+That mode-`0600` marker binds the prepared app-data set, website count, source
+release, receiver receipt hash, and deep-verification hash. Preflight fails if
+any of those inputs changes after preparation.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 

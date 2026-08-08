@@ -35,6 +35,25 @@ function makeMarker(dir, role = "standby") {
   return path.join(d, "role.json");
 }
 
+function makePreparedState(dir, markerPath, receipt, setId, siteCount = 1, sourceRelease = "test-release") {
+  const crypto = require("crypto");
+  const receiptPath = path.join(dir, "receiver-state.json");
+  fs.writeFileSync(receiptPath, JSON.stringify(receipt));
+  const receiptHash = crypto.createHash("sha256").update(fs.readFileSync(receiptPath)).digest("hex");
+  const deepPath = path.join(dir, "deep-verify-state.json");
+  fs.writeFileSync(deepPath, JSON.stringify({
+    version: 1, completedAt: new Date().toISOString(), result: "success",
+    verifiedCount: receipt.sets.length, receiverReceiptSha256: receiptHash, verifiedSets: receipt.sets,
+  }));
+  const deepHash = crypto.createHash("sha256").update(fs.readFileSync(deepPath)).digest("hex");
+  fs.writeFileSync(path.join(path.dirname(markerPath), "standby-recovery.json"), JSON.stringify({
+    version: 1, prepared_at: new Date().toISOString(), app_data_id: setId,
+    site_count: siteCount, source_release: sourceRelease,
+    receiver_receipt_sha256: receiptHash, deep_verification_sha256: deepHash,
+  }));
+  fs.writeFileSync(path.join(dir, ".source-release"), sourceRelease);
+}
+
 test("fails when not in standby", async () => {
   const r = await runPreflight({ isStandby: false, sites: [], backupsRoot: "/tmp" });
   assert.equal(r.ready, false);
@@ -48,20 +67,24 @@ test("passes WordPress with valid backup and machine marker", async () => {
     const setId = fs.readdirSync(path.join(dir, "example.com"))[0];
     const manifestHash = require("crypto").createHash("sha256").update(fs.readFileSync(path.join(dir, "example.com", setId, "manifest.json"))).digest("hex");
     const appHash = makeAppData(dir, setId);
+    const receipt = { version: 1, result: "success", sourceServerId: "primary-test", completedAt: new Date().toISOString(), verifiedCount: 2, sets: [{ domain: "example.com", setId, manifestSha256: manifestHash }, { domain: "app-data", setId, manifestSha256: appHash }] };
+    makePreparedState(dir, markerPath, receipt, setId);
     const r = await runPreflight({
       isStandby: true, markerPath, ingressMode: "direct_npm",
       sites: [{ host: "example.com", siteType: "wordpress" }],
       backupsRoot: dir, websitesRoot: dir, sourcesRoot: dir,
       env: { UI_SETTINGS_KEY: "k", BILLING_API_TOKEN: "t", SERVER_ID: "s" },
       dockerInfo: { check: async () => ({ ok: true }) },
-      receiverState: { version: 1, result: "success", sourceServerId: "primary-test", completedAt: new Date().toISOString(), verifiedCount: 2, sets: [{ domain: "example.com", setId, manifestSha256: manifestHash }, { domain: "app-data", setId, manifestSha256: appHash }] }
     });
     assert.equal(r.ready, true);
     assert.equal(r.replication.sourceServerId, "primary-test");
     assert.equal(r.replication.verifiedSetCount, 2);
     assert.equal(r.replication.websiteGroupCount, 1);
     assert.equal(r.replication.appDataSetId, setId);
-    assert.equal(r.replication.deepVerification, "missing");
+    assert.equal(r.replication.deepVerification, "current");
+    assert.ok(r.replication.preparedAt);
+    assert.equal(r.replication.preparedSiteCount, 1);
+    assert.equal(r.replication.preparedSourceRelease, "test-release");
     assert.ok(r.replication.estimatedDataLossHours >= 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

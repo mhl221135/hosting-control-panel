@@ -203,6 +203,7 @@ jq -e --arg receiver_sha "$receiver_sha" '
   (.verifiedSets | type == "array") and (.verifiedSets | length) == .verifiedCount
 ' "$deep_receipt" >/dev/null \
   || { printf 'Deep verification is missing, invalid, or stale for the current receiver receipt.\n' >&2; exit 1; }
+deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
 
 unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are running: %s\n' "$unexpected" >&2; exit 1; }
@@ -261,8 +262,11 @@ stage=""
 source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
 temporary="$machine_state/standby-recovery.json.tmp.$$"
 jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app_id" \
-  --arg source_release "$source_release" --argjson site_count "$site_count" \
-  '{version:1, prepared_at:$prepared_at, app_data_id:$app_data_id, site_count:$site_count, source_release:$source_release}' > "$temporary"
+  --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
+  --arg deep_verification_sha256 "$deep_sha" --argjson site_count "$site_count" \
+  '{version:1, prepared_at:$prepared_at, app_data_id:$app_data_id, site_count:$site_count,
+    source_release:$source_release, receiver_receipt_sha256:$receiver_receipt_sha256,
+    deep_verification_sha256:$deep_verification_sha256}' > "$temporary"
 chmod 600 "$temporary"
 mv "$temporary" "$machine_state/standby-recovery.json"
 

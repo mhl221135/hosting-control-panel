@@ -37,6 +37,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /hosting-backup-receiver\/lock/);
   assert.match(prepare, /deep-verify-state\.json/);
   assert.match(prepare, /receiverReceiptSha256 == \$receiver_sha/);
+  assert.match(prepare, /receiver_receipt_sha256/);
+  assert.match(prepare, /deep_verification_sha256/);
   assert.match(prepare, /Writable hosting containers are running/);
   assert.match(prepare, /databases\.sql\.gz/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);

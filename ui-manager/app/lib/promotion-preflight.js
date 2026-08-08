@@ -16,6 +16,10 @@ const RECEIPT_SET_KEYS = new Set(["domain", "setId", "manifestSha256"]);
 const SITE_KEYS = new Set(["version", "type", "id", "domain", "websitePath", "database", "startedAt", "completedAt", "artifacts"]);
 const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt", "completedAt", "artifacts"]);
 const ARTIFACT_KEYS = new Set(["size", "sha256"]);
+const RECOVERY_KEYS = new Set([
+  "version", "prepared_at", "app_data_id", "site_count", "source_release",
+  "receiver_receipt_sha256", "deep_verification_sha256",
+]);
 
 function check(status, reason) {
   return { status, reason: String(reason).slice(0, 500) };
@@ -110,6 +114,24 @@ function readDeepVerifyState(root) {
     if (!Number.isInteger(value.verifiedCount) || !Array.isArray(value.verifiedSets) || value.verifiedSets.length !== value.verifiedCount) return null;
     return value;
   });
+}
+
+function validateStandbyRecovery(value) {
+  if (!exactKeys(value, RECOVERY_KEYS) || value.version !== 1 || !validDate(value.prepared_at)) return null;
+  if (!SET_ID_PATTERN.test(String(value.app_data_id || ""))) return null;
+  if (!Number.isInteger(value.site_count) || value.site_count < 0 || value.site_count > 5000) return null;
+  if (typeof value.source_release !== "string" || !value.source_release || value.source_release.length > 128 || CONTROL_CHARS.test(value.source_release)) return null;
+  if (!HEX_SHA256.test(String(value.receiver_receipt_sha256 || "")) || !HEX_SHA256.test(String(value.deep_verification_sha256 || ""))) return null;
+  return value;
+}
+
+function readStandbyRecoveryState(markerPath) {
+  return readJson(path.join(path.dirname(markerPath), "standby-recovery.json"), validateStandbyRecovery);
+}
+
+function fileSha256(filePath) {
+  try { return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex"); }
+  catch { return ""; }
 }
 
 function diskFreeBytes(directory) {
@@ -237,6 +259,23 @@ async function runPreflight(opts = {}) {
   if (!sites.length) checks.push(check("warning", "No configured websites found"));
   else checks.push(check(oldestAge <= freshnessMs ? "pass" : "fail", `Oldest selected recovery point age is ${Math.round(oldestAge / 3_600_000)}h`));
 
+  const recovery = readStandbyRecoveryState(markerPath);
+  if (isStandby) {
+    const recoveryIssues = [];
+    if (!recovery) recoveryIssues.push("no valid prepared recovery marker");
+    else {
+      if (recovery.app_data_id !== appDataSet) recoveryIssues.push("app-data recovery point changed");
+      if (recovery.site_count !== sites.length) recoveryIssues.push("configured website count changed");
+      if (recovery.receiver_receipt_sha256 !== receiptHash) recoveryIssues.push("receiver receipt changed");
+      const deepHash = fileSha256(path.join(backupsRoot, "deep-verify-state.json"));
+      if (!deepHash || recovery.deep_verification_sha256 !== deepHash) recoveryIssues.push("deep-verification result changed");
+      let currentRelease = "";
+      try { currentRelease = fs.readFileSync(path.join(sourcesRoot, ".source-release"), "utf8").trim(); } catch {}
+      if (!currentRelease || recovery.source_release !== currentRelease) recoveryIssues.push("source release changed or is unavailable");
+    }
+    checks.push(check(recoveryIssues.length ? "fail" : "pass", `Prepared recovery: ${recoveryIssues.join("; ") || "current and receipt-bound"}`));
+  }
+
   for (const [label, dir] of [["Backups", backupsRoot], ["Websites", websitesRoot], ["Sources", sourcesRoot]]) checks.push(check(fs.existsSync(dir) ? "pass" : "fail", `${label} path exists`));
   for (const [label, dir] of [["Backup", backupsRoot], ["Target", websitesRoot || backupsRoot]]) {
     const free = diskFreeBytes(dir);
@@ -261,6 +300,9 @@ async function runPreflight(opts = {}) {
       estimatedDataLossHours: oldestAge > 0 ? Math.ceil(oldestAge / 3_600_000) : null,
       deepVerification: deep ? (deep.receiverReceiptSha256 === receiptHash ? "current" : "stale") : "missing",
       deepVerifiedAt: deep?.completedAt || "",
+      preparedAt: recovery?.prepared_at || "",
+      preparedSiteCount: recovery?.site_count ?? null,
+      preparedSourceRelease: recovery?.source_release || "",
     },
   };
 }
@@ -268,5 +310,6 @@ async function runPreflight(opts = {}) {
 module.exports = {
   DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, runPreflight, readSiteManifest, readReceiverState,
   readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
-  validateSiteManifest, validateAppDataManifest, validDomain, validRelativePath,
+  readStandbyRecoveryState, validateSiteManifest, validateAppDataManifest,
+  validateStandbyRecovery, validDomain, validRelativePath,
 };
