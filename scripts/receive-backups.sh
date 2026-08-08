@@ -71,6 +71,7 @@ case "$source_root" in *[!A-Za-z0-9_./-]*) printf 'Source path contains unsuppor
 
 umask 077
 mkdir -p "$destination/.incoming"
+destination_owner=$(ls -nd "$destination" | awk '{print $3 ":" $4}')
 inventory=$(mktemp)
 stage=""
 cleanup() {
@@ -175,9 +176,14 @@ while IFS='	' read -r group id bytes; do
   [ -n "$group" ] || continue
   received_groups="$received_groups $group"
   case "$bytes" in ''|*[!0-9]*) printf 'Invalid inventory size for %s/%s.\n' "$group" "$id" >&2; exit 1 ;; esac
-  target="$destination/$group/$id"
+  group_dir="$destination/$group"
+  mkdir -p "$group_dir"
+  chown "$destination_owner" "$group_dir"
+  chmod 750 "$group_dir"
+  target="$group_dir/$id"
   if [ -d "$target" ]; then
     verify_set "$target" "$group" "$id"
+    chown -R "$destination_owner" "$target"
     printf 'Verified existing %s/%s\n' "$group" "$id"
     if [ "$dry_run" -eq 0 ]; then
       manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
@@ -197,7 +203,7 @@ while IFS='	' read -r group id bytes; do
   [ "$dry_run" -eq 0 ] || continue
   stage="$destination/.incoming/$group-$id.$$"
   rm -rf "$stage"
-  mkdir -p "$stage" "$destination/$group"
+  mkdir -p "$stage"
   if [ -n "$remote" ]; then
     # shellcheck disable=SC2086
     rsync -a --partial -e "ssh $ssh_options" "$remote:$source_root/$group/$id/" "$stage/"
@@ -205,6 +211,7 @@ while IFS='	' read -r group id bytes; do
     cp -a "$source_root/$group/$id/." "$stage/"
   fi
   verify_set "$stage" "$group" "$id"
+  chown -R "$destination_owner" "$stage"
   mv "$stage" "$target"
   stage=""
   printf 'Promoted verified %s/%s\n' "$group" "$id"
@@ -249,7 +256,6 @@ if [ "$dry_run" -eq 0 ]; then
     --argjson sets "$sets_json" \
     '{version: 1, completedAt: $completedAt, result: "success", sourceServerId: $sourceServerId, verifiedCount: $verifiedCount, sets: $sets}' > "$tmp_receipt"
   chmod 600 "$tmp_receipt"
-  destination_owner=$(ls -nd "$destination" | awk '{print $3 ":" $4}')
   receipt_owner=$(ls -nd "$tmp_receipt" | awk '{print $3 ":" $4}')
   if [ "$receipt_owner" != "$destination_owner" ]; then
     chown "$destination_owner" "$tmp_receipt"

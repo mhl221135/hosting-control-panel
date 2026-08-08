@@ -118,7 +118,9 @@ mirrored. A successful run atomically writes mode-`0600`
 manifest hash for every retained selected set. A failed or dry run preserves
 the previous receipt. The receipt inherits the destination directory's numeric
 owner and group so the unprivileged panel can read it without making it group-
-or world-readable. Use a restricted SSH account that can read only completed
+or world-readable. Selected group directories and verified sets use that same
+owner, with group directories normalized to mode `0750`, so restrictive
+root-created parent directories cannot block verification. Use a restricted SSH account that can read only completed
 backup directories. Do not grant it Docker, shell administration, website, or
 database access.
 

@@ -68,6 +68,12 @@ if [ ! -d "$dst/example.com/2026-08-08T00-00-00Z" ]; then
   exit 1
 fi
 
+group_mode=$(stat -f '%Lp' "$dst/example.com" 2>/dev/null || stat -c '%a' "$dst/example.com")
+if [ "$group_mode" != "750" ]; then
+  echo "FAIL: Backup group mode is $group_mode, expected 750"
+  exit 1
+fi
+
 receipt_mode=$(stat -f '%Lp' "$dst/receiver-state.json" 2>/dev/null || stat -c '%a' "$dst/receiver-state.json")
 if [ "$receipt_mode" != "600" ]; then
   echo "FAIL: Receipt mode is $receipt_mode, expected 600"
@@ -77,6 +83,11 @@ destination_owner=$(ls -nd "$dst" | awk '{print $3 ":" $4}')
 receipt_owner=$(ls -nd "$dst/receiver-state.json" | awk '{print $3 ":" $4}')
 if [ "$receipt_owner" != "$destination_owner" ]; then
   echo "FAIL: Receipt owner $receipt_owner does not match destination owner $destination_owner"
+  exit 1
+fi
+set_owner=$(ls -nd "$dst/example.com/2026-08-08T00-00-00Z" | awk '{print $3 ":" $4}')
+if [ "$set_owner" != "$destination_owner" ]; then
+  echo "FAIL: Backup set owner $set_owner does not match destination owner $destination_owner"
   exit 1
 fi
 
