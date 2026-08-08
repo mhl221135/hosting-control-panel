@@ -568,6 +568,7 @@ class BackupManager {
         "-czf",
         path.join(partial, "app-data.tar.gz"),
         "--exclude=./mysql",
+        "--exclude=./redis",
         "--exclude=./nginx-cache",
         "-C",
         this.appDataRoot,

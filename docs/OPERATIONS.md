@@ -242,7 +242,9 @@ App-data backup prepares NPM's Let's Encrypt tree through an exact allowlisted
 control-agent command and fails closed when any included file is unreadable.
 This prevents certificate links from being archived without their private-key
 targets. Do not bypass this failure with tar's `--ignore-failed-read`; correct
-the source permissions and create a fresh app-data set instead.
+the source permissions and create a fresh app-data set instead. Redis
+persistence and nginx cache directories are intentionally excluded because
+they contain rebuildable cache state, not recovery data.
 
 New site and app-data sets use manifest version 2 and record each artifact's
 byte length and SHA-256 digest. Restore verifies these values before extracting

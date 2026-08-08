@@ -41,6 +41,9 @@ test("app-data backup uses the exact allowlisted NPM certificate-readiness comma
   const { NPM_BACKUP_READ_SCRIPT: agentScript } = require("../../../control-agent/app/policy");
   assert.equal(NPM_BACKUP_READ_SCRIPT, agentScript);
   assert.match(NPM_BACKUP_READ_SCRIPT, /^set -eu; find \/etc\/letsencrypt /);
+  const source = fs.readFileSync(path.join(__dirname, "../lib/backup-manager.js"), "utf8");
+  assert.match(source, /"--exclude=\.\/redis"/);
+  assert.doesNotMatch(source, /"--ignore-failed-read"[\s\S]{0,500}"--exclude=\.\/mysql"/);
 });
 
 test("backup sets remain private while allowing the replica group to read artifacts", () => {

@@ -79,7 +79,9 @@ integration keys. Transfer secrets through an encrypted administrative channel.
 
 Never copy a live MySQL data directory with `rsync`. The application-data
 backup deliberately excludes `app-data/mysql` and creates a consistent logical
-dump instead. Copy only completed backup directories, never `.partial-*`.
+dump instead. It also excludes disposable Redis persistence and nginx cache
+state; both caches are rebuilt after recovery. Copy only completed backup
+directories, never `.partial-*`.
 
 ## Baseline Backup Standby
 
