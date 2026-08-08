@@ -5,6 +5,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const test = require("node:test");
+const { canonicalizePayload, verifySignature } = require("../app/lib/enrollment-signing");
 
 function waitForHealth(baseUrl, child) {
   return new Promise((resolve, reject) => {
@@ -32,7 +33,8 @@ async function boot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-enroll-api-"));
   const port = 30_000 + crypto.randomInt(10_000);
   const baseUrl = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.resolve(__dirname, "../app/server.js")], {
+  const runtimeFlags = process.execArgv.filter((flag) => flag === "--experimental-sqlite");
+  const child = spawn(process.execPath, [...runtimeFlags, path.resolve(__dirname, "../app/server.js")], {
     env: {
       ...process.env,
       PORT: String(port),
@@ -41,12 +43,17 @@ async function boot() {
       BILLING_ADMIN_EMAIL: "billing@example.com",
       BILLING_ADMIN_PASSWORD: "billing-password-123",
       BILLING_API_TOKEN: crypto.randomBytes(32).toString("hex"),
+      BILLING_SETTINGS_KEY: "test-only-billing-settings-key-32-bytes",
     },
     stdio: ["ignore", "ignore", "pipe"],
   });
   let stderr = "";
   child.stderr.on("data", (chunk) => { stderr += chunk; });
-  await waitForHealth(baseUrl, child);
+  try {
+    await waitForHealth(baseUrl, child);
+  } catch (error) {
+    throw new Error(`${error.message}${stderr ? `\n${stderr}` : ""}`);
+  }
   const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -62,7 +69,7 @@ async function boot() {
       ...(options.headers || {}),
     },
   });
-  return { baseUrl, root, child, stderr, admin };
+  return { baseUrl, root, child, get stderr() { return stderr; }, admin };
 }
 
 async function createSharedService(admin) {
@@ -188,6 +195,105 @@ test("enrollment routes reject unknown fields and invalid UUIDs without echoing 
     });
     assert.equal(wrongDomain.status, 400);
     assert.equal((await wrongDomain.text()).includes(created.code), false);
+
+    const coercibleHours = await env.admin("/api/enrollment/codes", {
+      method: "POST",
+      body: JSON.stringify({
+        service_id: service.service_id,
+        canonical_domain: service.primary_domain,
+        expires_in_hours: "24",
+      }),
+    });
+    assert.equal(coercibleHours.status, 400);
+
+    const oversized = await fetch(`${env.baseUrl}/api/enrollment/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: "a".repeat(5000), domain: service.primary_domain }),
+    });
+    assert.equal(oversized.status, 413);
+  } finally {
+    env.child.kill();
+    fs.rmSync(env.root, { recursive: true, force: true });
+  }
+});
+
+test("initializes signing and serves a verifiable allowlisted entitlement", { timeout: 30_000 }, async () => {
+  const env = await boot();
+  try {
+    const service = await createSharedService(env.admin);
+    const settings = await env.admin("/api/woocommerce/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        site_url: "https://store.example.com",
+        public_billing_url: "https://billing.example.com",
+        product_id: 123,
+        link_hours: 72,
+        consumer_key: `ck_${"a".repeat(30)}`,
+        consumer_secret: `cs_${"b".repeat(30)}`,
+        webhook_secret: "test-webhook-secret-at-least-24-characters",
+      }),
+    });
+    assert.equal(settings.status, 200);
+
+    const created = await (await env.admin("/api/enrollment/codes", {
+      method: "POST",
+      body: JSON.stringify({
+        service_id: service.service_id,
+        canonical_domain: service.primary_domain,
+        expires_in_hours: 24,
+      }),
+    })).json();
+    const exchanged = await (await fetch(`${env.baseUrl}/api/enrollment/exchange`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: created.code, domain: service.primary_domain }),
+    })).json();
+
+    const initialized = await env.admin("/api/enrollment/signing/initialize", {
+      method: "POST",
+      body: JSON.stringify({ confirm: "INITIALIZE" }),
+    });
+    assert.equal(initialized.status, 201);
+
+    const entitlementResponse = await fetch(`${env.baseUrl}/remote/v1/entitlement`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${exchanged.credential}`,
+        "X-Installation-Id": exchanged.installation_id,
+      },
+    });
+    const entitlement = await entitlementResponse.json();
+    assert.equal(entitlementResponse.status, 200, `${JSON.stringify(entitlement)}\n${env.stderr}`);
+    assert.deepEqual(Object.keys(entitlement).sort(), ["ok", "payload", "signature"]);
+    assert.equal(entitlement.payload.installation_id, exchanged.installation_id);
+    assert.equal(entitlement.payload.approved_canonical_domain, service.primary_domain);
+    assert.equal(entitlement.payload.enforcement_enabled, false);
+    assert.match(entitlement.payload.renewal_url, /\/renew\/r1_[A-Za-z0-9_-]{43}$/);
+    assert.equal(entitlement.payload.renewal_url.includes(service.service_id), false);
+
+    const keysResponse = await fetch(`${env.baseUrl}/remote/v1/keys`);
+    assert.equal(keysResponse.status, 200);
+    const keys = await keysResponse.json();
+    assert.equal(keys.keys.length, 1);
+    assert.equal(keys.keys[0].active, true);
+    assert.equal(
+      verifySignature(keys.keys[0].public_key, canonicalizePayload(entitlement.payload), entitlement.signature),
+      true,
+    );
+
+    const listed = await (await env.admin(`/api/enrollment/installations?service_id=${service.service_id}`)).json();
+    assert.equal(listed.installations[0].contract_version, 1);
+    assert.equal(listed.installations[0].safe_status, entitlement.payload.entitlement_state);
+
+    const invalid = await fetch(`${env.baseUrl}/remote/v1/entitlement`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${"x".repeat(43)}`,
+        "X-Installation-Id": exchanged.installation_id,
+      },
+    });
+    assert.equal(invalid.status, 401);
   } finally {
     env.child.kill();
     fs.rmSync(env.root, { recursive: true, force: true });

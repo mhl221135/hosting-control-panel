@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
+const { exportCsv } = require("../app/lib/csv");
 const {
   CONTRACT_VERSION,
   ENTITLEMENT_FIELDS,
@@ -50,6 +51,8 @@ test("buildEntitlementPayload only includes allowlisted fields and fails open", 
     service_id: "svc-1",
   };
   const service = {
+    service_id: "svc-1",
+    primary_domain: "example.com",
     hosting_state: "active",
     hosting_price_minor: 12000,
     currency: "USD",
@@ -59,7 +62,7 @@ test("buildEntitlementPayload only includes allowlisted fields and fails open", 
     installation,
     service,
     keyId: "key-1",
-    publicBillingUrl: "https://billing.example.com",
+    renewalUrl: "https://billing.example.com/renew/r1_example",
   });
   assert.equal(payload.contract_version, CONTRACT_VERSION);
   assert.equal(payload.installation_id, "inst-1");
@@ -74,8 +77,17 @@ test("buildEntitlementPayload only includes allowlisted fields and fails open", 
     assert.ok(ENTITLEMENT_FIELDS.has(key), `unexpected field: ${key}`);
   }
   // Fail-open: missing service data → active state, not suspension.
-  const safe = buildEntitlementPayload({ installation, service: null, keyId: "k", publicBillingUrl: "" });
+  const safe = buildEntitlementPayload({ installation, service: null, keyId: "k", renewalUrl: "" });
   assert.equal(safe.entitlement_state, "active");
+  const suspended = buildEntitlementPayload({
+    installation,
+    service: { ...service, hosting_state: "suspended" },
+    keyId: "k",
+    renewalUrl: "https://billing.example.com/renew/r1_opaque",
+  });
+  assert.equal(suspended.entitlement_state, "suspended");
+  assert.equal(suspended.enforcement_enabled, false);
+  assert.equal(suspended.renewal_url.endsWith("r1_opaque"), true);
 });
 
 test("Ed25519 key generation, signing, and verification", () => {
@@ -154,13 +166,26 @@ test("signing key lifecycle: initialize, status, rotate, and retirement restrict
     const newEnc = encryptPrivateKey(newKey.privateKey, encKey);
     const newKeyId = value.database.rotateSigningKey(
       crypto.randomUUID(), newKey.publicKey, newEnc,
-      new Date(Date.now() + 90 * 24 * 3600_000).toISOString(), 720, "admin@example.com",
+      new Date(Date.now() + 90 * 24 * 3600_000).toISOString(), 720, "admin@example.com", keyId,
     );
     assert.notEqual(newKeyId, keyId);
     assert.equal(value.database.activePublicKey().keyId, newKeyId);
-    assert.equal(value.database.allPublicKeys().length, 2);
+    assert.equal(value.database.eligiblePublicKeys().length, 2);
+    const previous = value.database.db.prepare("SELECT private_key_encrypted FROM signing_keys WHERE key_id=?").get(keyId);
+    assert.equal(previous.private_key_encrypted, "");
+    assert.throws(
+      () => value.database.rotateSigningKey(
+        crypto.randomUUID(), newKey.publicKey, newEnc,
+        new Date(Date.now() + 90 * 24 * 3600_000).toISOString(), 720,
+        "admin@example.com", keyId,
+      ),
+      /changed; refresh status/,
+    );
     // Retired key can be retired.
-    value.database.retireSigningKey(keyId, true, "admin@example.com");
+    const retired = value.database.retireSigningKey(keyId, true, "admin@example.com");
+    assert.equal(retired.alreadyRetired, false);
+    assert.equal(value.database.retireSigningKey(keyId, true, "admin@example.com").alreadyRetired, true);
+    assert.equal(value.database.eligiblePublicKeys().some((item) => item.key_id === keyId), false);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });
@@ -212,16 +237,14 @@ test("heartbeat is throttled and updates only on success", () => {
       code: code.code,
       domain: service.primary_domain,
     });
-    const result = value.database.heartbeatInstallation(installationId, true);
+    const result = value.database.heartbeatInstallation(installationId, { contractVersion: 1, safeStatus: "active" });
     assert.ok(result.last_seen_at);
     assert.ok(result.last_success_at);
     // Second call within throttle window should not update (same timestamps).
-    const result2 = value.database.heartbeatInstallation(installationId, true);
+    assert.equal(result.contract_version, 1);
+    assert.equal(result.safe_status, "active");
+    const result2 = value.database.heartbeatInstallation(installationId, { contractVersion: 1, safeStatus: "active" });
     assert.equal(result2.last_success_at, result.last_success_at);
-    const result3 = value.database.heartbeatInstallation(installationId, false);
-    // Failed auth should not update heartbeat at all — actually heartbeatInstallation with success=false skips last_success_at update but still writes last_seen_at.
-    assert.ok(result3.last_seen_at);
-    assert.equal(result3.last_success_at, result.last_success_at);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });
@@ -246,7 +269,7 @@ test("public keys endpoint contains no private material and signing is absent fr
       "key-audit-1", key.publicKey, encrypted,
       new Date(Date.now() + 90 * 24 * 3600_000).toISOString(), 720, "admin@example.com",
     );
-    const keys = value.database.allPublicKeys();
+    const keys = value.database.eligiblePublicKeys();
     const keysJson = JSON.stringify(keys);
     assert.equal(keysJson.includes(key.privateKey), false);
     assert.equal(keysJson.includes("private_key_encrypted"), false);
@@ -255,6 +278,11 @@ test("public keys endpoint contains no private material and signing is absent fr
     const audit = JSON.stringify(value.database.audit());
     assert.equal(audit.includes(key.privateKey), false);
     assert.equal(audit.includes("private_key"), false);
+    const csv = exportCsv(value.database.services());
+    assert.equal(csv.includes(key.privateKey), false);
+    assert.equal(csv.includes(encrypted), false);
+    value.database.db.exec("PRAGMA wal_checkpoint(FULL)");
+    assert.equal(fs.readFileSync(value.database.path).includes(Buffer.from(key.privateKey)), false);
   } finally {
     value.database.close();
     fs.rmSync(value.root, { recursive: true, force: true });

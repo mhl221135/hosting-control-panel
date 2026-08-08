@@ -21,16 +21,15 @@ function canonicalizePayload(obj) {
   return JSON.stringify(sorted);
 }
 
-function buildEntitlementPayload({ installation, service, keyId, publicBillingUrl }) {
-  const now = new Date();
-  const state = String(service?.hosting_state || "exempt");
-  // Fail-open: if service data is missing or ambiguous, produce a safe
-  // non-enforcing entitlement — never an accidental suspension.
-  const safeState = state === "suspended" ? "active" : state;
-// If no service data at all, default to the most permissive non-blocking state.
-  const entitlementState = service
-    ? (state === "suspended" ? "active" : state)
-    : "active";
+function buildEntitlementPayload({ installation, service, keyId, renewalUrl = "", now = new Date() }) {
+  const allowedStates = new Set(["active", "reminder", "grace", "suspended", "exempt"]);
+  const state = String(service?.hosting_state || "");
+  const serviceMatches = Boolean(service && service.service_id === installation.service_id
+    && service.primary_domain === installation.canonical_domain);
+  // Missing, mismatched, or malformed billing data fails open. A valid
+  // suspended state is represented accurately, but enforcement remains off
+  // until the separately reviewed plugin phase enables it.
+  const entitlementState = serviceMatches && allowedStates.has(state) ? state : "active";
   return {
     contract_version: CONTRACT_VERSION,
     installation_id: installation.installation_id,
@@ -38,13 +37,10 @@ function buildEntitlementPayload({ installation, service, keyId, publicBillingUr
     entitlement_state: entitlementState,
     issued_at: now.toISOString(),
     expires_at: new Date(now.valueOf() + ENTITLEMENT_TTL_MS).toISOString(),
-    renewal_url: publicBillingUrl
-      && service
-      ? `${publicBillingUrl}/renew/${service.renewalUrl || installation.service_id}`
-      : "",
-    amount_minor: Number(service?.hosting_price_minor || 0),
-    currency: String(service?.currency || "USD"),
-    renewal_months: Number(service?.renewal_months || 12),
+    renewal_url: serviceMatches ? String(renewalUrl || "") : "",
+    amount_minor: serviceMatches ? Number(service.hosting_price_minor || 0) : 0,
+    currency: serviceMatches ? String(service.currency || "USD") : "USD",
+    renewal_months: serviceMatches ? Number(service.renewal_months || 12) : 12,
     enforcement_enabled: false,
     key_id: keyId,
   };

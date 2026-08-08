@@ -113,7 +113,7 @@ services:
         condition: service_healthy
 
   hosting-billing:
-    image: hosting-billing:1.0
+    image: hosting-billing:1.1
     build:
       context: ./billing-service
     container_name: hosting-billing

@@ -20,6 +20,7 @@ const {
   generateSigningKey,
   loadEncryptionKey,
   signPayload,
+  verifySignature,
 } = require("./lib/enrollment-signing");
 
 const PORT = Number(process.env.PORT || 8787);
@@ -173,25 +174,27 @@ function renewalUnavailable() {
 </main></body></html>`;
 }
 
-function readBody(req) {
+function readBody(req, maximum = MAX_BODY) {
   return new Promise((resolve, reject) => {
     let body = "";
+    let exceeded = false;
     req.setEncoding("utf8");
     req.on("data", (chunk) => {
+      if (exceeded) return;
       body += chunk;
-      if (Buffer.byteLength(body) > MAX_BODY) {
+      if (Buffer.byteLength(body) > maximum) {
+        exceeded = true;
         reject(Object.assign(new Error("Request body is too large"), { statusCode: 413 }));
-        req.destroy();
       }
     });
-    req.on("end", () => resolve(body));
+    req.on("end", () => { if (!exceeded) resolve(body); });
     req.on("error", reject);
   });
 }
 
-async function readJson(req) {
+async function readJson(req, maximum = MAX_BODY) {
   try {
-    return JSON.parse((await readBody(req)) || "{}");
+    return JSON.parse((await readBody(req, maximum)) || "{}");
   } catch (error) {
     if (error.statusCode) throw error;
     throw Object.assign(new Error("Request body must be valid JSON"), { statusCode: 400 });
@@ -200,29 +203,40 @@ async function readJson(req) {
 
 const POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
-function rejectPollution(value) {
+function validateRequestStructure(value, depth = 0, state = { nodes: 0 }) {
+  state.nodes += 1;
+  if (depth > 8 || state.nodes > 256) {
+    throw Object.assign(new Error("Request structure is too complex"), { statusCode: 400 });
+  }
+  if (typeof value === "string" && /[\u0000-\u001f\u007f]/.test(value)) {
+    throw Object.assign(new Error("Request contains invalid characters"), { statusCode: 400 });
+  }
   if (value === null || typeof value !== "object") return;
   if (Array.isArray(value)) {
-    for (const item of value) rejectPollution(item);
+    if (value.length > 100) throw Object.assign(new Error("Request array is too large"), { statusCode: 400 });
+    for (const item of value) validateRequestStructure(item, depth + 1, state);
     return;
   }
   for (const key of Object.keys(value)) {
     if (POLLUTION_KEYS.has(key)) {
       throw Object.assign(new Error("Unsupported request structure"), { statusCode: 400 });
     }
-    rejectPollution(value[key]);
+    if (/[^\x20-\x7e]/.test(key)) {
+      throw Object.assign(new Error("Request contains invalid field names"), { statusCode: 400 });
+    }
+    validateRequestStructure(value[key], depth + 1, state);
   }
 }
 
-async function readGuardedJson(req, allowed, stringKeys = []) {
-  const body = await readJson(req);
+async function readGuardedJson(req, allowed, stringKeys = [], maximum = 4096) {
+  const body = await readJson(req, maximum);
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     throw Object.assign(new Error("Request body must be a JSON object"), { statusCode: 400 });
   }
-  rejectPollution(body);
+  validateRequestStructure(body);
   const unknown = Object.keys(body).filter((key) => !allowed.has(key));
   if (unknown.length) {
-    throw Object.assign(new Error(`Unsupported field: ${unknown[0]}`), { statusCode: 400 });
+    throw Object.assign(new Error("Request contains an unsupported field"), { statusCode: 400 });
   }
   for (const key of stringKeys) {
     if (Object.prototype.hasOwnProperty.call(body, key)
@@ -238,7 +252,22 @@ function isUuid(value) {
 }
 
 function enrollmentCodeShape(value) {
-  return /^[A-Za-z0-9_-]{20,}$/.test(String(value || ""));
+  return /^[A-Za-z0-9_-]{32}$/.test(String(value || ""));
+}
+
+function installationCredentialShape(value) {
+  return /^[A-Za-z0-9_-]{43}$/.test(String(value || ""));
+}
+
+function serviceIdShape(value) {
+  return /^[a-z0-9][a-z0-9_-]{5,79}$/.test(String(value || ""));
+}
+
+function requireStringField(body, key) {
+  if (typeof body[key] !== "string") {
+    throw Object.assign(new Error(`${key} must be a string`), { statusCode: 400 });
+  }
+  return body[key];
 }
 
 function sessionRequired(req) {
@@ -423,27 +452,31 @@ async function api(req, res) {
   if (req.method === "POST" && url.pathname === "/api/enrollment/exchange") {
     publicRateLimit(req);
     const body = await readGuardedJson(req, new Set(["code", "domain"]), ["code", "domain"]);
-    const code = String(body.code || "");
+    const code = requireStringField(body, "code");
+    const claimedDomain = requireStringField(body, "domain");
     if (!enrollmentCodeShape(code)) {
       throw Object.assign(new Error("Enrollment code shape is invalid"), { statusCode: 400 });
     }
-    const result = database.exchangeEnrollmentCode({ code, domain: String(body.domain || "") });
+    const result = database.exchangeEnrollmentCode({ code, domain: claimedDomain });
     json(res, 200, { ok: true, installation_id: result.installationId, credential: result.credential });
     return true;
   }
 
   if (req.method === "GET" && url.pathname === "/remote/v1/keys") {
-    const keys = database.allPublicKeys().map((k) => ({
+    publicRateLimit(req);
+    const keys = database.eligiblePublicKeys().map((k) => ({
       key_id: k.key_id,
       public_key: k.public_key,
+      active: k.active,
+      overlap_ends_at: k.overlap_ends_at,
     }));
     json(res, 200, { ok: true, keys });
     return true;
   }
 
   if (req.method === "POST" && url.pathname === "/remote/v1/entitlement") {
-    const auth = String(req.headers.authorization || "");
-    const match = /^Bearer ([A-Za-z0-9_-]{20,})$/.exec(auth);
+    const authorization = String(req.headers.authorization || "");
+    const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(authorization);
     if (!match) {
       remoteRateLimit(req);
       json(res, 401, { ok: false, message: "Installation authentication required" });
@@ -451,14 +484,14 @@ async function api(req, res) {
     }
     const credential = match[1];
     const installationId = String(req.headers["x-installation-id"] || "");
-    if (!installationId) {
+    if (!isUuid(installationId) || !installationCredentialShape(credential)) {
       remoteRateLimit(req);
       json(res, 401, { ok: false, message: "Installation authentication required" });
       return true;
     }
     const installation = database.authenticateInstallation(installationId, credential);
     if (!installation) {
-      remoteRateLimit(req, installationId);
+      remoteRateLimit(req);
       json(res, 401, { ok: false, message: "Installation authentication required" });
       return true;
     }
@@ -473,7 +506,13 @@ async function api(req, res) {
       return true;
     }
     const service = database.service(installation.service_id);
-    const privateKey = decryptPrivateKey(activeKey.private_key_encrypted, SIGNING_ENCRYPTION_KEY);
+    let privateKey;
+    try {
+      privateKey = decryptPrivateKey(activeKey.private_key_encrypted, SIGNING_ENCRYPTION_KEY);
+    } catch {
+      json(res, 503, { ok: false, message: "Entitlement signing key is unavailable" });
+      return true;
+    }
     if (!privateKey) {
       json(res, 503, { ok: false, message: "Entitlement signing is not configured" });
       return true;
@@ -482,15 +521,23 @@ async function api(req, res) {
       installation,
       service,
       keyId: activeKey.key_id,
-      publicBillingUrl: wooSettings.public().publicBillingUrl,
+      renewalUrl: wooSettings.public().publicBillingUrl && service
+        ? `${wooSettings.public().publicBillingUrl}/renew/${publicReference.forService(service.service_id)}`
+        : "",
     });
     const { canonical, signature } = signPayload(privateKey, payload);
-    database.heartbeatInstallation(installation.installation_id, true);
+    if (!verifySignature(activeKey.public_key, canonical, signature)) {
+      json(res, 503, { ok: false, message: "Entitlement signing key is unavailable" });
+      return true;
+    }
+    database.heartbeatInstallation(installation.installation_id, {
+      contractVersion: payload.contract_version,
+      safeStatus: payload.entitlement_state,
+    });
     json(res, 200, {
       ok: true,
       payload,
       signature,
-      canonical,
     });
     return true;
   }
@@ -768,9 +815,18 @@ async function api(req, res) {
   }
   if (req.method === "POST" && url.pathname === "/api/enrollment/codes") {
     const body = await readGuardedJson(req, new Set(["service_id", "canonical_domain", "expires_in_hours"]));
+    const serviceId = requireStringField(body, "service_id");
+    const canonicalDomain = requireStringField(body, "canonical_domain");
+    if (!serviceIdShape(serviceId)) {
+      throw Object.assign(new Error("service_id is invalid"), { statusCode: 400 });
+    }
+    if (body.expires_in_hours !== undefined
+      && (typeof body.expires_in_hours !== "number" || !Number.isInteger(body.expires_in_hours))) {
+      throw Object.assign(new Error("expires_in_hours must be an integer number"), { statusCode: 400 });
+    }
     const result = database.createEnrollmentCode({
-      serviceId: String(body.service_id || ""),
-      canonicalDomain: String(body.canonical_domain || ""),
+      serviceId,
+      canonicalDomain,
       expiresInHours: body.expires_in_hours,
       actor: session.email,
     });
@@ -795,7 +851,13 @@ async function api(req, res) {
   }
   if (req.method === "GET" && url.pathname === "/api/enrollment/installations") {
     const serviceId = String(url.searchParams.get("service_id") || "");
-    const installations = serviceId ? database.listInstallationsForService(serviceId) : [];
+    if (!serviceIdShape(serviceId)) {
+      throw Object.assign(new Error("service_id is required and must be valid"), { statusCode: 400 });
+    }
+    if (!database.service(serviceId)) {
+      throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
+    }
+    const installations = database.listInstallationsForService(serviceId);
     json(res, 200, { ok: true, serviceId, installations });
     return true;
   }
@@ -810,7 +872,9 @@ async function api(req, res) {
       installation,
       service: service ? service : null,
       keyId: key ? key.keyId : "no-active-key",
-      publicBillingUrl: wooSettings.public().publicBillingUrl,
+      renewalUrl: wooSettings.public().publicBillingUrl && service
+        ? `${wooSettings.public().publicBillingUrl}/renew/${publicReference.forService(service.service_id)}`
+        : "",
     });
     json(res, 200, { ok: true, preview: payload, signed: false });
     return true;
@@ -823,6 +887,7 @@ async function api(req, res) {
 
   if (req.method === "POST" && url.pathname === "/api/enrollment/signing/initialize") {
     const body = await readGuardedJson(req, new Set(["confirm"]));
+    requireStringField(body, "confirm");
     if (body.confirm !== "INITIALIZE") {
       throw Object.assign(new Error("Type INITIALIZE to create the first signing key"), { statusCode: 400 });
     }
@@ -839,23 +904,38 @@ async function api(req, res) {
   }
 
   if (req.method === "POST" && url.pathname === "/api/enrollment/signing/rotate") {
-    const body = await readGuardedJson(req, new Set(["confirm"]));
+    const body = await readGuardedJson(req, new Set(["confirm", "expected_key_id"]));
+    requireStringField(body, "confirm");
+    requireStringField(body, "expected_key_id");
     if (body.confirm !== "ROTATE") {
       throw Object.assign(new Error("Type ROTATE to replace the active signing key"), { statusCode: 400 });
     }
     if (!SIGNING_ENCRYPTION_KEY) throw Object.assign(new Error("Set BILLING_SETTINGS_KEY before enabling signing"), { statusCode: 503 });
+    if (!isUuid(body.expected_key_id)) {
+      throw Object.assign(new Error("expected_key_id must be a UUID"), { statusCode: 400 });
+    }
     const key = generateSigningKey();
     const privateKeyEncrypted = encryptPrivateKey(key.privateKey, SIGNING_ENCRYPTION_KEY);
     const keyId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 90 * 24 * 3600_000).toISOString();
     const overlapHours = 720;
-    const result = database.rotateSigningKey(keyId, key.publicKey, privateKeyEncrypted, expiresAt, overlapHours, session.email);
+    const result = database.rotateSigningKey(
+      keyId,
+      key.publicKey,
+      privateKeyEncrypted,
+      expiresAt,
+      overlapHours,
+      session.email,
+      body.expected_key_id,
+    );
     json(res, 201, { ok: true, keyId: result, publicKey: key.publicKey, previousKeyRotated: true });
     return true;
   }
 
   if (req.method === "POST" && url.pathname === "/api/enrollment/signing/retire") {
     const body = await readGuardedJson(req, new Set(["key_id", "confirm"]));
+    requireStringField(body, "key_id");
+    requireStringField(body, "confirm");
     if (!isUuid(body.key_id)) throw Object.assign(new Error("key_id must be a UUID"), { statusCode: 400 });
     const emergency = body.confirm === "EMERGENCY";
     const allowed = emergency || body.confirm === "RETIRE";
@@ -863,7 +943,7 @@ async function api(req, res) {
       throw Object.assign(new Error("Type RETIRE (or EMERGENCY to skip the overlap window)"), { statusCode: 400 });
     }
     const result = database.retireSigningKey(body.key_id, emergency, session.email);
-    json(res, 200, { ok: true, keyId: result });
+    json(res, 200, { ok: true, ...result });
     return true;
   }
 
@@ -928,7 +1008,7 @@ const server = http.createServer(async (req, res) => {
       }
       return;
     }
-    if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || req.url === "/health") {
+    if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || req.url.startsWith("/remote/v1/") || req.url === "/health") {
       if (!await api(req, res)) json(res, 404, { ok: false, message: "Not found" });
       return;
     }

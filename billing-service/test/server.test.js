@@ -35,7 +35,8 @@ test("serves the authenticated inventory, recovery, and signed internal API work
   const port = 20_000 + crypto.randomInt(20_000);
   const token = crypto.randomBytes(32).toString("hex");
   const baseUrl = `http://127.0.0.1:${port}`;
-  const child = spawn(process.execPath, [path.resolve(__dirname, "../app/server.js")], {
+  const runtimeFlags = process.execArgv.filter((flag) => flag === "--experimental-sqlite");
+  const child = spawn(process.execPath, [...runtimeFlags, path.resolve(__dirname, "../app/server.js")], {
     env: {
       ...process.env,
       PORT: String(port),
@@ -59,7 +60,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       customer_name: "Provisioned client",
       contact_email: "owner@provisioned.example.com",
       grant_free_period: true,
-      trial_anchor: "2026-07-31",
+      trial_anchor: "2099-07-31",
       free_months: 6,
       renewal_months: 12,
       hosting_price_minor: 8000,
@@ -129,7 +130,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal(services.services.length, 2);
     const provisionedService = services.services.find((service) =>
       service.primary_domain === "provisioned.example.com");
-    assert.equal(provisionedService.hosting_paid_through, "2027-01-31");
+    assert.equal(provisionedService.hosting_paid_through, "2100-01-31");
     const importedService = services.services.find((service) => service.primary_domain === "example.com");
     assert.ok(importedService);
     const reference = new PublicReference(path.join(root, "data")).forService(importedService.service_id);
@@ -307,8 +308,10 @@ test("serves the authenticated inventory, recovery, and signed internal API work
     assert.equal(audit.audit.some((entry) => entry.action === "inventory.import"), true);
     assert.equal(audit.audit.some((entry) => entry.action === "backup.test"), true);
   } finally {
-    child.kill("SIGTERM");
-    await new Promise((resolve) => child.once("close", resolve));
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+      await new Promise((resolve) => child.once("close", resolve));
+    }
     fs.rmSync(root, { recursive: true, force: true });
   }
   const unexpected = stderr.split(/\r?\n/).filter((line) =>

@@ -4,7 +4,7 @@ const path = require("path");
 const { DatabaseSync } = require("node:sqlite");
 const { stateForDate, domain, integer, bounded } = require("./validation");
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 const MANUAL_ACTIONS = {
   exempt: "exempt",
   resume: "",
@@ -317,6 +317,20 @@ class BillingDatabase {
         ALTER TABLE wp_installations ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE wp_installations ADD COLUMN safe_status TEXT NOT NULL DEFAULT '';
         PRAGMA user_version=8;
+        COMMIT;
+      `);
+    }
+    if (current < 9) {
+      this.db.exec(`
+        BEGIN IMMEDIATE;
+        CREATE UNIQUE INDEX idx_wp_installations_credential
+          ON wp_installations(credential_hash);
+        CREATE UNIQUE INDEX idx_wp_installations_active_service_domain
+          ON wp_installations(service_id, canonical_domain)
+          WHERE credential_revoked_at='';
+        CREATE UNIQUE INDEX idx_signing_keys_single_active
+          ON signing_keys(is_active) WHERE is_active=1;
+        PRAGMA user_version=9;
         COMMIT;
       `);
     }
@@ -1088,48 +1102,47 @@ class BillingDatabase {
   }
 
   createEnrollmentCode({ serviceId, canonicalDomain, expiresInHours, actor }) {
-    const service = this.service(serviceId);
-    if (!service) throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
-    if (service.archived) throw Object.assign(new Error("Billing service is archived"), { statusCode: 409 });
-    if (!this.enrollmentActive(service)) {
-      throw Object.assign(
-        new Error("Enrollment is available only for remote/shared-hosting WordPress services"),
-        { statusCode: 400 },
-      );
-    }
-    const target = domain(canonicalDomain);
-    if (target !== service.primary_domain) {
-      throw Object.assign(new Error("Enrollment target must be the service's canonical domain"), { statusCode: 400 });
-    }
-    const now = new Date().toISOString();
-    const activeInstallation = this.db.prepare(
-      "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
-    ).get(service.service_id, target);
-    if (activeInstallation) {
-      throw Object.assign(new Error("An active installation already exists for this service"), { statusCode: 409 });
-    }
-    const pendingCode = this.db.prepare(
-      "SELECT 1 FROM enrollment_codes WHERE service_id=? AND canonical_domain=? AND used_at='' AND revoked_at='' AND expires_at>?",
-    ).get(service.service_id, target, now);
-    if (pendingCode) {
-      throw Object.assign(new Error("A pending enrollment code already exists for this service"), { statusCode: 409 });
-    }
     const hours = integer(expiresInHours, 1, 168, 24);
     const codeId = crypto.randomUUID();
     const code = crypto.randomBytes(24).toString("base64url");
     const codeHash = enrollmentHash(code);
+    const target = domain(canonicalDomain);
+    const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + hours * 3_600_000).toISOString();
     const createdBy = bounded(actor, 160);
     this.transaction(() => {
+      const service = this.service(serviceId);
+      if (!service) throw Object.assign(new Error("Billing service was not found"), { statusCode: 404 });
+      if (service.archived) throw Object.assign(new Error("Billing service is archived"), { statusCode: 409 });
+      if (!this.enrollmentActive(service)) {
+        throw Object.assign(
+          new Error("Enrollment is available only for remote/shared-hosting WordPress services"),
+          { statusCode: 400 },
+        );
+      }
+      if (target !== service.primary_domain) {
+        throw Object.assign(new Error("Enrollment target must be the service's canonical domain"), { statusCode: 400 });
+      }
+      const activeInstallation = this.db.prepare(
+        "SELECT 1 FROM wp_installations WHERE service_id=? AND canonical_domain=? AND credential_revoked_at=''",
+      ).get(service.service_id, target);
+      if (activeInstallation) {
+        throw Object.assign(new Error("An active installation already exists for this service"), { statusCode: 409 });
+      }
+      const pendingCode = this.db.prepare(
+        "SELECT 1 FROM enrollment_codes WHERE service_id=? AND canonical_domain=? AND used_at='' AND revoked_at='' AND expires_at>?",
+      ).get(service.service_id, target, now);
+      if (pendingCode) {
+        throw Object.assign(new Error("A pending enrollment code already exists for this service"), { statusCode: 409 });
+      }
       this.db.prepare(`
         INSERT INTO enrollment_codes(code_id,code_hash,service_id,canonical_domain,expires_at,created_at,created_by)
         VALUES(?,?,?,?,?,?,?)
       `).run(codeId, codeHash, service.service_id, target, expiresAt, now, createdBy);
-    });
-    this.auditEntry(createdBy || "admin", "enrollment.code_created", codeId, {
-      serviceId: service.service_id,
-      domain: target,
-      expiresAt,
+      this.auditEntry(createdBy || "admin", "enrollment.code_created", codeId, {
+        serviceId: service.service_id,
+        expiresAt,
+      });
     });
     return { codeId, code, expiresAt };
   }
@@ -1172,6 +1185,10 @@ class BillingDatabase {
         rejected = { statusCode: 400, message: "Enrollment is not available for this service" };
         return;
       }
+      if (service.primary_domain !== row.canonical_domain) {
+        rejected = { statusCode: 409, message: "Enrollment domain approval is no longer current" };
+        return;
+      }
       const target = domain(claimedDomain);
       if (target !== row.canonical_domain) {
         rejected = { statusCode: 400, message: "Domain does not match this enrollment" };
@@ -1200,46 +1217,55 @@ class BillingDatabase {
         throw Object.assign(new Error("Enrollment code was already used"), { statusCode: 409 });
       }
       result = { installationId, credential, serviceId: row.service_id, canonicalDomain: target };
+      this.auditEntry("system", "enrollment.exchanged", installationId, {
+        codeId: row.code_id,
+        serviceId: row.service_id,
+      });
     });
     if (rejected) {
-      this.auditEntry("system", "enrollment.exchange_rejected", String(codeHash).slice(0, 16), {
+      this.auditEntry("system", "enrollment.exchange_rejected", "unknown", {
         reason: bounded(rejected.message, 120),
       });
       throw Object.assign(new Error(rejected.message), { statusCode: rejected.statusCode });
     }
     if (result) {
-      this.auditEntry("system", "enrollment.exchanged", result.installationId, {
-        serviceId: result.serviceId,
-        canonicalDomain: result.canonicalDomain,
-      });
       return { installationId: result.installationId, credential: result.credential };
     }
     throw Object.assign(new Error("Enrollment could not be completed"), { statusCode: 500 });
   }
 
   revokeEnrollmentCode(codeId, actor) {
-    const row = this.db.prepare("SELECT code_id FROM enrollment_codes WHERE code_id=?").get(String(codeId || ""));
-    if (!row) throw Object.assign(new Error("Enrollment code was not found"), { statusCode: 404 });
-    this.db.prepare("UPDATE enrollment_codes SET revoked_at=? WHERE code_id=? AND revoked_at=''")
-      .run(new Date().toISOString(), row.code_id);
-    this.auditEntry(bounded(actor, 160) || "admin", "enrollment.code_revoked", row.code_id, {});
-    return { codeId: row.code_id };
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT code_id,revoked_at FROM enrollment_codes WHERE code_id=?")
+        .get(String(codeId || ""));
+      if (!row) throw Object.assign(new Error("Enrollment code was not found"), { statusCode: 404 });
+      if (row.revoked_at) return { codeId: row.code_id, alreadyRevoked: true };
+      this.db.prepare("UPDATE enrollment_codes SET revoked_at=? WHERE code_id=? AND revoked_at=''")
+        .run(new Date().toISOString(), row.code_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "enrollment.code_revoked", row.code_id, {});
+      return { codeId: row.code_id, alreadyRevoked: false };
+    });
   }
 
   revokeInstallationCredential(installationId, actor) {
-    const row = this.db.prepare("SELECT installation_id FROM wp_installations WHERE installation_id=?")
-      .get(String(installationId || ""));
-    if (!row) throw Object.assign(new Error("Installation was not found"), { statusCode: 404 });
-    this.db.prepare("UPDATE wp_installations SET credential_revoked_at=?, updated_at=? WHERE installation_id=? AND credential_revoked_at=''")
-      .run(new Date().toISOString(), new Date().toISOString(), row.installation_id);
-    this.auditEntry(bounded(actor, 160) || "admin", "enrollment.installation_revoked", row.installation_id, {});
-    return { installationId: row.installation_id };
+    return this.transaction(() => {
+      const row = this.db.prepare("SELECT installation_id,credential_revoked_at FROM wp_installations WHERE installation_id=?")
+        .get(String(installationId || ""));
+      if (!row) throw Object.assign(new Error("Installation was not found"), { statusCode: 404 });
+      if (row.credential_revoked_at) return { installationId: row.installation_id, alreadyRevoked: true };
+      const now = new Date().toISOString();
+      this.db.prepare("UPDATE wp_installations SET credential_revoked_at=?, updated_at=? WHERE installation_id=? AND credential_revoked_at=''")
+        .run(now, now, row.installation_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "enrollment.installation_revoked", row.installation_id, {});
+      return { installationId: row.installation_id, alreadyRevoked: false };
+    });
   }
 
   listInstallationsForService(serviceId, limit = 50) {
     return this.db.prepare(`
       SELECT installation_id, service_id, canonical_domain, credential_created_at,
-             credential_revoked_at, created_at, updated_at
+             credential_revoked_at, created_at, updated_at,
+             last_seen_at, last_success_at, contract_version, safe_status
       FROM wp_installations WHERE service_id=? ORDER BY created_at LIMIT ?
     `).all(String(serviceId || ""), Math.min(500, Math.max(1, Number(limit) || 50)));
   }
@@ -1255,10 +1281,10 @@ class BillingDatabase {
 
   // --- signing keys ---
 
-  activeSigningKeyRaw() {
+  activeSigningKeyRaw(now = new Date()) {
     return this.db.prepare(
-      "SELECT key_id, public_key, private_key_encrypted, is_active FROM signing_keys WHERE is_active=1 LIMIT 1",
-    ).get() || null;
+      "SELECT key_id, public_key, private_key_encrypted, is_active, expires_at FROM signing_keys WHERE is_active=1 AND retired_at='' AND expires_at>? LIMIT 1",
+    ).get(now.toISOString()) || null;
   }
 
   activePublicKey() {
@@ -1267,10 +1293,29 @@ class BillingDatabase {
     return { keyId: row.key_id, publicKey: row.public_key };
   }
 
-  allPublicKeys() {
-    return this.db.prepare(
-      "SELECT key_id, public_key, created_at, expires_at, rotated_at FROM signing_keys ORDER BY created_at",
-    ).all();
+  eligiblePublicKeys(now = new Date()) {
+    const timestamp = now.valueOf();
+    return this.db.prepare(`
+      SELECT key_id,public_key,is_active,created_at,expires_at,rotated_at,overlap_hours
+      FROM signing_keys WHERE retired_at='' ORDER BY created_at DESC
+    `).all().filter((key) => {
+      if (key.is_active) return Date.parse(key.expires_at) > timestamp;
+      const rotatedAt = Date.parse(key.rotated_at);
+      return Date.parse(key.expires_at) > timestamp
+        && Number.isFinite(rotatedAt)
+        && rotatedAt + Number(key.overlap_hours) * 3_600_000 > timestamp;
+    }).map((key) => ({
+      key_id: key.key_id,
+      public_key: key.public_key,
+      active: Boolean(key.is_active),
+      created_at: key.created_at,
+      expires_at: key.expires_at,
+      rotated_at: key.rotated_at,
+      overlap_ends_at: key.is_active ? "" : new Date(Math.min(
+        Date.parse(key.expires_at),
+        Date.parse(key.rotated_at) + Number(key.overlap_hours) * 3_600_000,
+      )).toISOString(),
+    }));
   }
 
   signingKeyStatus() {
@@ -1294,60 +1339,75 @@ class BillingDatabase {
   }
 
   initSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor) {
-    const existing = this.activeSigningKeyRaw();
-    if (existing) throw Object.assign(new Error("A signing key is already active; use rotation"), { statusCode: 409 });
     const now = new Date().toISOString();
     this.transaction(() => {
+      const existing = this.db.prepare("SELECT key_id FROM signing_keys WHERE is_active=1").get();
+      if (existing) throw Object.assign(new Error("A signing key is already active; use rotation"), { statusCode: 409 });
       this.db.prepare(`
         INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
         VALUES(?,?,?,1,?,?,?,?)
       `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_initialized", keyId, { keyId });
     });
-    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_initialized", keyId, { keyId });
     return keyId;
   }
 
-  rotateSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor) {
-    const active = this.activeSigningKeyRaw();
-    if (!active) throw Object.assign(new Error("No active signing key exists; use initialize"), { statusCode: 400 });
+  rotateSigningKey(keyId, publicKey, privateKeyEncrypted, expiresAt, overlapHours, actor, expectedActiveKeyId) {
     const now = new Date().toISOString();
+    let previousKeyId = "";
     this.transaction(() => {
+      const active = this.db.prepare("SELECT key_id FROM signing_keys WHERE is_active=1").get();
+      if (!active) throw Object.assign(new Error("No active signing key exists; use initialize"), { statusCode: 400 });
+      if (active.key_id !== expectedActiveKeyId) {
+        throw Object.assign(new Error("Active signing key changed; refresh status before rotating"), { statusCode: 409 });
+      }
+      previousKeyId = active.key_id;
       this.db.prepare(
-        "UPDATE signing_keys SET is_active=0, rotated_at=? WHERE key_id=? AND is_active=1",
+        "UPDATE signing_keys SET is_active=0, rotated_at=?, private_key_encrypted='' WHERE key_id=? AND is_active=1",
       ).run(now, active.key_id);
-      this.db.prepare(
-        "DELETE FROM signing_keys WHERE is_active=0 AND rotated_at != '' AND retired_at != '' AND datetime(rotated_at, ? || ' hours') <= datetime('now')",
-      ).run(String(overlapHours || 720));
       this.db.prepare(`
         INSERT INTO signing_keys(key_id,public_key,private_key_encrypted,is_active,created_at,expires_at,overlap_hours,created_by)
         VALUES(?,?,?,1,?,?,?,?)
       `).run(keyId, publicKey, privateKeyEncrypted, now, expiresAt, overlapHours, bounded(actor, 160));
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_rotated", keyId, {
+        previousKeyId,
+        keyId,
+      });
     });
-    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_rotated", keyId, { previousKeyId: active.key_id, keyId });
     return keyId;
   }
 
   retireSigningKey(keyId, emergency, actor) {
-    const key = this.db.prepare("SELECT key_id, is_active, rotated_at, expires_at FROM signing_keys WHERE key_id=?")
-      .get(String(keyId || ""));
-    if (!key) throw Object.assign(new Error("Signing key was not found"), { statusCode: 404 });
-    if (key.is_active) throw Object.assign(new Error("Cannot retire the active key; rotate first"), { statusCode: 409 });
-    if (key.retired_at) throw Object.assign(new Error("Signing key is already retired"), { statusCode: 409 });
-    if (!emergency && key.expires_at && key.expires_at > new Date().toISOString()) {
-      throw Object.assign(
-        new Error("Key overlap has not expired; use emergency confirmation to retire early"),
-        { statusCode: 409 },
+    return this.transaction(() => {
+      const key = this.db.prepare(
+        "SELECT key_id,is_active,expires_at,rotated_at,retired_at,overlap_hours FROM signing_keys WHERE key_id=?",
+      ).get(String(keyId || ""));
+      if (!key) throw Object.assign(new Error("Signing key was not found"), { statusCode: 404 });
+      if (key.is_active) throw Object.assign(new Error("Cannot retire the active key; rotate first"), { statusCode: 409 });
+      if (key.retired_at) return { keyId: key.key_id, alreadyRetired: true };
+      const overlapEndsAt = Math.min(
+        Date.parse(key.expires_at),
+        Date.parse(key.rotated_at) + Number(key.overlap_hours) * 3_600_000,
       );
-    }
-    this.db.prepare("UPDATE signing_keys SET retired_at=? WHERE key_id=?")
-      .run(new Date().toISOString(), key.key_id);
-    this.auditEntry(bounded(actor, 160) || "admin", "signing.key_retired", keyId, { keyId, emergency });
-    return key.key_id;
+      if (!emergency && (!Number.isFinite(overlapEndsAt) || overlapEndsAt > Date.now())) {
+        throw Object.assign(
+          new Error("Key overlap has not expired; use emergency confirmation to retire early"),
+          { statusCode: 409 },
+        );
+      }
+      this.db.prepare("UPDATE signing_keys SET retired_at=?, private_key_encrypted='' WHERE key_id=?")
+        .run(new Date().toISOString(), key.key_id);
+      this.auditEntry(bounded(actor, 160) || "admin", "signing.key_retired", key.key_id, {
+        keyId: key.key_id,
+        emergency: Boolean(emergency),
+      });
+      return { keyId: key.key_id, alreadyRetired: false };
+    });
   }
 
   // --- heartbeat ---
 
-  heartbeatInstallation(installationId, success) {
+  heartbeatInstallation(installationId, { contractVersion = 0, safeStatus = "" } = {}) {
     const HEARTBEAT_MIN_MS = 60_000;
     const now = new Date().toISOString();
     const install = this.getInstallationHealth(installationId);
@@ -1355,12 +1415,16 @@ class BillingDatabase {
     const lastSeen = Date.parse(install.last_seen_at || "");
     const shouldWrite = !lastSeen || !Number.isFinite(lastSeen) || (Date.now() - lastSeen >= HEARTBEAT_MIN_MS);
     if (shouldWrite) {
-      const updates = ["last_seen_at=?", "updated_at=?"];
-      const params = [now, now];
-      if (success) {
-        updates.push("last_success_at=?");
-        params.push(now);
-      }
+      const updates = [
+        "last_seen_at=?", "last_success_at=?", "contract_version=?", "safe_status=?", "updated_at=?",
+      ];
+      const params = [
+        now,
+        now,
+        Number.isInteger(contractVersion) ? contractVersion : 0,
+        bounded(safeStatus, 40),
+        now,
+      ];
       this.db.prepare(
         `UPDATE wp_installations SET ${updates.join(",")} WHERE installation_id=?`,
       ).run(...params, installationId);
@@ -1374,14 +1438,18 @@ class BillingDatabase {
     if (!installationId || !credential) return null;
     const hash = enrollmentHash(credential);
     const installation = this.db.prepare(
-      "SELECT installation_id, service_id, canonical_domain, credential_revoked_at FROM wp_installations WHERE credential_hash=?",
-    ).get(hash);
-    if (!installation) return null;
-    if (installation.installation_id !== installationId) return null;
+      "SELECT installation_id,service_id,canonical_domain,credential_hash,credential_revoked_at FROM wp_installations WHERE installation_id=?",
+    ).get(String(installationId));
+    const expected = Buffer.from(installation?.credential_hash || "0".repeat(64), "hex");
+    const supplied = Buffer.from(hash, "hex");
+    const credentialMatches = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
+    if (!installation || !credentialMatches) return null;
     if (installation.credential_revoked_at) return null;
     const service = this.service(installation.service_id);
     if (!service || service.archived) return null;
     if (!this.enrollmentActive(service)) return null;
+    if (service.primary_domain !== installation.canonical_domain) return null;
+    delete installation.credential_hash;
     return installation;
   }
 

@@ -106,7 +106,8 @@ entitlement signing with deterministic canonicalization, encrypted signing-key
 storage, key lifecycle management (initialize/rotate/retire), authenticated
 remote entitlement delivery (`POST /remote/v1/entitlement`), public key
 distribution (`GET /remote/v1/keys`), installation authentication, throttled
-heartbeat, and administrator key status/preview APIs. The WordPress plugin,
+heartbeat, opaque renewal references, transactional race guards, and
+administrator key status/preview APIs. The WordPress plugin,
 billing UI enrollment workflow, heartbeat visibility, frontend suspension, cache
 purge, signed package distribution, and production qualification remain future
 work below.
