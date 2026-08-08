@@ -83,9 +83,11 @@ test("rewrites OpenCart URLs, database credentials, and absolute paths", () => {
     assert.match(storefront, /define\('DB_DATABASE', 'shop_db'\)/);
     assert.match(storefront, /define\('DB_PASSWORD', 'a\\'password'\)/);
     assert.match(storefront, /\/var\/www\/shop\.example\.com\/catalog\//);
+    assert.match(storefront, /define\('DIR_TEMPLATE', '\/var\/www\/shop\.example\.com\/catalog\/view\/theme\/'\)/);
     assert.match(admin, /https:\/\/shop\.example\.com\/control\//);
     assert.match(admin, /define\('HTTP_CATALOG', 'https:\/\/shop\.example\.com\/'\)/);
     assert.match(admin, /define\('DIR_CATALOG', '\/var\/www\/shop\.example\.com\/catalog\/'\)/);
+    assert.match(admin, /define\('DIR_TEMPLATE', '\/var\/www\/shop\.example\.com\/control\/view\/template\/'\)/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -109,7 +109,9 @@ function directoryValues(root, applicationDirectory, adminDirectory = "") {
     DIR_IMAGE: `${normalizedRoot}image/`,
     DIR_STORAGE: storage,
     DIR_LANGUAGE: `${application}language/`,
-    DIR_TEMPLATE: `${application}view/template/`,
+    DIR_TEMPLATE: adminDirectory
+      ? `${application}view/template/`
+      : `${application}view/theme/`,
     DIR_CONFIG: `${normalizedRoot}system/config/`,
     DIR_CACHE: `${storage}cache/`,
     DIR_DOWNLOAD: `${storage}download/`,
