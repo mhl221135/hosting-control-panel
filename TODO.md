@@ -6,9 +6,9 @@ backlog only when their acceptance criteria are satisfied.
 
 ## Delivery Order
 
-1. Qualify live billing payments, then carefully pilot local enforcement.
-2. Pass mail-platform feasibility gates, then build an isolated pilot.
-3. Prove current-stack disaster recovery before adding warm-standby failover.
+1. Establish a safe standby role, backup reception, and controlled promotion.
+2. Qualify live billing payments, then carefully pilot local enforcement.
+3. Build the isolated mail platform last, after hosting replication is proven.
 
 ## 1. Separate Billing And Entitlement Service
 
@@ -434,11 +434,15 @@ account gates remain unresolved and therefore stay in this backlog.
 ## 3. Warm Standby And Controlled Failover
 
 The manual architecture and failover runbook are documented in
-`docs/HIGH_AVAILABILITY.md`. Implementation remains future work.
+`docs/HIGH_AVAILABILITY.md`. Machine-local installation roles, standby API
+write rejection, mutating-scheduler suppression, and a clearly labeled
+read-only panel mode are implemented. Pairing, received-backup replication,
+lag reporting, and controlled promotion remain future work.
 
 ### Roles And Pairing
 
-- Add explicit `standalone`, `primary`, and `standby` installation roles.
+- Extend the implemented `standalone`, `primary`, and `standby` installation
+  roles into pairing and promotion workflows.
 - Pair servers through a narrow authenticated API using independently rotatable
   credentials or mutual TLS.
 - Show replication health, last successful sync, MySQL lag, recovery point,

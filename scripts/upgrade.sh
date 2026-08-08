@@ -118,6 +118,30 @@ backups_dir="$(env_value BACKUPS_DIR)"
 backups_dir="${backups_dir:-$hosting_root/backups}"
 exports_dir="$(env_value EXPORTS_DIR)"
 exports_dir="${exports_dir:-$hosting_root/exports}"
+installation_role="$(env_value INSTALLATION_ROLE)"
+installation_role="${installation_role:-standalone}"
+server_id="$(env_value SERVER_ID)"
+server_id="${server_id:-$(hostname -s 2>/dev/null || printf 'hosting-server')}"
+machine_state_dir="$(env_value HOSTING_MACHINE_STATE_DIR)"
+machine_state_dir="${machine_state_dir:-/etc/hosting-control}"
+ui_data_dir="$(env_value UI_DATA_DIR)"
+if [ -z "$ui_data_dir" ]; then
+  if [ "$installation_role" = "standby" ]; then ui_data_dir="$machine_state_dir/ui-data"; else ui_data_dir="$hosting_root/app-data/ui-manager"; fi
+fi
+
+case "$installation_role" in standalone|primary|standby) ;; *) echo "INSTALLATION_ROLE is invalid." >&2; exit 1 ;; esac
+case "$server_id" in ''|*[!A-Za-z0-9._-]*|-*|.*|_*) echo "SERVER_ID is invalid." >&2; exit 1 ;; esac
+mkdir -p "$machine_state_dir"
+mkdir -p "$ui_data_dir"
+chown -R 33:33 "$ui_data_dir"
+role_marker="$machine_state_dir/role.json"
+if [ ! -e "$role_marker" ]; then
+  umask 022
+  marker_tmp="$role_marker.tmp.$$"
+  printf '{\n  "version": 1,\n  "role": "%s",\n  "server_id": "%s"\n}\n' "$installation_role" "$server_id" > "$marker_tmp"
+  chmod 644 "$marker_tmp"
+  mv "$marker_tmp" "$role_marker"
+fi
 
 mkdir -p "$hosting_root/app-data/billing" "$backups_dir/billing"
 chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"
@@ -135,9 +159,15 @@ compose config --quiet
 compose pull hosting-nginx hosting-redis hosting-db hosting-phpmyadmin || true
 compose build --pull hosting-agent hosting-files hosting-ui hosting-billing hosting-php-fpm hosting-npm
 compose up -d hosting-agent
-compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js --apply
-compose run --rm --no-deps hosting-ui node /app/cli/migrate-commerce-cache.js
-compose up -d
-sh "$project_dir/scripts/migrate-webp-cache.sh"
+if [ "$installation_role" = "standby" ]; then
+  compose stop hosting-files hosting-billing hosting-php-fpm hosting-nginx hosting-npm hosting-redis hosting-db hosting-phpmyadmin || true
+  compose up -d hosting-agent hosting-ui
+  echo "Standby upgraded. Writable and public services remain stopped."
+else
+  compose run --rm --no-deps hosting-ui node /app/cli/migrate-static-routes.js --apply
+  compose run --rm --no-deps hosting-ui node /app/cli/migrate-commerce-cache.js
+  compose up -d
+  sh "$project_dir/scripts/migrate-webp-cache.sh"
+fi
 
 echo "Upgrade complete. Persistent data, websites, backups, and active configuration were not replaced."

@@ -14,6 +14,26 @@ test("rejects public paths that escape the configured root", () => {
   assert.equal(resolvePublicFile("/app/public", "/%E0%A4%A"), null);
 });
 
+test("standby role is machine-local, read-only, and suppresses writable services", () => {
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  const bootstrap = fs.readFileSync(path.resolve(__dirname, "../../../bootstrap.sh"), "utf8");
+  const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
+  const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(compose, /HOSTING_MACHINE_STATE_DIR[^\n]*:\/run\/hosting-machine:ro/);
+  assert.match(bootstrap, /--role/);
+  assert.match(bootstrap, /--server-id/);
+  assert.match(install, /Only hosting-agent and the read-only hosting-ui were started/);
+  assert.match(upgrade, /compose stop hosting-files hosting-billing/);
+  assert.match(server, /installationRole\.requireMutable\(\)/);
+  assert.match(server, /if \(!installationRole\.isStandby\(\)\)/);
+  assert.match(html, /id="installationRole"/);
+  assert.match(source, /function applyInstallationRole/);
+  assert.match(source, /new Set\(\["sites", "stats", "health", "jobs", "account"\]\)/);
+});
+
 test("backup restore UI exposes an explicit opt-in billing choice", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");

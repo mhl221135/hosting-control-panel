@@ -8,6 +8,10 @@ the supported keys.
 | Variable | Purpose | Persistence behavior |
 |---|---|---|
 | `HOSTING_ROOT` | Absolute installation/data root | Compose mount source |
+| `INSTALLATION_ROLE` | `standalone`, `primary`, or `standby` | Initial value; machine marker is authoritative |
+| `SERVER_ID` | Unique 1-64 character machine identity | Stored in the machine marker |
+| `HOSTING_MACHINE_STATE_DIR` | Non-replicated role/state root | Defaults to `/etc/hosting-control` |
+| `UI_DATA_DIR` | Panel state directory | Standby defaults to machine-local `ui-data` |
 | `BACKUPS_DIR` | Absolute backup storage directory | Mounted at `/srv/backups` in the panel |
 | `EXPORTS_DIR` | Absolute portable website-export directory | Mounted at `/srv/exports` in the panel |
 | `UI_ADMIN_EMAIL` | First panel account email | Used only if account state is absent |
@@ -33,6 +37,11 @@ the supported keys.
 | `CLOUDFLARE_ACCOUNT_ID` | Account-owned token account | Environment fallback; editable in panel |
 | `IPINFO_TOKEN` | Optional IPinfo API token | Environment fallback; encrypted when saved in panel |
 | `EXPORT_DOWNLOAD_MAX_BYTES` | Maximum size of one authenticated panel artifact download | `536870912` (512 MB) |
+
+The installer writes `HOSTING_MACHINE_STATE_DIR/role.json` atomically and
+refuses to overwrite a marker whose role or server identity differs. Editing
+`.env` or replicated application data cannot promote a standby. Controlled
+role transition remains part of the pending promotion workflow.
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |

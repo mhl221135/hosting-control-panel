@@ -5,6 +5,8 @@ set -eu
 project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 hosting_root=""
+installation_role=""
+server_id=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -12,6 +14,16 @@ while [ "$#" -gt 0 ]; do
       shift
       [ "$#" -gt 0 ] || { echo "--root requires a directory." >&2; exit 1; }
       hosting_root="$1"
+      ;;
+    --role)
+      shift
+      [ "$#" -gt 0 ] || { echo "--role requires standalone, primary, or standby." >&2; exit 1; }
+      installation_role="$1"
+      ;;
+    --server-id)
+      shift
+      [ "$#" -gt 0 ] || { echo "--server-id requires a value." >&2; exit 1; }
+      server_id="$1"
       ;;
     *)
       echo "Unknown configuration option: $1" >&2
@@ -92,6 +104,26 @@ case "$hosting_root" in
   *) printf "Installation root must be an absolute path.\n" >&4; exit 1 ;;
 esac
 
+if [ -z "$installation_role" ]; then
+  prompt_required "Installation role (standalone, primary, standby)" "standalone"
+  installation_role="$ANSWER"
+fi
+case "$installation_role" in
+  standalone|primary|standby) ;;
+  *) printf "Installation role must be standalone, primary, or standby.\n" >&4; exit 1 ;;
+esac
+if [ -z "$server_id" ]; then
+  prompt_required "Server identity" "$(hostname -s 2>/dev/null || printf 'hosting-server')"
+  server_id="$ANSWER"
+fi
+case "$server_id" in
+  ''|*[!A-Za-z0-9._-]*|-*|.*|_*) printf "Server identity must use 1-64 letters, numbers, dots, underscores, or hyphens and start with a letter or number.\n" >&4; exit 1 ;;
+esac
+if [ "${#server_id}" -gt 64 ]; then
+  printf "Server identity must not exceed 64 characters.\n" >&4
+  exit 1
+fi
+
 prompt_required "Backups directory" "$hosting_root/backups"
 backups_dir="$ANSWER"
 case "$backups_dir" in
@@ -159,6 +191,14 @@ umask 077
 temporary="$env_file.tmp.$$"
 {
   printf "HOSTING_ROOT=%s\n" "$(dotenv_value "$hosting_root")"
+  printf "INSTALLATION_ROLE=%s\n" "$(dotenv_value "$installation_role")"
+  printf "SERVER_ID=%s\n" "$(dotenv_value "$server_id")"
+  printf "HOSTING_MACHINE_STATE_DIR='/etc/hosting-control'\n"
+  if [ "$installation_role" = "standby" ]; then
+    printf "UI_DATA_DIR='/etc/hosting-control/ui-data'\n"
+  else
+    printf "UI_DATA_DIR=%s\n" "$(dotenv_value "$hosting_root/app-data/ui-manager")"
+  fi
   printf "BACKUPS_DIR=%s\n" "$(dotenv_value "$backups_dir")"
   printf "EXPORTS_DIR=%s\n\n" "$(dotenv_value "$exports_dir")"
   printf "UI_ADMIN_EMAIL=%s\n" "$(dotenv_value "$ui_admin_email")"

@@ -10,6 +10,13 @@ configuration, builds images, validates Compose, and starts the stack.
 An installation is not disposable after first start. Its state lives outside
 the source checkout under `HOSTING_ROOT`.
 
+For a replica, run the installer with `--role standby --server-id <unique-id>`.
+Verify `/etc/hosting-control/role.json` and confirm only `hosting-agent` and
+`hosting-ui` are running. MySQL, NPM, nginx, PHP, Redis, billing, File Browser,
+and phpMyAdmin intentionally remain stopped. Do not edit the marker to promote
+the server; pairing, verified backup reception, and controlled promotion are
+separate pending phases in `docs/HIGH_AVAILABILITY.md`.
+
 Before enabling billing payments, route a dedicated HTTPS hostname through NPM
 to `hosting-billing:8787`, save that exact origin as the public billing URL, and
 configure the WooCommerce **Order updated** webhook at

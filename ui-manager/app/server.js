@@ -37,6 +37,7 @@ const {
 const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPressRedis } = require("./lib/site-capabilities");
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
+const { InstallationRole } = require("./lib/installation-role");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -160,6 +161,7 @@ const DEFAULT_POOL_PRESETS = {
 };
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
+const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -180,7 +182,7 @@ const performanceSettings = new PerformanceSettings({
   nginxDefaultPath: NGINX_DEFAULT_PATH,
 });
 const siteState = new SiteState(DATA_DIR, CACHE_MAP_PATH);
-siteState.renderCacheMap();
+if (!installationRole.isStandby()) siteState.renderCacheMap();
 const billingEntitlementObserver = new BillingEntitlementObserver({
   dataDir: DATA_DIR,
   apiUrl: process.env.BILLING_API_URL,
@@ -1856,6 +1858,10 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
 });
 
 async function handleApi(req, res) {
+  if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
+    sendJson(res, 200, { ok: true, installation: installationRole.publicView() });
+    return true;
+  }
   const requestUrl = new URL(req.url, "http://ui-manager.local");
 
   if (req.method === "GET" && requestUrl.pathname === "/api/jobs") {
@@ -4015,6 +4021,7 @@ async function handleAuthApi(req, res) {
       email: session.email,
       csrf: session.csrf,
       mustChangePassword: Boolean(account.mustChangePassword),
+      installation: installationRole.publicView(),
     });
     return true;
   }
@@ -4030,6 +4037,7 @@ async function handleAuthApi(req, res) {
         email: result.session.email,
         csrf: result.session.csrf,
         mustChangePassword: result.mustChangePassword,
+        installation: installationRole.publicView(),
       },
       { "Set-Cookie": auth.cookie(req, result.session.id) },
     );
@@ -4077,6 +4085,7 @@ async function handleAuthApi(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.url === "/internal/v1/billing-reminders" && req.method === "POST") {
+      installationRole.requireMutable();
       if (!billingAuthorized(req)) {
         sendJson(res, 401, { ok: false, message: "Billing API authentication required" }, { "Cache-Control": "no-store" });
         return;
@@ -4091,6 +4100,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (req.url === "/internal/v1/billing-entitlements/refresh" && req.method === "POST") {
+      installationRole.requireMutable();
       if (!billingAuthorized(req)) {
         sendJson(res, 401, { ok: false, message: "Billing API authentication required" }, { "Cache-Control": "no-store" });
         return;
@@ -4124,6 +4134,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.auth = session;
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) installationRole.requireMutable();
       const handled = await handleApi(req, res);
       if (!handled) sendJson(res, 404, { ok: false, message: "Not found" });
       return;
@@ -4156,18 +4167,22 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`UI manager listening on :${PORT}`);
-  notificationManager.start(jobManager);
-  telegramCommandManager.start();
   healthMonitor.start();
-  billingEntitlementObserver.start();
-  billingEnforcementManager.start();
-  jobManager.start();
-  cloudflareAutomation.start();
-  backupManager.start();
-  offsiteBackupManager.start();
-  imageOptimizationManager.startScheduler();
-  maintenanceManager.startScheduler();
-  if (fs.existsSync(performanceSettings.path)) {
+  if (!installationRole.isStandby()) {
+    notificationManager.start(jobManager);
+    telegramCommandManager.start();
+    billingEntitlementObserver.start();
+    billingEnforcementManager.start();
+    jobManager.start();
+    cloudflareAutomation.start();
+    backupManager.start();
+    offsiteBackupManager.start();
+    imageOptimizationManager.startScheduler();
+    maintenanceManager.startScheduler();
+  } else {
+    console.log(`Standby mode active for ${installationRole.publicView().serverId}; mutating schedulers are suppressed`);
+  }
+  if (!installationRole.isStandby() && fs.existsSync(performanceSettings.path)) {
     setTimeout(async () => {
       const settings = performanceSettings.read();
       const snapshot = performanceSettings.snapshot();

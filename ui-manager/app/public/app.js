@@ -325,10 +325,27 @@ function showApp(session) {
   $("#accountEmail").value = session.email;
   $("#loginView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
+  applyInstallationRole(session.installation || { role: "standalone", serverId: "hosting-server", mutable: true });
   if (session.mustChangePassword) {
     switchTab("account");
     notice("Change the initial panel password before continuing.", "warning");
   }
+}
+
+function applyInstallationRole(installation) {
+  const role = installation.role || "standalone";
+  document.body.dataset.installationRole = role;
+  const badge = $("#installationRole");
+  badge.textContent = `${role.toUpperCase()} · ${installation.serverId || "hosting-server"}`;
+  badge.classList.toggle("hidden", role === "standalone");
+  const standby = role === "standby";
+  const allowed = new Set(["sites", "stats", "health", "jobs", "account"]);
+  $$('[data-tab-link]').forEach((element) => {
+    if (element.classList.contains("brand")) return;
+    element.hidden = standby && !allowed.has(element.dataset.tabLink);
+  });
+  $$("#mobileNavigation option").forEach((option) => { option.hidden = standby && !allowed.has(option.value); });
+  if (standby && !allowed.has(state.activeTab)) switchTab("sites");
 }
 
 function switchTab(name) {

@@ -3,9 +3,10 @@
 ## Scope
 
 This document defines a conservative primary/standby design for Websites V2.
-The current release does not provide continuous replication, automatic
-promotion, or a quorum system. Its supported baseline is manual disaster
-recovery from replicated, verified backups.
+The current release implements machine-local roles and a locked-down standby
+runtime, but does not yet provide continuous replication, automatic promotion,
+or a quorum system. Its supported data-recovery baseline remains manual
+disaster recovery from replicated, verified backups.
 
 Do not run two writable copies of the stack for the same websites. The panel,
 WordPress, NPM, MySQL, scheduled backups, and Cloudflare automation all mutate
@@ -39,6 +40,23 @@ The standby has:
   settings remain readable;
 - replicated backup sets on storage it can access after primary failure;
 - no public DNS target and no running writable stack until promotion.
+
+Install a new replica with:
+
+```bash
+sudo ./scripts/install.sh --configure --root /media/ssdmount/websites-v2 \
+  --role standby --server-id replica-1
+```
+
+The installer stores the authoritative role in
+`/etc/hosting-control/role.json`, outside `HOSTING_ROOT`. The marker is mounted
+read-only into the panel. In standby mode all normal API mutations return HTTP
+423, mutating schedulers and startup migrations are suppressed, and only
+`hosting-agent` plus `hosting-ui` are started. Account login, logout and
+password changes remain available with read-only health, inventory, statistics
+and historical job views. Standby panel state is kept in the machine-local
+`/etc/hosting-control/ui-data` directory instead of replicated
+`app-data/ui-manager`.
 
 Do not commit or casually synchronize `.env`, certificates, account state, or
 integration keys. Transfer secrets through an encrypted administrative channel.

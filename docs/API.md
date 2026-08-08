@@ -11,6 +11,11 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
 - `PUT /api/auth/account` changes email/password using the current password.
 - Every other `/api/*` route requires an authenticated session.
 - `POST`, `PUT`, `PATCH`, and `DELETE` requests require `X-CSRF-Token`.
+- `GET /api/system/role` returns role, server identity, marker source, and
+  whether normal mutations are allowed.
+- A standby rejects every normal non-GET API operation with HTTP `423 Locked`
+  before route execution. Login, logout, and account maintenance remain
+  available through `/api/auth/*`.
 
 Errors use HTTP status codes and this shape:
 

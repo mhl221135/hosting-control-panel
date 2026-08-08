@@ -26,6 +26,10 @@ is read-only. It calls the authenticated, private `hosting-agent`, whose
 server-side policy permits only the runtime inspection, reload, WP-CLI, and
 database operations required by supported workflows.
 
+Machine-local `standalone`, `primary`, and `standby` roles are supported. A
+standby starts only the agent and read-only panel, rejects normal mutations
+with HTTP 423, and suppresses mutating schedulers.
+
 ## Services
 
 - `hosting-ui`: authenticated control panel on port 8687

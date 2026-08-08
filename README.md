@@ -239,6 +239,13 @@ curl -fsSL https://raw.githubusercontent.com/mhl221135/hosting-control-panel/mai
 sudo sh /tmp/websites-v2-bootstrap.sh
 ```
 
+For a replica, pass the role and identity directly to bootstrap:
+
+```bash
+sudo sh /tmp/websites-v2-bootstrap.sh --root /media/ssdmount/websites-v2 \
+  --role standby --server-id replica-1
+```
+
 It asks for the installation root (default
 `/media/ssdmount/websites-v2`), independent absolute backup and website-export
 directories, and every initial login and password. The export directory defaults
@@ -285,6 +292,20 @@ For an already cloned source tree, run:
 cd /media/ssdmount/websites-v2/sources
 sudo ./scripts/install.sh --configure
 ```
+
+Choose the server role during configuration. A new replica should use a unique
+machine identity and the standby role:
+
+```bash
+sudo ./scripts/install.sh --configure --root /media/ssdmount/websites-v2 \
+  --role standby --server-id replica-1
+```
+
+The authoritative role marker is `/etc/hosting-control/role.json`, outside the
+replicated installation root. Standby setup starts only `hosting-agent` and a
+read-only `hosting-ui`; writable and public services remain stopped. Replacing
+replicated `.env` or application data cannot promote the machine. Standby panel
+state is stored separately in `/etc/hosting-control/ui-data`.
 
 ## Upgrade
 
