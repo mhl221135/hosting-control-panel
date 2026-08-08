@@ -14,8 +14,10 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
 - `GET /api/system/role` returns the persisted server role, ingress mode
   (`direct_npm` or `cloudflare_tunnel`), server identity, and whether normal
   mutations are allowed.
-- `PUT /api/system/role` validates and atomically persists the role,
-  `server_id`, and `ingress_mode`.
+- `PUT /api/system/role` accepts only `ingress_mode` (validated; unknown fields
+  rejected). This metadata-only write is allowed on standby. Changing role or
+  server identity returns `409`. The machine-local role marker remains
+  authoritative.
 - `GET /api/system/promotion-preflight` returns structured read-only readiness
   checks with pass/warning/fail statuses and an aggregate `ready` flag. It
   verifies standby role, configuration, backup inventory/freshness, per-site
