@@ -493,6 +493,15 @@ future work.
 
 ### Role-Aware Panel And API
 
+- Add a **Server role** control in Settings on both machines. It must show the
+  durable machine-local role (`standalone`, `primary`, or `standby`) and expose
+  only valid transitions. Changing role must use preview, readiness checks,
+  explicit typed confirmation, an audit event, and rollback; it must never be
+  implemented as an unrestricted settings dropdown.
+- Add **Promote standby** and **Demote/rebuild as standby** workflows. Promotion
+  must verify a completed recovery point, fence the previous primary, disable
+  incoming replication, apply the standby resource profile, start and validate
+  the writable stack, and only then allow public-ingress cutover.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.
@@ -533,6 +542,14 @@ future work.
 
 ### Replication
 
+- Clearly distinguish the implemented daily backup receiver from warm
+  replication in the UI. Show the newest verified recovery point and estimated
+  data-loss window; never describe daily backup reception as real-time or
+  continuous synchronization.
+- Add optional low-load warm replication: snapshot/staged one-way website-file
+  synchronization at a configurable interval and MySQL GTID replication with
+  measured lag. Keep the daily verified backup sets as an independent recovery
+  layer rather than replacing them with live replication.
 - Use unique MySQL server IDs, GTID replication, encrypted credentials,
   retention sized for outages, and monitored replica lag.
 - Replicate website files and required non-database application data one way
@@ -559,6 +576,19 @@ future work.
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two
   independently writable histories.
+- Once a standby is promoted and accepts writes, mark it as the sole
+  authoritative primary. A recovered former primary must remain fenced and
+  must not resume its old replication, schedulers, DNS authority, or writable
+  services.
+- Add a guarded **Rebuild former primary as standby** workflow that transfers
+  current website files, databases, required application state, and the tested
+  source release from the promoted primary; validates checksums, schema,
+  configuration, and health; then establishes a new one-way replication epoch.
+- Add an optional controlled **Fail back traffic** workflow only after the
+  rebuilt host is fully synchronized. It must stop new writes, wait for the
+  final database/files delta, verify a common recovery point, switch ingress,
+  and demote the previous active host. Never perform bidirectional database
+  merge or start both machines as writable primaries.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
 
@@ -587,6 +617,15 @@ automation, health/status UX, website-route ownership, cutover, and rollback.
   connector health, connected replicas, routed hostnames, DNS state, and the
   last successful reconciliation. Use a separate least-privilege Cloudflare
   token for tunnel and DNS management.
+- Add an authenticated **Public ingress mode** selector on both primary and
+  standby panels with `direct_npm` and `cloudflare_tunnel` choices. Saving the
+  preference alone must not alter live DNS; provide separate **Preview
+  cutover**, **Apply cutover**, and **Rollback cutover** actions with typed
+  confirmation and bounded audit history.
+- On a standby, allow ingress configuration and qualification while keeping
+  production website routes inactive. Activate selected routes only as the
+  final stage of a successful promotion, after the old primary is fenced and
+  the restored websites/databases pass local health checks.
 - Add per-site eligibility and selection. Tunnel automation is available only
   for zones controlled by the configured Cloudflare account. External DNS
   providers and unsupported zones require a documented manual adapter and must
