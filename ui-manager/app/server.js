@@ -38,6 +38,8 @@ const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPress
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
+const { ServerRoleStore } = require("./lib/server-role-store");
+const { runPreflight } = require("./lib/promotion-preflight");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -162,6 +164,7 @@ const DEFAULT_POOL_PRESETS = {
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
+const serverRoleStore = new ServerRoleStore({ dataDir: DATA_DIR });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -1859,7 +1862,48 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
 
 async function handleApi(req, res) {
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
-    sendJson(res, 200, { ok: true, installation: installationRole.publicView() });
+    sendJson(res, 200, { ok: true, installation: serverRoleStore.publicView() });
+    return true;
+  }
+  if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    sendJson(res, 200, { ok: true, installation: serverRoleStore.save({
+      role: body.role,
+      server_id: body.server_id,
+      ingress_mode: body.ingress_mode,
+    }) });
+    return true;
+  }
+  if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/promotion-preflight") {
+    const sites = (() => {
+      try {
+        const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+        const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+        return getSitesWithPools(mapParsed, poolsParsed)
+          .filter((site) => !site.isAlias)
+          .map((site) => ({
+            host: site.host,
+            siteType: site.state?.siteType || "wordpress",
+          }));
+      } catch {
+        return [];
+      }
+    })();
+    const result = runPreflight({
+      isStandby: serverRoleStore.isStandby(),
+      sites,
+      backupsRoot: BACKUPS_ROOT,
+      websitesRoot: WEBSITES_ROOT,
+      sourcesRoot: path.resolve(__dirname, "../../.."),
+      dataRoot: DATA_DIR,
+      env: {
+        UI_SETTINGS_KEY: String(process.env.UI_SETTINGS_KEY || ""),
+        BILLING_API_TOKEN: String(process.env.BILLING_API_TOKEN || ""),
+        SERVER_ID: String(process.env.SERVER_ID || process.env.COMPOSE_PROJECT_NAME || ""),
+      },
+      tunnelUrl: String(process.env.CLOUDFLARED_TUNNEL_URL || ""),
+    });
+    sendJson(res, 200, { ok: true, ...result });
     return true;
   }
   const requestUrl = new URL(req.url, "http://ui-manager.local");
@@ -4024,7 +4068,7 @@ async function handleAuthApi(req, res) {
       email: session.email,
       csrf: session.csrf,
       mustChangePassword: Boolean(account.mustChangePassword),
-      installation: installationRole.publicView(),
+      installation: serverRoleStore.publicView(),
     });
     return true;
   }
@@ -4040,7 +4084,7 @@ async function handleAuthApi(req, res) {
         email: result.session.email,
         csrf: result.session.csrf,
         mustChangePassword: result.mustChangePassword,
-        installation: installationRole.publicView(),
+        installation: serverRoleStore.publicView(),
       },
       { "Set-Cookie": auth.cookie(req, result.session.id) },
     );
