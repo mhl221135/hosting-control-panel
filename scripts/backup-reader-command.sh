@@ -8,6 +8,7 @@ IFS= read -r root < "$root_file"
 case "$root" in /*) ;; *) printf 'Configured backup root is invalid.\n' >&2; exit 1 ;; esac
 case "$root" in *[!A-Za-z0-9_./-]*|*..*) printf 'Configured backup root is unsafe.\n' >&2; exit 1 ;; esac
 [ -d "$root" ] || { printf 'Configured backup root does not exist.\n' >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { printf 'jq is required.\n' >&2; exit 1; }
 
 inventory() {
   find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print 2>/dev/null | while IFS= read -r manifest; do
@@ -17,6 +18,12 @@ inventory() {
     group=${group_dir##*/}
     case "$id" in ????-??-??T??-??-??Z) ;; *) continue ;; esac
     case "$group" in app-data|[A-Za-z0-9]*.[A-Za-z0-9]*) ;; *) continue ;; esac
+    jq -e --arg id "$id" --arg group "$group" '
+      .version == 2 and .id == $id and
+      ((.type == "app-data" and $group == "app-data") or
+       (.type == "site" and .domain == $group)) and
+      (.artifacts | type == "object")
+    ' "$manifest" >/dev/null 2>&1 || continue
     blocks=$(du -sk "$set_dir")
     blocks=${blocks%%[[:space:]]*}
     case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac

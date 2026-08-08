@@ -84,6 +84,12 @@ find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print | while 
   group=${group_dir##*/}
   case "$id" in ????-??-??T??-??-??Z) ;; *) continue ;; esac
   case "$group" in app-data|[A-Za-z0-9]*.[A-Za-z0-9]*) ;; *) continue ;; esac
+  jq -e --arg id "$id" --arg group "$group" '\''
+    .version == 2 and .id == $id and
+    ((.type == "app-data" and $group == "app-data") or
+     (.type == "site" and .domain == $group)) and
+    (.artifacts | type == "object")
+  '\'' "$manifest" >/dev/null 2>&1 || continue
   blocks=$(du -sk "$set_dir")
   blocks=${blocks%%[[:space:]]*}
   case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
