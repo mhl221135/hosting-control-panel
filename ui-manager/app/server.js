@@ -3289,6 +3289,9 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
     const submitted = JSON.parse((await readBody(req)) || "{}");
+    if (submitted.import_database_archive === undefined && submitted.import_database_dump !== undefined) {
+      submitted.import_database_archive = Boolean(submitted.import_database_dump);
+    }
     const normalized = validateProvisionRequest(submitted);
     if (submitted.register_billing) billingProvisioningSettings.registration(submitted);
     if (submitted.create_update_dns) validateIpv4(submitted.dns_ip);

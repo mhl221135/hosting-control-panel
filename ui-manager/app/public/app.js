@@ -2678,7 +2678,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   if (importing && wordpress && !databaseDump) return notice("Select the WordPress database dump.", "warning");
   if (importing && openCart && !databaseDump) return notice("Select the OpenCart database dump.", "warning");
   if (genericPhp && databaseDump && !body.create_database) return notice("Enable MySQL database creation before selecting a database dump.", "warning");
-  body.import_database_dump = Boolean(importing && (genericPhp || openCart) && databaseDump);
+  body.import_database_archive = Boolean(importing && (genericPhp || openCart) && databaseDump);
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
   const submitButton = event.submitter || $("#provisionSubmit");
@@ -2691,7 +2691,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
         await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (loaded, total) => {
           importProgress.textContent = uploadProgress("Uploading website archive", loaded, total);
         });
-        if (wordpress || body.import_database_dump) {
+        if (wordpress || body.import_database_archive) {
           await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
             importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
           });

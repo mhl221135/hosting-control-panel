@@ -66,6 +66,15 @@ test("provisioning startup loads uploaded WordPress package choices", () => {
   assert.doesNotMatch(source, /#saveHosts|#hostsTable/);
 });
 
+test("OpenCart imports submit and accept the canonical database archive flag", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(source, /body\.import_database_archive = Boolean\(importing && \(genericPhp \|\| openCart\) && databaseDump\)/);
+  assert.match(source, /wordpress \|\| body\.import_database_archive/);
+  assert.doesNotMatch(source, /body\.import_database_dump =/);
+  assert.match(server, /submitted\.import_database_archive === undefined && submitted\.import_database_dump !== undefined/);
+});
+
 test("PHP-FPM uses a directory bind so atomic pool replacements remain visible", () => {
   const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
   const mainConfig = fs.readFileSync(path.resolve(__dirname, "../../../global-configs-new-upd/php-fpm/php-fpm.conf"), "utf8");
