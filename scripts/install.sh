@@ -6,6 +6,8 @@ project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 configure=false
 requested_root=""
+requested_role=""
+requested_server_id=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -16,6 +18,16 @@ while [ "$#" -gt 0 ]; do
       shift
       [ "$#" -gt 0 ] || { echo "--root requires a directory." >&2; exit 1; }
       requested_root="$1"
+      ;;
+    --role)
+      shift
+      [ "$#" -gt 0 ] || { echo "--role requires standalone, primary, or standby." >&2; exit 1; }
+      requested_role="$1"
+      ;;
+    --server-id)
+      shift
+      [ "$#" -gt 0 ] || { echo "--server-id requires a value." >&2; exit 1; }
+      requested_server_id="$1"
       ;;
     *)
       echo "Unknown installer option: $1" >&2
@@ -31,11 +43,11 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if [ "$configure" = true ] || [ ! -f "$env_file" ]; then
-  if [ -n "$requested_root" ]; then
-    "$project_dir/scripts/configure.sh" --root "$requested_root"
-  else
-    "$project_dir/scripts/configure.sh"
-  fi
+  set --
+  [ -z "$requested_root" ] || set -- "$@" --root "$requested_root"
+  [ -z "$requested_role" ] || set -- "$@" --role "$requested_role"
+  [ -z "$requested_server_id" ] || set -- "$@" --server-id "$requested_server_id"
+  "$project_dir/scripts/configure.sh" "$@"
 fi
 
 env_value() {
@@ -100,6 +112,37 @@ backups_dir="${BACKUPS_DIR:-$(env_value BACKUPS_DIR)}"
 backups_dir="${backups_dir:-$hosting_root/backups}"
 exports_dir="${EXPORTS_DIR:-$(env_value EXPORTS_DIR)}"
 exports_dir="${exports_dir:-$hosting_root/exports}"
+installation_role="$(env_value INSTALLATION_ROLE)"
+installation_role="${installation_role:-standalone}"
+server_id="$(env_value SERVER_ID)"
+server_id="${server_id:-$(hostname -s 2>/dev/null || printf 'hosting-server')}"
+machine_state_dir="$(env_value HOSTING_MACHINE_STATE_DIR)"
+machine_state_dir="${machine_state_dir:-/etc/hosting-control}"
+ui_data_dir="$(env_value UI_DATA_DIR)"
+if [ -z "$ui_data_dir" ]; then
+  if [ "$installation_role" = "standby" ]; then ui_data_dir="$machine_state_dir/ui-data"; else ui_data_dir="$hosting_root/app-data/ui-manager"; fi
+fi
+
+case "$installation_role" in standalone|primary|standby) ;; *) echo "INSTALLATION_ROLE is invalid." >&2; exit 1 ;; esac
+case "$server_id" in ''|*[!A-Za-z0-9._-]*|-*|.*|_*) echo "SERVER_ID is invalid." >&2; exit 1 ;; esac
+if [ "${#server_id}" -gt 64 ]; then echo "SERVER_ID is too long." >&2; exit 1; fi
+
+mkdir -p "$machine_state_dir"
+mkdir -p "$ui_data_dir"
+chown -R 33:33 "$ui_data_dir"
+role_marker="$machine_state_dir/role.json"
+if [ -e "$role_marker" ]; then
+  grep -qF "\"role\": \"$installation_role\"" "$role_marker" \
+    || { echo "Existing machine role marker does not match INSTALLATION_ROLE; refusing to overwrite it." >&2; exit 1; }
+  grep -qF "\"server_id\": \"$server_id\"" "$role_marker" \
+    || { echo "Existing machine role marker does not match SERVER_ID; refusing to overwrite it." >&2; exit 1; }
+else
+  umask 022
+  marker_tmp="$role_marker.tmp.$$"
+  printf '{\n  "version": 1,\n  "role": "%s",\n  "server_id": "%s"\n}\n' "$installation_role" "$server_id" > "$marker_tmp"
+  chmod 644 "$marker_tmp"
+  mv "$marker_tmp" "$role_marker"
+fi
 
 case "$backups_dir" in
   /*) ;;
@@ -211,6 +254,11 @@ HOSTING_ROOT="$hosting_root" BACKUPS_DIR="$backups_dir" EXPORTS_DIR="$exports_di
 cd "$project_dir"
 compose config --quiet
 compose build
-compose up -d
+if [ "$installation_role" = "standby" ]; then
+  compose up -d hosting-agent hosting-ui
+  echo "Standby installed. Only hosting-agent and the read-only hosting-ui were started."
+else
+  compose up -d
+fi
 
 echo "Hosting stack installed. Existing persistent data and configuration were left unchanged."

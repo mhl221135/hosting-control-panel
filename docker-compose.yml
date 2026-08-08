@@ -41,7 +41,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.40
+    image: hosting-ui:2.41
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -83,6 +83,9 @@ services:
       UI_ADMIN_EMAIL: ${UI_ADMIN_EMAIL:?Set UI_ADMIN_EMAIL in .env}
       UI_ADMIN_PASSWORD: ${UI_ADMIN_PASSWORD:?Set UI_ADMIN_PASSWORD in .env}
       UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
+      INSTALLATION_ROLE: ${INSTALLATION_ROLE:-standalone}
+      SERVER_ID: ${SERVER_ID:-hosting-server}
+      INSTALLATION_ROLE_PATH: /run/hosting-machine/role.json
       NPM_API_URL: ${NPM_API_URL:-http://hosting-npm:81/api}
       NPM_IDENTITY: ${NPM_IDENTITY:?Set NPM_IDENTITY in .env}
       NPM_SECRET: ${NPM_SECRET:?Set NPM_SECRET in .env}
@@ -96,7 +99,7 @@ services:
       RELOAD_PHP_CMD: "docker exec hosting-php-fpm sh -c 'kill -USR2 1'"
       CLEAR_OPCACHE_CMD: "docker exec hosting-php-fpm sh -lc 'kill -USR2 1'"
     volumes:
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/ui-manager:/app/data
+      - ${UI_DATA_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/ui-manager}:/app/data
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/srv/websites
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data:/srv/app-data:ro
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
@@ -106,6 +109,7 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
+      - ${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}:/run/hosting-machine:ro
     networks:
       - hosting-net
     depends_on:
