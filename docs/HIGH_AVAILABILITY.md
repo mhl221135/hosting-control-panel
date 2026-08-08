@@ -130,6 +130,12 @@ the current receiver receipt and writes `deep-verify-state.json` bound to the
 receipt hash. A later receiver run makes the older deep result stale. Neither
 operation performs promotion.
 
+Deep verification rejects links and special files in website archives. The
+app-data archive may contain Certbot's expected relative certificate symlinks,
+but each is accepted only when it remains confined to the archive and resolves
+to a regular file included in that same archive. Escaping, dangling, chained,
+hard, device, FIFO, and other special entries fail verification.
+
 For SSH sources, install `scripts/backup-reader-command.sh` as a root-owned
 mode-0755 command on the primary, store the single allowed source directory in
 root-owned `/etc/hosting-control/backup-reader-root`, and prefix the replica's

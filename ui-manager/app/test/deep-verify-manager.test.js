@@ -262,4 +262,27 @@ test("DeepVerifyManager tests", async (t) => {
     execFileSync("tar", ["-czf", archive, "-C", source, "public_html"]);
     await assert.rejects(verifyTar(archive, "public_html", mockContext(), Date.now() + 10_000), /link or special file/);
   });
+
+  await t.test("allows confined app-data symlinks to archived regular files", async () => {
+    const source = path.join(tmpDir, "cert-source");
+    fs.mkdirSync(path.join(source, "npm/letsencrypt/archive/site"), { recursive: true });
+    fs.mkdirSync(path.join(source, "npm/letsencrypt/live/site"), { recursive: true });
+    fs.writeFileSync(path.join(source, "npm/letsencrypt/archive/site/cert1.pem"), "certificate");
+    fs.symlinkSync("../../archive/site/cert1.pem", path.join(source, "npm/letsencrypt/live/site/cert.pem"));
+    const archive = path.join(tmpDir, "certs.tar.gz");
+    execFileSync("tar", ["-czf", archive, "-C", source, "."]);
+    await verifyTar(archive, null, mockContext(), Date.now() + 10_000, { allowConfinedSymlinks: true });
+  });
+
+  await t.test("rejects escaping app-data symlinks", async () => {
+    const source = path.join(tmpDir, "escape-source");
+    fs.mkdirSync(path.join(source, "config"), { recursive: true });
+    fs.symlinkSync("../../outside", path.join(source, "config/escape"));
+    const archive = path.join(tmpDir, "escape.tar.gz");
+    execFileSync("tar", ["-czf", archive, "-C", source, "."]);
+    await assert.rejects(
+      verifyTar(archive, null, mockContext(), Date.now() + 10_000, { allowConfinedSymlinks: true }),
+      /unsafe symlink/,
+    );
+  });
 });

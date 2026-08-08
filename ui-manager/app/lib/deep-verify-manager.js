@@ -48,6 +48,19 @@ function safeArchivePath(entry, expectedRoot) {
   return !expectedRoot || normalized === expectedRoot || normalized.startsWith(`${expectedRoot}/`);
 }
 
+function normalizedArchivePath(entry) {
+  const normalized = path.posix.normalize(String(entry || "").replace(/^\.\//, "").replace(/\/$/, ""));
+  return normalized === "." ? "" : normalized;
+}
+
+function confinedLinkTarget(source, target) {
+  if (!target || target.startsWith("/") || /[\x00-\x1f\x7f]/.test(target)) return "";
+  const sourcePath = normalizedArchivePath(source);
+  const resolved = normalizedArchivePath(path.posix.join(path.posix.dirname(sourcePath), target));
+  if (!resolved || resolved === ".." || resolved.startsWith("../")) return "";
+  return resolved;
+}
+
 function runArchiveCommand(command, args, context, deadline, onLine) {
   return new Promise((resolve, reject) => {
     const remaining = Math.max(1, Math.min(PROCESS_TIMEOUT_MS, deadline - Date.now()));
@@ -95,14 +108,36 @@ function runArchiveCommand(command, args, context, deadline, onLine) {
   });
 }
 
-async function verifyTar(filePath, expectedRoot, context, deadline) {
+async function verifyTar(filePath, expectedRoot, context, deadline, options = {}) {
+  const entries = [];
   await runArchiveCommand("tar", ["-tzf", filePath], context, deadline, (entry) => {
     if (!safeArchivePath(entry, expectedRoot)) throw new Error("Archive contains an unsafe or out-of-root path");
+    entries.push(entry);
   });
+  const types = new Map();
+  const links = [];
+  let entryIndex = 0;
   await runArchiveCommand("tar", ["-tvzf", filePath], context, deadline, (entry) => {
+    const archiveEntry = entries[entryIndex++];
+    if (archiveEntry === undefined) throw new Error("Archive listing changed during verification");
     const type = entry[0];
-    if (type !== "-" && type !== "d") throw new Error("Archive contains a link or special file");
+    const normalized = normalizedArchivePath(archiveEntry);
+    if (type === "-" || type === "d") {
+      if (normalized) types.set(normalized, type);
+      return;
+    }
+    if (type !== "l" || !options.allowConfinedSymlinks) throw new Error("Archive contains a link or special file");
+    const marker = entry.lastIndexOf(" -> ");
+    const target = marker === -1 ? "" : entry.slice(marker + 4);
+    const resolved = confinedLinkTarget(archiveEntry, target);
+    if (!normalized || !resolved) throw new Error("Archive contains an unsafe symlink");
+    types.set(normalized, type);
+    links.push({ source: normalized, target: resolved });
   });
+  if (entryIndex !== entries.length) throw new Error("Archive listing changed during verification");
+  for (const link of links) {
+    if (types.get(link.target) !== "-") throw new Error("Archive symlink target is missing or is not a regular file");
+  }
 }
 
 async function verifyGzip(filePath, context, deadline) {
@@ -149,7 +184,7 @@ class DeepVerifyManager {
       }
 
       if (manifest.type === "app-data") {
-        await verifyTar(confinedPath(setDir, "app-data.tar.gz"), null, context, deadline);
+        await verifyTar(confinedPath(setDir, "app-data.tar.gz"), null, context, deadline, { allowConfinedSymlinks: true });
         await verifyGzip(confinedPath(setDir, "databases.sql.gz"), context, deadline);
       } else {
         await verifyTar(confinedPath(setDir, "website.tar.gz"), manifest.websitePath, context, deadline);
@@ -167,4 +202,7 @@ class DeepVerifyManager {
   }
 }
 
-module.exports = { DeepVerifyManager, confinedPath, hashFile, safeArchivePath, verifyGzip, verifyTar };
+module.exports = {
+  DeepVerifyManager, confinedLinkTarget, confinedPath, hashFile, normalizedArchivePath,
+  safeArchivePath, verifyGzip, verifyTar,
+};
