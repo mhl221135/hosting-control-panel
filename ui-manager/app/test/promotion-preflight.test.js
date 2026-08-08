@@ -57,6 +57,12 @@ test("passes WordPress with valid backup and machine marker", async () => {
       receiverState: { version: 1, result: "success", sourceServerId: "primary-test", completedAt: new Date().toISOString(), verifiedCount: 2, sets: [{ domain: "example.com", setId, manifestSha256: manifestHash }, { domain: "app-data", setId, manifestSha256: appHash }] }
     });
     assert.equal(r.ready, true);
+    assert.equal(r.replication.sourceServerId, "primary-test");
+    assert.equal(r.replication.verifiedSetCount, 2);
+    assert.equal(r.replication.websiteGroupCount, 1);
+    assert.equal(r.replication.appDataSetId, setId);
+    assert.equal(r.replication.deepVerification, "missing");
+    assert.ok(r.replication.estimatedDataLossHours >= 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

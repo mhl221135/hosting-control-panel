@@ -568,6 +568,12 @@ function renderPreflight(data) {
   $("#preflightPass").textContent = s.pass;
   $("#preflightWarn").textContent = s.warning;
   $("#preflightFail").textContent = s.fail;
+  const replication = data.replication || {};
+  $("#preflightLastReceive").textContent = replication.lastReceivedAt ? new Date(replication.lastReceivedAt).toLocaleString() : "Unavailable";
+  $("#preflightRecoveryAge").textContent = Number.isFinite(replication.estimatedDataLossHours) ? `${replication.estimatedDataLossHours}h` : "Unavailable";
+  $("#preflightVerifiedSets").textContent = replication.verifiedSetCount || 0;
+  $("#preflightWebsiteGroups").textContent = replication.websiteGroupCount || 0;
+  $("#preflightDeepState").textContent = replication.deepVerification || "missing";
   const checks = $("#preflightChecks");
   checks.className = data.checks.length ? "rows" : "rows empty";
   checks.innerHTML = data.checks.length ? data.checks.map((c) => `

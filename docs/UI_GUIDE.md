@@ -26,6 +26,9 @@ The Health view shows the authoritative server identity, an ingress segmented
 control, quick promotion-readiness checks, and **Deep verification**. Saving
 ingress changes metadata only. Deep verification runs as a durable background
 job and never starts services, restores data, changes DNS, or promotes the host.
+The recovery metrics distinguish daily backup reception from live replication:
+they show the last receiver completion, oldest selected recovery age, bounded
+set/group counts, and whether deep verification matches the current receipt.
 
 ## Sites
 

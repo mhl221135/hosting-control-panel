@@ -493,8 +493,9 @@ future work.
   roles into pairing and promotion workflows.
 - Pair servers through a narrow authenticated API using independently rotatable
   credentials or mutual TLS.
-- Show replication health, last successful sync, MySQL lag, recovery point,
-  peer identity, and role in the panel.
+- Extend the implemented backup-receiver status (source identity, last receive,
+  recovery age, set/group counts, and deep-verification freshness) with pairing
+  health and MySQL/filesystem replication lag once warm replication exists.
 - A standby must suppress provisioning, scheduled maintenance, backups,
   certificate issuance, DNS writes, and all other mutating control-plane work.
 - Store the effective role and unique server identity in a local durable marker
@@ -555,10 +556,8 @@ future work.
 
 ### Replication
 
-- Clearly distinguish the implemented daily backup receiver from warm
-  replication in the UI. Show the newest verified recovery point and estimated
-  data-loss window; never describe daily backup reception as real-time or
-  continuous synchronization.
+- Keep the implemented daily receiver recovery age clearly labeled as backup
+  reception; never describe it as real-time or continuous synchronization.
 - Add optional low-load warm replication: snapshot/staged one-way website-file
   synchronization at a configurable interval and MySQL GTID replication with
   measured lag. Keep the daily verified backup sets as an independent recovery

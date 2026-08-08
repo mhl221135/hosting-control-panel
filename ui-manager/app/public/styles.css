@@ -469,6 +469,7 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 @media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }
 .standby-ingress-form { display: flex; align-items: end; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+.standby-replication-metrics { margin-bottom: 12px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .standby-ingress-form > div { display: grid; gap: 4px; }
 .standby-ingress-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .standby-ingress-form legend { color: var(--muted); font-size: .82rem; margin-bottom: 5px; }
@@ -482,4 +483,5 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
   .standby-ingress-form { align-items: stretch; }
   .standby-ingress-form > *, .segmented-control { width: 100%; }
   .segmented-control label { flex: 1; text-align: center; }
+  .standby-replication-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

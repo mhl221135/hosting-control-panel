@@ -24,6 +24,11 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   manifests/archives/dumps, filesystem free space, required configuration keys,
   Docker availability, and tunnel readiness. No files, databases, DNS, or
   ingress are modified.
+  The response also includes a bounded `replication` summary: receiver mode,
+  source identity, last successful receive time, verified set and website-group
+  counts, app-data recovery identifier, oldest selected recovery-point age,
+  and whether deep verification is current, stale, or missing. It contains no
+  backup paths, site domains, credentials, or raw manifests.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact

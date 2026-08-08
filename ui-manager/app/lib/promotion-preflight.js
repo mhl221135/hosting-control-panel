@@ -250,6 +250,18 @@ async function runPreflight(opts = {}) {
     ready: checks.every((item) => item.status !== "fail"),
     checkedAt: new Date().toISOString(), checks,
     summary: { total: checks.length, pass: checks.filter((c) => c.status === "pass").length, warning: checks.filter((c) => c.status === "warning").length, fail: checks.filter((c) => c.status === "fail").length },
+    replication: {
+      mode: "backup_receiver",
+      sourceServerId: receipt?.sourceServerId || "",
+      lastReceivedAt: receipt?.completedAt || "",
+      verifiedSetCount: receipt?.verifiedCount || 0,
+      websiteGroupCount: new Set((receipt?.sets || []).filter((entry) => entry.domain !== "app-data").map((entry) => entry.domain)).size,
+      appDataSetId: appDataManifest?.id || "",
+      recoveryPointAt: oldestAge > 0 ? new Date(Date.now() - oldestAge).toISOString() : "",
+      estimatedDataLossHours: oldestAge > 0 ? Math.ceil(oldestAge / 3_600_000) : null,
+      deepVerification: deep ? (deep.receiverReceiptSha256 === receiptHash ? "current" : "stale") : "missing",
+      deepVerifiedAt: deep?.completedAt || "",
+    },
   };
 }
 
