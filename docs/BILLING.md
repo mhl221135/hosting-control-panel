@@ -84,6 +84,80 @@ domain-renewal period without changing dates or prices. Canonical CSV exports
 include both periods and the archived state; legacy `Domain Months` is mapped
 to the domain period.
 
+## Remote WordPress Enrollment (Backend)
+
+Phase A1 adds the secure enrollment backend for remotely hosted WordPress
+services. Phase A2 adds signatures and backend heartbeat storage. The WordPress
+plugin, billing UI heartbeat workflow, frontend suspension, and package
+distribution remain future work.
+
+An authenticated billing administrator creates a short-lived, one-time
+enrollment code for an eligible service (a non-archived record whose
+`location` is `shared`, i.e. remote/shared hosting). The enrollment target must
+be the service's canonical primary domain; aliases are not automatically
+treated as a new canonical identity. Only one usable pending code and one active
+installation may exist per service/domain.
+
+- `enrollment_codes` stores the code as a SHA-256 hash only (`code_hash`). The
+  plaintext code is revealed to the administrator exactly once at creation and
+  never persisted, logged, or audited.
+- `wp_installations` stores the per-installation credential as a SHA-256 hash
+  only (`credential_hash`). The plaintext credential is revealed exactly once
+  during the public exchange and never persisted, logged, or audited.
+- The public `POST /api/enrollment/exchange` consumes the code and creates the
+  installation inside a single `BEGIN IMMEDIATE` transaction. Concurrent or
+  replayed exchanges are rejected (`409`/`410`) and never create two
+  installations; the same generated IDs are used in storage, the response,
+  foreign keys, and audit entries.
+- Rejected exchanges due to invalid, used, revoked, expired, archived,
+  ineligible, or domain-mismatched codes are recorded as bounded
+  `enrollment.exchange_rejected` audit entries containing no secrets.
+- Enrollment codes and installation credentials can be revoked idempotently.
+  Revoked or used codes are never accepted again.
+- Exchange/install tables are excluded from portable CSV exports, which carry
+  only service inventory.
+
+## Remote Entitlement Signing (Backend)
+
+Phase A2 adds authenticated, asymmetrically signed entitlement delivery for
+enrolled installations and signing-key lifecycle management.
+
+An enrolled remote WordPress installation authenticates with its installation
+ID and one-time credential via `POST /remote/v1/entitlement`. The installation
+is selected by ID and the submitted credential hash is compared in constant
+time; authentication errors never reveal which identifier or credential
+failed. On success, a deterministic, allowlisted entitlement
+payload (contract version, installation ID, canonical domain, entitlement
+state, freshness timestamps, renewal URL, display-safe price/currency/period,
+enforcement-enabled flag, and key ID) is signed with the active Ed25519
+signing key and returned with its signature. The payload contains the key ID.
+A future plugin verifies the signature using the public key served by
+`GET /remote/v1/keys`, which
+returns only the active and still-overlapping previous public keys.
+
+Missing, mismatched, or ambiguous billing data produces a signed fail-open
+active entitlement. A valid suspended billing state remains visible in the
+payload, but `enforcement_enabled` stays false until the plugin phase is
+qualified. Entitlements are short-lived (5-minute TTL). Successful retrievals
+write throttled heartbeat fields (`last_seen_at`, `last_success_at`, contract
+version, and safe status); failed polls do not update those fields. Renewal
+URLs carry an opaque public reference and never expose the internal service ID.
+
+Signing keys are managed by authenticated billing administrators through
+`POST /api/enrollment/signing/initialize` (explicit confirmation, requires
+`BILLING_SETTINGS_KEY`), `rotate` (requires the caller's last observed active
+key ID, replaces it atomically, and retains only its public key for a bounded
+overlap), and `retire` (removes a previous key
+after its overlap expires; emergency retirement before expiry requires
+separate confirmation). Private keys are stored only as AES-256-GCM encrypted
+blobs; plaintext private keys are never returned, logged, audited, exported, or
+backed up. The encrypted active-key blob is present in verified SQLite backups,
+so disaster recovery also requires the independently stored
+`BILLING_SETTINGS_KEY`. Exactly one active signing key is maintained; rotation
+creates a new one and immediately erases the old encrypted private key. Key
+operations are atomic and audited
+with only key IDs, safe timestamps, and non-secret metadata.
+
 ## WooCommerce Payments
 
 Open **Payments** and configure:
