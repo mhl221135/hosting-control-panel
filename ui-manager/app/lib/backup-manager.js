@@ -10,6 +10,7 @@ const { atomicWriteJson } = require("./safe-write");
 
 const execFileAsync = promisify(execFile);
 const MYSQL_RESTORE_SQL_MODE = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION";
+const NPM_BACKUP_READ_SCRIPT = "set -eu; find /etc/letsencrypt -xdev -exec chgrp -h 33 {} +; find /etc/letsencrypt -xdev -type d -exec chmod g+rX {} +; find /etc/letsencrypt -xdev -type f -exec chmod g+r {} +";
 
 const DEFAULT_SETTINGS = {
   scheduleTime: "03:00",
@@ -551,6 +552,9 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
+      await execFileAsync("docker", [
+        "exec", "hosting-npm", "sh", "-c", NPM_BACKUP_READ_SCRIPT,
+      ], { timeout: 2 * 60 * 1000, maxBuffer: 1024 * 1024 });
       await execFileAsync("ionice", [
         "-c",
         "2",
@@ -560,7 +564,6 @@ class BackupManager {
         "-n",
         "10",
         "tar",
-        "--ignore-failed-read",
         "--warning=no-file-changed",
         "-czf",
         path.join(partial, "app-data.tar.gz"),
@@ -885,6 +888,7 @@ module.exports = {
   BackupManager,
   DEFAULT_SETTINGS,
   MYSQL_RESTORE_SQL_MODE,
+  NPM_BACKUP_READ_SCRIPT,
   artifactManifest,
   backupId,
   setBackupSetPermissions,

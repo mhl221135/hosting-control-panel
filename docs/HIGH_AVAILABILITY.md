@@ -136,6 +136,13 @@ but each is accepted only when it remains confined to the archive and resolves
 to a regular file included in that same archive. Escaping, dangling, chained,
 hard, device, FIFO, and other special entries fail verification.
 
+Before creating an app-data archive, the panel invokes one exact, allowlisted
+control-agent operation that grants the panel group read access to NPM's
+Let's Encrypt tree. The archive operation then fails on every unreadable file;
+it must never silently omit certificate private keys. Treat a deep-verification
+failure for a dangling `live/` certificate link as an incomplete backup and
+create a new app-data set after correcting source permissions.
+
 For SSH sources, install `scripts/backup-reader-command.sh` as a root-owned
 mode-0755 command on the primary, store the single allowed source directory in
 root-owned `/etc/hosting-control/backup-reader-root`, and prefix the replica's

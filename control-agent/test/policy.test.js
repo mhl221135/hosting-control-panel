@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { validateArgs, validateCopy } = require("../app/policy");
+const { NPM_BACKUP_READ_SCRIPT, validateArgs, validateCopy } = require("../app/policy");
 
 test("allows bounded runtime inspection and reloads", () => {
   assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State}}", "hosting-ui"]));
@@ -76,6 +76,18 @@ test("allows only package copies into the PHP temporary directory", () => {
   });
   assert.throws(() => validateCopy("hosting-php-fpm:/var/www/example.com/backdoor.php"), /not allowed/);
   assert.throws(() => validateCopy("hosting-ui:/tmp/hosting-control-plugin.zip"), /not allowed/);
+});
+
+test("allows only the exact NPM certificate backup-readiness operation", () => {
+  assert.doesNotThrow(() => validateArgs([
+    "exec", "hosting-npm", "sh", "-c", NPM_BACKUP_READ_SCRIPT,
+  ]));
+  assert.throws(() => validateArgs([
+    "exec", "hosting-npm", "sh", "-c", `${NPM_BACKUP_READ_SCRIPT}; id`,
+  ]), /not allowed/);
+  assert.throws(() => validateArgs([
+    "exec", "hosting-npm", "cat", "/etc/letsencrypt/archive/example/privkey1.pem",
+  ]), /not allowed/);
 });
 
 test("allows standby read-only operations", () => {

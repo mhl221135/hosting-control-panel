@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   BackupManager,
   MYSQL_RESTORE_SQL_MODE,
+  NPM_BACKUP_READ_SCRIPT,
   artifactManifest,
   setBackupSetPermissions,
   verifyArtifactManifest,
@@ -34,6 +35,12 @@ function managerFixture() {
 test("site restore mode accepts legacy zero-date schemas without weakening global MySQL mode", () => {
   assert.match(MYSQL_RESTORE_SQL_MODE, /STRICT_TRANS_TABLES/);
   assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
+});
+
+test("app-data backup uses the exact allowlisted NPM certificate-readiness command", () => {
+  const { NPM_BACKUP_READ_SCRIPT: agentScript } = require("../../../control-agent/app/policy");
+  assert.equal(NPM_BACKUP_READ_SCRIPT, agentScript);
+  assert.match(NPM_BACKUP_READ_SCRIPT, /^set -eu; find \/etc\/letsencrypt /);
 });
 
 test("backup sets remain private while allowing the replica group to read artifacts", () => {
