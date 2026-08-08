@@ -7,6 +7,7 @@ usage() {
 Usage: receive-backups.sh --source PATH|USER@HOST:/PATH --destination PATH [options]
 
 Options:
+  --source-server-id ID Identifier of the source server (required; 1-64 alphanumeric/hyphen/underscore/dot chars)
   --retention N     Verified sets retained per website/app-data group (default: 3)
   --reserve-gb N    Free space that must remain after each transfer (default: 20)
   --ssh-option OPT  Additional ssh/rsync ssh option; may be repeated
@@ -20,6 +21,8 @@ retention=3
 reserve_gb=20
 dry_run=0
 ssh_options=""
+source_server_id=""
+
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -28,6 +31,7 @@ while [ "$#" -gt 0 ]; do
     --retention) shift; [ "$#" -gt 0 ] || { usage; exit 2; }; retention="$1" ;;
     --reserve-gb) shift; [ "$#" -gt 0 ] || { usage; exit 2; }; reserve_gb="$1" ;;
     --ssh-option) shift; [ "$#" -gt 0 ] || { usage; exit 2; }; ssh_options="$ssh_options $1" ;;
+    --source-server-id) shift; [ "$#" -gt 0 ] || { usage; exit 2; }; source_server_id="$1" ;;
     --dry-run) dry_run=1 ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage; exit 2 ;;
@@ -35,7 +39,9 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-[ -n "$source_spec" ] && [ -n "$destination" ] || { usage; exit 2; }
+[ -n "$source_spec" ] && [ -n "$destination" ] && [ -n "$source_server_id" ] || { usage; exit 2; }
+case "$source_server_id" in ''|*[!A-Za-z0-9._-]*) printf 'Source server ID must be 1-64 alphanumeric, dot, hyphen, or underscore chars.\n' >&2; exit 2 ;; esac
+if [ "${#source_server_id}" -gt 64 ]; then printf 'Source server ID must be at most 64 characters.\n' >&2; exit 2; fi
 case "$retention" in ''|*[!0-9]*) printf 'Retention must be an integer.\n' >&2; exit 2 ;; esac
 case "$reserve_gb" in ''|*[!0-9]*) printf 'Reserve must be an integer number of GiB.\n' >&2; exit 2 ;; esac
 [ "$retention" -ge 1 ] && [ "$retention" -le 30 ] || { printf 'Retention must be from 1 to 30.\n' >&2; exit 2; }
@@ -70,6 +76,7 @@ stage=""
 cleanup() {
   rm -f "$inventory" ${selected:+"$selected"}
   [ -z "$stage" ] || rm -rf "$stage"
+  rm -f "$destination/.incoming/verified_sets.jsonl"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -118,9 +125,14 @@ verify_set() {
   [ -f "$manifest" ] || { printf 'Missing manifest: %s\n' "$directory" >&2; return 1; }
   jq -e --arg id "$expected_id" --arg group "$expected_group" '
     .version == 2 and .id == $id and
-    ((.type == "app-data" and $group == "app-data") or
-     (.type == "site" and .domain == $group and (.websitePath | type == "string"))) and
-    (.artifacts | type == "object")
+    (.startedAt | type == "string") and (.completedAt | type == "string") and
+    ((.type == "app-data" and $group == "app-data" and
+      (.excluded | type == "array") and
+      ((.artifacts | keys | sort) == ["app-data.tar.gz", "databases.sql.gz"])) or
+     (.type == "site" and .domain == $group and has("database") and
+      (.websitePath | type == "string") and
+      ((.database == null and ((.artifacts | keys | sort) == ["website.tar.gz"])) or
+       ((.database | type == "string") and ((.artifacts | keys | sort) == ["database.sql.gz", "website.tar.gz"])))) )
   ' "$manifest" >/dev/null || { printf 'Manifest identity/contract failed: %s\n' "$directory" >&2; return 1; }
 
   type=$(jq -r .type "$manifest")
@@ -158,13 +170,20 @@ verify_set() {
 
 reserve_bytes=$((reserve_gb * 1024 * 1024 * 1024))
 received_groups=""
+[ "$dry_run" -eq 1 ] || : > "$destination/.incoming/verified_sets.jsonl"
 while IFS='	' read -r group id bytes; do
   [ -n "$group" ] || continue
+  received_groups="$received_groups $group"
   case "$bytes" in ''|*[!0-9]*) printf 'Invalid inventory size for %s/%s.\n' "$group" "$id" >&2; exit 1 ;; esac
   target="$destination/$group/$id"
   if [ -d "$target" ]; then
     verify_set "$target" "$group" "$id"
     printf 'Verified existing %s/%s\n' "$group" "$id"
+    if [ "$dry_run" -eq 0 ]; then
+      manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
+      jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
+        '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
+    fi
     continue
   fi
   available_kb=$(df -Pk "$destination" | awk 'NR==2 {print $4}')
@@ -188,8 +207,12 @@ while IFS='	' read -r group id bytes; do
   verify_set "$stage" "$group" "$id"
   mv "$stage" "$target"
   stage=""
-  received_groups="$received_groups $group"
   printf 'Promoted verified %s/%s\n' "$group" "$id"
+  if [ "$dry_run" -eq 0 ]; then
+    manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
+    jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
+      '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
+  fi
 done < "$selected"
 
 if [ "$dry_run" -eq 0 ]; then
@@ -201,6 +224,32 @@ if [ "$dry_run" -eq 0 ]; then
           if [ "$count" -gt "$retention" ]; then rm -rf "$set_dir"; fi
         done
   done
+
+  if [ -f "$destination/.incoming/verified_sets.jsonl" ]; then
+    sets_json=$(jq -s 'unique_by(.domain + "/" + .setId)' "$destination/.incoming/verified_sets.jsonl")
+    verified_count=$(printf '%s' "$sets_json" | jq 'length')
+  else
+    sets_json="[]"
+    verified_count=0
+  fi
+  if [ "$verified_count" -eq 0 ]; then
+    printf 'No verified backup sets were selected; preserving the previous receipt.\n' >&2
+    exit 1
+  fi
+  if [ "$verified_count" -gt 5000 ]; then
+    printf 'Receipt has too many entries (%s).\n' "$verified_count" >&2
+    exit 1
+  fi
+  completed_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  tmp_receipt="$destination/.incoming/receipt.$$.json"
+  jq -n \
+    --arg completedAt "$completed_at" \
+    --arg sourceServerId "$source_server_id" \
+    --argjson verifiedCount "$verified_count" \
+    --argjson sets "$sets_json" \
+    '{version: 1, completedAt: $completedAt, result: "success", sourceServerId: $sourceServerId, verifiedCount: $verifiedCount, sets: $sets}' > "$tmp_receipt"
+  chmod 600 "$tmp_receipt"
+  mv "$tmp_receipt" "$destination/receiver-state.json"
 fi
 
 printf 'Backup reception complete.\n'
