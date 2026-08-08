@@ -307,6 +307,13 @@ read-only `hosting-ui`; writable and public services remain stopped. Replacing
 replicated `.env` or application data cannot promote the machine. Standby panel
 state is stored separately in `/etc/hosting-control/ui-data`.
 
+For a dedicated outbound Cloudflare Tunnel, set
+`HOSTING_TUNNEL_ENABLED=true`, configure `HOSTING_TUNNEL_TOKEN_FILE`, and
+provision that non-replicated token file with mode `0400` for uid/gid `65532`.
+The optional `hosting-cloudflared` container joins only `hosting-net`, exposes
+no host ports, and can reach service origins by container name. Do not store
+the tunnel token in `.env` or run a second connector for the same tunnel.
+
 ## Upgrade
 
 Upgrade an existing installation without replacing persistent data, websites,

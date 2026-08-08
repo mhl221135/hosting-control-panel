@@ -148,13 +148,17 @@ primary, add the locked forced-command receiver account to the backup writer's
 group; do not grant it sudo or interactive shell access. Existing sets created
 before this policy must be migrated to the same group-readable modes once.
 
-`examples/systemd/hosting-cloudflared.service` is the initial host-level
-connector for the replica's separate hosting tunnel. It runs as a dedicated
-unprivileged user and reads a root-provisioned, non-replicated token file. The
-existing hp-server administration tunnel remains a separate service and must
-not be replaced. Replica service hostnames use the `-r` suffix (for example,
-`ui-v2-r.mishaweb.com`); production website hostnames are attached only during
-a fenced promotion.
+The preferred hosting connector is the optional `hosting-cloudflared` Compose
+service. Enable it with `HOSTING_TUNNEL_ENABLED=true`, provision the token at
+`HOSTING_TUNNEL_TOKEN_FILE` with mode `0400` and owner uid/gid `65532`, and run
+the connector on `hosting-net`. It has no host ports, Docker socket, writable
+root filesystem, or Linux capabilities. The example host-level systemd unit is
+only a bootstrap/fallback path; do not run both connectors after migration.
+The existing hp-server administration tunnel remains a separate service and
+must not be replaced. Replica service hostnames use the `-r` suffix (for
+example, `ui-v2-r.mishaweb.com`); production website hostnames are attached
+only during a fenced promotion. Service routes target internal names such as
+`hosting-ui:8687`, while promoted website routes target `hosting-nginx:80`.
 
 ## Promotion Preconditions
 

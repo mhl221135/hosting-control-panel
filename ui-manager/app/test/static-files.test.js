@@ -25,7 +25,11 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(compose, /HOSTING_MACHINE_STATE_DIR[^\n]*:\/run\/hosting-machine:ro/);
   assert.match(bootstrap, /--role/);
   assert.match(bootstrap, /--server-id/);
-  assert.match(install, /Only hosting-agent and the read-only hosting-ui were started/);
+  assert.match(install, /Writable and public origin services remain stopped/);
+  assert.match(install, /compose up -d hosting-agent hosting-ui hosting-cloudflared/);
+  assert.match(compose, /hosting-cloudflared:[\s\S]*profiles:[\s\S]*- tunnel/);
+  assert.match(compose, /hosting-cloudflared:[\s\S]*cap_drop:[\s\S]*- ALL/);
+  assert.doesNotMatch(compose, /hosting-cloudflared:[\s\S]*\/var\/run\/docker\.sock/);
   assert.match(upgrade, /compose stop hosting-files hosting-billing/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
   assert.match(server, /if \(!installationRole\.isStandby\(\)\)/);

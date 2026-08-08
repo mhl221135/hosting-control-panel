@@ -560,6 +560,12 @@ lag reporting, and controlled promotion remain future work.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
 
+Implemented foundation: the optional pinned `hosting-cloudflared` container is
+available with no host ports or Docker socket, a read-only filesystem, dropped
+capabilities, bounded CPU/RAM, a non-replicated file credential, and internal
+`hosting-net` service routing. The remaining work below is control-plane
+automation, health/status UX, website-route ownership, cutover, and rollback.
+
 - Support an explicit public-ingress mode per server:
   - `direct_npm`: Cloudflare/DNS origin records target the public WAN address
     and traffic enters NPM on ports 80/443;
@@ -569,10 +575,8 @@ lag reporting, and controlled promotion remain future work.
 - Allow a primary or promoted replica behind CGNAT/gray IP to use tunnel mode
   without exposing inbound 80/443. The host still requires reliable outbound
   HTTPS/QUIC connectivity to Cloudflare.
-- Run a dedicated pinned multi-architecture `hosting-cloudflared` container
-  with no host ports, no Docker socket, dropped capabilities, read-only root
-  filesystem, bounded resources, health reporting, and a separately stored
-  tunnel credential. Never commit the tunnel token or generated credentials.
+- Add bounded connector health reporting for the dedicated tunnel container;
+  never expose or log its credential.
 - Treat NPM and Tunnel as alternative website ingress transports, not a proxy
   chain. Tunnel website routes should forward to `hosting-nginx:80`; they must
   not loop through public NPM. NPM may remain available internally for
