@@ -532,8 +532,8 @@ future work.
   configuration compatibility, disk capacity, and promotion readiness visible.
 - Clearly label the standby header and browser title so an operator cannot
   mistake it for the active primary.
-- Do not enqueue disabled jobs and do not retain primary jobs as runnable work.
-  Show replicated/interrupted jobs as historical evidence only.
+- Keep the implemented standby startup suppression for queued non-verification
+  jobs; future pairing must import remote job evidence as non-runnable history.
 
 ### Independent Retention And Resource Profiles
 

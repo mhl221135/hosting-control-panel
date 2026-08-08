@@ -196,6 +196,9 @@ Source rollback and data rollback are different operations.
 
 **WARNING: Do not run standby mutation commands like `docker compose restart`, `docker compose up`, or database migrations on a standby machine.** Standby machines must remain in a strict fail-closed state where services are only activated through the controlled promotion process.
 
+At standby panel startup, queued jobs outside the deep-verification allowlist
+are marked cancelled and retained as historical evidence. They are not resumed.
+
 Do not start a second writable stack for the same websites without first
 fencing the old primary. The supported baseline is manual recovery from
 replicated, verified backup sets. See

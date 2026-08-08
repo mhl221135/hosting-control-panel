@@ -116,8 +116,20 @@ class JobManager {
     this.schedule();
   }
 
-  start({ allowlist } = {}) {
+  start({ allowlist, suppressDisallowed = false } = {}) {
     this.allowlist = allowlist instanceof Set ? allowlist : null;
+    if (this.allowlist && suppressDisallowed) {
+      let changed = false;
+      for (const job of this.jobs) {
+        if (job.status !== "queued" || this.allowlist.has(job.type)) continue;
+        job.status = "cancelled";
+        job.finishedAt = new Date().toISOString();
+        job.currentStep = "";
+        job.message = "Suppressed by standby role; retained as history only";
+        changed = true;
+      }
+      if (changed) this.persist();
+    }
     this.started = true;
     this.schedule();
   }

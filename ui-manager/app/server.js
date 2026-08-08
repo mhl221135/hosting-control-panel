@@ -4286,7 +4286,7 @@ server.listen(PORT, "0.0.0.0", () => {
     imageOptimizationManager.startScheduler();
     maintenanceManager.startScheduler();
   } else {
-    jobManager.start({ allowlist: new Set(["standby.deep-verify"]) });
+    jobManager.start({ allowlist: new Set(["standby.deep-verify"]), suppressDisallowed: true });
     console.log(`Standby mode active for ${installationRole.publicView().serverId}; mutating schedulers are suppressed`);
   }
   if (!installationRole.isStandby() && fs.existsSync(performanceSettings.path)) {
