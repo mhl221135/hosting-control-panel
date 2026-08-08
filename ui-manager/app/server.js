@@ -40,6 +40,11 @@ const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
 const { PanelMetadataStore } = require("./lib/panel-metadata-store");
 const { runPreflight } = require("./lib/promotion-preflight");
+const {
+  StandbyDockerAdapter,
+  StandbyIngressAdapter,
+  StandbyReceiverAdapter,
+} = require("./lib/standby-readiness");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -165,6 +170,26 @@ const DEFAULT_POOL_PRESETS = {
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
+const standbyReceiver = new StandbyReceiverAdapter({
+  unit: "hosting-backup-receiver.service",
+  timer: "hosting-backup-receiver.timer",
+  dataDir: DATA_DIR,
+  backupsRoot: BACKUPS_ROOT,
+});
+const standbyDocker = new StandbyDockerAdapter({
+  imageNames: (() => {
+    try {
+      const composeText = fs.readFileSync(
+        process.env.COMPOSE_FILE || path.resolve(__dirname, "../../docker-compose.yml"), "utf8");
+      const images = new Set();
+      for (const line of composeText.split("\n")) {
+        const match = line.match(/^\s*image:\s*["']?([^\s"']+)/);
+        if (match) images.add(match[1]);
+      }
+      return [...images];
+    } catch { return []; }
+  })(),
+});
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -1874,11 +1899,9 @@ async function handleApi(req, res) {
     });
     return true;
   }
-  if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
-    const body = guardBody(JSON.parse((await readBody(req)) || "{}"));
-    // Only ingress_mode is safe to change through the panel. The machine-local
-    // marker is the single authoritative role source; promotion/demotion is
-    // not available from the panel yet.
+if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["ingress_mode"]), "ingress settings");
     if (body.role !== undefined || body.server_id !== undefined) {
       sendJson(res, 409, {
         ok: false,
@@ -1906,11 +1929,9 @@ async function handleApi(req, res) {
             host: site.host,
             siteType: site.state?.siteType || "wordpress",
           }));
-      } catch {
-        return [];
-      }
+      } catch { return []; }
     })();
-    const result = runPreflight({
+    const result = await runPreflight({
       isStandby: installationRole.isStandby(),
       sites,
       backupsRoot: BACKUPS_ROOT,
@@ -1923,6 +1944,9 @@ async function handleApi(req, res) {
         BILLING_API_TOKEN: String(process.env.BILLING_API_TOKEN || ""),
         SERVER_ID: String(process.env.SERVER_ID || process.env.COMPOSE_PROJECT_NAME || ""),
       },
+      receiver: standbyReceiver,
+      docker: standbyDocker,
+      ingress: new StandbyIngressAdapter({ mode: panelMeta.read().ingressMode }),
     });
     sendJson(res, 200, { ok: true, ...result });
     return true;
@@ -4208,7 +4232,10 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.auth = session;
-      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) installationRole.requireMutable();
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)
+        && !req.url.startsWith("/api/system/role")) {
+        installationRole.requireMutable();
+      }
       const handled = await handleApi(req, res);
       if (!handled) sendJson(res, 404, { ok: false, message: "Not found" });
       return;
