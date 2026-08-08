@@ -3517,12 +3517,13 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
         notice(applied.message || "PHP-FPM profiles applied.");
         box.classList.add("hidden");
         await loadData();
-} catch (error) { notice(error.message, "warning"); }
+      } catch (error) { notice(error.message, "warning"); }
+    });
+  } catch (error) { notice(error.message, "warning"); }
 });
+
 $("#refreshPreflight").addEventListener("click", async (event) => {
   await withButton(event.currentTarget, "Checking...", () => loadPreflight());
-});
-  } catch (error) { notice(error.message, "warning"); }
 });
 
 $("#poolPresetsEditor").addEventListener("input", () => {
