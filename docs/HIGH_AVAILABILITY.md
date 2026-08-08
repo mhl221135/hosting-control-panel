@@ -94,7 +94,47 @@ dump instead. Copy only completed backup directories, never `.partial-*`.
 Replication must be one way from primary backup storage to standby storage.
 Use transfer staging or snapshot semantics so an interrupted copy is not
 mistaken for a complete restore point. Keep retention on the destination at
-least as long as the primary retention.
+an explicitly measured independent value; it may be lower than primary
+retention when replica capacity is constrained.
+
+The initial checksum-verified receiver is available as:
+
+```bash
+sudo ./scripts/receive-backups.sh \
+  --source backup-reader@primary:/media/seagate/websites-backups-v2 \
+  --destination /ssdmount/websites-v2/backups \
+  --retention 2 --reserve-gb 20 --dry-run
+```
+
+Remove `--dry-run` only after reviewing the inventory and capacity result. The
+receiver selects the newest requested sets per website and for `app-data`,
+copies missing sets into `.incoming`, validates the version-2 manifest,
+declared byte lengths and SHA-256 hashes, checks gzip/tar integrity and archive
+path confinement, then atomically promotes each set. Destination retention is
+applied only to groups that received a newer verified set; source deletions are
+never mirrored. Use a restricted SSH account that can read only completed
+backup directories. Do not grant it Docker, shell administration, website, or
+database access.
+
+For SSH sources, install `scripts/backup-reader-command.sh` as a root-owned
+mode-0755 command on the primary, store the single allowed source directory in
+root-owned `/etc/hosting-control/backup-reader-root`, and prefix the replica's
+public key in the reader account's `authorized_keys` with:
+
+```text
+restrict,command="/usr/local/sbin/hosting-backup-reader"
+```
+
+The receiver intentionally expects this forced-command protocol. It permits
+only bounded inventory output and read-only rsync sender requests beneath the
+configured root; it does not grant an interactive shell.
+
+The measured OPI5 inventory on 2026-08-08 was approximately 74.1 GB for the
+two newest sets across all current groups. The initial hp-server policy is
+therefore retention `2`, one reception run per day, destination
+`/ssdmount/websites-v2/backups`, and a 20 GiB free-space reserve. Re-run the dry
+run after large site additions; measured capacity, not this historical figure,
+is authoritative.
 
 ## Promotion Preconditions
 

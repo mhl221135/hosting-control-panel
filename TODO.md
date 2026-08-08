@@ -10,6 +10,39 @@ backlog only when their acceptance criteria are satisfied.
 2. Qualify live billing payments, then carefully pilot local enforcement.
 3. Build the isolated mail platform last, after hosting replication is proven.
 
+## WordPress Site Cache Control Plugin
+
+Add a small panel-managed must-use WordPress plugin to every current WordPress
+website and install it automatically during fresh provisioning and WordPress
+imports. Its Tools page should provide separate **FastCGI**, **OPcache**,
+**Redis**, and **Cloudflare** purge actions plus **Purge all**.
+
+- Authenticate panel calls with a rotatable, site-scoped credential. A token
+  copied from one website must never authorize another website or any general
+  panel API. Never place panel, Docker, Redis, or Cloudflare credentials in
+  WordPress.
+- Restrict the panel endpoint to the configured canonical primary website,
+  reject aliases and non-WordPress roots, rate-limit failures and successful
+  requests, and retain a bounded redacted audit history.
+- Purge FastCGI by advancing only that site's cache generation. Flush only the
+  site's Redis namespace (`WP_REDIS_PREFIX` is already domain-scoped). Purge
+  the matching Cloudflare zone through the panel's existing integration.
+- Never use global `opcache_reset()` from a website. Invalidate only cached PHP
+  files beneath the current site's real `ABSPATH`, with bounded traversal and
+  a clear count of invalidated and failed files.
+- Return a per-layer result so one unavailable integration does not disguise
+  successful local purges. Require a WordPress administrator capability and a
+  nonce for every button; do not expose an unauthenticated WordPress REST or
+  AJAX action.
+- Provide an idempotent bulk install/update command for existing sites, a
+  deterministic packaged plugin version, safe rollback/removal instructions,
+  tests for cross-site token rejection and path confinement, and mobile-safe
+  WordPress admin controls.
+
+This is independent of the remote billing-enforcement plugin. Do not grant the
+billing plugin cache or hosting-control authority merely because both are
+installed on one website.
+
 ## 1. Separate Billing And Entitlement Service
 
 Phase 1 is implemented as the isolated `hosting-billing` service. Its
@@ -479,9 +512,9 @@ lag reporting, and controlled promotion remain future work.
 
 ### Independent Retention And Resource Profiles
 
-- Configure backup retention per destination. Initial requested policy is seven
-  completed sets on the primary and three received, checksum-verified sets on
-  the replica.
+- Configure backup retention per destination. Current requested policy is seven
+  completed sets on the primary and two daily received, checksum-verified sets
+  on the replica at `/ssdmount/websites-v2/backups`.
 - Do not mirror backup deletions. The replica receives only completed sets into
   staging, verifies manifests/checksums/archive integrity, atomically promotes
   them, and applies its own retention after a newer usable set exists.

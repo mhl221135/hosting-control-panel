@@ -223,6 +223,13 @@ omits `NO_ZERO_DATE` and `NO_ZERO_IN_DATE` so legacy WordPress/WooCommerce table
 defaults can be recreated. This does not alter the server's global SQL mode.
 Run `scripts/qualify-local-recovery.sh` after database or backup changes.
 
+For a standby backup receiver, run `scripts/receive-backups.sh --dry-run` first.
+It accepts a local source path or `user@host:/absolute/path`, retains sets
+independently per destination, reserves configurable free disk space, and
+promotes a transfer only after manifest, checksum, size, gzip, tar, and archive
+path checks pass. See `docs/HIGH_AVAILABILITY.md`; never point the receiver at a
+live MySQL data directory.
+
 ## Website Deletion
 
 Use the panel's **Delete** tab instead of manually removing files or database
