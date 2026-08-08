@@ -55,6 +55,19 @@ test("detects OpenCart and its renamed admin directory", () => {
   }
 });
 
+test("prefers a conventional admin directory over a false config candidate", () => {
+  const root = fixture();
+  try {
+    fs.renameSync(path.join(root, "control"), path.join(root, "admin"));
+    fs.writeFileSync(path.join(root, "admin", "config.php"), config("/old/path", "admin", true));
+    fs.writeFileSync(path.join(root, "system", "config.php"), config("/old/path", "admin", true));
+    const result = inspectOpenCart(root);
+    assert.equal(result.adminDirectory, "admin");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rewrites OpenCart URLs, database credentials, and absolute paths", () => {
   const root = fixture();
   try {
