@@ -153,6 +153,12 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .runtime-audit-row details p { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .runtime-audit-row details code { margin-right: 6px; }
 
+.preflight-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.preflight-row:last-child { border-bottom: 0; }
+.preflight-row span { overflow-wrap: anywhere; }
+.preflight-row.fail span:last-child { color: var(--danger); }
+.preflight-row.warning span:last-child { color: var(--warning); }
+
 .data-row { display: grid; grid-template-columns: 60px minmax(120px, 1fr) minmax(160px, 1.5fr) 70px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
 .data-row code { overflow-wrap: anywhere; }
 .compact-grid { display: grid; grid-template-columns: 90px minmax(130px, 1fr) minmax(100px, auto); gap: 10px; align-items: end; border-top: 1px solid var(--line); padding-top: 14px; }

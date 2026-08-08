@@ -182,6 +182,13 @@
               <div id="healthHistory" class="health-list empty">No health events recorded.</div>
             </article>
           </div>
+
+          <article id="promotionPreflightCard" class="panel hidden">
+            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Non-mutating checks to verify the standby server is ready for controlled promotion. No files, databases, DNS, or ingress are changed.</p></div><button id="refreshPreflight" class="secondary">Refresh</button></div>
+            <div id="preflightSummary" class="metrics" style="margin-bottom:10px"><article><span>Ready</span><strong id="preflightReady">-</strong></article><article><span>Pass</span><strong id="preflightPass">0</strong></article><article><span>Warnings</span><strong id="preflightWarn">0</strong></article><article><span>Failures</span><strong id="preflightFail">0</strong></article></div>
+            <div id="preflightChecks" class="rows empty">No preflight checks have run. Refresh to begin.</div>
+            <small class="muted">Promotion is not available from this panel; use the documented runbook when ready.</small>
+          </article>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="jobs">

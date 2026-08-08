@@ -544,6 +544,33 @@ async function loadHealth() {
   const data = await api("/api/health");
   state.health = data.health;
   renderHealth();
+  // Preflight is only meaningful in standby mode.
+  const role = state.status?.installation?.role;
+  if (role === "standby") loadPreflight().catch((error) => notice(error.message, "warning"));
+}
+
+async function loadPreflight() {
+  const data = await api("/api/system/promotion-preflight");
+  renderPreflight(data);
+}
+
+function renderPreflight(data) {
+  const card = $("#promotionPreflightCard");
+  card.classList.toggle("hidden", false);
+  $("#preflightReady").textContent = data.ready ? "Yes" : "No";
+  $("#preflightReady").style.color = data.ready ? "var(--success)" : "var(--danger)";
+  const s = data.summary;
+  $("#preflightPass").textContent = s.pass;
+  $("#preflightWarn").textContent = s.warning;
+  $("#preflightFail").textContent = s.fail;
+  const checks = $("#preflightChecks");
+  checks.className = data.checks.length ? "rows" : "rows empty";
+  checks.innerHTML = data.checks.length ? data.checks.map((c) => `
+    <div class="preflight-row ${c.status}">
+      <span class="badge ${c.status === "fail" ? "danger" : c.status === "warning" ? "" : "on"}">${escapeHtml(c.status)}</span>
+      <span>${escapeHtml(c.reason)}</span>
+    </div>
+  `).join("") : "No preflight checks have run. Refresh to begin.";
 }
 
 async function loadSiteStats(domain, force = false) {
@@ -3490,8 +3517,11 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
         notice(applied.message || "PHP-FPM profiles applied.");
         box.classList.add("hidden");
         await loadData();
-      } catch (error) { notice(error.message, "warning"); }
-    });
+} catch (error) { notice(error.message, "warning"); }
+});
+$("#refreshPreflight").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Checking...", () => loadPreflight());
+});
   } catch (error) { notice(error.message, "warning"); }
 });
 
