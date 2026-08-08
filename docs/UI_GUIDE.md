@@ -18,7 +18,7 @@ as independent websites. Operations report progress and errors in the panel
 notice area. Do not close the browser during an upload, but long-running server
 jobs continue independently after the request has started.
 
-On a standby, the header displays a `STANDBY` badge and server identity.
+On a standby, the header and browser title display `STANDBY` and the server identity.
 Navigation is reduced to read-only Sites, Stats, Health, Jobs, and Account
 views. Site action and job mutation controls are hidden. The server remains the
 authorization boundary and rejects direct mutation requests with HTTP 423.

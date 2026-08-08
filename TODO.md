@@ -530,8 +530,6 @@ future work.
 - Keep read-only website inventory, replication status, received-backup
   verification, database lag, filesystem recovery point, source commit,
   configuration compatibility, disk capacity, and promotion readiness visible.
-- Clearly label the standby header and browser title so an operator cannot
-  mistake it for the active primary.
 - Keep the implemented standby startup suppression for queued non-verification
   jobs; future pairing must import remote job evidence as non-runnable history.
 

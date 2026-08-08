@@ -42,6 +42,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(server, /if \(!installationRole\.isStandby\(\)\)/);
   assert.match(html, /id="installationRole"/);
   assert.match(source, /function applyInstallationRole/);
+  assert.match(source, /document\.title = role === "standby"/);
   assert.match(source, /new Set\(\["sites", "stats", "health", "jobs", "account"\]\)/);
   assert.match(html, /id="standbyIngressForm"/);
   assert.match(html, /id="runDeepVerify"/);

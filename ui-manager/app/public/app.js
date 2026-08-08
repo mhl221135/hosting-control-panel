@@ -334,6 +334,9 @@ function showApp(session) {
 
 function applyInstallationRole(installation) {
   const role = installation.role || "standalone";
+  document.title = role === "standby"
+    ? `STANDBY · ${installation.serverId || "hosting-server"} · Hosting Control`
+    : "Hosting Control";
   document.body.dataset.installationRole = role;
   const badge = $("#installationRole");
   badge.textContent = `${role.toUpperCase()} · ${installation.serverId || "hosting-server"}`;
