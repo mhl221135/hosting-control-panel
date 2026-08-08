@@ -191,6 +191,19 @@ flock -n 9 || { printf 'Backup reception is active; preparation refused.\n' >&2;
 [ ! -d "$backups/.incoming" ] || [ -z "$(find "$backups/.incoming" -mindepth 1 -maxdepth 1 -print -quit)" ] \
   || { printf 'Interrupted backup staging exists; preparation refused.\n' >&2; exit 1; }
 
+receiver_receipt="$backups/receiver-state.json"
+deep_receipt="$backups/deep-verify-state.json"
+[ -f "$receiver_receipt" ] && [ -f "$deep_receipt" ] \
+  || { printf 'Current receiver and deep-verification receipts are required before apply.\n' >&2; exit 1; }
+receiver_sha="$(sha256sum "$receiver_receipt" | awk '{print $1}')"
+jq -e --arg receiver_sha "$receiver_sha" '
+  .version == 1 and .result == "success" and
+  .receiverReceiptSha256 == $receiver_sha and
+  (.verifiedCount | type == "number") and .verifiedCount > 0 and .verifiedCount <= 5000 and
+  (.verifiedSets | type == "array") and (.verifiedSets | length) == .verifiedCount
+' "$deep_receipt" >/dev/null \
+  || { printf 'Deep verification is missing, invalid, or stale for the current receiver receipt.\n' >&2; exit 1; }
+
 unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are running: %s\n' "$unexpected" >&2; exit 1; }
 

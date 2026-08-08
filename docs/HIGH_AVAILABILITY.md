@@ -205,7 +205,8 @@ sudo ./scripts/prepare-standby.sh --apply --confirm PREPARE-STANDBY
 ```
 
 The command requires the machine-local `standby` role, takes the receiver
-lock, refuses unexpected running hosting containers or interrupted staging,
+lock, requires a successful deep-verification result bound to the current
+receiver receipt, refuses unexpected running hosting containers or interrupted staging,
 revalidates manifests/checksums/archives, stages extraction, swaps website and
 app-data directories, imports the logical all-databases dump into a temporary
 replica database runtime, checks it, stops the database again, and records the
