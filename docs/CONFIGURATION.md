@@ -209,7 +209,10 @@ Each host may set `MYSQL_SERVER_ID`, `MYSQL_INNODB_BUFFER_POOL_SIZE`,
 `REDIS_MAXMEMORY` in its private `.env`. `PHP_GLOBAL_INI_PATH` can point at a
 machine-local global PHP configuration outside replicated `app-data`. This is
 required for a smaller standby: restoring primary app-data must not silently
-apply the primary's OPcache budget to the standby.
+apply the primary's OPcache budget to the standby. The same file is mounted
+writable into the panel's managed PHP configuration path, so performance
+changes after promotion continue to update the active file. It must therefore
+be owned by the panel uid/gid (`33:33`) and remain private (`0640`).
 
 The initial 8 GB standby profile uses a unique MySQL server ID, 1 GiB InnoDB
 buffer pool, 512 MiB redo capacity, 100 connections, 256 MiB Redis, and a

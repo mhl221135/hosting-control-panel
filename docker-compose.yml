@@ -127,6 +127,7 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php
+      - ${PHP_GLOBAL_INI_PATH:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini}:/srv/configs/php/global.ini
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
       - ${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}:/run/hosting-machine:ro
     networks:

@@ -32,6 +32,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(compose, /hosting-cloudflared:[\s\S]*cap_drop:[\s\S]*- ALL/);
   assert.doesNotMatch(compose, /hosting-cloudflared:[\s\S]*\/var\/run\/docker\.sock/);
   assert.match(compose, /PHP_GLOBAL_INI_PATH/);
+  assert.match(compose, /PHP_GLOBAL_INI_PATH[^\n]*:\/srv\/configs\/php\/global\.ini/);
   assert.match(compose, /MYSQL_SERVER_ID/);
   assert.match(compose, /MYSQL_INNODB_BUFFER_POOL_SIZE/);
   assert.match(compose, /REDIS_MAXMEMORY/);
