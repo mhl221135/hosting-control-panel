@@ -230,6 +230,7 @@ async function dockerChecks(checks, ingressMode, dockerInfo) {
     if (ingressMode === "cloudflare_tunnel") {
       const status = String(containers.get("hosting-cloudflared") || "").toLowerCase();
       checks.push(check(status.startsWith("up") ? "pass" : "fail", "Cloudflare tunnel container running"));
+      checks.push(check(status.includes("(healthy)") ? "pass" : "fail", "Cloudflare tunnel connector ready"));
     }
   } catch (error) {
     checks.push(check("fail", `Docker check failed: ${error.code === "ETIMEDOUT" ? "timed out" : error.message}`));

@@ -619,8 +619,10 @@ automation, health/status UX, website-route ownership, cutover, and rollback.
 - Allow a primary or promoted replica behind CGNAT/gray IP to use tunnel mode
   without exposing inbound 80/443. The host still requires reliable outbound
   HTTPS/QUIC connectivity to Cloudflare.
-- Add bounded connector health reporting for the dedicated tunnel container;
-  never expose or log its credential.
+- The dedicated tunnel container now has a bounded local readiness healthcheck,
+  and standby preflight requires the connector to be healthy. Keep the token
+  private and add account-level connector/route reconciliation to the future
+  Ingress settings workflow without exposing credential material.
 - Treat NPM and Tunnel as alternative website ingress transports, not a proxy
   chain. Tunnel website routes should forward to `hosting-nginx:80`; they must
   not loop through public NPM. NPM may remain available internally for

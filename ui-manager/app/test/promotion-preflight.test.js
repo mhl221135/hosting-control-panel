@@ -165,6 +165,24 @@ test("validates bounded receiver progress and blocks readiness while active", as
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("cloudflare tunnel ingress requires a ready connector", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pp3-"));
+  try {
+    const markerPath = makeMarker(dir, "standby");
+    const result = await runPreflight({
+      isStandby: true,
+      markerPath,
+      ingressMode: "cloudflare_tunnel",
+      backupsRoot: dir,
+      websitesRoot: dir,
+      sourcesRoot: dir,
+      dockerInfo: { check: async () => ({ ok: false, reason: "Cloudflare tunnel connector is not ready" }) },
+    });
+    assert.equal(result.ready, false);
+    assert.ok(result.checks.some((item) => item.status === "fail" && item.reason.includes("not ready")));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("no secrets", async () => {
   const r = await runPreflight({ isStandby: false, sites: [], backupsRoot: "/tmp" });
   assert.equal(JSON.stringify(r).includes("secret"), false);
