@@ -92,6 +92,20 @@ latest_set() {
   find "$backups/$1" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -print 2>/dev/null | sort -r | sed -n '1p'
 }
 
+latest_site_set_at_or_before() {
+  group="$1"
+  cutoff="$2"
+  find "$backups/$group" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -print 2>/dev/null \
+    | sort -r \
+    | while IFS= read -r candidate; do
+        completed="$(jq -r '.completedAt // empty' "$candidate/manifest.json" 2>/dev/null || true)"
+        if [ -n "$completed" ] && awk -v completed="$completed" -v cutoff="$cutoff" 'BEGIN { exit !(completed <= cutoff) }'; then
+          printf '%s\n' "$candidate"
+          break
+        fi
+      done
+}
+
 verify_artifact() {
   directory="$1"
   artifact="$2"
@@ -141,6 +155,7 @@ app_set="$(latest_set app-data)"
 [ -n "$app_set" ] || { printf 'No completed app-data backup is available.\n' >&2; exit 1; }
 printf 'Verifying app-data/%s...\n' "${app_set##*/}"
 verify_app_data "$app_set"
+app_completed_at="$(jq -er '.completedAt' "$app_set/manifest.json")"
 
 selection="$(mktemp)"
 stage=""
@@ -168,7 +183,7 @@ for group_dir in "$backups"/*; do
   [ -d "$group_dir" ] || continue
   group="${group_dir##*/}"
   [ "$group" != app-data ] || continue
-  set_dir="$(latest_set "$group")"
+  set_dir="$(latest_site_set_at_or_before "$group" "$app_completed_at")"
   [ -n "$set_dir" ] || continue
   [ "$(jq -r '.type // empty' "$set_dir/manifest.json" 2>/dev/null)" = site ] || continue
   printf 'Verifying %s/%s...\n' "$group" "${set_dir##*/}"

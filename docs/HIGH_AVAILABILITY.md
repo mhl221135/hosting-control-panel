@@ -232,6 +232,11 @@ After database verification it creates, but does not start, the stopped DB,
 Redis, PHP-FPM, and internal nginx containers so readiness checks can inspect
 the exact promotion runtime without exposing or enabling it.
 
+Website files are selected independently per site, but never from a set whose
+`completedAt` is later than the selected app-data snapshot. This prevents a
+new overnight website archive from being paired with an older all-databases
+dump when backup reception overlaps the primary backup cycle.
+
 Successful preparation writes `/etc/hosting-control/standby-recovery.json`.
 That mode-`0600` marker binds the prepared app-data set, website count, source
 release, receiver receipt hash, and deep-verification hash. Preflight fails if

@@ -46,6 +46,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /deep_verification_sha256/);
   assert.match(prepare, /Writable hosting containers are running/);
   assert.match(prepare, /databases\.sql\.gz/);
+  assert.match(prepare, /latest_site_set_at_or_before/);
+  assert.match(prepare, /completed <= cutoff/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
   assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
