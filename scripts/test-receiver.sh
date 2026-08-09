@@ -35,7 +35,7 @@ cat > "$src/example.com/2026-08-08T00-00-00Z/manifest.json" <<EOF
   "websitePath": "example.com",
   "database": null,
   "startedAt": "2026-08-08T00:00:00Z",
-  "completedAt": "2026-08-08T00:01:00Z",
+  "completedAt": "2026-08-08T00:01:00.123Z",
   "artifacts": {
     "website.tar.gz": { "size": $size, "sha256": "$sha" }
   }

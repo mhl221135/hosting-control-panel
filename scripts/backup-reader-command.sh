@@ -29,7 +29,7 @@ inventory() {
     blocks=${blocks%%[[:space:]]*}
     case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
     manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
-    completed_epoch=$(jq -er '.completedAt | fromdateiso8601' "$manifest") || continue
+    completed_epoch=$(jq -er '.completedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' "$manifest") || continue
     printf '%s\t%s\t%s\t%s\t%s\n' "$group" "$id" "$((blocks * 1024))" "$manifest_sha" "$completed_epoch"
   done
 }
