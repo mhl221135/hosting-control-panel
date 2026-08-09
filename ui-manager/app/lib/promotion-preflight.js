@@ -15,7 +15,8 @@ const RECEIPT_KEYS = new Set(["version", "completedAt", "result", "sourceServerI
 const RECEIPT_SET_KEYS = new Set(["domain", "setId", "manifestSha256"]);
 const RECEIVER_PROGRESS_KEYS = new Set([
   "version", "status", "startedAt", "finishedAt", "sourceServerId",
-  "totalSets", "completedSets", "currentGroup", "currentSetId",
+  "totalSets", "completedSets", "totalBytes", "completedBytes",
+  "currentSetBytes", "currentSetReceivedBytes", "currentGroup", "currentSetId",
 ]);
 const SITE_KEYS = new Set(["version", "type", "id", "domain", "websitePath", "database", "startedAt", "completedAt", "artifacts"]);
 const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt", "completedAt", "artifacts"]);
@@ -113,6 +114,10 @@ function validateReceiverProgress(value) {
   if (!SERVER_ID_PATTERN.test(String(value.sourceServerId || ""))) return null;
   if (!Number.isInteger(value.totalSets) || value.totalSets < 0 || value.totalSets > 5000) return null;
   if (!Number.isInteger(value.completedSets) || value.completedSets < 0 || value.completedSets > value.totalSets) return null;
+  if (!Number.isSafeInteger(value.totalBytes) || value.totalBytes < 0 || value.totalBytes > 100_000_000_000_000) return null;
+  if (!Number.isSafeInteger(value.completedBytes) || value.completedBytes < 0 || value.completedBytes > value.totalBytes) return null;
+  if (!Number.isSafeInteger(value.currentSetBytes) || value.currentSetBytes < 0 || value.currentSetBytes > value.totalBytes) return null;
+  if (!Number.isSafeInteger(value.currentSetReceivedBytes) || value.currentSetReceivedBytes < 0 || value.currentSetReceivedBytes > value.currentSetBytes) return null;
   if (!(value.currentGroup === "" || value.currentGroup === "app-data" || validDomain(value.currentGroup))) return null;
   if (!(value.currentSetId === "" || SET_ID_PATTERN.test(value.currentSetId))) return null;
   return value;
@@ -367,6 +372,10 @@ async function runPreflight(opts = {}) {
       receiverStatus: receiverProgress?.status || "unknown",
       receiverCompletedSets: receiverProgress?.completedSets || 0,
       receiverTotalSets: receiverProgress?.totalSets || 0,
+      receiverCompletedBytes: receiverProgress?.completedBytes || 0,
+      receiverTotalBytes: receiverProgress?.totalBytes || 0,
+      receiverCurrentSetBytes: receiverProgress?.currentSetBytes || 0,
+      receiverCurrentSetReceivedBytes: receiverProgress?.currentSetReceivedBytes || 0,
       receiverCurrentGroup: receiverProgress?.currentGroup || "",
     },
     resourceProfile: resource ? {

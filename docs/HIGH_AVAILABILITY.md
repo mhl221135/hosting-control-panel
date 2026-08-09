@@ -185,7 +185,7 @@ before this policy must be migrated to the same group-readable modes once.
 
 Each non-dry receiver run atomically maintains mode-`0600`
 `receiver-progress.json` with running/succeeded/failed state, bounded set
-counts, and the current backup group. The standby Replication workspace reads
+counts, bounded byte-level transfer progress, and the current backup group. The standby Replication workspace reads
 this file directly; it contains no SSH command, path, credential, or error
 output. `receiver-state.json` remains the authoritative successful receipt.
 

@@ -1,6 +1,8 @@
 #!/bin/sh
 set -eu
 
+export RECEIVER_PROGRESS_INTERVAL_SECONDS=0
+
 echo "Running receiver shell tests..."
 
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -69,7 +71,8 @@ if [ ! -d "$dst/example.com/2026-08-08T00-00-00Z" ]; then
 fi
 if [ "$(jq -r .status "$dst/receiver-progress.json")" != succeeded ] \
   || [ "$(jq -r .completedSets "$dst/receiver-progress.json")" -ne 1 ] \
-  || [ "$(jq -r .totalSets "$dst/receiver-progress.json")" -ne 1 ]; then
+  || [ "$(jq -r .totalSets "$dst/receiver-progress.json")" -ne 1 ] \
+  || [ "$(jq -r .completedBytes "$dst/receiver-progress.json")" -ne "$(jq -r .totalBytes "$dst/receiver-progress.json")" ]; then
   echo "FAIL: Success did not persist complete receiver progress"
   exit 1
 fi

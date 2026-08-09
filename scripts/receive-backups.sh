@@ -22,6 +22,7 @@ reserve_gb=20
 dry_run=0
 ssh_options=""
 source_server_id=""
+progress_interval="${RECEIVER_PROGRESS_INTERVAL_SECONDS:-5}"
 
 
 while [ "$#" -gt 0 ]; do
@@ -44,8 +45,10 @@ case "$source_server_id" in ''|*[!A-Za-z0-9._-]*) printf 'Source server ID must 
 if [ "${#source_server_id}" -gt 64 ]; then printf 'Source server ID must be at most 64 characters.\n' >&2; exit 2; fi
 case "$retention" in ''|*[!0-9]*) printf 'Retention must be an integer.\n' >&2; exit 2 ;; esac
 case "$reserve_gb" in ''|*[!0-9]*) printf 'Reserve must be an integer number of GiB.\n' >&2; exit 2 ;; esac
+case "$progress_interval" in ''|*[!0-9]*) printf 'Progress interval must be an integer.\n' >&2; exit 2 ;; esac
 [ "$retention" -ge 1 ] && [ "$retention" -le 30 ] || { printf 'Retention must be from 1 to 30.\n' >&2; exit 2; }
 [ "$reserve_gb" -le 100000 ] || { printf 'Reserve is too large.\n' >&2; exit 2; }
+[ "$progress_interval" -le 60 ] || { printf 'Progress interval must be from 0 to 60 seconds.\n' >&2; exit 2; }
 case "$destination" in /*) ;; *) printf 'Destination must be an absolute path.\n' >&2; exit 2 ;; esac
 
 for command in jq sha256sum gzip tar awk sort find du df mktemp; do
@@ -81,6 +84,11 @@ progress_completed=0
 progress_total=0
 progress_group=""
 progress_set_id=""
+progress_total_bytes=0
+progress_completed_bytes=0
+progress_current_bytes=0
+progress_current_received_bytes=0
+transfer_pid=""
 
 write_progress() {
   progress_status="$1"
@@ -91,9 +99,12 @@ write_progress() {
     --arg finishedAt "$progress_finished" --arg sourceServerId "$source_server_id" \
     --arg currentGroup "$progress_group" --arg currentSetId "$progress_set_id" \
     --argjson completedSets "$progress_completed" --argjson totalSets "$progress_total" \
+    --argjson totalBytes "$progress_total_bytes" --argjson completedBytes "$progress_completed_bytes" \
+    --argjson currentSetBytes "$progress_current_bytes" --argjson currentSetReceivedBytes "$progress_current_received_bytes" \
     '{version:1,status:$status,startedAt:$startedAt,finishedAt:$finishedAt,
       sourceServerId:$sourceServerId,totalSets:$totalSets,completedSets:$completedSets,
-      currentGroup:$currentGroup,currentSetId:$currentSetId}' > "$progress_tmp"
+      totalBytes:$totalBytes,completedBytes:$completedBytes,currentSetBytes:$currentSetBytes,
+      currentSetReceivedBytes:$currentSetReceivedBytes,currentGroup:$currentGroup,currentSetId:$currentSetId}' > "$progress_tmp"
   chown "$destination_owner" "$progress_tmp"
   chmod 600 "$progress_tmp"
   mv "$progress_tmp" "$progress_path"
@@ -104,6 +115,7 @@ cleanup() {
   if [ "$status" -ne 0 ] && [ "$progress_active" -eq 1 ]; then
     write_progress failed || true
   fi
+  [ -z "$transfer_pid" ] || kill "$transfer_pid" >/dev/null 2>&1 || true
   rm -f "$inventory" ${selected:+"$selected"}
   [ -z "$stage" ] || rm -rf "$stage"
   rm -f "$destination/.incoming/verified_sets.jsonl"
@@ -150,6 +162,7 @@ sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep="$retention" '
 if [ "$dry_run" -eq 0 ]; then
   progress_started="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   progress_total="$(awk 'NF { count++ } END { print count + 0 }' "$selected")"
+  progress_total_bytes="$(awk -F '\t' 'NF { total += $3 } END { printf "%.0f", total + 0 }' "$selected")"
   progress_active=1
   write_progress running
 fi
@@ -213,6 +226,8 @@ while IFS='	' read -r group id bytes; do
   if [ "$dry_run" -eq 0 ]; then
     progress_group="$group"
     progress_set_id="$id"
+    progress_current_bytes="$bytes"
+    progress_current_received_bytes=0
     write_progress running
   fi
   received_groups="$received_groups $group"
@@ -231,6 +246,8 @@ while IFS='	' read -r group id bytes; do
       jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
         '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
       progress_completed=$((progress_completed + 1))
+      progress_completed_bytes=$((progress_completed_bytes + bytes))
+      progress_current_received_bytes="$bytes"
       write_progress running
     fi
     continue
@@ -249,10 +266,27 @@ while IFS='	' read -r group id bytes; do
   mkdir -p "$stage"
   if [ -n "$remote" ]; then
     # shellcheck disable=SC2086
-    rsync -a --partial -e "ssh $ssh_options" "$remote:$source_root/$group/$id/" "$stage/"
+    rsync -a --partial -e "ssh $ssh_options" "$remote:$source_root/$group/$id/" "$stage/" &
   else
-    cp -a "$source_root/$group/$id/." "$stage/"
+    cp -a "$source_root/$group/$id/." "$stage/" &
   fi
+  transfer_pid=$!
+  while kill -0 "$transfer_pid" >/dev/null 2>&1; do
+    transferred_kb=$(du -sk "$stage" | awk '{print $1}')
+    case "$transferred_kb" in ''|*[!0-9]*) transferred_kb=0 ;; esac
+    progress_current_received_bytes=$((transferred_kb * 1024))
+    if [ "$progress_current_received_bytes" -gt "$progress_current_bytes" ]; then
+      progress_current_received_bytes="$progress_current_bytes"
+    fi
+    write_progress running
+    [ "$progress_interval" -eq 0 ] || sleep "$progress_interval"
+  done
+  if ! wait "$transfer_pid"; then
+    transfer_pid=""
+    printf 'Transfer failed for %s/%s.\n' "$group" "$id" >&2
+    exit 1
+  fi
+  transfer_pid=""
   verify_set "$stage" "$group" "$id"
   chown -R "$destination_owner" "$stage"
   mv "$stage" "$target"
@@ -263,6 +297,8 @@ while IFS='	' read -r group id bytes; do
     jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
       '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
     progress_completed=$((progress_completed + 1))
+    progress_completed_bytes=$((progress_completed_bytes + bytes))
+    progress_current_received_bytes="$bytes"
     write_progress running
   fi
 done < "$selected"
@@ -308,6 +344,9 @@ if [ "$dry_run" -eq 0 ]; then
   mv "$tmp_receipt" "$destination/receiver-state.json"
   progress_group=""
   progress_set_id=""
+  progress_completed_bytes="$progress_total_bytes"
+  progress_current_bytes=0
+  progress_current_received_bytes=0
   write_progress succeeded
 fi
 

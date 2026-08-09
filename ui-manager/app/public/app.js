@@ -580,9 +580,12 @@ function renderPreflight(data) {
   const receiverProgress = replication.receiverTotalSets
     ? `${replication.receiverStatus || "unknown"} ${replication.receiverCompletedSets || 0}/${replication.receiverTotalSets}`
     : (replication.receiverStatus || "unknown");
+  const receiverBytes = replication.receiverTotalBytes
+    ? ` · ${formatBytes((replication.receiverCompletedBytes || 0) + (replication.receiverCurrentSetReceivedBytes || 0))}/${formatBytes(replication.receiverTotalBytes)}`
+    : "";
   $("#preflightReceiverState").textContent = replication.receiverCurrentGroup
-    ? `${receiverProgress} · ${replication.receiverCurrentGroup}`
-    : receiverProgress;
+    ? `${receiverProgress}${receiverBytes} · ${replication.receiverCurrentGroup}`
+    : `${receiverProgress}${receiverBytes}`;
   $("#preflightLastReceive").textContent = replication.lastReceivedAt ? new Date(replication.lastReceivedAt).toLocaleString() : "Unavailable";
   $("#preflightRecoveryAge").textContent = Number.isFinite(replication.estimatedDataLossHours) ? `${replication.estimatedDataLossHours}h` : "Unavailable";
   $("#preflightVerifiedSets").textContent = replication.verifiedSetCount || 0;

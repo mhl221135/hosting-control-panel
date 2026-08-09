@@ -149,15 +149,18 @@ test("validates bounded receiver progress and blocks readiness while active", as
     const progress = {
       version: 1, status: "running", startedAt: new Date().toISOString(), finishedAt: "",
       sourceServerId: "primary-test", totalSets: 12, completedSets: 5,
+      totalBytes: 12000, completedBytes: 5000, currentSetBytes: 1000, currentSetReceivedBytes: 400,
       currentGroup: "example.com", currentSetId: "2026-01-01T00-00-00Z",
     };
     assert.ok(validateReceiverProgress(progress));
     assert.equal(validateReceiverProgress({ ...progress, completedSets: 13 }), null);
     assert.equal(validateReceiverProgress({ ...progress, currentGroup: "../escape" }), null);
+    assert.equal(validateReceiverProgress({ ...progress, currentSetReceivedBytes: 1001 }), null);
     fs.writeFileSync(path.join(dir, "receiver-progress.json"), JSON.stringify(progress));
     const result = await runPreflight({ isStandby: true, markerPath: makeMarker(dir), backupsRoot: dir });
     assert.equal(result.replication.receiverStatus, "running");
     assert.equal(result.replication.receiverCompletedSets, 5);
+    assert.equal(result.replication.receiverCurrentSetReceivedBytes, 400);
     assert.ok(result.checks.some((item) => item.status === "fail" && item.reason.includes("receiver is active")));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
