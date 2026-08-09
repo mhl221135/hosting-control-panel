@@ -143,7 +143,8 @@ find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print | while 
   blocks=${blocks%%[[:space:]]*}
   case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
   bytes=$((blocks * 1024))
-  printf "%s\\t%s\\t%s\\n" "$group" "$id" "$bytes"
+  manifest_sha=$(sha256sum "$manifest" | awk '\''{print $1}'\'')
+  printf "%s\\t%s\\t%s\\t%s\\n" "$group" "$id" "$bytes" "$manifest_sha"
 done'
 
 if [ -n "$remote" ]; then
@@ -221,10 +222,41 @@ verify_set() {
   fi
 }
 
+reuse_prior_attestation() {
+  directory=$1
+  expected_group=$2
+  expected_id=$3
+  expected_manifest_sha=$4
+  prior_receipt="$destination/receiver-state.json"
+  manifest="$directory/manifest.json"
+  [ -f "$prior_receipt" ] && [ -f "$manifest" ] || return 1
+  manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
+  [ "$manifest_sha" = "$expected_manifest_sha" ] || return 1
+  jq -e --arg source "$source_server_id" --arg group "$expected_group" --arg id "$expected_id" --arg sha "$manifest_sha" '
+    .version == 1 and .result == "success" and .sourceServerId == $source and
+    any(.sets[]; .domain == $group and .setId == $id and .manifestSha256 == $sha)
+  ' "$prior_receipt" >/dev/null 2>&1 || return 1
+  jq -e --arg id "$expected_id" --arg group "$expected_group" '
+    .version == 2 and .id == $id and
+    ((.type == "app-data" and $group == "app-data" and
+      ((.artifacts | keys | sort) == ["app-data.tar.gz", "databases.sql.gz"])) or
+     (.type == "site" and .domain == $group and
+      ((.database == null and ((.artifacts | keys | sort) == ["website.tar.gz"])) or
+       ((.database | type == "string") and ((.artifacts | keys | sort) == ["database.sql.gz", "website.tar.gz"])))) )
+  ' "$manifest" >/dev/null 2>&1 || return 1
+  for artifact in $(jq -r '.artifacts | keys[]' "$manifest"); do
+    [ -f "$directory/$artifact" ] || return 1
+    expected_size=$(jq -er --arg file "$artifact" '.artifacts[$file].size' "$manifest") || return 1
+    actual_size=$(wc -c < "$directory/$artifact" | tr -d ' ')
+    [ "$actual_size" = "$expected_size" ] || return 1
+  done
+  return 0
+}
+
 reserve_bytes=$((reserve_gb * 1024 * 1024 * 1024))
 received_groups=""
 [ "$dry_run" -eq 1 ] || : > "$destination/.incoming/verified_sets.jsonl"
-while IFS='	' read -r group id bytes; do
+while IFS='	' read -r group id bytes source_manifest_sha; do
   [ -n "$group" ] || continue
   if [ "$dry_run" -eq 0 ]; then
     progress_group="$group"
@@ -235,15 +267,24 @@ while IFS='	' read -r group id bytes; do
   fi
   received_groups="$received_groups $group"
   case "$bytes" in ''|*[!0-9]*) printf 'Invalid inventory size for %s/%s.\n' "$group" "$id" >&2; exit 1 ;; esac
+  case "$source_manifest_sha" in ''|*[!a-f0-9]*) printf 'Invalid manifest checksum for %s/%s.\n' "$group" "$id" >&2; exit 1 ;; esac
+  [ "${#source_manifest_sha}" -eq 64 ] || { printf 'Invalid manifest checksum for %s/%s.\n' "$group" "$id" >&2; exit 1; }
   group_dir="$destination/$group"
   mkdir -p "$group_dir"
   chown "$destination_owner" "$group_dir"
   chmod 750 "$group_dir"
   target="$group_dir/$id"
   if [ -d "$target" ]; then
-    verify_set "$target" "$group" "$id"
+    local_manifest_sha=$(sha256sum "$target/manifest.json" 2>/dev/null | awk '{print $1}')
+    [ "$local_manifest_sha" = "$source_manifest_sha" ] \
+      || { printf 'Immutable set collision for %s/%s.\n' "$group" "$id" >&2; exit 1; }
+    if reuse_prior_attestation "$target" "$group" "$id" "$source_manifest_sha"; then
+      printf 'Reused prior attestation for %s/%s\n' "$group" "$id"
+    else
+      verify_set "$target" "$group" "$id"
+      printf 'Verified existing %s/%s\n' "$group" "$id"
+    fi
     chown -R "$destination_owner" "$target"
-    printf 'Verified existing %s/%s\n' "$group" "$id"
     if [ "$dry_run" -eq 0 ]; then
       manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
       jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \

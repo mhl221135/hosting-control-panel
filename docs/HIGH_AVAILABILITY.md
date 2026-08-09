@@ -115,9 +115,14 @@ copies missing sets into `.incoming`, validates the version-2 manifest,
 declared byte lengths and SHA-256 hashes, checks gzip/tar integrity and archive
 path confinement, then atomically promotes each set. Destination retention is
 applied independently to every selected group; source deletions are never
-mirrored. Destination retention is independent: older locally verified sets
-remain until the configured retention is exceeded, but they are not
-re-transferred or re-hashed on every run. A successful run atomically writes mode-`0600`
+mirrored. Older locally verified sets remain until retention is exceeded, but
+they are not retransferred on every run. An unchanged local set can reuse its
+preceding successful attestation when the source identity, set ID, source and
+local manifest checksum, artifact allowlist, and artifact sizes still match.
+New or changed sets always receive full checksum and archive validation; a set
+ID whose source manifest changed is rejected as an immutable collision. The
+deep-verification job remains the independent periodic full-content check and
+must be current before standby preparation. A successful run atomically writes mode-`0600`
 `receiver-state.json`, containing the bounded source identity and the exact
 manifest hash for every retained selected set. A failed or dry run preserves
 the previous receipt. The receipt inherits the destination directory's numeric

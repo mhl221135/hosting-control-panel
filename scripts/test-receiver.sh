@@ -112,13 +112,25 @@ if [ "$receipt_sets" -ne 1 ]; then
   exit 1
 fi
 
-# Test existing sets
-"$script" --source "$src" --destination "$dst" --source-server-id "OPI5" >/dev/null
+# Test existing sets reuse their prior successful attestation.
+existing_output=$("$script" --source "$src" --destination "$dst" --source-server-id "OPI5")
+printf '%s' "$existing_output" | grep -q 'Reused prior attestation'
 receipt_sets2=$(jq '.sets | length' "$dst/receiver-state.json")
 if [ "$receipt_sets2" -ne 1 ]; then
   echo "FAIL: Expected 1 set in receipt for existing, got $receipt_sets2"
   exit 1
 fi
+
+# A changed manifest invalidates the prior attestation and forces full
+# verification, which must reject a mismatched checksum.
+cp "$src/example.com/2026-08-08T00-00-00Z/manifest.json" "$temp_dir/original-manifest.json"
+jq '.artifacts["website.tar.gz"].sha256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' \
+  "$temp_dir/original-manifest.json" > "$src/example.com/2026-08-08T00-00-00Z/manifest.json"
+if "$script" --source "$src" --destination "$dst" --source-server-id "OPI5" >/dev/null 2>&1; then
+  echo "FAIL: Changed manifest reused a stale attestation"
+  exit 1
+fi
+cp "$temp_dir/original-manifest.json" "$src/example.com/2026-08-08T00-00-00Z/manifest.json"
 
 # Test: an empty source fails closed and preserves the previous receipt
 empty_src="$temp_dir/empty-source"
