@@ -485,9 +485,10 @@ artifact presence/size, freshness, filesystem space, configuration, Docker,
 and ingress. A durable allowlisted deep-verification job streams checksums,
 checks archive integrity and safe entry types, and binds its result to the exact
 receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
-covered by tests. Actual promotion, DNS/tunnel cutover,
-replication lag/health/recovery-point reporting, panel-driven promotion, and
-the pairing API remain future work.
+covered by tests. Fenced local promotion is implemented as a host-level command.
+DNS/tunnel cutover, panel-driven promotion, pairing, and optional warm-replication
+lag reporting remain future work; backup receiver recovery-point health is
+already reported in the panel.
 
 ### Roles And Pairing
 
