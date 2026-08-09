@@ -258,6 +258,17 @@ test("deep backup verification has a standby-only operator CLI", () => {
   assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
 });
 
+test("local promotion keeps public-ingress status visible", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="promotionNotice"/);
+  assert.match(source, /publicIngressCutover === false/);
+  assert.match(source, /Public ingress has not been cut over/);
+  assert.match(server, /readPromotionState/);
+  assert.match(server, /promotion: readPromotionState/);
+});
+
 test("runtime exposes a bounded runtime-configuration audit history", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");

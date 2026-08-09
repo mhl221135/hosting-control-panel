@@ -283,6 +283,11 @@ writable runtime. It writes `/etc/hosting-control/promotion-state.json` with
 hosts, router forwarding, or tunnel public-hostname routes; those remain an
 explicit separately reviewed cutover.
 
+Authenticated role, session, and status responses expose only the bounded
+display fields from this marker. After local promotion the panel keeps a
+persistent warning visible while `public_ingress_cutover` is false, so a
+locally writable server is not mistaken for an already active public origin.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 

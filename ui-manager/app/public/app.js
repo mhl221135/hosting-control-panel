@@ -358,6 +358,14 @@ function applyInstallationRole(installation) {
   const ingress = String(installation.ingressMode || "");
   const input = $(`#standbyIngressForm input[value="${ingress}"]`);
   if (input) input.checked = true;
+  const promotionNotice = $("#promotionNotice");
+  const pendingIngress = role === "primary"
+    && installation.promotion?.status === "local-primary"
+    && installation.promotion?.publicIngressCutover === false;
+  promotionNotice.classList.toggle("hidden", !pendingIngress);
+  promotionNotice.textContent = pendingIngress
+    ? `Local promotion completed from recovery ${installation.promotion.recoveryId}. Public ingress has not been cut over.`
+    : "";
 }
 
 function switchTab(name) {

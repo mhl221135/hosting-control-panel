@@ -40,6 +40,7 @@ const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
 const { PanelMetadataStore } = require("./lib/panel-metadata-store");
 const { runPreflight } = require("./lib/promotion-preflight");
+const { readPromotionState } = require("./lib/promotion-state");
 const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
@@ -165,6 +166,15 @@ const DEFAULT_POOL_PRESETS = {
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
+const promotionStatePath = path.join(path.dirname(installationRole.markerPath), "promotion-state.json");
+
+function installationView(ingressMode = panelMeta.read().ingressMode) {
+  return {
+    ...installationRole.publicView(),
+    ingressMode,
+    promotion: readPromotionState(promotionStatePath),
+  };
+}
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
@@ -1866,13 +1876,7 @@ async function handleApi(req, res) {
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
     sendJson(res, 200, {
       ok: true,
-      installation: {
-        role: installationRole.state.role,
-        serverId: installationRole.state.serverId,
-        source: installationRole.state.source,
-        mutable: !installationRole.isStandby(),
-        ingressMode: panelMeta.read().ingressMode,
-      },
+      installation: installationView(),
     });
     return true;
   }
@@ -1886,13 +1890,10 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       });
       return true;
     }
-    sendJson(res, 200, { ok: true, installation: {
-      role: installationRole.state.role,
-      serverId: installationRole.state.serverId,
-      source: installationRole.state.source,
-      mutable: !installationRole.isStandby(),
-      ingressMode: panelMeta.save({ ingress_mode: body.ingress_mode }).ingressMode,
-    }});
+    sendJson(res, 200, {
+      ok: true,
+      installation: installationView(panelMeta.save({ ingress_mode: body.ingress_mode }).ingressMode),
+    });
     return true;
   }
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/promotion-preflight") {
@@ -2033,13 +2034,7 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
         ipinfo: ipinfo.configured(),
         mysql: true,
       },
-      installation: {
-        role: installationRole.state.role,
-        serverId: installationRole.state.serverId,
-        source: installationRole.state.source,
-        mutable: !installationRole.isStandby(),
-        ingressMode: panelMeta.read().ingressMode,
-      },
+      installation: installationView(),
     });
     return true;
   }
@@ -4124,10 +4119,7 @@ async function handleAuthApi(req, res) {
       email: session.email,
       csrf: session.csrf,
       mustChangePassword: Boolean(account.mustChangePassword),
-      installation: {
-        ...installationRole.publicView(),
-        ingressMode: panelMeta.read().ingressMode,
-      },
+      installation: installationView(),
     });
     return true;
   }
@@ -4143,10 +4135,7 @@ async function handleAuthApi(req, res) {
         email: result.session.email,
         csrf: result.session.csrf,
         mustChangePassword: result.mustChangePassword,
-        installation: {
-        ...installationRole.publicView(),
-        ingressMode: panelMeta.read().ingressMode,
-      },
+        installation: installationView(),
       },
       { "Set-Cookie": auth.cookie(req, result.session.id) },
     );
