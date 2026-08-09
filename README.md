@@ -912,6 +912,8 @@ not invoked or modified by this panel.
 Successful reception records a bounded source identity and the exact retained
 set manifests in `receiver-state.json`. The standby Health view provides a
 quick receipt-bound readiness preflight and a cancellable deep-verification job.
+The example systemd receiver automatically starts that deep verification as a
+separate low-priority service after each successful receive.
 These checks do not restore, promote, or switch public traffic.
 - [docs/API.md](docs/API.md): authenticated panel API route index
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics

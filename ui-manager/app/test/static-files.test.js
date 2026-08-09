@@ -258,6 +258,16 @@ test("deep backup verification has a standby-only operator CLI", () => {
   assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
 });
 
+test("successful standby reception schedules isolated deep verification", () => {
+  const receiver = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-receiver.service"), "utf8");
+  const verifier = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-deep-verify.service"), "utf8");
+  assert.match(receiver, /^OnSuccess=hosting-backup-deep-verify\.service$/m);
+  assert.match(verifier, /^Type=oneshot$/m);
+  assert.match(verifier, /^Nice=15$/m);
+  assert.match(verifier, /docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
+  assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
+});
+
 test("local promotion keeps public-ingress status visible", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");

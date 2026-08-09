@@ -2,6 +2,7 @@
 Description=Receive and verify hosting backup sets from the primary
 After=network-online.target
 Wants=network-online.target
+OnSuccess=hosting-backup-deep-verify.service
 
 [Service]
 Type=oneshot

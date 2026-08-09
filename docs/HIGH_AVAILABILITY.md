@@ -146,6 +146,12 @@ session. It still refuses any machine whose local marker is not `standby`:
 docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
 ```
 
+The example receiver unit uses systemd `OnSuccess` to start the separate
+`hosting-backup-deep-verify.service`. The follow-up runs at lower CPU and I/O
+priority and only after reception has atomically published a successful receipt.
+A deep-verification failure does not invalidate or delete that receiver receipt;
+it leaves promotion blocked until verification succeeds.
+
 Deep verification rejects links and special files in website archives. The
 app-data archive may contain Certbot's expected relative certificate symlinks,
 but each is accepted only when it remains confined to the archive and resolves
