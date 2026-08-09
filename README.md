@@ -907,6 +907,7 @@ not invoked or modified by this panel.
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
 - `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception with independent retention and disk reserve
 - `scripts/prepare-standby.sh`: guarded restore of received sets into a fenced, non-public standby
+- `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
 
 Successful reception records a bounded source identity and the exact retained
 set manifests in `receiver-state.json`. The standby Health view provides a

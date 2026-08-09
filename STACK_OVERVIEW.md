@@ -32,6 +32,13 @@ with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
 exception is the allowlisted deep backup-verification job; ingress metadata can
 also be saved without changing traffic or role.
 
+Backup reception, deep verification, fenced restore preparation, and guarded
+local promotion are separate stages. Local promotion requires the exact
+prepared recovery ID plus typed old-primary fencing confirmation, validates the
+runtime before changing the machine marker, and records that public ingress has
+not been cut over. Cloudflare/DNS/tunnel switching remains a separate pending
+control-plane workflow.
+
 ## Services
 
 - `hosting-ui`: authenticated control panel on port 8687

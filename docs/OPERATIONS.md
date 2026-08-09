@@ -274,6 +274,14 @@ promotes a transfer only after manifest, checksum, size, gzip, tar, and archive
 path checks pass. See `docs/HIGH_AVAILABILITY.md`; never point the receiver at a
 live MySQL data directory.
 
+`scripts/prepare-standby.sh` restores and validates a recovery point while
+leaving the machine fenced as `standby`. Only after the old primary is actually
+fenced may an operator run `scripts/promote-standby.sh --dry-run`, followed by
+its apply form with the exact recovery ID and both typed confirmations. That
+command activates the local runtime and changes the machine-local role, but it
+does not change DNS, Cloudflare, NPM host definitions, router forwarding, or
+tunnel website routes. Public ingress cutover is a separate reviewed step.
+
 ## Website Deletion
 
 Use the panel's **Delete** tab instead of manually removing files or database
