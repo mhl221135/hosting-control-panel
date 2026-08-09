@@ -208,6 +208,21 @@ function requireSiteDatabase(siteType) {
   return "none";
 }
 
+function appendContainerChecks(checks, containers, ingressMode) {
+  for (const name of ["hosting-agent", "hosting-ui"]) {
+    checks.push(check(String(containers.get(name) || "").toLowerCase().startsWith("up") ? "pass" : "fail", `Required container running: ${name}`));
+  }
+  for (const name of ["hosting-db", "hosting-redis", "hosting-php-fpm", "hosting-nginx"]) {
+    checks.push(check(containers.has(name) ? "pass" : "fail", `Container configured: ${name}`));
+  }
+  if (ingressMode === "direct_npm") checks.push(check(containers.has("hosting-npm") ? "pass" : "fail", "NPM container configured"));
+  if (ingressMode === "cloudflare_tunnel") {
+    const status = String(containers.get("hosting-cloudflared") || "").toLowerCase();
+    checks.push(check(status.startsWith("up") ? "pass" : "fail", "Cloudflare tunnel container running"));
+    checks.push(check(status.includes("(healthy)") ? "pass" : "fail", "Cloudflare tunnel connector ready"));
+  }
+}
+
 async function dockerChecks(checks, ingressMode, dockerInfo) {
   if (dockerInfo && typeof dockerInfo.check === "function") {
     const result = await dockerInfo.check();
@@ -220,18 +235,7 @@ async function dockerChecks(checks, ingressMode, dockerInfo) {
       const [name, ...rest] = line.split("\t");
       return [name, rest.join("\t")];
     }));
-    for (const name of ["hosting-agent", "hosting-ui"]) {
-      checks.push(check(String(containers.get(name) || "").toLowerCase().startsWith("up") ? "pass" : "fail", `Required container running: ${name}`));
-    }
-    for (const name of ["hosting-db", "hosting-redis", "hosting-php-fpm", "hosting-nginx"]) {
-      checks.push(check(containers.has(name) ? "pass" : "fail", `Container configured: ${name}`));
-    }
-    if (ingressMode === "direct_npm") checks.push(check(containers.has("hosting-npm") ? "pass" : "fail", "NPM container configured"));
-    if (ingressMode === "cloudflare_tunnel") {
-      const status = String(containers.get("hosting-cloudflared") || "").toLowerCase();
-      checks.push(check(status.startsWith("up") ? "pass" : "fail", "Cloudflare tunnel container running"));
-      checks.push(check(status.includes("(healthy)") ? "pass" : "fail", "Cloudflare tunnel connector ready"));
-    }
+    appendContainerChecks(checks, containers, ingressMode);
   } catch (error) {
     checks.push(check("fail", `Docker check failed: ${error.code === "ETIMEDOUT" ? "timed out" : error.message}`));
   }
@@ -389,7 +393,7 @@ async function runPreflight(opts = {}) {
 }
 
 module.exports = {
-  DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, runPreflight, readSiteManifest, readReceiverState,
+  DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, appendContainerChecks, runPreflight, readSiteManifest, readReceiverState,
   readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
   readReceiverProgress, readStandbyRecoveryState, validateReceiverProgress,
   validateSiteManifest, validateAppDataManifest,

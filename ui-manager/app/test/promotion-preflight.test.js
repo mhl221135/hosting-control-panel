@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
-  runPreflight, readSiteManifest, validateReceiverProgress,
+  appendContainerChecks, runPreflight, readSiteManifest, validateReceiverProgress,
 } = require("../lib/promotion-preflight");
 
 function makeBackup(root, domain, hasDb = true, ageHours = 1) {
@@ -181,6 +181,23 @@ test("cloudflare tunnel ingress requires a ready connector", async () => {
     assert.equal(result.ready, false);
     assert.ok(result.checks.some((item) => item.status === "fail" && item.reason.includes("not ready")));
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("cloudflare tunnel parser distinguishes running from connected", () => {
+  const containers = new Map([
+    ["hosting-agent", "Up 1 minute (healthy)"], ["hosting-ui", "Up 1 minute"],
+    ["hosting-db", "Created"], ["hosting-redis", "Created"],
+    ["hosting-php-fpm", "Created"], ["hosting-nginx", "Created"],
+    ["hosting-cloudflared", "Up 20 seconds (health: starting)"],
+  ]);
+  const starting = [];
+  appendContainerChecks(starting, containers, "cloudflare_tunnel");
+  assert.ok(starting.some((item) => item.reason === "Cloudflare tunnel container running" && item.status === "pass"));
+  assert.ok(starting.some((item) => item.reason === "Cloudflare tunnel connector ready" && item.status === "fail"));
+  containers.set("hosting-cloudflared", "Up 1 minute (healthy)");
+  const healthy = [];
+  appendContainerChecks(healthy, containers, "cloudflare_tunnel");
+  assert.ok(healthy.every((item) => item.status === "pass"));
 });
 
 test("no secrets", async () => {
