@@ -248,6 +248,27 @@ That mode-`0600` marker binds the prepared app-data set, website count, source
 release, receiver receipt hash, and deep-verification hash. Preflight fails if
 any of those inputs changes after preparation.
 
+After the old primary has been externally fenced, a prepared standby can be
+promoted to a local primary without changing public ingress:
+
+```bash
+sudo ./scripts/promote-standby.sh --dry-run
+sudo ./scripts/promote-standby.sh --apply \
+  --recovery-id 2026-01-01T00-00-00Z \
+  --confirm PROMOTE-STANDBY \
+  --fence-confirm OLD-PRIMARY-FENCED
+```
+
+Use the exact recovery identifier printed by the dry run. The apply command
+rechecks the recovery/deep-verification bindings under the receiver lock,
+stops future receiver runs, starts the local runtime, validates MySQL, PHP-FPM,
+nginx, and the panel, then atomically changes the machine-local role to
+`primary`. A failure before completion restores the standby role and stops the
+writable runtime. It writes `/etc/hosting-control/promotion-state.json` with
+`public_ingress_cutover:false`. It never changes DNS, Cloudflare routes, NPM
+hosts, router forwarding, or tunnel public-hostname routes; those remain an
+explicit separately reviewed cutover.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 

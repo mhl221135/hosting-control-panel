@@ -234,6 +234,21 @@ test("runtime mutations use shared guarded validation", () => {
   assert.match(server, /validPort\(body\.port/);
 });
 
+test("standby promotion remains a fenced host-level operation", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
+  assert.match(script, /--confirm PROMOTE-STANDBY/);
+  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /--recovery-id/);
+  assert.match(script, /receiverReceiptSha256/);
+  assert.match(script, /deep_verification_sha256/);
+  assert.match(script, /flock -n 9/);
+  assert.match(script, /compose config --quiet/);
+  assert.match(script, /docker exec hosting-php-fpm php-fpm -t/);
+  assert.match(script, /docker exec hosting-nginx nginx -t/);
+  assert.match(script, /public_ingress_cutover:false/);
+  assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
+});
+
 test("runtime exposes a bounded runtime-configuration audit history", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");

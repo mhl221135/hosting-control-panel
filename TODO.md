@@ -471,8 +471,10 @@ The manual architecture and failover runbook are documented in
 write rejection, mutating-scheduler suppression, and a clearly labeled
 read-only panel mode are implemented. Checksum-verified backup reception and a
 guarded backup-based standby preparation command are also implemented.
-Pairing, live replication, lag reporting, and controlled promotion remain
-future work.
+Pairing, live replication, lag reporting, and public-ingress cutover remain
+future work. A guarded host-level local promotion command is implemented; it
+requires explicit old-primary fencing confirmation and intentionally does not
+alter public ingress.
 
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
@@ -484,8 +486,8 @@ and ingress. A durable allowlisted deep-verification job streams checksums,
 checks archive integrity and safe entry types, and binds its result to the exact
 receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
 covered by tests. Actual promotion, DNS/tunnel cutover,
-replication lag/health/recovery-point reporting, and the pairing API remain
-future work.
+replication lag/health/recovery-point reporting, panel-driven promotion, and
+the pairing API remain future work.
 
 ### Roles And Pairing
 
