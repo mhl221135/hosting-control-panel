@@ -166,12 +166,13 @@ Expected values are user `33:33`, `["ALL"]` capability drop,
 `no-new-privileges:true`, no Docker socket mount, and `false` for the broad
 `/srv/app-data` mount.
 
-On a host where `testsite.mishaweb.com` is not configured and its directory
-does not exist, the qualification drill exercises authenticated provisioning,
+On a host where the disposable `PANEL_SMOKE_DOMAIN` is not configured and its
+directory does not exist, the qualification drill exercises authenticated provisioning,
 local-origin health, backup, restore, portable export, and complete cleanup:
 
 ```bash
-docker exec -i hosting-ui node < scripts/qualify-unprivileged-panel.js
+docker exec -e PANEL_SMOKE_DOMAIN=qualification.example.com -i hosting-ui \
+  node < scripts/qualify-unprivileged-panel.js
 ```
 
 The drill is hard-coded to that temporary hostname, refuses pre-existing state,

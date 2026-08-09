@@ -211,7 +211,7 @@ root filesystem, or Linux capabilities. The example host-level systemd unit is
 only a bootstrap/fallback path; do not run both connectors after migration.
 The existing hp-server administration tunnel remains a separate service and
 must not be replaced. Replica service hostnames use the `-r` suffix (for
-example, `ui-v2-r.mishaweb.com`); production website hostnames are attached
+example, `panel-replica.example.com`); production website hostnames are attached
 only during a fenced promotion. Service routes target internal names such as
 `hosting-ui:8687`, while promoted website routes target `hosting-nginx:80`.
 
