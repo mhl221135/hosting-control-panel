@@ -3,7 +3,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { runPreflight, readSiteManifest } = require("../lib/promotion-preflight");
+const {
+  runPreflight, readSiteManifest, validateReceiverProgress,
+} = require("../lib/promotion-preflight");
 
 function makeBackup(root, domain, hasDb = true, ageHours = 1) {
   const now = new Date(Date.now() - ageHours * 3_600_000);
@@ -131,6 +133,25 @@ test("manifest schema validation", () => {
 test("no leaked timers", async () => {
   const r = await runPreflight({ isStandby: false, sites: [], backupsRoot: "/tmp" });
   assert.equal(r.ready, false);
+});
+
+test("validates bounded receiver progress and blocks readiness while active", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pp3-"));
+  try {
+    const progress = {
+      version: 1, status: "running", startedAt: new Date().toISOString(), finishedAt: "",
+      sourceServerId: "primary-test", totalSets: 12, completedSets: 5,
+      currentGroup: "example.com", currentSetId: "2026-01-01T00-00-00Z",
+    };
+    assert.ok(validateReceiverProgress(progress));
+    assert.equal(validateReceiverProgress({ ...progress, completedSets: 13 }), null);
+    assert.equal(validateReceiverProgress({ ...progress, currentGroup: "../escape" }), null);
+    fs.writeFileSync(path.join(dir, "receiver-progress.json"), JSON.stringify(progress));
+    const result = await runPreflight({ isStandby: true, markerPath: makeMarker(dir), backupsRoot: dir });
+    assert.equal(result.replication.receiverStatus, "running");
+    assert.equal(result.replication.receiverCompletedSets, 5);
+    assert.ok(result.checks.some((item) => item.status === "fail" && item.reason.includes("receiver is active")));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("no secrets", async () => {

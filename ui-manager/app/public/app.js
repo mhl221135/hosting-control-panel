@@ -577,6 +577,12 @@ function renderPreflight(data) {
   $("#preflightWarn").textContent = s.warning;
   $("#preflightFail").textContent = s.fail;
   const replication = data.replication || {};
+  const receiverProgress = replication.receiverTotalSets
+    ? `${replication.receiverStatus || "unknown"} ${replication.receiverCompletedSets || 0}/${replication.receiverTotalSets}`
+    : (replication.receiverStatus || "unknown");
+  $("#preflightReceiverState").textContent = replication.receiverCurrentGroup
+    ? `${receiverProgress} · ${replication.receiverCurrentGroup}`
+    : receiverProgress;
   $("#preflightLastReceive").textContent = replication.lastReceivedAt ? new Date(replication.lastReceivedAt).toLocaleString() : "Unavailable";
   $("#preflightRecoveryAge").textContent = Number.isFinite(replication.estimatedDataLossHours) ? `${replication.estimatedDataLossHours}h` : "Unavailable";
   $("#preflightVerifiedSets").textContent = replication.verifiedSetCount || 0;

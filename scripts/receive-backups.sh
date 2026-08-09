@@ -74,7 +74,36 @@ mkdir -p "$destination/.incoming"
 destination_owner=$(ls -nd "$destination" | awk '{print $3 ":" $4}')
 inventory=$(mktemp)
 stage=""
+progress_active=0
+progress_path="$destination/receiver-progress.json"
+progress_started=""
+progress_completed=0
+progress_total=0
+progress_group=""
+progress_set_id=""
+
+write_progress() {
+  progress_status="$1"
+  progress_finished=""
+  [ "$progress_status" = running ] || progress_finished="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  progress_tmp="$destination/.incoming/receiver-progress.$$.json"
+  jq -n --arg status "$progress_status" --arg startedAt "$progress_started" \
+    --arg finishedAt "$progress_finished" --arg sourceServerId "$source_server_id" \
+    --arg currentGroup "$progress_group" --arg currentSetId "$progress_set_id" \
+    --argjson completedSets "$progress_completed" --argjson totalSets "$progress_total" \
+    '{version:1,status:$status,startedAt:$startedAt,finishedAt:$finishedAt,
+      sourceServerId:$sourceServerId,totalSets:$totalSets,completedSets:$completedSets,
+      currentGroup:$currentGroup,currentSetId:$currentSetId}' > "$progress_tmp"
+  chown "$destination_owner" "$progress_tmp"
+  chmod 600 "$progress_tmp"
+  mv "$progress_tmp" "$progress_path"
+}
+
 cleanup() {
+  status=$?
+  if [ "$status" -ne 0 ] && [ "$progress_active" -eq 1 ]; then
+    write_progress failed || true
+  fi
   rm -f "$inventory" ${selected:+"$selected"}
   [ -z "$stage" ] || rm -rf "$stage"
   rm -f "$destination/.incoming/verified_sets.jsonl"
@@ -117,6 +146,13 @@ sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep="$retention" '
   $1 != current { current=$1; count=0 }
   count < keep { print; count++ }
 ' > "$selected"
+
+if [ "$dry_run" -eq 0 ]; then
+  progress_started="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  progress_total="$(awk 'NF { count++ } END { print count + 0 }' "$selected")"
+  progress_active=1
+  write_progress running
+fi
 
 verify_set() {
   directory=$1
@@ -174,6 +210,11 @@ received_groups=""
 [ "$dry_run" -eq 1 ] || : > "$destination/.incoming/verified_sets.jsonl"
 while IFS='	' read -r group id bytes; do
   [ -n "$group" ] || continue
+  if [ "$dry_run" -eq 0 ]; then
+    progress_group="$group"
+    progress_set_id="$id"
+    write_progress running
+  fi
   received_groups="$received_groups $group"
   case "$bytes" in ''|*[!0-9]*) printf 'Invalid inventory size for %s/%s.\n' "$group" "$id" >&2; exit 1 ;; esac
   group_dir="$destination/$group"
@@ -189,6 +230,8 @@ while IFS='	' read -r group id bytes; do
       manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
       jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
         '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
+      progress_completed=$((progress_completed + 1))
+      write_progress running
     fi
     continue
   fi
@@ -219,6 +262,8 @@ while IFS='	' read -r group id bytes; do
     manifest_sha=$(sha256sum "$target/manifest.json" | awk '{print $1}')
     jq -n -c --arg domain "$group" --arg setId "$id" --arg manifestSha256 "$manifest_sha" \
       '{domain: $domain, setId: $setId, manifestSha256: $manifestSha256}' >> "$destination/.incoming/verified_sets.jsonl"
+    progress_completed=$((progress_completed + 1))
+    write_progress running
   fi
 done < "$selected"
 
@@ -261,6 +306,9 @@ if [ "$dry_run" -eq 0 ]; then
     chown "$destination_owner" "$tmp_receipt"
   fi
   mv "$tmp_receipt" "$destination/receiver-state.json"
+  progress_group=""
+  progress_set_id=""
+  write_progress succeeded
 fi
 
 printf 'Backup reception complete.\n'

@@ -67,6 +67,12 @@ if [ ! -d "$dst/example.com/2026-08-08T00-00-00Z" ]; then
   echo "FAIL: Success did not create backup directory"
   exit 1
 fi
+if [ "$(jq -r .status "$dst/receiver-progress.json")" != succeeded ] \
+  || [ "$(jq -r .completedSets "$dst/receiver-progress.json")" -ne 1 ] \
+  || [ "$(jq -r .totalSets "$dst/receiver-progress.json")" -ne 1 ]; then
+  echo "FAIL: Success did not persist complete receiver progress"
+  exit 1
+fi
 
 group_mode=$(stat -f '%Lp' "$dst/example.com" 2>/dev/null || stat -c '%a' "$dst/example.com")
 if [ "$group_mode" != "750" ]; then
@@ -83,6 +89,12 @@ destination_owner=$(ls -nd "$dst" | awk '{print $3 ":" $4}')
 receipt_owner=$(ls -nd "$dst/receiver-state.json" | awk '{print $3 ":" $4}')
 if [ "$receipt_owner" != "$destination_owner" ]; then
   echo "FAIL: Receipt owner $receipt_owner does not match destination owner $destination_owner"
+  exit 1
+fi
+progress_mode=$(stat -f '%Lp' "$dst/receiver-progress.json" 2>/dev/null || stat -c '%a' "$dst/receiver-progress.json")
+progress_owner=$(ls -nd "$dst/receiver-progress.json" | awk '{print $3 ":" $4}')
+if [ "$progress_mode" != "600" ] || [ "$progress_owner" != "$destination_owner" ]; then
+  echo "FAIL: Receiver progress permissions are $progress_mode $progress_owner"
   exit 1
 fi
 set_owner=$(ls -nd "$dst/example.com/2026-08-08T00-00-00Z" | awk '{print $3 ":" $4}')
@@ -116,6 +128,10 @@ fi
 new_empty_inode=$(ls -i "$dst/receiver-state.json" | awk '{print $1}')
 if [ "$old_empty_inode" != "$new_empty_inode" ]; then
   echo "FAIL: Empty source replaced the previous receipt"
+  exit 1
+fi
+if [ "$(jq -r .status "$dst/receiver-progress.json")" != failed ]; then
+  echo "FAIL: Empty source did not record failed receiver progress"
   exit 1
 fi
 

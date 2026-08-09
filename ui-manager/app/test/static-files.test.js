@@ -62,8 +62,10 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(html, /id="standbyIngressForm"/);
   assert.match(html, /id="runDeepVerify"/);
   assert.match(html, /id="preflightLastReceive"/);
+  assert.match(html, /id="preflightReceiverState"/);
   assert.match(html, /id="preflightRecoveryAge"/);
   assert.match(source, /replication\.estimatedDataLossHours/);
+  assert.match(source, /replication\.receiverCompletedSets/);
   assert.match(source, /api\("\/api\/system\/deep-verify"/);
   assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\), suppressDisallowed: true \}\)/);
   assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);

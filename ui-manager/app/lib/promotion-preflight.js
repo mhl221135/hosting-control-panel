@@ -13,6 +13,10 @@ const DOMAIN_PATTERN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)
 const CONTROL_CHARS = /[\x00-\x1f\x7f]/;
 const RECEIPT_KEYS = new Set(["version", "completedAt", "result", "sourceServerId", "verifiedCount", "sets"]);
 const RECEIPT_SET_KEYS = new Set(["domain", "setId", "manifestSha256"]);
+const RECEIVER_PROGRESS_KEYS = new Set([
+  "version", "status", "startedAt", "finishedAt", "sourceServerId",
+  "totalSets", "completedSets", "currentGroup", "currentSetId",
+]);
 const SITE_KEYS = new Set(["version", "type", "id", "domain", "websitePath", "database", "startedAt", "completedAt", "artifacts"]);
 const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt", "completedAt", "artifacts"]);
 const ARTIFACT_KEYS = new Set(["size", "sha256"]);
@@ -102,6 +106,22 @@ function readJson(filePath, validator) {
 function readSiteManifest(filePath) { return readJson(filePath, validateSiteManifest); }
 function readReceiverState(root) { return readJson(path.join(root, "receiver-state.json"), validateReceiverReceipt); }
 
+function validateReceiverProgress(value) {
+  if (!exactKeys(value, RECEIVER_PROGRESS_KEYS) || value.version !== 1) return null;
+  if (!["running", "succeeded", "failed"].includes(value.status) || !validDate(value.startedAt)) return null;
+  if (value.finishedAt && !validDate(value.finishedAt)) return null;
+  if (!SERVER_ID_PATTERN.test(String(value.sourceServerId || ""))) return null;
+  if (!Number.isInteger(value.totalSets) || value.totalSets < 0 || value.totalSets > 5000) return null;
+  if (!Number.isInteger(value.completedSets) || value.completedSets < 0 || value.completedSets > value.totalSets) return null;
+  if (!(value.currentGroup === "" || value.currentGroup === "app-data" || validDomain(value.currentGroup))) return null;
+  if (!(value.currentSetId === "" || SET_ID_PATTERN.test(value.currentSetId))) return null;
+  return value;
+}
+
+function readReceiverProgress(root) {
+  return readJson(path.join(root, "receiver-progress.json"), validateReceiverProgress);
+}
+
 function receiverReceiptSha256(root) {
   try { return crypto.createHash("sha256").update(fs.readFileSync(path.join(root, "receiver-state.json"))).digest("hex"); }
   catch { return ""; }
@@ -188,6 +208,9 @@ async function runPreflight(opts = {}) {
   checks.push(check(fs.existsSync(path.join(dataRoot, "server-role.json")) ? "pass" : "warning", "Panel ingress metadata"));
 
   const receipt = receiverState === undefined ? readReceiverState(backupsRoot) : validateReceiverReceipt(receiverState);
+  const receiverProgress = readReceiverProgress(backupsRoot);
+  if (receiverProgress?.status === "running") checks.push(check("fail", "Backup receiver is active"));
+  else if (receiverProgress?.status === "failed") checks.push(check("warning", "Last backup receiver run failed"));
   if (!receipt) checks.push(check(isStandby ? "fail" : "warning", "No valid successful receiver receipt found"));
   else {
     const age = Date.now() - Date.parse(receipt.completedAt);
@@ -303,6 +326,10 @@ async function runPreflight(opts = {}) {
       preparedAt: recovery?.prepared_at || "",
       preparedSiteCount: recovery?.site_count ?? null,
       preparedSourceRelease: recovery?.source_release || "",
+      receiverStatus: receiverProgress?.status || "unknown",
+      receiverCompletedSets: receiverProgress?.completedSets || 0,
+      receiverTotalSets: receiverProgress?.totalSets || 0,
+      receiverCurrentGroup: receiverProgress?.currentGroup || "",
     },
   };
 }
@@ -310,6 +337,7 @@ async function runPreflight(opts = {}) {
 module.exports = {
   DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, runPreflight, readSiteManifest, readReceiverState,
   readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
-  readStandbyRecoveryState, validateSiteManifest, validateAppDataManifest,
+  readReceiverProgress, readStandbyRecoveryState, validateReceiverProgress,
+  validateSiteManifest, validateAppDataManifest,
   validateStandbyRecovery, validDomain, validRelativePath,
 };
