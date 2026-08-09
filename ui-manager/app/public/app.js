@@ -588,8 +588,12 @@ function renderPreflight(data) {
   const receiverProgress = replication.receiverTotalSets
     ? `${replication.receiverStatus || "unknown"} ${replication.receiverCompletedSets || 0}/${replication.receiverTotalSets}`
     : (replication.receiverStatus || "unknown");
+  const receivedBytes = (replication.receiverCompletedBytes || 0) + (replication.receiverCurrentSetReceivedBytes || 0);
+  const receiverPercent = replication.receiverTotalBytes
+    ? Math.min(100, Math.max(0, (receivedBytes / replication.receiverTotalBytes) * 100)).toFixed(1)
+    : "";
   const receiverBytes = replication.receiverTotalBytes
-    ? ` · ${formatBytes((replication.receiverCompletedBytes || 0) + (replication.receiverCurrentSetReceivedBytes || 0))}/${formatBytes(replication.receiverTotalBytes)}`
+    ? ` · ${receiverPercent}% · ${formatBytes(receivedBytes)}/${formatBytes(replication.receiverTotalBytes)}`
     : "";
   $("#preflightReceiverState").textContent = replication.receiverCurrentGroup
     ? `${receiverProgress}${receiverBytes} · ${replication.receiverCurrentGroup}`

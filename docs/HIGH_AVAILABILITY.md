@@ -150,7 +150,9 @@ The example receiver unit uses systemd `OnSuccess` to start the separate
 `hosting-backup-deep-verify.service`. The follow-up runs at lower CPU and I/O
 priority and only after reception has atomically published a successful receipt.
 A deep-verification failure does not invalidate or delete that receiver receipt;
-it leaves promotion blocked until verification succeeds.
+it leaves promotion blocked until verification succeeds. The follow-up holds the
+same host lock as reception, preparation, and promotion, so those operations
+cannot alter or consume a recovery point concurrently.
 
 Deep verification rejects links and special files in website archives. The
 app-data archive may contain Certbot's expected relative certificate symlinks,

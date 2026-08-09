@@ -68,6 +68,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(html, /id="preflightRecoveryAge"/);
   assert.match(source, /replication\.estimatedDataLossHours/);
   assert.match(source, /replication\.receiverCompletedSets/);
+  assert.match(source, /receiverPercent/);
   assert.match(source, /api\("\/api\/system\/deep-verify"/);
   assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\), suppressDisallowed: true \}\)/);
   assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);
@@ -264,7 +265,7 @@ test("successful standby reception schedules isolated deep verification", () => 
   assert.match(receiver, /^OnSuccess=hosting-backup-deep-verify\.service$/m);
   assert.match(verifier, /^Type=oneshot$/m);
   assert.match(verifier, /^Nice=15$/m);
-  assert.match(verifier, /docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
+  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
   assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
 });
 
