@@ -139,6 +139,13 @@ the current receiver receipt and writes `deep-verify-state.json` bound to the
 receipt hash. A later receiver run makes the older deep result stale. Neither
 operation performs promotion.
 
+The same bounded verifier is available to a host operator without a panel
+session. It still refuses any machine whose local marker is not `standby`:
+
+```bash
+docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
+```
+
 Deep verification rejects links and special files in website archives. The
 app-data archive may contain Certbot's expected relative certificate symlinks,
 but each is accepted only when it remains confined to the archive and resolves

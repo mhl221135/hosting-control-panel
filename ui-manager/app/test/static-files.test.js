@@ -249,6 +249,15 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
 });
 
+test("deep backup verification has a standby-only operator CLI", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../cli/deep-verify.js"), "utf8");
+  assert.match(source, /marker\?\.version === 1 && marker\?\.role === "standby"/);
+  assert.match(source, /new DeepVerifyManager/);
+  assert.match(source, /manager\.runDeepVerify/);
+  assert.match(source, /cancellationRequested/);
+  assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
+});
+
 test("runtime exposes a bounded runtime-configuration audit history", () => {
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
