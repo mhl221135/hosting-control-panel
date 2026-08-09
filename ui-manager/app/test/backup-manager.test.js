@@ -405,3 +405,13 @@ test("verifies a complete website backup archive before controlled updates", asy
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
+
+test("reports detailed phases while creating large backups", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../lib/backup-manager.js"), "utf8");
+  for (const phase of ["Reading database settings", "Archiving files", "Dumping database", "Hashing backup", "Finalizing backup"]) {
+    assert.match(source, new RegExp(phase));
+  }
+  for (const phase of ["Preparing certificate files", "Archiving application data", "Dumping all databases", "Hashing application-data backup"]) {
+    assert.match(source, new RegExp(phase));
+  }
+});

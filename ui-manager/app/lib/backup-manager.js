@@ -336,7 +336,8 @@ class BackupManager {
             continue;
           }
           try {
-            results.push(await this.createSiteBackup(site, settings.retention));
+            results.push(await this.createSiteBackup(site, settings.retention,
+              (phase) => jobContext?.update({ currentStep: `${phase} ${site.host}` })));
           } catch (error) {
             results.push({ type: "site", domain: site.host, ok: false, message: error.message });
           }
@@ -347,7 +348,8 @@ class BackupManager {
         jobContext?.checkpoint();
         jobContext?.update({ currentStep: "Backing up application data" });
         try {
-          results.push(await this.createAppDataBackup(settings.retention));
+          results.push(await this.createAppDataBackup(settings.retention,
+            (phase) => jobContext?.update({ currentStep: phase })));
         } catch (error) {
           results.push({ type: "app-data", ok: false, message: error.message });
         }
@@ -370,7 +372,8 @@ class BackupManager {
     this.ensureSiteBackupsEnabled();
     return this.withLock({ type: "site", domain: site.host, label: `Backup ${site.host}` }, async () => {
       jobContext?.update({ total: 1, currentStep: `Backing up ${site.host}` });
-      const result = await this.createSiteBackup(site, this.readSettings().retention);
+      const result = await this.createSiteBackup(site, this.readSettings().retention,
+        (phase) => jobContext?.update({ currentStep: `${phase} ${site.host}` }));
       jobContext?.update({ completed: 1, results: [result] });
       return { ...result, total: 1, completed: 1, results: [result], message: `Backup completed for ${site.host}` };
     });
@@ -403,7 +406,8 @@ class BackupManager {
         this.currentJob.domain = site.host;
         jobContext?.update({ currentStep: `Backing up ${site.host}` });
         try {
-          results.push(await this.createSiteBackup(site, this.readSettings().retention));
+          results.push(await this.createSiteBackup(site, this.readSettings().retention,
+            (phase) => jobContext?.update({ currentStep: `${phase} ${site.host}` })));
         } catch (error) {
           results.push({ type: "site", domain: site.host, ok: false, message: error.message });
         }
@@ -428,7 +432,8 @@ class BackupManager {
   async runAppData(jobContext = null) {
     return this.withLock({ type: "app-data", label: "Backup app data" }, async () => {
       jobContext?.update({ total: 1, currentStep: "Backing up application data" });
-      const result = await this.createAppDataBackup(this.readSettings().retention);
+      const result = await this.createAppDataBackup(this.readSettings().retention,
+        (phase) => jobContext?.update({ currentStep: phase }));
       jobContext?.update({ completed: 1, results: [result] });
       return { ...result, total: 1, completed: 1, results: [result], message: "Application data backup completed" };
     });
@@ -514,7 +519,7 @@ class BackupManager {
     return this.databaseName(relative);
   }
 
-  async createSiteBackup(site, retention) {
+  async createSiteBackup(site, retention, onStep = () => {}) {
     const relative = this.siteRelativePath(site);
     const parent = this.safeBackupParent(site.host);
     const id = this.nextBackupId(parent);
@@ -523,7 +528,9 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
+      onStep("Reading database settings for");
       const database = await this.siteDatabaseName(site, relative);
+      onStep("Archiving files for");
       await execFileAsync("ionice", [
         "-c",
         "2",
@@ -543,8 +550,12 @@ class BackupManager {
         this.websitesRoot,
         relative,
       ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
-      if (database) await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
+      if (database) {
+        onStep("Dumping database for");
+        await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
+      }
       const requiredFiles = ["website.tar.gz", ...(database ? ["database.sql.gz"] : [])];
+      onStep("Hashing backup for");
       const manifest = {
         version: 2,
         type: "site",
@@ -557,6 +568,7 @@ class BackupManager {
         artifacts: await artifactManifest(partial, requiredFiles),
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
+      onStep("Finalizing backup for");
       setBackupSetPermissions(partial);
       fs.renameSync(partial, complete);
       this.applyRetention(site.host, retention);
@@ -567,7 +579,7 @@ class BackupManager {
     }
   }
 
-  async createAppDataBackup(retention) {
+  async createAppDataBackup(retention, onStep = () => {}) {
     if (!fs.existsSync(this.appDataRoot)) throw new Error("App-data directory does not exist");
     const parent = this.safeBackupParent("app-data");
     const id = this.nextBackupId(parent);
@@ -576,9 +588,11 @@ class BackupManager {
     fs.mkdirSync(partial, { recursive: true });
     const startedAt = new Date().toISOString();
     try {
+      onStep("Preparing certificate files");
       await execFileAsync("docker", [
         "exec", "hosting-npm", "sh", "-c", NPM_BACKUP_READ_SCRIPT,
       ], { timeout: 2 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      onStep("Archiving application data");
       await execFileAsync("ionice", [
         "-c",
         "2",
@@ -598,7 +612,9 @@ class BackupManager {
         this.appDataRoot,
         ".",
       ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      onStep("Dumping all databases");
       await this.dumpAllDatabases(path.join(partial, "databases.sql.gz"));
+      onStep("Hashing application-data backup");
       const manifest = {
         version: 2,
         type: "app-data",
@@ -609,6 +625,7 @@ class BackupManager {
         artifacts: await artifactManifest(partial, ["app-data.tar.gz", "databases.sql.gz"]),
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
+      onStep("Finalizing application-data backup");
       setBackupSetPermissions(partial);
       fs.renameSync(partial, complete);
       this.applyRetention("app-data", retention);
