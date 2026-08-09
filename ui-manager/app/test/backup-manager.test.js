@@ -43,6 +43,7 @@ test("app-data backup uses the exact allowlisted NPM certificate-readiness comma
   assert.match(NPM_BACKUP_READ_SCRIPT, /^set -eu; find \/etc\/letsencrypt /);
   const source = fs.readFileSync(path.join(__dirname, "../lib/backup-manager.js"), "utf8");
   assert.match(source, /"--exclude=\.\/redis"/);
+  assert.match(source, /excluded: \["mysql", "redis", "nginx-cache"\]/);
   assert.doesNotMatch(source, /"--ignore-failed-read"[\s\S]{0,500}"--exclude=\.\/mysql"/);
 });
 

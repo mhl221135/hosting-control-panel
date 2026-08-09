@@ -579,7 +579,7 @@ class BackupManager {
         version: 2,
         type: "app-data",
         id,
-        excluded: ["mysql", "nginx-cache"],
+        excluded: ["mysql", "redis", "nginx-cache"],
         startedAt,
         completedAt: new Date().toISOString(),
         artifacts: await artifactManifest(partial, ["app-data.tar.gz", "databases.sql.gz"]),
