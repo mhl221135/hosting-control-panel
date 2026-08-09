@@ -246,6 +246,11 @@ the source permissions and create a fresh app-data set instead. Redis
 persistence and nginx cache directories are intentionally excluded because
 they contain rebuildable cache state, not recovery data.
 
+If deep verification rejects an older retained set, quarantine the whole set
+outside its website or `app-data` group and rerun reception to produce a new
+receipt. Never edit checksums or remove individual archive entries. Quarantine
+is not retention-managed and requires a later explicit cleanup decision.
+
 New site and app-data sets use manifest version 2 and record each artifact's
 byte length and SHA-256 digest. Restore verifies these values before extracting
 files or importing SQL. Existing version-1 sets remain structurally verifiable

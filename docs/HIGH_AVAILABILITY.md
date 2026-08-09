@@ -145,6 +145,12 @@ it must never silently omit certificate private keys. Treat a deep-verification
 failure for a dangling `live/` certificate link as an incomplete backup and
 create a new app-data set after correcting source permissions.
 
+When a retained set is proven incomplete, move it out of its eligible group
+into a sibling quarantine directory and rerun the receiver. Do not rewrite its
+manifest or receipt to make it pass. Quarantined sets are intentionally outside
+retention and restore selection; remove them separately only after the incident
+and replacement recovery point have been reviewed.
+
 For SSH sources, install `scripts/backup-reader-command.sh` as a root-owned
 mode-0755 command on the primary, store the single allowed source directory in
 root-owned `/etc/hosting-control/backup-reader-root`, and prefix the replica's
