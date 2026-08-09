@@ -183,7 +183,7 @@ services:
     restart: unless-stopped
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/www
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini:/usr/local/etc/php/conf.d/000-global.ini:ro
+      - ${PHP_GLOBAL_INI_PATH:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini}:/usr/local/etc/php/conf.d/000-global.ini:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.conf:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/runtime-php-fpm:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp/wp-global.php:/global/wp-global.php:ro
@@ -239,7 +239,7 @@ services:
       redis-server
       --appendonly yes
       --save 900 1 --save 300 10 --save 60 10000
-      --maxmemory 1024mb
+      --maxmemory ${REDIS_MAXMEMORY:-1024mb}
       --maxmemory-policy allkeys-lru
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/redis:/data
@@ -251,14 +251,14 @@ services:
     container_name: hosting-db
     restart: always
     command: >
-      --server-id=1
+      --server-id=${MYSQL_SERVER_ID:-1}
       --log-bin=mysql-bin
       --binlog-format=row
-      --innodb_buffer_pool_size=2G
-      --innodb_redo_log_capacity=1G
+      --innodb_buffer_pool_size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
+      --innodb_redo_log_capacity=${MYSQL_INNODB_REDO_LOG_CAPACITY:-1G}
       --innodb_flush_log_at_trx_commit=2
       --innodb_flush_method=O_DIRECT
-      --max_connections=150
+      --max_connections=${MYSQL_MAX_CONNECTIONS:-150}
       --skip-name-resolve=ON
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}

@@ -204,6 +204,19 @@ The panel renders managed PHP/nginx directives. MySQL and Redis values in
 Compose are startup arguments; changing them requires container recreation.
 Measure host memory before increasing limits.
 
+Each host may set `MYSQL_SERVER_ID`, `MYSQL_INNODB_BUFFER_POOL_SIZE`,
+`MYSQL_INNODB_REDO_LOG_CAPACITY`, `MYSQL_MAX_CONNECTIONS`, and
+`REDIS_MAXMEMORY` in its private `.env`. `PHP_GLOBAL_INI_PATH` can point at a
+machine-local global PHP configuration outside replicated `app-data`. This is
+required for a smaller standby: restoring primary app-data must not silently
+apply the primary's OPcache budget to the standby.
+
+The initial 8 GB standby profile uses a unique MySQL server ID, 1 GiB InnoDB
+buffer pool, 512 MiB redo capacity, 100 connections, 256 MiB Redis, and a
+machine-local 2 GiB OPcache configuration. These are conservative promotion
+defaults, not a promise that every workload fits; inspect capacity before
+cutover.
+
 ## Ports And Network
 
 Published by default: `80`, `81`, `443`, `8687`, `8787`, and `8484`. File Browser,

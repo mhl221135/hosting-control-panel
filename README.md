@@ -570,6 +570,11 @@ The default profile targets a 16 GB Orange Pi 5:
 These values are editable in **Settings → Performance**. Do not deploy this
 profile unchanged on the current 2 GB OPI3 test host.
 
+Smaller standby hosts use machine-local Compose overrides for MySQL and Redis
+and may set `PHP_GLOBAL_INI_PATH` to a non-replicated global PHP configuration.
+The documented 8 GB standby baseline is 1 GB MySQL, 256 MB Redis, and 2 GB
+OPcache; it remains stopped until controlled promotion.
+
 ## Backups
 
 The host backup location is configured by `BACKUPS_DIR` in `.env`. It defaults
