@@ -69,6 +69,8 @@ test("passes WordPress with valid backup and machine marker", async () => {
     const setId = fs.readdirSync(path.join(dir, "example.com"))[0];
     const manifestHash = require("crypto").createHash("sha256").update(fs.readFileSync(path.join(dir, "example.com", setId, "manifest.json"))).digest("hex");
     const appHash = makeAppData(dir, setId);
+    const phpIniPath = path.join(dir, "standby-global.ini");
+    fs.writeFileSync(phpIniPath, "opcache.memory_consumption = 2048\n");
     const receipt = { version: 1, result: "success", sourceServerId: "primary-test", completedAt: new Date().toISOString(), verifiedCount: 2, sets: [{ domain: "example.com", setId, manifestSha256: manifestHash }, { domain: "app-data", setId, manifestSha256: appHash }] };
     makePreparedState(dir, markerPath, receipt, setId);
     const r = await runPreflight({
@@ -76,6 +78,10 @@ test("passes WordPress with valid backup and machine marker", async () => {
       sites: [{ host: "example.com", siteType: "wordpress" }],
       backupsRoot: dir, websitesRoot: dir, sourcesRoot: dir,
       env: { UI_SETTINGS_KEY: "k", BILLING_API_TOKEN: "t", SERVER_ID: "s" },
+      resourceProfile: {
+        name: "standby-8gb", mysqlServerId: "2", mysqlBuffer: "1G",
+        mysqlRedo: "512M", mysqlConnections: "100", redisMaxMemory: "256mb", phpIniPath,
+      },
       dockerInfo: { check: async () => ({ ok: true }) },
     });
     assert.equal(r.ready, true);
@@ -87,6 +93,8 @@ test("passes WordPress with valid backup and machine marker", async () => {
     assert.ok(r.replication.preparedAt);
     assert.equal(r.replication.preparedSiteCount, 1);
     assert.equal(r.replication.preparedSourceRelease, "test-release");
+    assert.equal(r.resourceProfile.name, "standby-8gb");
+    assert.equal(r.resourceProfile.opcacheMb, 2048);
     assert.ok(r.replication.estimatedDataLossHours >= 1);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

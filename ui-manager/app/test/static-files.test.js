@@ -36,6 +36,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(compose, /MYSQL_SERVER_ID/);
   assert.match(compose, /MYSQL_INNODB_BUFFER_POOL_SIZE/);
   assert.match(compose, /REDIS_MAXMEMORY/);
+  assert.match(compose, /STANDBY_PROFILE_NAME/);
+  assert.match(server, /resourceProfile:/);
   assert.match(upgrade, /compose stop hosting-files hosting-billing/);
   assert.match(prepare, /--confirm PREPARE-STANDBY/);
   assert.match(prepare, /\.role == "standby"/);

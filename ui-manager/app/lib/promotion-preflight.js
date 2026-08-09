@@ -154,6 +154,42 @@ function fileSha256(filePath) {
   catch { return ""; }
 }
 
+function memoryMb(value) {
+  const match = String(value || "").trim().match(/^(\d+)([kmg])(?:i?b)?$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const scale = { k: 1 / 1024, m: 1, g: 1024 }[match[2].toLowerCase()];
+  const result = amount * scale;
+  return Number.isFinite(result) && result > 0 ? result : null;
+}
+
+function iniInteger(filePath, key) {
+  try {
+    const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = fs.readFileSync(filePath, "utf8").match(new RegExp(`^\\s*${escaped}\\s*=\\s*(\\d+)\\s*$`, "m"));
+    return match ? Number(match[1]) : null;
+  } catch { return null; }
+}
+
+function resourceProfileChecks(profile = {}) {
+  const checks = [];
+  const name = String(profile.name || "");
+  const serverId = Number(profile.mysqlServerId);
+  const mysqlBufferMb = memoryMb(profile.mysqlBuffer);
+  const mysqlRedoMb = memoryMb(profile.mysqlRedo);
+  const mysqlConnections = Number(profile.mysqlConnections);
+  const redisMb = memoryMb(profile.redisMaxMemory);
+  const opcacheMb = iniInteger(profile.phpIniPath, "opcache.memory_consumption");
+  checks.push(check(name === "standby-8gb" ? "pass" : "fail", `Standby resource profile: ${name || "not configured"}`));
+  checks.push(check(Number.isInteger(serverId) && serverId >= 2 && serverId <= 4_294_967_295 ? "pass" : "fail", "Standby MySQL server ID is unique"));
+  checks.push(check(mysqlBufferMb !== null && mysqlBufferMb >= 512 && mysqlBufferMb <= 2048 ? "pass" : "fail", `Standby MySQL buffer: ${mysqlBufferMb ?? "invalid"} MB`));
+  checks.push(check(mysqlRedoMb !== null && mysqlRedoMb >= 256 && mysqlRedoMb <= 1024 ? "pass" : "fail", `Standby MySQL redo: ${mysqlRedoMb ?? "invalid"} MB`));
+  checks.push(check(Number.isInteger(mysqlConnections) && mysqlConnections >= 25 && mysqlConnections <= 150 ? "pass" : "fail", `Standby MySQL connections: ${Number.isFinite(mysqlConnections) ? mysqlConnections : "invalid"}`));
+  checks.push(check(redisMb !== null && redisMb >= 128 && redisMb <= 512 ? "pass" : "fail", `Standby Redis: ${redisMb ?? "invalid"} MB`));
+  checks.push(check(Number.isInteger(opcacheMb) && opcacheMb >= 512 && opcacheMb <= 3072 ? "pass" : "fail", `Standby OPcache: ${opcacheMb ?? "invalid"} MB`));
+  return { checks, name, mysqlBufferMb, mysqlRedoMb, mysqlConnections, redisMb, opcacheMb, serverId };
+}
+
 function diskFreeBytes(directory) {
   try {
     const stat = fs.statfsSync(path.resolve(directory));
@@ -199,7 +235,7 @@ async function runPreflight(opts = {}) {
   const {
     isStandby = false, sites = [], backupsRoot = "", websitesRoot = "", sourcesRoot = "", dataRoot = "",
     ingressMode = "", env = {}, maxBackupAgeHours = DEFAULT_FRESHNESS_HOURS, dockerInfo = null,
-    receiverState = undefined, markerPath = "/run/hosting-machine/role.json",
+    receiverState = undefined, markerPath = "/run/hosting-machine/role.json", resourceProfile = null,
   } = opts;
   const checks = [];
   const freshnessMs = Math.max(1, Number(maxBackupAgeHours) || DEFAULT_FRESHNESS_HOURS) * 3_600_000;
@@ -305,6 +341,8 @@ async function runPreflight(opts = {}) {
     checks.push(check(!free ? "warning" : free >= 1_000_000_000 ? "pass" : "fail", `${label}: ${free ? (free / 1_000_000_000).toFixed(1) : "unknown"} GB free`));
   }
   for (const key of ["UI_SETTINGS_KEY", "BILLING_API_TOKEN", "SERVER_ID"]) checks.push(check(env[key] ? "pass" : "warning", `${key} is ${env[key] ? "configured" : "not configured"}`));
+  const resource = isStandby ? resourceProfileChecks(resourceProfile || {}) : null;
+  if (resource) checks.push(...resource.checks);
   if (isStandby) await dockerChecks(checks, ingressMode, dockerInfo);
   checks.push(check(["direct_npm", "cloudflare_tunnel"].includes(ingressMode) ? "pass" : isStandby ? "fail" : "warning", ingressMode ? `Ingress: ${ingressMode}` : "Ingress mode not configured"));
 
@@ -331,6 +369,12 @@ async function runPreflight(opts = {}) {
       receiverTotalSets: receiverProgress?.totalSets || 0,
       receiverCurrentGroup: receiverProgress?.currentGroup || "",
     },
+    resourceProfile: resource ? {
+      name: resource.name, mysqlServerId: resource.serverId,
+      mysqlBufferMb: resource.mysqlBufferMb, mysqlRedoMb: resource.mysqlRedoMb,
+      mysqlConnections: resource.mysqlConnections, redisMb: resource.redisMb,
+      opcacheMb: resource.opcacheMb,
+    } : null,
   };
 }
 
@@ -339,5 +383,5 @@ module.exports = {
   readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
   readReceiverProgress, readStandbyRecoveryState, validateReceiverProgress,
   validateSiteManifest, validateAppDataManifest,
-  validateStandbyRecovery, validDomain, validRelativePath,
+  resourceProfileChecks, validateStandbyRecovery, validDomain, validRelativePath,
 };

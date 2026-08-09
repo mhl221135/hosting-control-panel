@@ -1921,6 +1921,15 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
         BILLING_API_TOKEN: String(process.env.BILLING_API_TOKEN || ""),
         SERVER_ID: String(process.env.SERVER_ID || process.env.COMPOSE_PROJECT_NAME || ""),
       },
+      resourceProfile: {
+        name: process.env.STANDBY_PROFILE_NAME,
+        mysqlServerId: process.env.MYSQL_SERVER_ID,
+        mysqlBuffer: process.env.MYSQL_INNODB_BUFFER_POOL_SIZE,
+        mysqlRedo: process.env.MYSQL_INNODB_REDO_LOG_CAPACITY,
+        mysqlConnections: process.env.MYSQL_MAX_CONNECTIONS,
+        redisMaxMemory: process.env.REDIS_MAXMEMORY,
+        phpIniPath: PHP_INI_PATH,
+      },
     });
     sendJson(res, 200, { ok: true, ...result });
     return true;

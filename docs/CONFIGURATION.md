@@ -218,7 +218,9 @@ The initial 8 GB standby profile uses a unique MySQL server ID, 1 GiB InnoDB
 buffer pool, 512 MiB redo capacity, 100 connections, 256 MiB Redis, and a
 machine-local 2 GiB OPcache configuration. These are conservative promotion
 defaults, not a promise that every workload fits; inspect capacity before
-cutover.
+cutover. Set `STANDBY_PROFILE_NAME=standby-8gb`; promotion preflight fails when
+the profile name, server ID, configured limits, or active OPcache file do not
+match the bounded standby policy.
 
 ## Ports And Network
 
