@@ -198,8 +198,9 @@ run after large site additions; measured capacity, not this historical figure,
 is authoritative.
 
 The hp-server deployment uses the reviewed units in `examples/systemd/`.
-`hosting-backup-receiver.timer` runs daily at 04:00 local time with a bounded
-random delay; `flock` prevents overlap. The service is low-priority, has a
+`hosting-backup-receiver.timer` runs daily at 05:00 UTC with a bounded random
+delay, leaving a multi-hour completion window after the primary backup starts;
+`flock` prevents overlap. The service is low-priority, has a
 read-only system view, and can write only the received-backup destination and
 its runtime lock. Adjust source addresses and paths before using these example
 units on another installation.

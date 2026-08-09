@@ -2,7 +2,7 @@
 Description=Receive verified hosting backups daily
 
 [Timer]
-OnCalendar=*-*-* 04:00:00
+OnCalendar=*-*-* 05:00:00 UTC
 Persistent=true
 RandomizedDelaySec=10m
 Unit=hosting-backup-receiver.service
