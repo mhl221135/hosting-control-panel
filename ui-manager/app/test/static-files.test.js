@@ -50,6 +50,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /databases\.sql\.gz/);
   assert.match(prepare, /latest_site_set_at_or_before/);
   assert.match(prepare, /completed <= cutoff/);
+  assert.match(prepare, /mysql -uroot -Nse \"SELECT 1\"/);
+  assert.doesNotMatch(prepare, /mysqladmin[^\n]*ping/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
   assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
@@ -246,6 +248,8 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /compose config --quiet/);
   assert.match(script, /docker exec hosting-php-fpm php-fpm -t/);
   assert.match(script, /docker exec hosting-nginx nginx -t/);
+  assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);
+  assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
   assert.match(script, /public_ingress_cutover:false/);
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
 });

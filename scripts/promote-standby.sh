@@ -177,7 +177,8 @@ runtime_started=1
 
 db_ready=0
 for _ in $(seq 1 60); do
-  if docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysqladmin -uroot ping --silent' >/dev/null 2>&1; then
+  if docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT 1"' 2>/dev/null \
+    | grep -qx 1; then
     db_ready=1
     break
   fi
