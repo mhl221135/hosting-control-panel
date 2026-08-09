@@ -256,6 +256,8 @@ test("deep backup verification has a standby-only operator CLI", () => {
   assert.match(source, /new DeepVerifyManager/);
   assert.match(source, /manager\.runDeepVerify/);
   assert.match(source, /Object\.assign\(progressState, progress\)/);
+  assert.match(source, /atomicWriteJson\(progressPath/);
+  assert.match(source, /writeProgress\("failed"/);
   assert.match(source, /cancellationRequested/);
   assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
 });

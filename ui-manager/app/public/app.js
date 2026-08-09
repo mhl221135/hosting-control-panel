@@ -602,7 +602,10 @@ function renderPreflight(data) {
   $("#preflightRecoveryAge").textContent = Number.isFinite(replication.estimatedDataLossHours) ? `${replication.estimatedDataLossHours}h` : "Unavailable";
   $("#preflightVerifiedSets").textContent = replication.verifiedSetCount || 0;
   $("#preflightWebsiteGroups").textContent = replication.websiteGroupCount || 0;
-  $("#preflightDeepState").textContent = replication.deepVerification || "missing";
+  const deepProgress = replication.deepVerifyTotalSets
+    ? ` ${replication.deepVerifyCompletedSets || 0}/${replication.deepVerifyTotalSets}`
+    : "";
+  $("#preflightDeepState").textContent = `${replication.deepVerification || "missing"}${deepProgress}`;
   const checks = $("#preflightChecks");
   checks.className = data.checks.length ? "rows" : "rows empty";
   checks.innerHTML = data.checks.length ? data.checks.map((c) => `

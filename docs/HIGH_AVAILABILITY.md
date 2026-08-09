@@ -153,6 +153,9 @@ A deep-verification failure does not invalidate or delete that receiver receipt;
 it leaves promotion blocked until verification succeeds. The follow-up holds the
 same host lock as reception, preparation, and promotion, so those operations
 cannot alter or consume a recovery point concurrently.
+The standalone verifier also maintains a bounded mode-`0600`
+`deep-verify-progress.json`; the Replication view uses it for running, failed,
+and completed set counts without reading system logs.
 
 Deep verification rejects links and special files in website archives. The
 app-data archive may contain Certbot's expected relative certificate symlinks,

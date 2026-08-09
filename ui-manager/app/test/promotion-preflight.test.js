@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const {
-  appendContainerChecks, runPreflight, readSiteManifest, validateReceiverProgress,
+  appendContainerChecks, runPreflight, readSiteManifest, validateDeepVerifyProgress, validateReceiverProgress,
 } = require("../lib/promotion-preflight");
 
 function makeBackup(root, domain, hasDb = true, ageHours = 1) {
@@ -198,6 +198,17 @@ test("cloudflare tunnel parser distinguishes running from connected", () => {
   const healthy = [];
   appendContainerChecks(healthy, containers, "cloudflare_tunnel");
   assert.ok(healthy.every((item) => item.status === "pass"));
+});
+
+test("deep verification progress is bounded and rejects unsafe state", () => {
+  const progress = {
+    version: 1, status: "running", startedAt: new Date().toISOString(), finishedAt: "",
+    completed: 12, total: 54, currentStep: "Verifying example.com", error: "",
+  };
+  assert.deepEqual(validateDeepVerifyProgress(progress), progress);
+  assert.equal(validateDeepVerifyProgress({ ...progress, completed: 55 }), null);
+  assert.equal(validateDeepVerifyProgress({ ...progress, currentStep: "bad\nstep" }), null);
+  assert.equal(validateDeepVerifyProgress({ ...progress, token: "not allowed" }), null);
 });
 
 test("no secrets", async () => {

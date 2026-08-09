@@ -18,6 +18,9 @@ const RECEIVER_PROGRESS_KEYS = new Set([
   "totalSets", "completedSets", "totalBytes", "completedBytes",
   "currentSetBytes", "currentSetReceivedBytes", "currentGroup", "currentSetId",
 ]);
+const DEEP_PROGRESS_KEYS = new Set([
+  "version", "status", "startedAt", "finishedAt", "completed", "total", "currentStep", "error",
+]);
 const SITE_KEYS = new Set(["version", "type", "id", "domain", "websitePath", "database", "startedAt", "completedAt", "artifacts"]);
 const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt", "completedAt", "artifacts"]);
 const ARTIFACT_KEYS = new Set(["size", "sha256"]);
@@ -125,6 +128,20 @@ function validateReceiverProgress(value) {
 
 function readReceiverProgress(root) {
   return readJson(path.join(root, "receiver-progress.json"), validateReceiverProgress);
+}
+
+function validateDeepVerifyProgress(value) {
+  if (!exactKeys(value, DEEP_PROGRESS_KEYS) || value.version !== 1) return null;
+  if (!["running", "succeeded", "failed"].includes(value.status) || !validDate(value.startedAt)) return null;
+  if (value.finishedAt && !validDate(value.finishedAt)) return null;
+  if (!Number.isInteger(value.completed) || !Number.isInteger(value.total) || value.completed < 0 || value.total < 0 || value.total > 5000 || value.completed > value.total) return null;
+  if (typeof value.currentStep !== "string" || value.currentStep.length > 200 || CONTROL_CHARS.test(value.currentStep)) return null;
+  if (typeof value.error !== "string" || value.error.length > 300 || CONTROL_CHARS.test(value.error)) return null;
+  return value;
+}
+
+function readDeepVerifyProgress(root) {
+  return readJson(path.join(root, "deep-verify-progress.json"), validateDeepVerifyProgress);
 }
 
 function receiverReceiptSha256(root) {
@@ -270,6 +287,7 @@ async function runPreflight(opts = {}) {
 
   const receiptHash = receiverState === undefined ? receiverReceiptSha256(backupsRoot) : crypto.createHash("sha256").update(JSON.stringify(receiverState)).digest("hex");
   const deep = readDeepVerifyState(backupsRoot);
+  const deepProgress = readDeepVerifyProgress(backupsRoot);
   checks.push(check(deep && deep.receiverReceiptSha256 === receiptHash ? "pass" : "warning", deep ? "Deep verification receipt binding" : "No deep verification result found"));
 
   const receiptEntries = new Map((receipt?.sets || []).map((entry) => [`${entry.domain}/${entry.setId}`, entry]));
@@ -369,8 +387,13 @@ async function runPreflight(opts = {}) {
       appDataSetId: appDataManifest?.id || "",
       recoveryPointAt: oldestAge > 0 ? new Date(Date.now() - oldestAge).toISOString() : "",
       estimatedDataLossHours: oldestAge > 0 ? Math.ceil(oldestAge / 3_600_000) : null,
-      deepVerification: deep ? (deep.receiverReceiptSha256 === receiptHash ? "current" : "stale") : "missing",
+      deepVerification: deepProgress?.status === "running" ? "running"
+        : deepProgress?.status === "failed" && Date.parse(deepProgress.finishedAt) >= Date.parse(deep?.completedAt || 0) ? "failed"
+          : deep ? (deep.receiverReceiptSha256 === receiptHash ? "current" : "stale") : "missing",
       deepVerifiedAt: deep?.completedAt || "",
+      deepVerifyCompletedSets: deepProgress?.completed || 0,
+      deepVerifyTotalSets: deepProgress?.total || 0,
+      deepVerifyCurrentStep: deepProgress?.currentStep || "",
       preparedAt: recovery?.prepared_at || "",
       preparedSiteCount: recovery?.site_count ?? null,
       preparedSourceRelease: recovery?.source_release || "",
@@ -396,6 +419,7 @@ module.exports = {
   DEFAULT_FRESHNESS_HOURS, SET_ID_PATTERN, appendContainerChecks, runPreflight, readSiteManifest, readReceiverState,
   readDeepVerifyState, receiverReceiptSha256, requireSiteDatabase, validateReceiverReceipt,
   readReceiverProgress, readStandbyRecoveryState, validateReceiverProgress,
+  readDeepVerifyProgress, validateDeepVerifyProgress,
   validateSiteManifest, validateAppDataManifest,
   resourceProfileChecks, validateStandbyRecovery, validDomain, validRelativePath,
 };
