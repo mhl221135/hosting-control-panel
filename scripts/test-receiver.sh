@@ -48,10 +48,13 @@ reader_root_file="$temp_dir/backup-reader-root"
 printf '%s\n' "$src" > "$reader_root_file"
 reader_inventory=$(HOSTING_BACKUP_ROOT_FILE="$reader_root_file" SSH_ORIGINAL_COMMAND=hosting-backup-inventory "$project_dir/scripts/backup-reader-command.sh")
 reader_fields=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print NF }')
+reader_bytes=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print $3 }')
 reader_sha=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print $4 }')
 reader_epoch=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print $5 }')
+expected_reader_bytes=$((size + $(wc -c < "$src/example.com/2026-08-08T00-00-00Z/manifest.json" | tr -d ' ')))
 expected_reader_sha=$(sha256sum "$src/example.com/2026-08-08T00-00-00Z/manifest.json" | awk '{print $1}')
-if [ "$reader_fields" -ne 5 ] || [ "$reader_sha" != "$expected_reader_sha" ] || [ "$reader_epoch" -le 0 ]; then
+if [ "$reader_fields" -ne 5 ] || [ "$reader_bytes" -ne "$expected_reader_bytes" ] \
+  || [ "$reader_sha" != "$expected_reader_sha" ] || [ "$reader_epoch" -le 0 ]; then
   echo "FAIL: Locked backup reader inventory protocol is incompatible"
   exit 1
 fi

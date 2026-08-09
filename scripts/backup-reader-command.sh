@@ -25,12 +25,17 @@ inventory() {
        (.type == "site" and .domain == $group)) and
       (.artifacts | type == "object")
     ' "$manifest" >/dev/null 2>&1 || continue
-    blocks=$(du -sk "$set_dir")
-    blocks=${blocks%%[[:space:]]*}
-    case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
+    artifact_bytes=$(jq -er '
+      [.artifacts[]?.size] |
+      if length == 0 or length > 16 or
+         any(.[]; (type != "number") or (. < 0) or (. > 107374182400) or (. != floor))
+      then error("invalid artifact sizes") else add end
+    ' "$manifest") || continue
+    manifest_bytes=$(wc -c < "$manifest" | tr -d ' ')
+    case "$artifact_bytes:$manifest_bytes" in *[!0-9:]*|:*) continue ;; esac
     manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
     completed_epoch=$(jq -er '.completedAt | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' "$manifest") || continue
-    printf '%s\t%s\t%s\t%s\t%s\n' "$group" "$id" "$((blocks * 1024))" "$manifest_sha" "$completed_epoch"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$group" "$id" "$((artifact_bytes + manifest_bytes))" "$manifest_sha" "$completed_epoch"
   done
 }
 
