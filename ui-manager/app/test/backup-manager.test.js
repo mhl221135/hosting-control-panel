@@ -217,6 +217,42 @@ test("failed daily run remains eligible for a later retry", async () => {
   }
 });
 
+test("scheduled retry skips complete same-day sites but creates app-data last", async () => {
+  const fixture = managerFixture();
+  try {
+    fixture.manager.updateSettings({ siteBackupsEnabled: true, appDataEnabled: true });
+    fixture.manager.siteProvider = async () => [
+      { host: "done.example", state: { backupEnabled: true } },
+      { host: "pending.example", state: { backupEnabled: true } },
+    ];
+    const existing = fixture.manager.safeBackupParent("done.example");
+    const id = "2026-08-09T00-00-00Z";
+    fs.mkdirSync(path.join(existing, id));
+    fs.writeFileSync(path.join(existing, id, "manifest.json"), JSON.stringify({
+      version: 2, type: "site", domain: "done.example", completedAt: "2026-08-09T01:00:00Z",
+    }));
+    const calls = [];
+    fixture.manager.createSiteBackup = async (site) => {
+      calls.push(`site:${site.host}`);
+      return { type: "site", domain: site.host, ok: true };
+    };
+    fixture.manager.createAppDataBackup = async () => {
+      calls.push("app-data");
+      return { type: "app-data", ok: true };
+    };
+    const updates = [];
+    const result = await fixture.manager.runScheduledWork({
+      checkpoint() {}, update(value) { updates.push(value); },
+    }, fixture.manager.localDate("2026-08-09T01:00:00Z"));
+    assert.deepEqual(calls, ["site:pending.example", "app-data"]);
+    assert.equal(result.results[0].skipped, true);
+    assert.equal(result.results.at(-1).type, "app-data");
+    assert.equal(updates.at(-1).completed, 3);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("keeps complete backup sets according to retention", () => {
   const fixture = managerFixture();
   try {

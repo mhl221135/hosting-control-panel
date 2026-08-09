@@ -238,6 +238,12 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
+Daily backup retries are resumable by local calendar date. A complete version-2
+site set from that date is reused after a panel interruption instead of
+creating another multi-gigabyte archive. Application data is never skipped by
+this optimization: it is created last on every retry so its logical database
+snapshot is not older than the selected website files.
+
 App-data backup prepares NPM's Let's Encrypt tree through an exact allowlisted
 control-agent command and fails closed when any included file is unreadable.
 This prevents certificate links from being archived without their private-key

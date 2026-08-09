@@ -139,7 +139,8 @@ class BackupManager {
       context.update({ total: 2, completed: 2, results: result.results });
       return result;
     });
-    this.jobManager.register("backup.schedule", (context) => this.runScheduledWork(context));
+    this.jobManager.register("backup.schedule", (context, payload) =>
+      this.runScheduledWork(context, payload.scheduleDate || ""));
   }
 
   async findSite(domain) {
@@ -289,7 +290,7 @@ class BackupManager {
         trigger: "scheduled",
         conflicts: ["server-heavy", "all-sites", "app-data"],
         idempotencyKey: `backup.schedule:${localDate}`,
-        payload: {},
+        payload: { scheduleDate: localDate },
       });
       const finished = await this.jobManager.wait(job.id);
       if (finished.status === "succeeded") this.updateSettings({ lastScheduledDate: localDate });
@@ -300,7 +301,25 @@ class BackupManager {
     return result;
   }
 
-  async runScheduledWork(jobContext = null) {
+  localDate(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return "";
+    return [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, "0"),
+      String(date.getDate()).padStart(2, "0"),
+    ].join("-");
+  }
+
+  hasCompleteBackupOnDate(name, scheduleDate) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(scheduleDate || ""))) return false;
+    return this.history(name).some((backup) => backup.version === 2
+      && backup.type === "site"
+      && backup.domain === name
+      && this.localDate(backup.completedAt) === scheduleDate);
+  }
+
+  async runScheduledWork(jobContext = null, scheduleDate = "") {
     const settings = this.readSettings();
     const result = await this.withLock({ type: "schedule", label: "Daily backup" }, async () => {
       const results = [];
@@ -311,6 +330,11 @@ class BackupManager {
         for (const site of selected) {
           jobContext?.checkpoint();
           jobContext?.update({ currentStep: `Backing up ${site.host}` });
+          if (scheduleDate && this.hasCompleteBackupOnDate(site.host, scheduleDate)) {
+            results.push({ type: "site", domain: site.host, ok: true, skipped: true, message: "Complete daily backup already exists" });
+            jobContext?.update({ completed: results.length, results });
+            continue;
+          }
           try {
             results.push(await this.createSiteBackup(site, settings.retention));
           } catch (error) {
