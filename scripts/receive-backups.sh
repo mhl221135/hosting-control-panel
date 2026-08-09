@@ -154,7 +154,10 @@ else
 fi
 
 selected=$(mktemp)
-sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep="$retention" '
+# Receive only the newest complete set per group. Destination retention is
+# independent, so one older local generation remains without being rehashed on
+# every reception run.
+sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep=1 '
   $1 != current { current=$1; count=0 }
   count < keep { print; count++ }
 ' > "$selected"

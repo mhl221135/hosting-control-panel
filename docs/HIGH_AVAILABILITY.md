@@ -110,12 +110,14 @@ sudo ./scripts/receive-backups.sh \
 ```
 
 Remove `--dry-run` only after reviewing the inventory and capacity result. The
-receiver selects the newest requested sets per website and for `app-data`,
+receiver selects the newest completed set per website and for `app-data`,
 copies missing sets into `.incoming`, validates the version-2 manifest,
 declared byte lengths and SHA-256 hashes, checks gzip/tar integrity and archive
 path confinement, then atomically promotes each set. Destination retention is
 applied independently to every selected group; source deletions are never
-mirrored. A successful run atomically writes mode-`0600`
+mirrored. Destination retention is independent: older locally verified sets
+remain until the configured retention is exceeded, but they are not
+re-transferred or re-hashed on every run. A successful run atomically writes mode-`0600`
 `receiver-state.json`, containing the bounded source identity and the exact
 manifest hash for every retained selected set. A failed or dry run preserves
 the previous receipt. The receipt inherits the destination directory's numeric
