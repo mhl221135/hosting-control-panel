@@ -9,6 +9,7 @@ case "$root" in /*) ;; *) printf 'Configured backup root is invalid.\n' >&2; exi
 case "$root" in *[!A-Za-z0-9_./-]*|*..*) printf 'Configured backup root is unsafe.\n' >&2; exit 1 ;; esac
 [ -d "$root" ] || { printf 'Configured backup root does not exist.\n' >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { printf 'jq is required.\n' >&2; exit 1; }
+command -v sha256sum >/dev/null 2>&1 || { printf 'sha256sum is required.\n' >&2; exit 1; }
 
 inventory() {
   find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print 2>/dev/null | while IFS= read -r manifest; do
@@ -27,7 +28,9 @@ inventory() {
     blocks=$(du -sk "$set_dir")
     blocks=${blocks%%[[:space:]]*}
     case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
-    printf '%s\t%s\t%s\n' "$group" "$id" "$((blocks * 1024))"
+    manifest_sha=$(sha256sum "$manifest" | awk '{print $1}')
+    completed_epoch=$(jq -er '.completedAt | fromdateiso8601' "$manifest") || continue
+    printf '%s\t%s\t%s\t%s\t%s\n' "$group" "$id" "$((blocks * 1024))" "$manifest_sha" "$completed_epoch"
   done
 }
 

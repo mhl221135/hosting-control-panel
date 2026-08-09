@@ -189,6 +189,8 @@ restrict,command="/usr/local/sbin/hosting-backup-reader"
 The receiver intentionally expects this forced-command protocol. It permits
 only bounded inventory output and read-only rsync sender requests beneath the
 configured root; it does not grant an interactive shell.
+Inventory rows contain the group, set ID, byte size, manifest SHA-256, and
+completion epoch required for receipt attestation and app-data cutoff selection.
 
 The measured OPI5 inventory on 2026-08-08 was approximately 74.1 GB for the
 two newest sets across all current groups. The initial hp-server policy is

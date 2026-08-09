@@ -42,6 +42,20 @@ cat > "$src/example.com/2026-08-08T00-00-00Z/manifest.json" <<EOF
 }
 EOF
 
+# The locked SSH reader and local inventory expose the same five fields used
+# for coherent app-data cutoff selection.
+reader_root_file="$temp_dir/backup-reader-root"
+printf '%s\n' "$src" > "$reader_root_file"
+reader_inventory=$(HOSTING_BACKUP_ROOT_FILE="$reader_root_file" SSH_ORIGINAL_COMMAND=hosting-backup-inventory "$project_dir/scripts/backup-reader-command.sh")
+reader_fields=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print NF }')
+reader_sha=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print $4 }')
+reader_epoch=$(printf '%s\n' "$reader_inventory" | awk -F '\t' 'NR == 1 { print $5 }')
+expected_reader_sha=$(sha256sum "$src/example.com/2026-08-08T00-00-00Z/manifest.json" | awk '{print $1}')
+if [ "$reader_fields" -ne 5 ] || [ "$reader_sha" != "$expected_reader_sha" ] || [ "$reader_epoch" -le 0 ]; then
+  echo "FAIL: Locked backup reader inventory protocol is incompatible"
+  exit 1
+fi
+
 # Test malformed ID
 if "$script" --source "$src" --destination "$dst" --source-server-id "bad id!" >/dev/null 2>&1; then
   echo "FAIL: Malformed source-server-id did not exit with error"
