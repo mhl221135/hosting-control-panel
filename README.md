@@ -633,6 +633,8 @@ Image optimization uses the same `server-heavy` job conflict as backups, so
 archive compression and ImageMagick cannot saturate storage and CPU at the same time.
 Backup archives run with reduced CPU and I/O priority and omit transient WebP
 optimizer files.
+SHA-256 is calculated while each compressed archive is written, avoiding a
+second full read of multi-gigabyte website and application-data archives.
 
 ### Encrypted Off-Site Copies
 

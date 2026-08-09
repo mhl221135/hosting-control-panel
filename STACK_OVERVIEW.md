@@ -197,7 +197,8 @@ query strings, non-GET requests, and common WooCommerce session/cart traffic.
 1. The panel scheduler checks the configured local start time every 30 seconds.
 2. Enabled websites are processed sequentially.
 3. WordPress supplies the site's database name through WP-CLI.
-4. Website files are archived and MySQL creates a consistent compressed dump.
+4. Website files are archived while their SHA-256 is streamed, and MySQL
+   creates a consistent compressed dump.
 5. A manifest is written and the partial directory is atomically promoted.
 6. Complete backup sets beyond the configured retention are removed.
 7. Application data is archived, excluding live MySQL files and nginx cache,

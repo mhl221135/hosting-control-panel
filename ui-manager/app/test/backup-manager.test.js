@@ -11,6 +11,7 @@ const {
   artifactManifest,
   setBackupSetPermissions,
   verifyArtifactManifest,
+  writeHashedProcessOutput,
 } = require("../lib/backup-manager");
 
 function managerFixture() {
@@ -129,6 +130,24 @@ test("version 2 backup artifacts detect truncation while version 1 remains reada
       await verifyArtifactManifest(directory, { version: 1 }, ["website.tar.gz"]),
       { checksums: false, legacy: true },
     );
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("hashes process output while writing and removes failed output", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-stream-hash-"));
+  const output = path.join(directory, "archive.tar.gz");
+  try {
+    const artifact = await writeHashedProcessOutput(process.execPath, ["-e", "process.stdout.write('archive bytes')"], output);
+    assert.equal(artifact.size, 13);
+    assert.equal(artifact.sha256, require("node:crypto").createHash("sha256").update("archive bytes").digest("hex"));
+    assert.equal(fs.readFileSync(output, "utf8"), "archive bytes");
+    await assert.rejects(
+      writeHashedProcessOutput(process.execPath, ["-e", "process.stdout.write('partial'); process.exit(2)"], output),
+      /archive failed/,
+    );
+    assert.equal(fs.existsSync(output), false);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }

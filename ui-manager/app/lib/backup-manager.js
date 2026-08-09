@@ -3,6 +3,7 @@ const path = require("path");
 const zlib = require("zlib");
 const crypto = require("crypto");
 const { execFile, spawn } = require("child_process");
+const { Transform } = require("stream");
 const { pipeline } = require("stream/promises");
 const { promisify } = require("util");
 const { siteAdapter, siteDatabaseReference } = require("./site-capabilities");
@@ -47,6 +48,48 @@ async function artifactManifest(directory, fileNames) {
   const artifacts = {};
   for (const fileName of fileNames) artifacts[fileName] = await fileArtifact(path.join(directory, fileName));
   return artifacts;
+}
+
+async function writeHashedProcessOutput(command, args, outputPath, options = {}) {
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const hash = crypto.createHash("sha256");
+  let size = 0;
+  let stderr = "";
+  const meter = new Transform({
+    transform(chunk, encoding, callback) {
+      size += chunk.length;
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+  child.stderr.on("data", (chunk) => {
+    if (stderr.length < 64 * 1024) stderr += chunk.toString().slice(0, 64 * 1024 - stderr.length);
+  });
+  const timeoutMs = Math.max(1, Number(options.timeout || 4 * 60 * 60 * 1000));
+  const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+  try {
+    await Promise.all([
+      pipeline(child.stdout, meter, fs.createWriteStream(outputPath, { mode: 0o640 }))
+        .catch((error) => { child.kill("SIGKILL"); throw error; }),
+      new Promise((resolve, reject) => {
+        child.once("error", reject);
+        child.once("close", (code, signal) => {
+          if (code === 0) resolve();
+          else {
+            const detail = stderr.trim().replace(/[\r\n\t]+/g, " ").slice(0, 500);
+            reject(new Error(`${path.basename(command)} archive failed${signal ? ` (${signal})` : ""}${detail ? `: ${detail}` : ""}`));
+          }
+        });
+      }),
+    ]);
+    if (size < 1) throw new Error("Archive process produced an empty file");
+    return { size, sha256: hash.digest("hex") };
+  } catch (error) {
+    fs.rmSync(outputPath, { force: true });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function setBackupSetPermissions(directory) {
@@ -531,7 +574,7 @@ class BackupManager {
       onStep("Reading database settings for");
       const database = await this.siteDatabaseName(site, relative);
       onStep("Archiving files for");
-      await execFileAsync("ionice", [
+      const websiteArtifact = await writeHashedProcessOutput("ionice", [
         "-c",
         "2",
         "-n",
@@ -545,17 +588,18 @@ class BackupManager {
         "--exclude=*.tmp.webp",
         "--exclude=*.tmp",
         "-czf",
-        path.join(partial, "website.tar.gz"),
+        "-",
         "-C",
         this.websitesRoot,
         relative,
-      ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      ], path.join(partial, "website.tar.gz"));
       if (database) {
         onStep("Dumping database for");
         await this.dumpDatabase(database, path.join(partial, "database.sql.gz"));
       }
-      const requiredFiles = ["website.tar.gz", ...(database ? ["database.sql.gz"] : [])];
       onStep("Hashing backup for");
+      const artifacts = { "website.tar.gz": websiteArtifact };
+      if (database) artifacts["database.sql.gz"] = await fileArtifact(path.join(partial, "database.sql.gz"));
       const manifest = {
         version: 2,
         type: "site",
@@ -565,7 +609,7 @@ class BackupManager {
         database,
         startedAt,
         completedAt: new Date().toISOString(),
-        artifacts: await artifactManifest(partial, requiredFiles),
+        artifacts,
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
       onStep("Finalizing backup for");
@@ -593,7 +637,7 @@ class BackupManager {
         "exec", "hosting-npm", "sh", "-c", NPM_BACKUP_READ_SCRIPT,
       ], { timeout: 2 * 60 * 1000, maxBuffer: 1024 * 1024 });
       onStep("Archiving application data");
-      await execFileAsync("ionice", [
+      const appDataArtifact = await writeHashedProcessOutput("ionice", [
         "-c",
         "2",
         "-n",
@@ -604,14 +648,14 @@ class BackupManager {
         "tar",
         "--warning=no-file-changed",
         "-czf",
-        path.join(partial, "app-data.tar.gz"),
+        "-",
         "--exclude=./mysql",
         "--exclude=./redis",
         "--exclude=./nginx-cache",
         "-C",
         this.appDataRoot,
         ".",
-      ], { timeout: 4 * 60 * 60 * 1000, maxBuffer: 1024 * 1024 });
+      ], path.join(partial, "app-data.tar.gz"));
       onStep("Dumping all databases");
       await this.dumpAllDatabases(path.join(partial, "databases.sql.gz"));
       onStep("Hashing application-data backup");
@@ -622,7 +666,10 @@ class BackupManager {
         excluded: ["mysql", "redis", "nginx-cache"],
         startedAt,
         completedAt: new Date().toISOString(),
-        artifacts: await artifactManifest(partial, ["app-data.tar.gz", "databases.sql.gz"]),
+        artifacts: {
+          "app-data.tar.gz": appDataArtifact,
+          "databases.sql.gz": await fileArtifact(path.join(partial, "databases.sql.gz")),
+        },
       };
       fs.writeFileSync(path.join(partial, "manifest.json"), JSON.stringify(manifest, null, 2), { encoding: "utf8", mode: 0o640 });
       onStep("Finalizing application-data backup");
@@ -932,6 +979,7 @@ module.exports = {
   MYSQL_RESTORE_SQL_MODE,
   NPM_BACKUP_READ_SCRIPT,
   artifactManifest,
+  writeHashedProcessOutput,
   backupId,
   setBackupSetPermissions,
   verifyArtifactManifest,
