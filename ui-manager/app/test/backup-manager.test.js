@@ -153,6 +153,27 @@ test("hashes process output while writing and removes failed output", async () =
   }
 });
 
+test("rejects website symlinks before creating a backup set", async () => {
+  const fixture = managerFixture();
+  const siteRoot = path.join(fixture.websitesRoot, "example.com");
+  try {
+    fs.mkdirSync(siteRoot, { recursive: true });
+    fs.writeFileSync(path.join(siteRoot, "index.php"), "<?php echo 'ok';");
+    fs.symlinkSync("index.php", path.join(siteRoot, "linked.php"));
+    await assert.rejects(
+      fixture.manager.createSiteBackup({
+        host: "example.com",
+        root: "/var/www/example.com",
+        state: { siteType: "static" },
+      }, 2),
+      /Website contains symbolic links/,
+    );
+    assert.equal(fs.existsSync(path.join(fixture.backupsRoot, "example.com")), false);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("validates and persists backup settings", () => {
   const fixture = managerFixture();
   try {

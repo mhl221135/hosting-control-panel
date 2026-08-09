@@ -562,8 +562,20 @@ class BackupManager {
     return this.databaseName(relative);
   }
 
+  async assertNoSiteLinks(relative) {
+    const siteRoot = path.resolve(this.websitesRoot, relative);
+    const { stdout } = await execFileAsync("find", [siteRoot, "-type", "l", "-print", "-quit"], {
+      timeout: 5 * 60 * 1000,
+      maxBuffer: 16 * 1024,
+    });
+    if (stdout.trim()) {
+      throw new Error("Website contains symbolic links; remove or replace them before backup");
+    }
+  }
+
   async createSiteBackup(site, retention, onStep = () => {}) {
     const relative = this.siteRelativePath(site);
+    await this.assertNoSiteLinks(relative);
     const parent = this.safeBackupParent(site.host);
     const id = this.nextBackupId(parent);
     const partial = path.join(parent, `.partial-${id}`);
