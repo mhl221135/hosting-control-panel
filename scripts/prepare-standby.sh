@@ -260,7 +260,9 @@ done
 [ "$ready" -eq 1 ] || { printf 'Replica database did not become ready.\n' >&2; exit 1; }
 gzip -dc "$app_set/databases.sql.gz" \
   | docker exec -i hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot'
-docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysqlcheck -uroot --all-databases --check --silent' >/dev/null
+restored_tables="$(docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema NOT IN (0x696e666f726d6174696f6e5f736368656d61,0x706572666f726d616e63655f736368656d61,0x737973)"')"
+case "$restored_tables" in ''|*[!0-9]*) printf 'Restored database inventory is invalid.\n' >&2; exit 1 ;; esac
+[ "$restored_tables" -gt 0 ] || { printf 'Restored database inventory is empty.\n' >&2; exit 1; }
 compose stop hosting-db
 database_started=0
 

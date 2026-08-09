@@ -52,6 +52,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /completed <= cutoff/);
   assert.match(prepare, /mysql -uroot -Nse \"SELECT 1\"/);
   assert.doesNotMatch(prepare, /mysqladmin[^\n]*ping/);
+  assert.match(prepare, /SELECT COUNT\(\*\) FROM information_schema\.tables/);
+  assert.doesNotMatch(prepare, /mysqlcheck/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
   assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
