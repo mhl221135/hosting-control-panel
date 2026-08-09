@@ -27,6 +27,7 @@ async function main() {
     backupsRoot,
     jobManager: { register() {} },
   });
+  const progressState = { completed: 0, total: 0, currentStep: "" };
   const context = {
     cancellationRequested: () => cancelled,
     checkpoint: () => {
@@ -37,9 +38,10 @@ async function main() {
       }
     },
     update: (progress = {}) => {
-      const completed = Math.max(0, Number(progress.completed || 0));
-      const total = Math.max(0, Number(progress.total || 0));
-      const current = String(progress.currentStep || "").replace(/[\r\n\t]+/g, " ").slice(0, 200);
+      Object.assign(progressState, progress);
+      const completed = Math.max(0, Number(progressState.completed || 0));
+      const total = Math.max(0, Number(progressState.total || 0));
+      const current = String(progressState.currentStep || "").replace(/[\r\n\t]+/g, " ").slice(0, 200);
       process.stdout.write(`${completed}/${total}${current ? ` ${current}` : ""}\n`);
     },
   };
