@@ -907,7 +907,7 @@ not invoked or modified by this panel.
 - [docs/BILLING_PILOT_RUNBOOK.md](docs/BILLING_PILOT_RUNBOOK.md): safe payment and enforcement qualification
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): environment and persistent state
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
-- `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception with independent retention and disk reserve
+- `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception anchored to a coherent app-data cutoff, with independent retention and disk reserve
 - `scripts/prepare-standby.sh`: guarded restore of received sets into a fenced, non-public standby
 - `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
 

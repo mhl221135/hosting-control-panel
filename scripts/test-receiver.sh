@@ -255,6 +255,32 @@ if [ "$app_data_count" -eq 0 ]; then
   exit 1
 fi
 
+# A site completed after the newest app-data snapshot is not a coherent
+# recovery point and must be deferred until a later app-data backup exists.
+mkdir -p "$src/example.com/2026-08-11T00-00-00Z"
+cp "$src/example.com/2026-08-09T00-00-00Z/website.tar.gz" "$src/example.com/2026-08-11T00-00-00Z/"
+cat > "$src/example.com/2026-08-11T00-00-00Z/manifest.json" <<EOF
+{
+  "version": 2,
+  "type": "site",
+  "id": "2026-08-11T00-00-00Z",
+  "domain": "example.com",
+  "websitePath": "example.com",
+  "database": null,
+  "startedAt": "2026-08-11T00:00:00Z",
+  "completedAt": "2026-08-11T00:01:00Z",
+  "artifacts": {
+    "website.tar.gz": { "size": $size, "sha256": "$sha" }
+  }
+}
+EOF
+"$script" --source "$src" --destination "$dst" --source-server-id "OPI5" >/dev/null
+selected_site_id=$(jq -r '.sets[] | select(.domain == "example.com") | .setId' "$dst/receiver-state.json")
+if [ "$selected_site_id" != "2026-08-09T00-00-00Z" ]; then
+  echo "FAIL: Receiver selected site set newer than app-data cutoff: $selected_site_id"
+  exit 1
+fi
+
 # Test: bounded ID (65 chars rejected, 64 chars accepted)
 id_64="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
 if ! "$script" --source "$src" --destination "$dst" --source-server-id "$id_64" >/dev/null; then

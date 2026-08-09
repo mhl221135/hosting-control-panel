@@ -144,7 +144,8 @@ find "$root" -mindepth 3 -maxdepth 3 -type f -name manifest.json -print | while 
   case "$blocks" in ""|*[!0-9]*) exit 4 ;; esac
   bytes=$((blocks * 1024))
   manifest_sha=$(sha256sum "$manifest" | awk '\''{print $1}'\'')
-  printf "%s\\t%s\\t%s\\t%s\\n" "$group" "$id" "$bytes" "$manifest_sha"
+  completed_epoch=$(jq -er '\''.completedAt | fromdateiso8601'\'' "$manifest") || continue
+  printf "%s\\t%s\\t%s\\t%s\\t%s\\n" "$group" "$id" "$bytes" "$manifest_sha" "$completed_epoch"
 done'
 
 if [ -n "$remote" ]; then
@@ -157,8 +158,12 @@ fi
 selected=$(mktemp)
 # Receive only the newest complete set per group. Destination retention is
 # independent, so one older local generation remains without being rehashed on
-# every reception run.
-sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep=1 '
+# every reception run. When app-data exists, its newest completion timestamp is
+# the consistency cutoff: later website archives cannot be restored with that
+# database snapshot and are deferred to the next coherent receive.
+app_data_cutoff=$(awk -F '\t' '$1 == "app-data" && $5 > latest { latest=$5 } END { print latest + 0 }' "$inventory")
+sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep=1 -v cutoff="$app_data_cutoff" '
+  $1 != "app-data" && cutoff > 0 && $5 > cutoff { next }
   $1 != current { current=$1; count=0 }
   count < keep { print; count++ }
 ' > "$selected"
@@ -256,7 +261,7 @@ reuse_prior_attestation() {
 reserve_bytes=$((reserve_gb * 1024 * 1024 * 1024))
 received_groups=""
 [ "$dry_run" -eq 1 ] || : > "$destination/.incoming/verified_sets.jsonl"
-while IFS='	' read -r group id bytes source_manifest_sha; do
+while IFS='	' read -r group id bytes source_manifest_sha source_completed_epoch; do
   [ -n "$group" ] || continue
   if [ "$dry_run" -eq 0 ]; then
     progress_group="$group"
