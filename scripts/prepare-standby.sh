@@ -15,7 +15,7 @@ Options:
 EOF
 }
 
-project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 root=""
 backups=""

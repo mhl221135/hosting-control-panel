@@ -3,7 +3,7 @@ set -eu
 
 echo "Running receiver shell tests..."
 
-project_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 script="$project_dir/scripts/receive-backups.sh"
 
 temp_dir="$(mktemp -d)"
