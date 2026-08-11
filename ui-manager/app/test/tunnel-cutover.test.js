@@ -10,8 +10,8 @@ const {
   normalizeHosts,
 } = require("../lib/tunnel-cutover");
 
-const ACCOUNT = "59dc78059f9fcf37eaa1004424f5a66e";
-const TUNNEL = "d2dda403-d6e1-41fb-a4fe-33b2e141220c";
+const ACCOUNT = "0123456789abcdef0123456789abcdef";
+const TUNNEL = "01234567-89ab-4cde-8f01-23456789abcd";
 
 function fixture(role = "primary") {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tunnel-cutover-"));

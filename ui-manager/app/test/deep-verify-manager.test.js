@@ -34,7 +34,7 @@ function createValidBackup(tmpDir, domain, setId) {
   const websiteSrc = path.join(tmpDir, "website_src");
   fs.mkdirSync(path.join(websiteSrc, "public_html"), { recursive: true });
   fs.writeFileSync(path.join(websiteSrc, "public_html", "index.html"), "<h1>Hello</h1>");
-  
+
   const websiteArchive = path.join(setDir, "website.tar.gz");
   execFileSync('tar', ['-czf', websiteArchive, '-C', websiteSrc, 'public_html']);
   const websiteSize = fs.statSync(websiteArchive).size;
@@ -46,7 +46,7 @@ function createValidBackup(tmpDir, domain, setId) {
   // Need to correctly write gzip output to file
   const gzipOut = execFileSync('gzip', ['-c'], { input: dbSrcContent });
   fs.writeFileSync(dbArchive, gzipOut);
-  
+
   const dbSize = fs.statSync(dbArchive).size;
   const dbHash = crypto.createHash('sha256').update(fs.readFileSync(dbArchive)).digest('hex');
 
@@ -85,7 +85,7 @@ test("DeepVerifyManager tests", async (t) => {
   await t.test("Test successful verification writes atomic receipt", async () => {
     const domain = "example.com";
     const setId = "2024-01-01T12-00-00Z";
-    
+
     const manifestHash = createValidBackup(tmpDir, domain, setId);
 
     const rcpt = {
@@ -102,10 +102,10 @@ test("DeepVerifyManager tests", async (t) => {
 
     const manager = new DeepVerifyManager({ jobManager: mockJobManager, backupsRoot: tmpDir });
     const result = await manager.runDeepVerify(mockContext());
-    
+
     assert.equal(result.ok, true);
     assert.equal(fs.existsSync(path.join(tmpDir, "deep-verify-state.json")), true);
-    
+
     const state = JSON.parse(fs.readFileSync(path.join(tmpDir, "deep-verify-state.json"), "utf8"));
     assert.equal(state.result, "success");
     assert.equal(state.verifiedCount, 1);
@@ -146,7 +146,7 @@ test("DeepVerifyManager tests", async (t) => {
   await t.test("Test path traversal in domain rejected", async () => {
     const domain = "../bad-domain";
     const setId = "2024-01-01T12-00-00Z";
-    
+
     const rcpt = {
       version: 1,
       result: "success",
@@ -169,7 +169,7 @@ test("DeepVerifyManager tests", async (t) => {
   await t.test("Test path traversal in setId rejected", async () => {
     const domain = "example.com";
     const setId = "../2024-01-01T12-00-00Z";
-    
+
     const rcpt = {
       version: 1,
       result: "success",
@@ -207,7 +207,7 @@ test("DeepVerifyManager tests", async (t) => {
     fs.writeFileSync(path.join(tmpDir, "receiver-state.json"), JSON.stringify(rcpt));
 
     const manager = new DeepVerifyManager({ jobManager: mockJobManager, backupsRoot: tmpDir });
-    
+
     let cancelled = false;
     const ctx = {
       update: () => {},
