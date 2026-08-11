@@ -275,6 +275,7 @@ rm -rf "$previous_app" "$previous_websites"
 previous_app=""
 previous_websites=""
 swapped=0
+rmdir "$stage"
 stage=""
 
 source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
