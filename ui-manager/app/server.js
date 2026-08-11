@@ -4182,6 +4182,10 @@ async function handleAuthApi(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/health") {
+      sendJson(res, 200, { ok: true, role: installationRole.publicView().role }, { "Cache-Control": "no-store" });
+      return;
+    }
     if (req.url === "/internal/v1/billing-reminders" && req.method === "POST") {
       installationRole.requireMutable();
       if (!billingAuthorized(req)) {

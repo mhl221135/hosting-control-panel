@@ -14,6 +14,13 @@ test("rejects public paths that escape the configured root", () => {
   assert.equal(resolvePublicFile("/app/public", "/%E0%A4%A"), null);
 });
 
+test("server exposes the bounded liveness endpoint used by standby promotion", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /pathname === "\/health"/);
+  assert.match(server, /sendJson\(res, 200, \{ ok: true, role: installationRole\.publicView\(\)\.role \}/);
+  assert.match(server, /"Cache-Control": "no-store"/);
+});
+
 test("standby role is machine-local, read-only, and suppresses writable services", () => {
   const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
   const bootstrap = fs.readFileSync(path.resolve(__dirname, "../../../bootstrap.sh"), "utf8");
