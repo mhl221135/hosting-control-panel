@@ -126,6 +126,15 @@ chmod 600 "$archive.tmp.$$"
 mv "$archive.tmp.$$" "$archive"
 rm -f "$promotion_marker"
 
+if [ -f "$cutover_marker" ]; then
+  cutover_archive="$machine_state/tunnel-cutover.last-drill.json"
+  jq --arg archived_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '. + {drill_archived_at:$archived_at}' "$cutover_marker" > "$cutover_archive.tmp.$$"
+  chmod 600 "$cutover_archive.tmp.$$"
+  mv "$cutover_archive.tmp.$$" "$cutover_archive"
+  rm -f "$cutover_marker"
+fi
+
 if [ "$(env_value HOSTING_TUNNEL_ENABLED)" = true ]; then
   compose up -d hosting-agent hosting-ui hosting-cloudflared
 else

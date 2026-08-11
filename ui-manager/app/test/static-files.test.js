@@ -278,6 +278,8 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.match(script, /role:"standby"/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /promotion-state\.last-drill\.json/);
+  assert.match(script, /tunnel-cutover\.last-drill\.json/);
+  assert.match(script, /rm -f "\$cutover_marker"/);
   assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
   assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
 });

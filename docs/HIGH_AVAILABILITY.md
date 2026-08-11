@@ -387,6 +387,10 @@ sudo -E ./scripts/tunnel-cutover.sh --rollback \
   --confirm ROLLBACK-TUNNEL-INGRESS
 ```
 
+After a read-only drill, `revert-standby-drill.sh` archives the rolled-back
+cutover receipt as `tunnel-cutover.last-drill.json` and removes the active
+receipt so a later reviewed failover is not blocked by stale drill state.
+
 This command does not fence the former primary. Fencing remains a separate
 mandatory action before local promotion. After public writes reach the promoted
 server, failback requires rebuilding the former primary from the new
