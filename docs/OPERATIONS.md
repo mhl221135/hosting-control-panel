@@ -195,6 +195,13 @@ Source rollback and data rollback are different operations.
 
 ## Host Failover
 
+Use `scripts/activate-standby.sh` to preview and apply the normal tunnel-based
+outage workflow as one guarded operator action. It still requires the exact
+prepared recovery ID, an allowlisted hostname file, a mode-`0600` Cloudflare
+management-token file, and explicit confirmation that the old primary was
+externally fenced. See `docs/HIGH_AVAILABILITY.md` for the complete command and
+rollback boundaries.
+
 **WARNING: Do not run standby mutation commands like `docker compose restart`, `docker compose up`, or database migrations on a standby machine.** Standby machines must remain in a strict fail-closed state where services are only activated through the controlled promotion process.
 
 At standby panel startup, queued jobs outside the deep-verification allowlist

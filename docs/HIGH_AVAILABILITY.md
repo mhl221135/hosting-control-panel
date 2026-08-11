@@ -314,6 +314,29 @@ display fields from this marker. After local promotion the panel keeps a
 persistent warning visible while `public_ingress_cutover` is false, so a
 locally writable server is not mistaken for an already active public origin.
 
+For an operator-reviewed outage, preview local promotion and the exact
+Cloudflare hostname changes together, then activate them with one guarded
+command:
+
+```bash
+sudo ./scripts/activate-standby.sh --preview \
+  --hosts-file /etc/hosting-control/failover-hosts.txt \
+  --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token
+
+sudo ./scripts/activate-standby.sh --apply \
+  --hosts-file /etc/hosting-control/failover-hosts.txt \
+  --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
+  --recovery-id 2026-01-01T00-00-00Z \
+  --confirm ACTIVATE-STANDBY \
+  --fence-confirm OLD-PRIMARY-FENCED
+```
+
+The token file must be a root-owned, non-symlink regular file with mode
+`0600`. The wrapper delegates to the same verified promotion and transactional
+tunnel-cutover implementations. It does not infer fencing. If the Cloudflare
+step fails, its transaction attempts to restore DNS and tunnel configuration;
+the locally promoted server stays isolated for operator inspection.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 

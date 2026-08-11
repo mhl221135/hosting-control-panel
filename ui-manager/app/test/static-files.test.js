@@ -284,6 +284,20 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
 });
 
+test("standby activation composes promotion and allowlisted tunnel cutover", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/activate-standby.sh"), "utf8");
+  assert.match(script, /--confirm ACTIVATE-STANDBY/);
+  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /promote-standby\.sh" --dry-run/);
+  assert.match(script, /tunnel-cutover\.sh" --preview/);
+  assert.match(script, /promote-standby\.sh" --apply/);
+  assert.match(script, /tunnel-cutover\.sh" --apply/);
+  assert.match(script, /token_mode" = 600/);
+  assert.match(script, /token_owner" = 0/);
+  assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
+  assert.doesNotMatch(script, /OLD-PRIMARY-FENCED.*=.*true/);
+});
+
 test("deep backup verification has a standby-only operator CLI", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../cli/deep-verify.js"), "utf8");
   assert.match(source, /marker\?\.version === 1 && marker\?\.role === "standby"/);

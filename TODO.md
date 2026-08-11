@@ -494,8 +494,10 @@ already reported in the panel.
 A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
 hostname file, read-only preview, promoted-primary gating, exact machine-local
 DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
-attempts. A guarded no-write drill reversion command is also implemented. Panel
-controls, route qualification, automatic public verification,
+attempts. A guarded operator wrapper now previews and runs local promotion plus
+the allowlisted tunnel cutover without weakening the external-fencing gate. A
+guarded no-write drill reversion command is also implemented. Panel controls,
+route qualification, automatic public verification,
 pairing, and automatic failover remain future work.
 
 ### Roles And Pairing
