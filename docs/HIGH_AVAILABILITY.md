@@ -27,8 +27,10 @@ bandwidth, and completed recovery drills.
 
 ## Required Topology
 
-Use two independent hosts with compatible CPU architecture, Docker Engine,
-Compose, time synchronization, and enough storage for the full installation.
+Use two independent hosts with Docker Engine, Compose, time synchronization,
+and enough storage for the full installation. AMD64 and ARM64 hosts may be
+paired because the stack pins multi-architecture images; do not introduce
+architecture-specific image prefixes in the promotion path.
 Prefer separate power and storage failure domains. A standby on the same disk,
 power supply, or filesystem is a backup copy, not host-level resilience.
 
