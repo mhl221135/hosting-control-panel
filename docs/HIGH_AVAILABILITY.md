@@ -385,6 +385,23 @@ mandatory action before local promotion. After public writes reach the promoted
 server, failback requires rebuilding the former primary from the new
 authoritative state rather than using DNS rollback as a data merge.
 
+For a read-only drill only, after tunnel rollback and after confirming that no
+public writes reached the promoted standby, return it to the fenced standby role:
+
+```bash
+sudo ./scripts/revert-standby-drill.sh --dry-run
+sudo ./scripts/revert-standby-drill.sh --apply \
+  --recovery-id 2026-01-01T00-00-00Z \
+  --confirm REVERT-STANDBY-DRILL \
+  --writes-confirm NO-PUBLIC-WRITES
+```
+
+The command refuses active ingress, stops every writable/public hosting service,
+atomically restores the machine-local standby role, archives bounded drill
+evidence, and re-enables backup reception. Never use it after application or
+database writes; that situation requires rebuilding the former primary from the
+new authoritative primary.
+
 ### Cloudflare DNS
 
 For proxied Cloudflare records, change the origin A/AAAA records to the promoted

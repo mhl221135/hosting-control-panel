@@ -67,6 +67,23 @@ fi
 image="$(docker inspect hosting-ui --format '{{.Config.Image}}' 2>/dev/null || true)"
 [ -n "$image" ] || { printf 'The hosting-ui image could not be identified.\n' >&2; exit 1; }
 
+identity="$(docker run --rm \
+  --user 65532:65532 \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  -v "$tunnel_token_file:/run/secrets/hosting-tunnel-token:ro" \
+  "$image" node -e '
+    const fs = require("fs");
+    const { decodeTunnelToken } = require("/app/lib/tunnel-cutover");
+    const value = decodeTunnelToken(fs.readFileSync("/run/secrets/hosting-tunnel-token", "utf8"));
+    process.stdout.write(`${value.accountId} ${value.tunnelId}`);
+  ')" || { printf 'Tunnel connector identity could not be read.\n' >&2; exit 1; }
+set -- $identity
+[ "$#" -eq 2 ] || { printf 'Tunnel connector identity is invalid.\n' >&2; exit 1; }
+account_id="$1"
+tunnel_id="$2"
+
 set -- "$mode"
 if [ -n "$hosts_file" ]; then set -- "$@" --hosts-file /run/hosting-cutover/hosts.txt; fi
 if [ -n "$confirmation" ]; then set -- "$@" --confirm "$confirmation"; fi
@@ -78,9 +95,9 @@ docker run --rm \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
   -e CLOUDFLARE_TUNNEL_API_TOKEN \
+  -e CLOUDFLARE_ACCOUNT_ID="$account_id" \
+  -e CLOUDFLARED_TUNNEL_ID="$tunnel_id" \
   -e HOSTING_MACHINE_STATE_DIR=/run/hosting-machine \
-  -e CLOUDFLARED_TUNNEL_TOKEN_FILE=/run/secrets/hosting-tunnel-token \
   -v "$machine_state:/run/hosting-machine:rw" \
-  -v "$tunnel_token_file:/run/secrets/hosting-tunnel-token:ro" \
   -v "${hosts_file:-/dev/null}:/run/hosting-cutover/hosts.txt:ro" \
   "$image" node /app/cli/tunnel-cutover.js "$@"

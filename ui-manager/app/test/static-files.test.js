@@ -263,6 +263,20 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
 });
 
+test("read-only failover drills have a guarded standby reversion", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/revert-standby-drill.sh"), "utf8");
+  assert.match(script, /--confirm REVERT-STANDBY-DRILL/);
+  assert.match(script, /--writes-confirm NO-PUBLIC-WRITES/);
+  assert.match(script, /public_ingress_cutover == false/);
+  assert.match(script, /\.status == "rolled-back"/);
+  assert.match(script, /flock -n 9/);
+  assert.match(script, /compose stop hosting-npm/);
+  assert.match(script, /role:"standby"/);
+  assert.match(script, /promotion-state\.last-drill\.json/);
+  assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
+  assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
+});
+
 test("deep backup verification has a standby-only operator CLI", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../cli/deep-verify.js"), "utf8");
   assert.match(source, /marker\?\.version === 1 && marker\?\.role === "standby"/);
@@ -306,6 +320,16 @@ test("local promotion keeps public-ingress status visible", () => {
   assert.match(source, /Public ingress has not been cut over/);
   assert.match(server, /readPromotionState/);
   assert.match(server, /promotion: readPromotionState/);
+});
+
+test("tunnel cutover isolates connector-secret decoding from management", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/tunnel-cutover.sh"), "utf8");
+  assert.match(script, /--user 65532:65532/);
+  assert.match(script, /decodeTunnelToken/);
+  assert.match(script, /-e CLOUDFLARE_ACCOUNT_ID="\$account_id"/);
+  assert.match(script, /-e CLOUDFLARED_TUNNEL_ID="\$tunnel_id"/);
+  const management = script.slice(script.lastIndexOf("docker run --rm"));
+  assert.doesNotMatch(management, /hosting-tunnel-token/);
 });
 
 test("runtime exposes a bounded runtime-configuration audit history", () => {
