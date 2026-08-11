@@ -910,6 +910,7 @@ not invoked or modified by this panel.
 - `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception anchored to a coherent app-data cutoff, with independent retention and disk reserve
 - `scripts/prepare-standby.sh`: guarded restore of received sets into a fenced, non-public standby
 - `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
+- `scripts/tunnel-cutover.sh`: preview, apply, or roll back an explicit Cloudflare Tunnel hostname/DNS cutover after local promotion
 
 Successful reception records a bounded source identity and the exact retained
 set manifests in `receiver-state.json`. The standby Health view provides a

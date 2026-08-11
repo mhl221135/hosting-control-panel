@@ -338,6 +338,49 @@ dump and website archives from a coordinated, documented recovery window.
 
 ## Public Traffic Switching
 
+### Guarded Tunnel Cutover CLI
+
+The first operational tunnel cutover is intentionally a host-level command,
+not an automatic failover. Create a root-owned file containing one production
+hostname per line, then export a separate least-privilege API token with
+**Cloudflare Tunnel Edit**, **Zone Read**, and **DNS Edit** for only the managed
+account and zones:
+
+```bash
+export CLOUDFLARE_TUNNEL_API_TOKEN='set-in-the-current-root-shell'
+sudo -E ./scripts/tunnel-cutover.sh --preview \
+  --hosts-file /etc/hosting-control/tunnel-cutover-hosts.txt
+```
+
+Preview reads the selected tunnel configuration and exact DNS records without
+writing. Apply is available only after `promote-standby.sh` has successfully
+changed the local machine to `primary` and written its promotion marker:
+
+```bash
+sudo -E ./scripts/tunnel-cutover.sh --apply \
+  --hosts-file /etc/hosting-control/tunnel-cutover-hosts.txt \
+  --confirm SWITCH-TUNNEL-INGRESS
+```
+
+Apply adds or replaces only the selected public-hostname tunnel rules, routes
+them directly to `http://hosting-nginx:80`, and changes only their `A`, `AAAA`,
+or `CNAME` ingress records to the proxied tunnel target. It preserves the exact
+previous tunnel configuration and DNS payloads in the root-only machine-local
+`tunnel-cutover.json` receipt. If apply fails, it attempts immediate rollback.
+The connector token and management token are never written to that receipt.
+
+A pre-traffic or drill rollback uses:
+
+```bash
+sudo -E ./scripts/tunnel-cutover.sh --rollback \
+  --confirm ROLLBACK-TUNNEL-INGRESS
+```
+
+This command does not fence the former primary. Fencing remains a separate
+mandatory action before local promotion. After public writes reach the promoted
+server, failback requires rebuilding the former primary from the new
+authoritative state rather than using DNS rollback as a data merge.
+
 ### Cloudflare DNS
 
 For proxied Cloudflare records, change the origin A/AAAA records to the promoted

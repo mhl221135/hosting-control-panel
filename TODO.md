@@ -490,6 +490,12 @@ DNS/tunnel cutover, panel-driven promotion, pairing, and optional warm-replicati
 lag reporting remain future work; backup receiver recovery-point health is
 already reported in the panel.
 
+A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
+hostname file, read-only preview, promoted-primary gating, exact machine-local
+DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
+attempts. Panel controls, route qualification, automatic public verification,
+pairing, and automatic failover remain future work.
+
 ### Roles And Pairing
 
 - Extend the implemented `standalone`, `primary`, and `standby` installation
