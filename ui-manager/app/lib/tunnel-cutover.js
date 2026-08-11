@@ -260,7 +260,7 @@ class TunnelCutover {
       state.status = "active";
       state.completedAt = this.now();
       atomicWriteJson(this.statePath, state, 0o600);
-      atomicWriteJson(this.promotionPath, { ...promotion, public_ingress_cutover: true }, 0o600);
+      atomicWriteJson(this.promotionPath, { ...promotion, public_ingress_cutover: true }, 0o644);
       return { ok: true, status: "active", hosts: plan.hosts };
     } catch (error) {
       let rollbackError = null;
@@ -290,7 +290,7 @@ class TunnelCutover {
     state.status = "rolled-back";
     state.rolledBackAt = this.now();
     atomicWriteJson(this.statePath, state, 0o600);
-    atomicWriteJson(this.promotionPath, { ...promotion, public_ingress_cutover: false }, 0o600);
+    atomicWriteJson(this.promotionPath, { ...promotion, public_ingress_cutover: false }, 0o644);
     return { ok: true, status: "rolled-back", hosts: state.hosts || [] };
   }
 }

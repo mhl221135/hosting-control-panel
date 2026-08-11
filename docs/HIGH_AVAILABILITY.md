@@ -60,6 +60,11 @@ and historical job views. Standby panel state is kept in the machine-local
 `/etc/hosting-control/ui-data` directory instead of replicated
 `app-data/ui-manager`.
 
+Role, prepared-recovery, and promotion-status files contain only bounded
+non-secret metadata and use mode `0644` because the panel runs as an
+unprivileged user and mounts them read-only. Connector tokens, management API
+tokens, and tunnel rollback state remain mode `0600`.
+
 Do not commit or casually synchronize `.env`, certificates, account state, or
 integration keys. Transfer secrets through an encrypted administrative channel.
 

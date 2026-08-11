@@ -150,6 +150,7 @@ if [ ! -e "$role_marker" ]; then
   chmod 644 "$marker_tmp"
   mv "$marker_tmp" "$role_marker"
 fi
+chmod 644 "$role_marker"
 
 mkdir -p "$hosting_root/app-data/billing" "$backups_dir/billing"
 chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"

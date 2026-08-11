@@ -262,6 +262,8 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);
   assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
   assert.match(script, /public_ingress_cutover:false/);
+  assert.match(script, /chmod 644 "\$temporary"/);
+  assert.match(script, /chmod 644 "\$promotion_tmp"/);
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
 });
 
@@ -274,6 +276,7 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.match(script, /flock -n 9/);
   assert.match(script, /compose stop hosting-npm/);
   assert.match(script, /role:"standby"/);
+  assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /promotion-state\.last-drill\.json/);
   assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
   assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);

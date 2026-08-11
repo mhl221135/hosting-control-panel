@@ -116,7 +116,7 @@ unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hos
 temporary="$machine_state/role.json.drill.$$"
 server_id="$(jq -r .server_id "$role_marker")"
 jq -n --arg server_id "$server_id" '{version:1,role:"standby",server_id:$server_id}' > "$temporary"
-chmod 600 "$temporary"
+chmod 644 "$temporary"
 mv "$temporary" "$role_marker"
 
 archive="$machine_state/promotion-state.last-drill.json"

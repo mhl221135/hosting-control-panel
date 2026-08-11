@@ -125,6 +125,7 @@ test("apply records rollback state and marks ingress active", async () => {
   assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "active");
   assert.equal(JSON.parse(fs.readFileSync(files.promotionPath)).public_ingress_cutover, true);
   assert.equal(fs.statSync(files.statePath).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(files.promotionPath).mode & 0o777, 0o644);
 });
 
 test("rollback restores the prior tunnel config and DNS record", async () => {
@@ -141,6 +142,7 @@ test("rollback restores the prior tunnel config and DNS record", async () => {
   assert.equal(api.records.get("example.com")[0].type, "A");
   assert.equal(api.records.get("example.com")[0].content, "192.0.2.10");
   assert.equal(JSON.parse(fs.readFileSync(files.promotionPath)).public_ingress_cutover, false);
+  assert.equal(fs.statSync(files.promotionPath).mode & 0o777, 0o644);
 });
 
 test("apply failure immediately restores tunnel and DNS state", async () => {

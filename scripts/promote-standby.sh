@@ -151,7 +151,7 @@ cleanup() {
     if [ "$role_changed" -eq 1 ]; then
       previous="$machine_state/role.json.rollback.$$"
       jq '.role = "standby"' "$role_marker" > "$previous"
-      chmod 600 "$previous"
+      chmod 644 "$previous"
       mv "$previous" "$role_marker"
     fi
     if [ "$runtime_started" -eq 1 ]; then
@@ -192,7 +192,7 @@ docker exec hosting-nginx nginx -t >/dev/null
 temporary="$machine_state/role.json.promote.$$"
 server_id="$(jq -r .server_id "$role_marker")"
 jq -n --arg server_id "$server_id" '{version:1,role:"primary",server_id:$server_id}' > "$temporary"
-chmod 600 "$temporary"
+chmod 644 "$temporary"
 mv "$temporary" "$role_marker"
 role_changed=1
 docker restart hosting-ui >/dev/null
@@ -215,7 +215,7 @@ jq -n --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$pre
     source_release:$source_release,receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256,previous_role:$previous_role,
     public_ingress_cutover:false}' > "$promotion_tmp"
-chmod 600 "$promotion_tmp"
+chmod 644 "$promotion_tmp"
 mv "$promotion_tmp" "$promotion_marker"
 
 role_changed=0

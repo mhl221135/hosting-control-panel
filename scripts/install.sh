@@ -151,6 +151,7 @@ else
   chmod 644 "$marker_tmp"
   mv "$marker_tmp" "$role_marker"
 fi
+chmod 644 "$role_marker"
 
 case "$backups_dir" in
   /*) ;;

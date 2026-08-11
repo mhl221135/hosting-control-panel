@@ -285,7 +285,7 @@ jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app
   '{version:1, prepared_at:$prepared_at, app_data_id:$app_data_id, site_count:$site_count,
     source_release:$source_release, receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256}' > "$temporary"
-chmod 600 "$temporary"
+chmod 644 "$temporary"
 mv "$temporary" "$machine_state/standby-recovery.json"
 
 start_control_services
