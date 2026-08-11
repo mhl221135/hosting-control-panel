@@ -306,6 +306,9 @@ test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => 
   assert.match(fallback, /listen 80 default_server;/);
   assert.match(fallback, /listen 443 default_server ssl;/);
   assert.match(fallback, /include conf\.d\/include\/letsencrypt-acme-challenge\.conf;/);
+  assert.match(fallback, /set \$forward_scheme "http";/);
+  assert.match(fallback, /set \$server "127\.0\.0\.1";/);
+  assert.match(fallback, /set \$port "80";/);
   assert.match(fallback, /location \/ \{[\s\S]+return 444;/);
   assert.match(fallback, /ssl_reject_handshake on;/);
   assert.doesNotMatch(fallback, /root \/var\/www\/html|index index\.html/);
