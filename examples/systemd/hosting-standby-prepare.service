@@ -1,0 +1,23 @@
+[Unit]
+Description=Refresh the fenced hosting standby from the verified recovery point
+After=docker.service hosting-backup-deep-verify.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+WorkingDirectory=/media/ssdmount/websites-v2/sources
+ExecStart=/media/ssdmount/websites-v2/sources/scripts/prepare-standby.sh --apply --confirm PREPARE-STANDBY
+TimeoutStartSec=12h
+KillMode=mixed
+UMask=0077
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RuntimeDirectory=hosting-backup-receiver
+RuntimeDirectoryMode=0700
+ReadWritePaths=/media/ssdmount/websites-v2 /etc/hosting-control /run/hosting-backup-receiver

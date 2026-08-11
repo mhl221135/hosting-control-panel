@@ -469,12 +469,13 @@ account gates remain unresolved and therefore stay in this backlog.
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Machine-local installation roles, standby API
 write rejection, mutating-scheduler suppression, and a clearly labeled
-read-only panel mode are implemented. Checksum-verified backup reception and a
-guarded backup-based standby preparation command are also implemented.
-Pairing, live replication, lag reporting, and public-ingress cutover remain
-future work. A guarded host-level local promotion command is implemented; it
-requires explicit old-primary fencing confirmation and intentionally does not
-alter public ingress.
+read-only panel mode are implemented. Checksum-verified backup reception,
+guarded backup-based standby preparation, and a systemd success-chain that
+refreshes the fenced prepared standby after deep verification are implemented.
+Pairing, live replication, lag reporting, and panel-driven ingress cutover
+remain future work. A guarded host-level local promotion command is implemented;
+it requires explicit old-primary fencing confirmation and intentionally does
+not alter public ingress.
 
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a

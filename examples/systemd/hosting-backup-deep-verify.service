@@ -2,6 +2,7 @@
 Description=Deep-verify the latest received hosting backup inventory
 After=docker.service hosting-backup-receiver.service
 Requires=docker.service
+OnSuccess=hosting-standby-prepare.service
 
 [Service]
 Type=oneshot

@@ -148,12 +148,15 @@ docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
 ```
 
 The example receiver unit uses systemd `OnSuccess` to start the separate
-`hosting-backup-deep-verify.service`. The follow-up runs at lower CPU and I/O
+`hosting-backup-deep-verify.service`. A successful deep verification then starts
+`hosting-standby-prepare.service`, which refreshes the fenced standby from that
+exact receipt-bound recovery point. Both follow-ups run at lower CPU and I/O
 priority and only after reception has atomically published a successful receipt.
 A deep-verification failure does not invalidate or delete that receiver receipt;
-it leaves promotion blocked until verification succeeds. The follow-up holds the
-same host lock as reception, preparation, and promotion, so those operations
-cannot alter or consume a recovery point concurrently.
+it leaves preparation and promotion blocked until verification succeeds. The
+follow-ups use the same host lock as reception and promotion, so those operations
+cannot alter or consume a recovery point concurrently. Preparation does not
+change the machine role, start public services, or cut over ingress.
 The standalone verifier also maintains a bounded mode-`0600`
 `deep-verify-progress.json`; the Replication view uses it for running, failed,
 and completed set counts without reading system logs.
@@ -202,8 +205,9 @@ is authoritative.
 The hp-server deployment uses the reviewed units in `examples/systemd/`.
 `hosting-backup-receiver.timer` runs daily at 05:00 UTC with a bounded random
 delay, leaving a multi-hour completion window after the primary backup starts;
-`flock` prevents overlap. The service is low-priority, has a
-read-only system view, and can write only the received-backup destination and
+successful reception is followed by deep verification and fenced preparation.
+`flock` prevents overlap. The services are low-priority, and the receiver has a
+read-only system view and can write only the received-backup destination and
 its runtime lock. Adjust source addresses and paths before using these example
 units on another installation.
 

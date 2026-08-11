@@ -275,15 +275,24 @@ test("deep backup verification has a standby-only operator CLI", () => {
   assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
 });
 
-test("successful standby reception schedules isolated deep verification", () => {
+test("successful standby reception schedules verification and fenced preparation", () => {
   const receiver = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-receiver.service"), "utf8");
   const verifier = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-deep-verify.service"), "utf8");
+  const prepare = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-standby-prepare.service"), "utf8");
   const timer = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-receiver.timer"), "utf8");
   assert.match(receiver, /^OnSuccess=hosting-backup-deep-verify\.service$/m);
+  assert.match(verifier, /^OnSuccess=hosting-standby-prepare\.service$/m);
   assert.match(verifier, /^Type=oneshot$/m);
   assert.match(verifier, /^Nice=15$/m);
   assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
   assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
+  assert.match(prepare, /^Type=oneshot$/m);
+  assert.match(prepare, /^ExecStart=.*prepare-standby\.sh --apply --confirm PREPARE-STANDBY$/m);
+  assert.match(prepare, /^TimeoutStartSec=12h$/m);
+  assert.match(prepare, /^UMask=0077$/m);
+  assert.match(prepare, /^ProtectSystem=strict$/m);
+  assert.match(prepare, /^ReadWritePaths=\/media\/ssdmount\/websites-v2 \/etc\/hosting-control \/run\/hosting-backup-receiver$/m);
+  assert.doesNotMatch(prepare, /Environment|token|password|secret/i);
   assert.match(timer, /^OnCalendar=\*-\*-\* 05:00:00 UTC$/m);
   assert.match(timer, /^RandomizedDelaySec=10m$/m);
 });
