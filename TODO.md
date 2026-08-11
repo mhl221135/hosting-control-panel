@@ -10,6 +10,39 @@ backlog only when their acceptance criteria are satisfied.
 2. Qualify live billing payments, then carefully pilot local enforcement.
 3. Build the isolated mail platform last, after hosting replication is proven.
 
+## WordPress Site Cache Control Plugin
+
+Add a small panel-managed must-use WordPress plugin to every current WordPress
+website and install it automatically during fresh provisioning and WordPress
+imports. Its Tools page should provide separate **FastCGI**, **OPcache**,
+**Redis**, and **Cloudflare** purge actions plus **Purge all**.
+
+- Authenticate panel calls with a rotatable, site-scoped credential. A token
+  copied from one website must never authorize another website or any general
+  panel API. Never place panel, Docker, Redis, or Cloudflare credentials in
+  WordPress.
+- Restrict the panel endpoint to the configured canonical primary website,
+  reject aliases and non-WordPress roots, rate-limit failures and successful
+  requests, and retain a bounded redacted audit history.
+- Purge FastCGI by advancing only that site's cache generation. Flush only the
+  site's Redis namespace (`WP_REDIS_PREFIX` is already domain-scoped). Purge
+  the matching Cloudflare zone through the panel's existing integration.
+- Never use global `opcache_reset()` from a website. Invalidate only cached PHP
+  files beneath the current site's real `ABSPATH`, with bounded traversal and
+  a clear count of invalidated and failed files.
+- Return a per-layer result so one unavailable integration does not disguise
+  successful local purges. Require a WordPress administrator capability and a
+  nonce for every button; do not expose an unauthenticated WordPress REST or
+  AJAX action.
+- Provide an idempotent bulk install/update command for existing sites, a
+  deterministic packaged plugin version, safe rollback/removal instructions,
+  tests for cross-site token rejection and path confinement, and mobile-safe
+  WordPress admin controls.
+
+This is independent of the remote billing-enforcement plugin. Do not grant the
+billing plugin cache or hosting-control authority merely because both are
+installed on one website.
+
 ## 1. Separate Billing And Entitlement Service
 
 Phase 1 is implemented as the isolated `hosting-billing` service. Its
@@ -436,8 +469,34 @@ account gates remain unresolved and therefore stay in this backlog.
 The manual architecture and failover runbook are documented in
 `docs/HIGH_AVAILABILITY.md`. Machine-local installation roles, standby API
 write rejection, mutating-scheduler suppression, and a clearly labeled
-read-only panel mode are implemented. Pairing, received-backup replication,
-lag reporting, and controlled promotion remain future work.
+read-only panel mode are implemented. Checksum-verified backup reception,
+guarded backup-based standby preparation, and a systemd success-chain that
+refreshes the fenced prepared standby after deep verification are implemented.
+Pairing, live replication, lag reporting, and panel-driven ingress cutover
+remain future work. A guarded host-level local promotion command is implemented;
+it requires explicit old-primary fencing confirmation and intentionally does
+not alter public ingress.
+
+A machine-local authoritative role marker, ingress-only metadata store,
+`PUT /api/system/role` and `GET /api/system/role` endpoints, and a
+non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
++ card in Health with pass/warning/fail checks) are implemented. The preflight
+verifies role, current receiver receipt, app-data and per-site manifests,
+artifact presence/size, freshness, filesystem space, configuration, Docker,
+and ingress. A durable allowlisted deep-verification job streams checksums,
+checks archive integrity and safe entry types, and binds its result to the exact
+receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
+covered by tests. Fenced local promotion is implemented as a host-level command.
+DNS/tunnel cutover, panel-driven promotion, pairing, and optional warm-replication
+lag reporting remain future work; backup receiver recovery-point health is
+already reported in the panel.
+
+A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
+hostname file, read-only preview, promoted-primary gating, exact machine-local
+DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
+attempts. A guarded no-write drill reversion command is also implemented. Panel
+controls, route qualification, automatic public verification,
+pairing, and automatic failover remain future work.
 
 ### Roles And Pairing
 
@@ -445,8 +504,9 @@ lag reporting, and controlled promotion remain future work.
   roles into pairing and promotion workflows.
 - Pair servers through a narrow authenticated API using independently rotatable
   credentials or mutual TLS.
-- Show replication health, last successful sync, MySQL lag, recovery point,
-  peer identity, and role in the panel.
+- Extend the implemented backup-receiver status (source identity, last receive,
+  recovery age, set/group counts, and deep-verification freshness) with pairing
+  health and MySQL/filesystem replication lag once warm replication exists.
 - A standby must suppress provisioning, scheduled maintenance, backups,
   certificate issuance, DNS writes, and all other mutating control-plane work.
 - Store the effective role and unique server identity in a local durable marker
@@ -458,6 +518,15 @@ lag reporting, and controlled promotion remain future work.
 
 ### Role-Aware Panel And API
 
+- Add a **Server role** control in Settings on both machines. It must show the
+  durable machine-local role (`standalone`, `primary`, or `standby`) and expose
+  only valid transitions. Changing role must use preview, readiness checks,
+  explicit typed confirmation, an audit event, and rollback; it must never be
+  implemented as an unrestricted settings dropdown.
+- Add **Promote standby** and **Demote/rebuild as standby** workflows. Promotion
+  must verify a completed recovery point, fence the previous primary, disable
+  incoming replication, apply the standby resource profile, start and validate
+  the writable stack, and only then allow public-ingress cutover.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.
@@ -472,16 +541,14 @@ lag reporting, and controlled promotion remain future work.
 - Keep read-only website inventory, replication status, received-backup
   verification, database lag, filesystem recovery point, source commit,
   configuration compatibility, disk capacity, and promotion readiness visible.
-- Clearly label the standby header and browser title so an operator cannot
-  mistake it for the active primary.
-- Do not enqueue disabled jobs and do not retain primary jobs as runnable work.
-  Show replicated/interrupted jobs as historical evidence only.
+- Keep the implemented standby startup suppression for queued non-verification
+  jobs; future pairing must import remote job evidence as non-runnable history.
 
 ### Independent Retention And Resource Profiles
 
-- Configure backup retention per destination. Initial requested policy is seven
-  completed sets on the primary and three received, checksum-verified sets on
-  the replica.
+- Configure backup retention per destination. Current requested policy is seven
+  completed sets on the primary and two daily received, checksum-verified sets
+  on the replica at `/ssdmount/websites-v2/backups`.
 - Do not mirror backup deletions. The replica receives only completed sets into
   staging, verifies manifests/checksums/archive integrity, atomically promotes
   them, and applies its own retention after a newer usable set exists.
@@ -498,6 +565,12 @@ lag reporting, and controlled promotion remain future work.
 
 ### Replication
 
+- Keep the implemented daily receiver recovery age clearly labeled as backup
+  reception; never describe it as real-time or continuous synchronization.
+- Add optional low-load warm replication: snapshot/staged one-way website-file
+  synchronization at a configurable interval and MySQL GTID replication with
+  measured lag. Keep the daily verified backup sets as an independent recovery
+  layer rather than replacing them with live replication.
 - Use unique MySQL server IDs, GTID replication, encrypted credentials,
   retention sized for outages, and monitored replica lag.
 - Replicate website files and required non-database application data one way
@@ -524,8 +597,27 @@ lag reporting, and controlled promotion remain future work.
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two
   independently writable histories.
+- Once a standby is promoted and accepts writes, mark it as the sole
+  authoritative primary. A recovered former primary must remain fenced and
+  must not resume its old replication, schedulers, DNS authority, or writable
+  services.
+- Add a guarded **Rebuild former primary as standby** workflow that transfers
+  current website files, databases, required application state, and the tested
+  source release from the promoted primary; validates checksums, schema,
+  configuration, and health; then establishes a new one-way replication epoch.
+- Add an optional controlled **Fail back traffic** workflow only after the
+  rebuilt host is fully synchronized. It must stop new writes, wait for the
+  final database/files delta, verify a common recovery point, switch ingress,
+  and demote the previous active host. Never perform bidirectional database
+  merge or start both machines as writable primaries.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
+
+Implemented foundation: the optional pinned `hosting-cloudflared` container is
+available with no host ports or Docker socket, a read-only filesystem, dropped
+capabilities, bounded CPU/RAM, a non-replicated file credential, and internal
+`hosting-net` service routing. The remaining work below is control-plane
+automation, health/status UX, website-route ownership, cutover, and rollback.
 
 - Support an explicit public-ingress mode per server:
   - `direct_npm`: Cloudflare/DNS origin records target the public WAN address
@@ -536,10 +628,10 @@ lag reporting, and controlled promotion remain future work.
 - Allow a primary or promoted replica behind CGNAT/gray IP to use tunnel mode
   without exposing inbound 80/443. The host still requires reliable outbound
   HTTPS/QUIC connectivity to Cloudflare.
-- Run a dedicated pinned multi-architecture `hosting-cloudflared` container
-  with no host ports, no Docker socket, dropped capabilities, read-only root
-  filesystem, bounded resources, health reporting, and a separately stored
-  tunnel credential. Never commit the tunnel token or generated credentials.
+- The dedicated tunnel container now has a bounded local readiness healthcheck,
+  and standby preflight requires the connector to be healthy. Keep the token
+  private and add account-level connector/route reconciliation to the future
+  Ingress settings workflow without exposing credential material.
 - Treat NPM and Tunnel as alternative website ingress transports, not a proxy
   chain. Tunnel website routes should forward to `hosting-nginx:80`; they must
   not loop through public NPM. NPM may remain available internally for
@@ -548,6 +640,15 @@ lag reporting, and controlled promotion remain future work.
   connector health, connected replicas, routed hostnames, DNS state, and the
   last successful reconciliation. Use a separate least-privilege Cloudflare
   token for tunnel and DNS management.
+- Add an authenticated **Public ingress mode** selector on both primary and
+  standby panels with `direct_npm` and `cloudflare_tunnel` choices. Saving the
+  preference alone must not alter live DNS; provide separate **Preview
+  cutover**, **Apply cutover**, and **Rollback cutover** actions with typed
+  confirmation and bounded audit history.
+- On a standby, allow ingress configuration and qualification while keeping
+  production website routes inactive. Activate selected routes only as the
+  final stage of a successful promotion, after the old primary is fenced and
+  the restored websites/databases pass local health checks.
 - Add per-site eligibility and selection. Tunnel automation is available only
   for zones controlled by the configured Cloudflare account. External DNS
   providers and unsupported zones require a documented manual adapter and must
@@ -673,94 +774,6 @@ MySQL container. This is useful continuous evidence, but it does not satisfy
 the replacement-host requirement above; the full coordinated restore,
 application checks, NPM/certificate validation, operator login, RPO/RTO, and
 DNS rollback drill remain outstanding.
-
-## 4. PHP-FPM Pool Preset Editor
-
-The Runtime workspace now edits the `low`, `medium`, and `high` profile process
-manager, worker counts, idle timeout, and request recycling limits with bounded
-server validation. Request termination timeout is also configurable from 1 to
-3600 seconds. Runtime shows active worker slots and a conservative worst-case
-PHP memory ceiling against host RAM. Saving definitions affects future
-assignments only.
-
-The editor can preview which currently matching pools would change and reports
-custom/drifted pools as preserved. Preview validation performs no writes.
-Manual PHP-FPM reloads now connect to every configured pool port before the
-panel reports success.
-
-The Runtime and provisioning/host/pool APIs now use shared pure validators in
-`lib/runtime-validation.js` (guarded JSON body parsing that rejects
-prototype-pollution keys, oversized/unknown structures, malformed hosts,
-unsafe document roots, non-integer/out-of-range ports, and invalid tiers or
-settings) alongside the existing model validation. Runtime mutations are also
-recorded to a separate bounded runtime-configuration audit
-(`app-data/ui-manager/runtime-config-audit.json`, `GET /api/runtime-config/audit`,
-Runtime history section) that stores counts, scope identifiers, status,
-verification and rollback outcome, and redacted errors — never domains, secrets,
-
-
-or full configuration contents. The PHP-FPM preset audit remains the dedicated
-stream for profile save/preview/apply.
-
-Non-runtime configuration mutations (performance, backup and off-site backup,
-notification, health, billing provisioning/observer/enforcement, Cloudflare
-automation, server IP, and DNS-preset settings) are now routed through the same
-guarded body parsing and shared validators, with reject-unknown-fields,
-control-character/injection rejection, bounded numerics/enums/URLs/hostnames/
-ports/schedules, and secret preservation. Settings persistence is atomic and
-fail-closed. See `docs/API.md` for the full endpoint inventory.
-
-Site-state switches, cache purge, image-optimization schedules, maintenance
-settings, and WordPress update pins are also validated through the shared
-guarded parser (explicit schemas, prototype-pollution and control-character
-rejection, capability restrictions for WordPress/generic-PHP/static, and
-www-alias rejection). Site-state mutations (and cache purge) run through a
-single-lock site-state transaction coordinator
-(`lib/site-state-transaction.js`) that snapshots site-state.json, cache.map,
-sites.map, and pools.conf, writes them atomically, validates and reloads the
-affected services, verifies pool ports, and restores every file with a distinct
-rollback outcome on failure. Image/maintenance settings and update pins persist
-atomically; update pins remain fail-closed on corrupted state.
-
-Every runtime map/pool mutation now runs through a shared, cross-process serialized, verified
-transaction in `lib/runtime-transaction.js` (`RuntimeConfigTransaction`). It
-uses the shared `app-data/ui-manager/runtime-config.lock` directory, captures
-`sites.map`/`pools.conf` before mutating, rejects stale previewed
-state and invalid models (out-of-range/duplicate/invalid ports, upstream/pool
-mismatches, missing pools, duplicate sections), writes both files atomically
-(temp-file + rename with timestamped backups), validates nginx + PHP-FPM,
-reloads PHP-FPM and nginx, and verifies every configured pool port with bounded
-retries before reporting success. On any failure it restores and re-validates/
-reloads/verifies the prior files and reports a distinct rollback outcome
-(`not-required`/`succeeded`/`failed`). Pool creation and reclassification use a
-gap-aware `allocatePort` that handles gaps, malformed existing ports, upper
-bound-exhaustion, and concurrent allocation under the transaction lock. This
-covers `POST /api/pools/upsert`, `POST /api/pools/bulk-upsert`,
-`POST /api/hosts/upsert` and `/api/sites/upsert` when they create a pool, fresh
-WordPress/Generic-PHP/OpenCart provisioning, MigrationManager portable and
-provisioning imports, opcache changes, site removal, and static-route
-reclassification/recovery. Preset apply keeps its own existing port
-verification and is serialized under the same lock.
-
-The Runtime workspace now offers CPU-aware capacity planning and per-profile
-worker-memory estimates. Each profile stores a validated estimated memory per
-worker (`estimated_memory_mb`, 32-4096 MB, defaults 96/128/192 MB) that is
-planning metadata only and is never rendered into PHP-FPM pool configuration.
-A testable capacity model in `lib/php-fpm-capacity.js` computes total worker
-slots, slots per CPU, estimated worker memory (profile estimate ×
-`pm.max_children`, with a conservative 256 MB fallback for custom/drifted
-pools), the separate absolute PHP memory-limit ceiling, host RAM, and healthy/
-warning/critical statuses. Changing only a memory estimate never makes pools
-drift, triggers a reload, or appears in the apply preview.
-
-The Runtime workspace now records bounded, atomic, sanitized audit history for
-profile saves, previews, and applies (including failed applies after execution
-begins and their rollback outcome) in `app-data/ui-manager/php-fpm-audit.json`.
-A read-only authenticated API (`GET /api/pool-presets/audit`) and a Runtime
-audit-history section with expandable safe details and a refresh button are
-implemented. Audit failures never hide the original apply error, and entries
-never store passwords, tokens, environment values, website contents, full
-configuration files, customer data, or request headers.
 
 ## Cross-Cutting Delivery Rules
 

@@ -334,18 +334,38 @@ function showApp(session) {
 
 function applyInstallationRole(installation) {
   const role = installation.role || "standalone";
+  document.title = role === "standby"
+    ? `STANDBY · ${installation.serverId || "hosting-server"} · Hosting Control`
+    : "Hosting Control";
   document.body.dataset.installationRole = role;
   const badge = $("#installationRole");
   badge.textContent = `${role.toUpperCase()} · ${installation.serverId || "hosting-server"}`;
   badge.classList.toggle("hidden", role === "standalone");
   const standby = role === "standby";
-  const allowed = new Set(["sites", "stats", "health", "jobs", "account"]);
+  const allowed = new Set(["sites", "stats", "replication", "health", "jobs", "settings", "account"]);
   $$('[data-tab-link]').forEach((element) => {
     if (element.classList.contains("brand")) return;
-    element.hidden = standby && !allowed.has(element.dataset.tabLink);
+    element.hidden = (!standby && element.hasAttribute("data-standby-only"))
+      || (standby && !allowed.has(element.dataset.tabLink));
   });
-  $$("#mobileNavigation option").forEach((option) => { option.hidden = standby && !allowed.has(option.value); });
-  if (standby && !allowed.has(state.activeTab)) switchTab("sites");
+  $$("#mobileNavigation option").forEach((option) => {
+    option.hidden = (!standby && option.hasAttribute("data-standby-only"))
+      || (standby && !allowed.has(option.value));
+  });
+  if (standby && (state.activeTab === "sites" || !allowed.has(state.activeTab))) switchTab("replication");
+  const identity = $("#preflightServerIdentity");
+  if (identity) identity.textContent = `${installation.serverId || "hosting-server"} · ${role}`;
+  const ingress = String(installation.ingressMode || "");
+  const input = $(`#standbyIngressForm input[value="${ingress}"]`);
+  if (input) input.checked = true;
+  const promotionNotice = $("#promotionNotice");
+  const pendingIngress = role === "primary"
+    && installation.promotion?.status === "local-primary"
+    && installation.promotion?.publicIngressCutover === false;
+  promotionNotice.classList.toggle("hidden", !pendingIngress);
+  promotionNotice.textContent = pendingIngress
+    ? `Local promotion completed from recovery ${installation.promotion.recoveryId}. Public ingress has not been cut over.`
+    : "";
 }
 
 function switchTab(name) {
@@ -353,12 +373,13 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", replication: "Replication", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
     .catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
+  if (name === "replication") loadPreflight().catch((error) => notice(error.message, "warning"));
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
@@ -544,6 +565,55 @@ async function loadHealth() {
   const data = await api("/api/health");
   state.health = data.health;
   renderHealth();
+  // Preflight is only meaningful in standby mode.
+  const role = state.status?.installation?.role;
+  if (role === "standby") loadPreflight().catch((error) => notice(error.message, "warning"));
+}
+
+async function loadPreflight() {
+  const data = await api("/api/system/promotion-preflight");
+  renderPreflight(data);
+}
+
+function renderPreflight(data) {
+  const card = $("#promotionPreflightCard");
+  card.classList.toggle("hidden", false);
+  $("#preflightReady").textContent = data.ready ? "Yes" : "No";
+  $("#preflightReady").style.color = data.ready ? "var(--success)" : "var(--danger)";
+  const s = data.summary;
+  $("#preflightPass").textContent = s.pass;
+  $("#preflightWarn").textContent = s.warning;
+  $("#preflightFail").textContent = s.fail;
+  const replication = data.replication || {};
+  const receiverProgress = replication.receiverTotalSets
+    ? `${replication.receiverStatus || "unknown"} ${replication.receiverCompletedSets || 0}/${replication.receiverTotalSets}`
+    : (replication.receiverStatus || "unknown");
+  const receivedBytes = (replication.receiverCompletedBytes || 0) + (replication.receiverCurrentSetReceivedBytes || 0);
+  const receiverPercent = replication.receiverTotalBytes
+    ? Math.min(100, Math.max(0, (receivedBytes / replication.receiverTotalBytes) * 100)).toFixed(1)
+    : "";
+  const receiverBytes = replication.receiverTotalBytes
+    ? ` · ${receiverPercent}% · ${formatBytes(receivedBytes)}/${formatBytes(replication.receiverTotalBytes)}`
+    : "";
+  $("#preflightReceiverState").textContent = replication.receiverCurrentGroup
+    ? `${receiverProgress}${receiverBytes} · ${replication.receiverCurrentGroup}`
+    : `${receiverProgress}${receiverBytes}`;
+  $("#preflightLastReceive").textContent = replication.lastReceivedAt ? new Date(replication.lastReceivedAt).toLocaleString() : "Unavailable";
+  $("#preflightRecoveryAge").textContent = Number.isFinite(replication.estimatedDataLossHours) ? `${replication.estimatedDataLossHours}h` : "Unavailable";
+  $("#preflightVerifiedSets").textContent = replication.verifiedSetCount || 0;
+  $("#preflightWebsiteGroups").textContent = replication.websiteGroupCount || 0;
+  const deepProgress = replication.deepVerifyTotalSets
+    ? ` ${replication.deepVerifyCompletedSets || 0}/${replication.deepVerifyTotalSets}`
+    : "";
+  $("#preflightDeepState").textContent = `${replication.deepVerification || "missing"}${deepProgress}`;
+  const checks = $("#preflightChecks");
+  checks.className = data.checks.length ? "rows" : "rows empty";
+  checks.innerHTML = data.checks.length ? data.checks.map((c) => `
+    <div class="preflight-row ${c.status}">
+      <span class="badge ${c.status === "fail" ? "danger" : c.status === "warning" ? "" : "on"}">${escapeHtml(c.status)}</span>
+      <span>${escapeHtml(c.reason)}</span>
+    </div>
+  `).join("") : "No preflight checks have run. Refresh to begin.";
 }
 
 async function loadSiteStats(domain, force = false) {
@@ -901,6 +971,7 @@ function jobTypeLabel(type) {
     "sites.import": "Website import",
     "sites.import-cleanup": "Import staging cleanup",
     "sites.import-upload-stage": "Portable bundle staging",
+    "standby.deep-verify": "Deep standby verification",
   }[type] || type;
 }
 
@@ -1674,6 +1745,7 @@ async function loadData() {
     api("/api/cloudflare/automation"),
   ]);
   state.status = status;
+  applyInstallationRole(status.installation || { role: "standalone", serverId: "hosting-server", mutable: true });
   state.sites = siteData.sites || [];
   state.pools = poolData.pools || [];
   state.tiers = presetData.tiers || {};
@@ -1920,6 +1992,7 @@ async function loadIntegrationSettings() {
       loadDnsPresets(),
       loadCloudflareIps(),
     ]);
+
     const form = $("#integrationSettingsForm");
     form.elements.npmApiUrl.value = settings.npmApiUrl || "";
     form.elements.npmIdentity.value = settings.npmIdentity || "";
@@ -2678,7 +2751,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
   if (importing && wordpress && !databaseDump) return notice("Select the WordPress database dump.", "warning");
   if (importing && openCart && !databaseDump) return notice("Select the OpenCart database dump.", "warning");
   if (genericPhp && databaseDump && !body.create_database) return notice("Enable MySQL database creation before selecting a database dump.", "warning");
-  body.import_database_dump = Boolean(importing && (genericPhp || openCart) && databaseDump);
+  body.import_database_archive = Boolean(importing && (genericPhp || openCart) && databaseDump);
   const resultPanel = $("#provisionResult");
   const importProgress = $("#provisionImportProgress");
   const submitButton = event.submitter || $("#provisionSubmit");
@@ -2691,7 +2764,7 @@ $("#provisionForm").addEventListener("submit", async (event) => {
         await uploadProvisionImport(websiteArchive, body.import_upload_id, "website", (loaded, total) => {
           importProgress.textContent = uploadProgress("Uploading website archive", loaded, total);
         });
-        if (wordpress || body.import_database_dump) {
+        if (wordpress || body.import_database_archive) {
           await uploadProvisionImport(databaseDump, body.import_upload_id, "database", (loaded, total) => {
             importProgress.textContent = uploadProgress("Website archive uploaded. Uploading database", loaded, total);
           });
@@ -3492,6 +3565,33 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
         await loadData();
       } catch (error) { notice(error.message, "warning"); }
     });
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#refreshPreflight").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Checking...", () => loadPreflight());
+});
+
+$("#runDeepVerify").addEventListener("click", async (event) => {
+  try {
+    const data = await withButton(event.currentTarget, "Queueing...", () => api("/api/system/deep-verify", { method: "POST" }));
+    rememberJob(data.job, "Deep verification queued");
+    switchTab("jobs");
+  } catch (error) { notice(error.message, "warning"); }
+});
+
+$("#standbyIngressForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const selected = event.currentTarget.elements.ingress_mode.value;
+  if (!selected) return notice("Select an ingress mode.", "warning");
+  try {
+    const data = await withButton(event.submitter, "Saving...", () => api("/api/system/role", {
+      method: "PUT", body: JSON.stringify({ ingress_mode: selected }),
+    }));
+    state.status.installation = data.installation;
+    applyInstallationRole(data.installation);
+    notice("Standby ingress saved.");
+    await loadPreflight();
   } catch (error) { notice(error.message, "warning"); }
 });
 

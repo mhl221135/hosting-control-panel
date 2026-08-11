@@ -27,6 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
+            <option value="replication" data-standby-only hidden>Replication</option>
             <option value="health">Health</option>
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
@@ -44,6 +45,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
+          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication" data-standby-only hidden>Replication</button>
           <button class="nav-item" data-tab-link="health" data-short="HL" title="Health">Health</button>
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
@@ -76,6 +78,7 @@
         </header>
 
         <div id="notice" class="notice hidden"></div>
+        <div id="promotionNotice" class="notice warning hidden"></div>
 
         <section class="tab-panel" data-tab-panel="sites">
           <div class="metrics">
@@ -182,6 +185,26 @@
               <div id="healthHistory" class="health-list empty">No health events recorded.</div>
             </article>
           </div>
+
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="replication">
+          <div class="section-head"><div><h2>Standby replication</h2><p>Received recovery points and non-mutating promotion readiness.</p></div></div>
+          <article id="promotionPreflightCard" class="panel">
+            <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Checks do not promote the server or change files, databases, DNS, or public ingress.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
+            <form id="standbyIngressForm" class="standby-ingress-form">
+              <div><span class="muted">Server</span><strong id="preflightServerIdentity">-</strong></div>
+              <fieldset><legend>Ingress</legend><div class="segmented-control">
+                <label><input type="radio" name="ingress_mode" value="direct_npm" /><span>Direct NPM</span></label>
+                <label><input type="radio" name="ingress_mode" value="cloudflare_tunnel" /><span>Cloudflare tunnel</span></label>
+              </div></fieldset>
+              <button type="submit" class="secondary">Save ingress</button>
+            </form>
+            <div id="preflightSummary" class="metrics standby-summary-metrics"><article><span>Ready</span><strong id="preflightReady">-</strong></article><article><span>Pass</span><strong id="preflightPass">0</strong></article><article><span>Warnings</span><strong id="preflightWarn">0</strong></article><article><span>Failures</span><strong id="preflightFail">0</strong></article></div>
+            <div class="metrics standby-replication-metrics"><article><span>Receiver</span><strong id="preflightReceiverState">-</strong></article><article><span>Last receive</span><strong id="preflightLastReceive">-</strong></article><article><span>Recovery age</span><strong id="preflightRecoveryAge">-</strong></article><article><span>Verified sets</span><strong id="preflightVerifiedSets">0</strong></article><article><span>Website groups</span><strong id="preflightWebsiteGroups">0</strong></article><article><span>Deep verify</span><strong id="preflightDeepState">-</strong></article></div>
+            <div id="preflightChecks" class="rows empty">No preflight checks have run. Refresh to begin.</div>
+            <small class="muted">Promotion remains a separate fenced runbook operation.</small>
+          </article>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="jobs">
@@ -774,6 +797,7 @@
 
         <section class="tab-panel hidden" data-tab-panel="settings">
           <div class="section-head"><div><h2>Integration settings</h2><p>Credentials are encrypted in the persistent panel data volume.</p></div></div>
+
           <form id="integrationSettingsForm" class="panel form-grid">
             <div class="group-title full"><h3>Nginx Proxy Manager</h3><p>Used to create edge hosts and manage Let's Encrypt certificates.</p></div>
             <label>NPM API URL<input name="npmApiUrl" placeholder="http://hosting-npm:81/api" required /></label>

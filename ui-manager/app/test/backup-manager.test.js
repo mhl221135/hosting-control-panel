@@ -7,8 +7,11 @@ const test = require("node:test");
 const {
   BackupManager,
   MYSQL_RESTORE_SQL_MODE,
+  NPM_BACKUP_READ_SCRIPT,
   artifactManifest,
+  setBackupSetPermissions,
   verifyArtifactManifest,
+  writeHashedProcessOutput,
 } = require("../lib/backup-manager");
 
 function managerFixture() {
@@ -33,6 +36,30 @@ function managerFixture() {
 test("site restore mode accepts legacy zero-date schemas without weakening global MySQL mode", () => {
   assert.match(MYSQL_RESTORE_SQL_MODE, /STRICT_TRANS_TABLES/);
   assert.doesNotMatch(MYSQL_RESTORE_SQL_MODE, /NO_ZERO_DATE|NO_ZERO_IN_DATE/);
+});
+
+test("app-data backup uses the exact allowlisted NPM certificate-readiness command", () => {
+  const { NPM_BACKUP_READ_SCRIPT: agentScript } = require("../../../control-agent/app/policy");
+  assert.equal(NPM_BACKUP_READ_SCRIPT, agentScript);
+  assert.match(NPM_BACKUP_READ_SCRIPT, /^set -eu; find \/etc\/letsencrypt /);
+  const source = fs.readFileSync(path.join(__dirname, "../lib/backup-manager.js"), "utf8");
+  assert.match(source, /"--exclude=\.\/redis"/);
+  assert.match(source, /excluded: \["mysql", "redis", "nginx-cache"\]/);
+  assert.doesNotMatch(source, /"--ignore-failed-read"[\s\S]{0,500}"--exclude=\.\/mysql"/);
+});
+
+test("backup sets remain private while allowing the replica group to read artifacts", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-backup-mode-"));
+  try {
+    fs.writeFileSync(path.join(root, "manifest.json"), "{}", { mode: 0o600 });
+    fs.writeFileSync(path.join(root, "database.sql.gz"), "database", { mode: 0o600 });
+    setBackupSetPermissions(root);
+    assert.equal(fs.statSync(root).mode & 0o777, 0o750);
+    assert.equal(fs.statSync(path.join(root, "manifest.json")).mode & 0o777, 0o640);
+    assert.equal(fs.statSync(path.join(root, "database.sql.gz")).mode & 0o777, 0o640);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("runs optional billing registration after a successful restore", async () => {
@@ -105,6 +132,45 @@ test("version 2 backup artifacts detect truncation while version 1 remains reada
     );
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("hashes process output while writing and removes failed output", async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "hosting-stream-hash-"));
+  const output = path.join(directory, "archive.tar.gz");
+  try {
+    const artifact = await writeHashedProcessOutput(process.execPath, ["-e", "process.stdout.write('archive bytes')"], output);
+    assert.equal(artifact.size, 13);
+    assert.equal(artifact.sha256, require("node:crypto").createHash("sha256").update("archive bytes").digest("hex"));
+    assert.equal(fs.readFileSync(output, "utf8"), "archive bytes");
+    await assert.rejects(
+      writeHashedProcessOutput(process.execPath, ["-e", "process.stdout.write('partial'); process.exit(2)"], output),
+      /archive failed/,
+    );
+    assert.equal(fs.existsSync(output), false);
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("rejects website symlinks before creating a backup set", async () => {
+  const fixture = managerFixture();
+  const siteRoot = path.join(fixture.websitesRoot, "example.com");
+  try {
+    fs.mkdirSync(siteRoot, { recursive: true });
+    fs.writeFileSync(path.join(siteRoot, "index.php"), "<?php echo 'ok';");
+    fs.symlinkSync("index.php", path.join(siteRoot, "linked.php"));
+    await assert.rejects(
+      fixture.manager.createSiteBackup({
+        host: "example.com",
+        root: "/var/www/example.com",
+        state: { siteType: "static" },
+      }, 2),
+      /Website contains symbolic links/,
+    );
+    assert.equal(fs.existsSync(path.join(fixture.backupsRoot, "example.com")), false);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
   }
 });
 
@@ -186,6 +252,42 @@ test("failed daily run remains eligible for a later retry", async () => {
     const result = await fixture.manager.runScheduled(new Date("2026-07-20T12:00:00"));
     assert.equal(result.ok, false);
     assert.equal(fixture.manager.readSettings().lastScheduledDate, "");
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("scheduled retry skips complete same-day sites but creates app-data last", async () => {
+  const fixture = managerFixture();
+  try {
+    fixture.manager.updateSettings({ siteBackupsEnabled: true, appDataEnabled: true });
+    fixture.manager.siteProvider = async () => [
+      { host: "done.example", state: { backupEnabled: true } },
+      { host: "pending.example", state: { backupEnabled: true } },
+    ];
+    const existing = fixture.manager.safeBackupParent("done.example");
+    const id = "2026-08-09T00-00-00Z";
+    fs.mkdirSync(path.join(existing, id));
+    fs.writeFileSync(path.join(existing, id, "manifest.json"), JSON.stringify({
+      version: 2, type: "site", domain: "done.example", completedAt: "2026-08-09T01:00:00Z",
+    }));
+    const calls = [];
+    fixture.manager.createSiteBackup = async (site) => {
+      calls.push(`site:${site.host}`);
+      return { type: "site", domain: site.host, ok: true };
+    };
+    fixture.manager.createAppDataBackup = async () => {
+      calls.push("app-data");
+      return { type: "app-data", ok: true };
+    };
+    const updates = [];
+    const result = await fixture.manager.runScheduledWork({
+      checkpoint() {}, update(value) { updates.push(value); },
+    }, fixture.manager.localDate("2026-08-09T01:00:00Z"));
+    assert.deepEqual(calls, ["site:pending.example", "app-data"]);
+    assert.equal(result.results[0].skipped, true);
+    assert.equal(result.results.at(-1).type, "app-data");
+    assert.equal(updates.at(-1).completed, 3);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }
@@ -341,5 +443,15 @@ test("verifies a complete website backup archive before controlled updates", asy
     assert.ok(verification.websiteEntries >= 2);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("reports detailed phases while creating large backups", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../lib/backup-manager.js"), "utf8");
+  for (const phase of ["Reading database settings", "Archiving files", "Dumping database", "Hashing backup", "Finalizing backup"]) {
+    assert.match(source, new RegExp(phase));
+  }
+  for (const phase of ["Preparing certificate files", "Archiving application data", "Dumping all databases", "Hashing application-data backup"]) {
+    assert.match(source, new RegExp(phase));
   }
 });

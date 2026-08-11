@@ -42,6 +42,9 @@ The installer writes `HOSTING_MACHINE_STATE_DIR/role.json` atomically and
 refuses to overwrite a marker whose role or server identity differs. Editing
 `.env` or replicated application data cannot promote a standby. Controlled
 role transition remains part of the pending promotion workflow.
+The panel persists only ingress-mode metadata in
+`UI_DATA_DIR/server-role.json`. Role and server identity are read only from the
+machine marker and cannot be changed through this settings file.
 | `MYSQL_SITE_PREFIX` | New site database/user prefix | Environment fallback; editable in panel |
 | `MYSQL_ROOT_PASSWORD` | MySQL root credential | Initializes empty MySQL data only |
 | `NPM_DB_USER` | NPM database account | Initializes empty MySQL data only |
@@ -60,6 +63,7 @@ Paths below are relative to `app-data/ui-manager`.
 |---|---|---|
 | `admin-account.json` | email and scrypt password record | password hash |
 | `integration-settings.json` | endpoints and encrypted credentials | yes |
+| `server-role.json` | ingress mode only; never role or server identity | no |
 | `integration-settings.key` | generated AES key if env key is absent | yes |
 | `site-state.json` | cache, OPcache, Redis, backup switches (written atomically with the generated `cache.map`) | no |
 | `backup-settings.json` | global enablement, local time, retention | no |
@@ -199,6 +203,24 @@ The committed defaults target a 16 GB host that also runs other workloads:
 The panel renders managed PHP/nginx directives. MySQL and Redis values in
 Compose are startup arguments; changing them requires container recreation.
 Measure host memory before increasing limits.
+
+Each host may set `MYSQL_SERVER_ID`, `MYSQL_INNODB_BUFFER_POOL_SIZE`,
+`MYSQL_INNODB_REDO_LOG_CAPACITY`, `MYSQL_MAX_CONNECTIONS`, and
+`REDIS_MAXMEMORY` in its private `.env`. `PHP_GLOBAL_INI_PATH` can point at a
+machine-local global PHP configuration outside replicated `app-data`. This is
+required for a smaller standby: restoring primary app-data must not silently
+apply the primary's OPcache budget to the standby. The same file is mounted
+writable into the panel's managed PHP configuration path, so performance
+changes after promotion continue to update the active file. It must therefore
+be owned by the panel uid/gid (`33:33`) and remain private (`0640`).
+
+The initial 8 GB standby profile uses a unique MySQL server ID, 1 GiB InnoDB
+buffer pool, 512 MiB redo capacity, 100 connections, 256 MiB Redis, and a
+machine-local 2 GiB OPcache configuration. These are conservative promotion
+defaults, not a promise that every workload fits; inspect capacity before
+cutover. Set `STANDBY_PROFILE_NAME=standby-8gb`; promotion preflight fails when
+the profile name, server ID, configured limits, or active OPcache file do not
+match the bounded standby policy.
 
 ## Ports And Network
 

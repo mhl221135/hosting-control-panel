@@ -5,7 +5,10 @@ const http = require("http");
 const path = require("path");
 
 const BASE_URL = process.env.PANEL_SMOKE_URL || "http://127.0.0.1:8687";
-const DOMAIN = "testsite.mishaweb.com";
+const DOMAIN = required("PANEL_SMOKE_DOMAIN").trim().toLowerCase();
+if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(DOMAIN)) {
+  throw new Error("PANEL_SMOKE_DOMAIN must be a valid disposable hostname");
+}
 const TERMINAL = new Set(["succeeded", "partially_succeeded", "failed", "cancelled"]);
 let cookie = "";
 let csrf = "";

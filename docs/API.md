@@ -11,11 +11,34 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
 - `PUT /api/auth/account` changes email/password using the current password.
 - Every other `/api/*` route requires an authenticated session.
 - `POST`, `PUT`, `PATCH`, and `DELETE` requests require `X-CSRF-Token`.
-- `GET /api/system/role` returns role, server identity, marker source, and
-  whether normal mutations are allowed.
-- A standby rejects every normal non-GET API operation with HTTP `423 Locked`
-  before route execution. Login, logout, and account maintenance remain
-  available through `/api/auth/*`.
+- `GET /api/system/role` returns the persisted server role, ingress mode
+  (`direct_npm` or `cloudflare_tunnel`), server identity, and whether normal
+  mutations are allowed.
+- `PUT /api/system/role` accepts only `ingress_mode` (validated; unknown fields
+  rejected). This metadata-only write is allowed on standby. Changing role or
+  server identity returns `409`. The machine-local role marker remains
+  authoritative.
+- `GET /api/system/promotion-preflight` returns structured read-only readiness
+  checks with pass/warning/fail statuses and an aggregate `ready` flag. It
+  verifies standby role, configuration, backup inventory/freshness, per-site
+  manifests/archives/dumps, filesystem free space, required configuration keys,
+  Docker availability, and tunnel readiness. No files, databases, DNS, or
+  ingress are modified.
+  The response also includes a bounded `replication` summary: receiver mode,
+  source identity, last successful receive time, verified set and website-group
+  counts, app-data recovery identifier, oldest selected recovery-point age,
+  and whether deep verification is current, stale, or missing. It contains no
+  backup paths, site domains, credentials, or raw manifests.
+- `POST /api/system/deep-verify` is the only standby job mutation. It queues a
+  cancellable, deduplicated verification of every set in the current receiver
+  receipt. The worker checks the receipt/manifest binding, streams artifact
+  SHA-256 hashes, validates gzip streams, and rejects unsafe tar paths, links,
+  and special files. Success writes a mode-`0600` receipt bound to the exact
+  `receiver-state.json`; it does not restore data or promote the server.
+- On a standby, every other non-read API request returns `423 Locked`. The
+  standby job worker executes only `standby.deep-verify` jobs. Disallowed
+  queued jobs recovered from local history become cancelled historical records
+  at startup and are never executed after promotion preparation.
 
 Errors use HTTP status codes and this shape:
 

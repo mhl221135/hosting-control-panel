@@ -1,0 +1,29 @@
+[Unit]
+Description=Cloudflare Tunnel connector for hosting standby ingress
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=hosting-cloudflared
+Group=hosting-cloudflared
+ExecStart=/usr/bin/cloudflared tunnel --no-autoupdate run --token-file /etc/hosting-control/cloudflared-hosting.token
+Restart=always
+RestartSec=5s
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -23,6 +23,31 @@ services:
       retries: 3
       start_period: 5s
 
+  hosting-cloudflared:
+    image: cloudflare/cloudflared:2026.7.3
+    container_name: hosting-cloudflared
+    profiles:
+      - tunnel
+    command: ["tunnel", "--no-autoupdate", "--metrics", "0.0.0.0:20241", "run", "--token-file", "/run/secrets/hosting-tunnel-token"]
+    volumes:
+      - ${HOSTING_TUNNEL_TOKEN_FILE:-/etc/hosting-control/cloudflared-hosting.token}:/run/secrets/hosting-tunnel-token:ro
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    cpus: 0.50
+    networks:
+      - hosting-net
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "localhost:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   hosting-files:
     image: hosting-files:2.63
     build:
@@ -75,6 +100,12 @@ services:
       HEALTH_HISTORY_LIMIT: ${HEALTH_HISTORY_LIMIT:-250}
       MYSQL_CONTAINER: hosting-db
       PHP_CONTAINER: hosting-php-fpm
+      STANDBY_PROFILE_NAME: ${STANDBY_PROFILE_NAME:-}
+      MYSQL_SERVER_ID: ${MYSQL_SERVER_ID:-1}
+      MYSQL_INNODB_BUFFER_POOL_SIZE: ${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
+      MYSQL_INNODB_REDO_LOG_CAPACITY: ${MYSQL_INNODB_REDO_LOG_CAPACITY:-1G}
+      MYSQL_MAX_CONNECTIONS: ${MYSQL_MAX_CONNECTIONS:-150}
+      REDIS_MAXMEMORY: ${REDIS_MAXMEMORY:-1024mb}
       HOSTING_AGENT_URL: http://hosting-agent:8790
       HOSTING_AGENT_TOKEN: ${HOSTING_AGENT_TOKEN:?Set HOSTING_AGENT_TOKEN in .env}
       BILLING_API_URL: http://hosting-billing:8787/internal/v1
@@ -108,6 +139,7 @@ services:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php
+      - ${PHP_GLOBAL_INI_PATH:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini}:/srv/configs/php/global.ini
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
       - ${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}:/run/hosting-machine:ro
     networks:
@@ -164,7 +196,7 @@ services:
     restart: unless-stopped
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/www
-      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini:/usr/local/etc/php/conf.d/000-global.ini:ro
+      - ${PHP_GLOBAL_INI_PATH:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini}:/usr/local/etc/php/conf.d/000-global.ini:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm/php-fpm.conf:/usr/local/etc/php-fpm.conf:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/runtime-php-fpm:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp/wp-global.php:/global/wp-global.php:ro
@@ -220,7 +252,7 @@ services:
       redis-server
       --appendonly yes
       --save 900 1 --save 300 10 --save 60 10000
-      --maxmemory 1024mb
+      --maxmemory ${REDIS_MAXMEMORY:-1024mb}
       --maxmemory-policy allkeys-lru
     volumes:
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/redis:/data
@@ -232,14 +264,14 @@ services:
     container_name: hosting-db
     restart: always
     command: >
-      --server-id=1
+      --server-id=${MYSQL_SERVER_ID:-1}
       --log-bin=mysql-bin
       --binlog-format=row
-      --innodb_buffer_pool_size=2G
-      --innodb_redo_log_capacity=1G
+      --innodb_buffer_pool_size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
+      --innodb_redo_log_capacity=${MYSQL_INNODB_REDO_LOG_CAPACITY:-1G}
       --innodb_flush_log_at_trx_commit=2
       --innodb_flush_method=O_DIRECT
-      --max_connections=150
+      --max_connections=${MYSQL_MAX_CONNECTIONS:-150}
       --skip-name-resolve=ON
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
@@ -252,7 +284,7 @@ services:
       - hosting-net
 
   hosting-phpmyadmin:
-    image: arm64v8/phpmyadmin
+    image: phpmyadmin:5.2.2-apache
     container_name: hosting-phpmyadmin
     restart: always
     environment:

@@ -1,0 +1,19 @@
+[Unit]
+Description=Deep-verify the latest received hosting backup inventory
+After=docker.service hosting-backup-receiver.service
+Requires=docker.service
+OnSuccess=hosting-standby-prepare.service
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /usr/bin/docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RuntimeDirectory=hosting-backup-receiver
+RuntimeDirectoryMode=0700

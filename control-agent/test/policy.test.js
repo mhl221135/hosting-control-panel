@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { validateArgs, validateCopy } = require("../app/policy");
+const { NPM_BACKUP_READ_SCRIPT, validateArgs, validateCopy } = require("../app/policy");
 
 test("allows bounded runtime inspection and reloads", () => {
   assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State}}", "hosting-ui"]));
@@ -76,4 +76,36 @@ test("allows only package copies into the PHP temporary directory", () => {
   });
   assert.throws(() => validateCopy("hosting-php-fpm:/var/www/example.com/backdoor.php"), /not allowed/);
   assert.throws(() => validateCopy("hosting-ui:/tmp/hosting-control-plugin.zip"), /not allowed/);
+});
+
+test("allows only the exact NPM certificate backup-readiness operation", () => {
+  assert.doesNotThrow(() => validateArgs([
+    "exec", "hosting-npm", "sh", "-c", NPM_BACKUP_READ_SCRIPT,
+  ]));
+  assert.throws(() => validateArgs([
+    "exec", "hosting-npm", "sh", "-c", `${NPM_BACKUP_READ_SCRIPT}; id`,
+  ]), /not allowed/);
+  assert.throws(() => validateArgs([
+    "exec", "hosting-npm", "cat", "/etc/letsencrypt/archive/example/privkey1.pem",
+  ]), /not allowed/);
+});
+
+test("allows standby read-only operations", () => {
+  // Inspect tests
+  assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State}}", "hosting-cloudflared"]));
+  assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State.Status}}", "hosting-db"]));
+  assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State.Health}}", "hosting-npm"]));
+  assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .Config.Image}}", "hosting-ui"]));
+  assert.throws(() => validateArgs(["inspect", "--format", "{{json .}}", "hosting-db"]), /Inspect operation is not allowed/);
+  assert.throws(() => validateArgs(["inspect", "--format", "{{json .State}}", "hosting-evil"]), /Container is not allowed: hosting-evil/);
+
+  // Network inspect tests
+  assert.throws(() => validateArgs(["inspect", "--format", "{{json .Mounts}}", "hosting-cloudflared"]), /not allowed/);
+  assert.throws(() => validateArgs(["network", "inspect", "hosting-net", "--format", "{{json .Containers}}"]), /not allowed/);
+  assert.throws(() => validateArgs(["network", "inspect", "evil-net", "--format", "{{json .Containers}}"]), /not allowed/);
+  assert.throws(() => validateArgs(["network", "inspect", "hosting-net", "--format", "{{json .}}"]), /not allowed/);
+
+  // ps tests
+  assert.doesNotThrow(() => validateArgs(["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}\t{{.Status}}"]));
+  assert.throws(() => validateArgs(["ps", "-a", "--filter", "name=hosting-", "--format", "{{.ID}}"]), /List operation is not allowed/);
 });

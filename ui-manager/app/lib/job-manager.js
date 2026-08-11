@@ -116,7 +116,20 @@ class JobManager {
     this.schedule();
   }
 
-  start() {
+  start({ allowlist, suppressDisallowed = false } = {}) {
+    this.allowlist = allowlist instanceof Set ? allowlist : null;
+    if (this.allowlist && suppressDisallowed) {
+      let changed = false;
+      for (const job of this.jobs) {
+        if (job.status !== "queued" || this.allowlist.has(job.type)) continue;
+        job.status = "cancelled";
+        job.finishedAt = new Date().toISOString();
+        job.currentStep = "";
+        job.message = "Suppressed by standby role; retained as history only";
+        changed = true;
+      }
+      if (changed) this.persist();
+    }
     this.started = true;
     this.schedule();
   }
@@ -209,6 +222,7 @@ class JobManager {
           launched = false;
           for (const job of this.jobs.filter((item) => item.status === "queued")) {
             if (!this.handlers.has(job.type) || this.blockers(job).length) continue;
+            if (this.allowlist && !this.allowlist.has(job.type)) continue;
             this.launch(job);
             launched = true;
           }

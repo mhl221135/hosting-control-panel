@@ -18,10 +18,17 @@ as independent websites. Operations report progress and errors in the panel
 notice area. Do not close the browser during an upload, but long-running server
 jobs continue independently after the request has started.
 
-On a standby, the header displays a `STANDBY` badge and server identity.
+On a standby, the header and browser title display `STANDBY` and the server identity.
 Navigation is reduced to read-only Sites, Stats, Health, Jobs, and Account
 views. Site action and job mutation controls are hidden. The server remains the
 authorization boundary and rejects direct mutation requests with HTTP 423.
+The Health view shows the authoritative server identity, an ingress segmented
+control, quick promotion-readiness checks, and **Deep verification**. Saving
+ingress changes metadata only. Deep verification runs as a durable background
+job and never starts services, restores data, changes DNS, or promotes the host.
+The recovery metrics distinguish daily backup reception from live replication:
+they show the last receiver completion, oldest selected recovery age, bounded
+set/group counts, and whether deep verification matches the current receipt.
 
 ## Sites
 
@@ -104,6 +111,18 @@ active temporary mitigations remain in the Security workspace.
 **Provisioning defaults** enables a global preset set while keeping an explicit
 checkbox on each new website. Defaults start disabled. Protected addresses in
 this section can never be selected for a traffic mitigation.
+
+## Replication
+
+On a standby server, the panel opens this workspace after login. It shows the
+last received recovery point, estimated recovery age, verified set and website
+counts, deep-verification freshness, ingress preference, and the complete
+non-mutating promotion preflight. Saving the ingress preference does not alter
+DNS or activate routes. Promotion remains a separate fenced runbook operation.
+
+Mutating operational sections are hidden on a standby and their server APIs
+remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,
+and Account views remain available.
 
 ## Health
 

@@ -38,6 +38,10 @@ const { normalizeSiteType, siteAdapter, siteDatabaseReference, supportsWordPress
 const { BackupManager } = require("./lib/backup-manager");
 const { OffsiteBackupManager } = require("./lib/offsite-backup-manager");
 const { InstallationRole } = require("./lib/installation-role");
+const { PanelMetadataStore } = require("./lib/panel-metadata-store");
+const { runPreflight } = require("./lib/promotion-preflight");
+const { readPromotionState } = require("./lib/promotion-state");
+const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -162,6 +166,16 @@ const DEFAULT_POOL_PRESETS = {
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const installationRole = new InstallationRole({ markerPath: process.env.INSTALLATION_ROLE_PATH });
+const promotionStatePath = path.join(path.dirname(installationRole.markerPath), "promotion-state.json");
+
+function installationView(ingressMode = panelMeta.read().ingressMode) {
+  return {
+    ...installationRole.publicView(),
+    ingressMode,
+    promotion: readPromotionState(promotionStatePath),
+  };
+}
+const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -219,6 +233,7 @@ const jobManager = new JobManager({
   dataDir: DATA_DIR,
   historyLimit: Number(process.env.JOB_HISTORY_LIMIT || 250),
 });
+const deepVerifyManager = new DeepVerifyManager({ jobManager, backupsRoot: BACKUPS_ROOT });
 const cloudflareAutomation = new CloudflareAutomationManager({
   dataDir: DATA_DIR,
   client: cloudflareSecurity,
@@ -1859,10 +1874,89 @@ jobManager.register("billing.provision.retry", async (context, payload) => {
 
 async function handleApi(req, res) {
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
-    sendJson(res, 200, { ok: true, installation: installationRole.publicView() });
+    sendJson(res, 200, {
+      ok: true,
+      installation: installationView(),
+    });
+    return true;
+  }
+if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/role") {
+    const body = await readJsonBody(req);
+    rejectUnknownKeys(body, new Set(["ingress_mode", "role", "server_id"]), "ingress settings");
+    if (body.role !== undefined || body.server_id !== undefined) {
+      sendJson(res, 409, {
+        ok: false,
+        message: "Server role and identity are managed through the machine-local role marker. Controlled promotion will be available in a future release.",
+      });
+      return true;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      installation: installationView(panelMeta.save({ ingress_mode: body.ingress_mode }).ingressMode),
+    });
+    return true;
+  }
+  if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/promotion-preflight") {
+    const sites = (() => {
+      try {
+        const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+        const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+        return getSitesWithPools(mapParsed, poolsParsed)
+          .filter((site) => !site.isAlias)
+          .map((site) => ({
+            host: site.host,
+            siteType: site.state?.siteType || "wordpress",
+          }));
+      } catch { return []; }
+    })();
+    const result = await runPreflight({
+      isStandby: installationRole.isStandby(),
+      sites,
+      backupsRoot: BACKUPS_ROOT,
+      websitesRoot: WEBSITES_ROOT,
+      sourcesRoot: path.resolve(__dirname, "../../.."),
+      dataRoot: DATA_DIR,
+      ingressMode: panelMeta.read().ingressMode,
+      env: {
+        UI_SETTINGS_KEY: String(process.env.UI_SETTINGS_KEY || ""),
+        BILLING_API_TOKEN: String(process.env.BILLING_API_TOKEN || ""),
+        SERVER_ID: String(process.env.SERVER_ID || process.env.COMPOSE_PROJECT_NAME || ""),
+      },
+      resourceProfile: {
+        name: process.env.STANDBY_PROFILE_NAME,
+        mysqlServerId: process.env.MYSQL_SERVER_ID,
+        mysqlBuffer: process.env.MYSQL_INNODB_BUFFER_POOL_SIZE,
+        mysqlRedo: process.env.MYSQL_INNODB_REDO_LOG_CAPACITY,
+        mysqlConnections: process.env.MYSQL_MAX_CONNECTIONS,
+        redisMaxMemory: process.env.REDIS_MAXMEMORY,
+        phpIniPath: PHP_INI_PATH,
+      },
+    });
+    sendJson(res, 200, { ok: true, ...result });
     return true;
   }
   const requestUrl = new URL(req.url, "http://ui-manager.local");
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/system/deep-verify") {
+    rejectUnknownKeys(await readJsonBody(req), new Set(), "deep verification");
+    if (!installationRole.isStandby()) {
+      sendJson(res, 409, { ok: false, message: "Deep standby verification is available only on a standby server" });
+      return true;
+    }
+    const job = jobManager.create({
+      type: "standby.deep-verify",
+      label: "Deep standby backup verification",
+      operator: req.auth.email,
+      trigger: "manual",
+      targets: ["standby-backups"],
+      conflicts: ["backup-storage", "standby.deep-verify"],
+      idempotencyKey: "standby.deep-verify",
+      cancellable: true,
+      retryable: true,
+    });
+    sendJson(res, 202, { ok: true, job: decorateJob(job, req.auth.email) });
+    return true;
+  }
 
   if (req.method === "GET" && requestUrl.pathname === "/api/jobs") {
     sendJson(res, 200, {
@@ -1940,6 +2034,7 @@ async function handleApi(req, res) {
         ipinfo: ipinfo.configured(),
         mysql: true,
       },
+      installation: installationView(),
     });
     return true;
   }
@@ -3289,6 +3384,9 @@ async function handleApi(req, res) {
 
   if (req.method === "POST" && requestUrl.pathname === "/api/provision") {
     const submitted = JSON.parse((await readBody(req)) || "{}");
+    if (submitted.import_database_archive === undefined && submitted.import_database_dump !== undefined) {
+      submitted.import_database_archive = Boolean(submitted.import_database_dump);
+    }
     const normalized = validateProvisionRequest(submitted);
     if (submitted.register_billing) billingProvisioningSettings.registration(submitted);
     if (submitted.create_update_dns) validateIpv4(submitted.dns_ip);
@@ -4021,7 +4119,7 @@ async function handleAuthApi(req, res) {
       email: session.email,
       csrf: session.csrf,
       mustChangePassword: Boolean(account.mustChangePassword),
-      installation: installationRole.publicView(),
+      installation: installationView(),
     });
     return true;
   }
@@ -4037,7 +4135,7 @@ async function handleAuthApi(req, res) {
         email: result.session.email,
         csrf: result.session.csrf,
         mustChangePassword: result.mustChangePassword,
-        installation: installationRole.publicView(),
+        installation: installationView(),
       },
       { "Set-Cookie": auth.cookie(req, result.session.id) },
     );
@@ -4084,6 +4182,10 @@ async function handleAuthApi(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/health") {
+      sendJson(res, 200, { ok: true, role: installationRole.publicView().role }, { "Cache-Control": "no-store" });
+      return;
+    }
     if (req.url === "/internal/v1/billing-reminders" && req.method === "POST") {
       installationRole.requireMutable();
       if (!billingAuthorized(req)) {
@@ -4134,7 +4236,12 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       req.auth = session;
-      if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) installationRole.requireMutable();
+      const apiPath = new URL(req.url, "http://ui-manager.local").pathname;
+      const standbySafeMutation = (req.method === "PUT" && apiPath === "/api/system/role")
+        || (req.method === "POST" && apiPath === "/api/system/deep-verify");
+      if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !standbySafeMutation) {
+        installationRole.requireMutable();
+      }
       const handled = await handleApi(req, res);
       if (!handled) sendJson(res, 404, { ok: false, message: "Not found" });
       return;
@@ -4166,7 +4273,8 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`UI manager listening on :${PORT}`);
+  const address = server.address();
+  console.log(`UI manager listening on :${typeof address === "object" && address ? address.port : PORT}`);
   healthMonitor.start();
   if (!installationRole.isStandby()) {
     notificationManager.start(jobManager);
@@ -4180,6 +4288,7 @@ server.listen(PORT, "0.0.0.0", () => {
     imageOptimizationManager.startScheduler();
     maintenanceManager.startScheduler();
   } else {
+    jobManager.start({ allowlist: new Set(["standby.deep-verify"]), suppressDisallowed: true });
     console.log(`Standby mode active for ${installationRole.publicView().serverId}; mutating schedulers are suppressed`);
   }
   if (!installationRole.isStandby() && fs.existsSync(performanceSettings.path)) {

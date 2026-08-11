@@ -6,10 +6,12 @@ const CONTAINERS = new Set([
   "hosting-php-fpm",
   "hosting-redis",
 ]);
+const EXEC_CONTAINERS = new Set([...CONTAINERS, "hosting-npm"]);
 const INSPECT_CONTAINERS = new Set([
   ...CONTAINERS,
   "hosting-agent",
   "hosting-billing",
+  "hosting-cloudflared",
   "hosting-files",
   "hosting-npm",
   "hosting-phpmyadmin",
@@ -48,6 +50,7 @@ const SAFE_SITE_PATH = /^\/var\/www\/[A-Za-z0-9._/-]+$/;
 const SAFE_TEMP_ZIP = /^\/tmp\/hosting-(?:control|package)-[A-Za-z0-9._-]+\.zip$/;
 const IDENTIFIER = /^[A-Za-z0-9_$-]{1,64}$/;
 const DOMAIN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
+const NPM_BACKUP_READ_SCRIPT = "set -eu; find /etc/letsencrypt -xdev -exec chgrp -h 33 {} +; find /etc/letsencrypt -xdev -type d -exec chmod g+rX {} +; find /etc/letsencrypt -xdev -type f -exec chmod g+r {} +";
 
 function deny(message) {
   const error = new Error(message);
@@ -102,7 +105,7 @@ function parseExec(argv) {
     }
     break;
   }
-  const container = validContainer(argv[index]);
+  const container = validContainer(argv[index], EXEC_CONTAINERS);
   const command = argv.slice(index + 1).map((item) => boundedText(item));
   if (!command.length) deny("A container command is required");
   return { options, environment, container, command };
@@ -218,12 +221,19 @@ function validateRedis(command) {
   deny("Redis operation is not allowed");
 }
 
+function validateNpm(command) {
+  if (command.length === 3 && command[0] === "sh" && command[1] === "-c" && command[2] === NPM_BACKUP_READ_SCRIPT) return;
+  deny("NPM operation is not allowed");
+}
+
 function validateExec(argv) {
   const parsed = parseExec(argv);
   if (parsed.container === "hosting-nginx") validateNginx(parsed.command);
   else if (parsed.container === "hosting-php-fpm") validatePhp(parsed.command);
   else if (parsed.container === "hosting-db") validateMysql(parsed.command, parsed.environment);
   else if (parsed.container === "hosting-redis") validateRedis(parsed.command);
+  else if (parsed.container === "hosting-npm") validateNpm(parsed.command);
+  else deny("Container operation is not allowed");
   return argv;
 }
 
@@ -234,11 +244,21 @@ function validateArgs(input) {
   if (argv[0] === "inspect") {
     const name = argv[argv.length - 1];
     validContainer(name, INSPECT_CONTAINERS);
-    if (argv.length !== 4 || argv[1] !== "--format" || argv[2] !== "{{json .State}}") deny("Inspect operation is not allowed");
+    const ALLOWED_INSPECT_FORMATS = new Set([
+      "{{json .State}}",
+      "{{json .State.Status}}",
+      "{{json .State.Health}}",
+      "{{json .Config.Image}}",
+    ]);
+    if (argv.length !== 4 || argv[1] !== "--format" || !ALLOWED_INSPECT_FORMATS.has(argv[2])) deny("Inspect operation is not allowed");
     return argv;
   }
   if (argv[0] === "ps") {
-    if (argv.join("\0") !== ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}"].join("\0")) deny("List operation is not allowed");
+    const psFormats = [
+      ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}"],
+      ["ps", "-a", "--filter", "name=hosting-", "--format", "{{.Names}}\t{{.Status}}"],
+    ];
+    if (!psFormats.some(fmt => argv.join("\0") === fmt.join("\0"))) deny("List operation is not allowed");
     return argv;
   }
   if (argv[0] === "stats") {
@@ -272,4 +292,4 @@ function safeEqual(left, right) {
   return a.length === b.length && a.length >= 32 && crypto.timingSafeEqual(a, b);
 }
 
-module.exports = { safeEqual, validateArgs, validateCopy };
+module.exports = { NPM_BACKUP_READ_SCRIPT, safeEqual, validateArgs, validateCopy };

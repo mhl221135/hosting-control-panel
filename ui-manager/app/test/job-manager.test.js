@@ -203,3 +203,36 @@ test("redacts command-line database and WordPress passwords from failed jobs", a
     fs.rmSync(context.root, { recursive: true, force: true });
   }
 });
+
+test("standby allowlist starts only explicitly permitted job types", async () => {
+  const context = fixture();
+  try {
+    context.manager.register("standby.deep-verify", async () => ({ ok: true }));
+    context.manager.register("site.provision", async () => ({ ok: true }));
+    context.manager.start({ allowlist: new Set(["standby.deep-verify"]) });
+    const blocked = context.manager.create({ type: "site.provision", label: "Blocked", payload: {} });
+    const allowed = context.manager.create({ type: "standby.deep-verify", label: "Allowed", payload: {} });
+    assert.equal((await context.manager.wait(allowed.id)).status, "succeeded");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(context.manager.get(blocked.id).status, "queued");
+    context.manager.cancel(blocked.id);
+  } finally {
+    fs.rmSync(context.root, { recursive: true, force: true });
+  }
+});
+
+test("standby startup retains disallowed queued work as cancelled history", async () => {
+  const context = fixture();
+  try {
+    context.manager.register("standby.deep-verify", async () => ({ ok: true }));
+    context.manager.register("site.provision", async () => ({ ok: true }));
+    const blocked = context.manager.create({ type: "site.provision", label: "Old primary work", payload: {} });
+    context.manager.start({ allowlist: new Set(["standby.deep-verify"]), suppressDisallowed: true });
+    const historical = context.manager.get(blocked.id);
+    assert.equal(historical.status, "cancelled");
+    assert.match(historical.message, /standby role/);
+    assert.ok(historical.finishedAt);
+  } finally {
+    fs.rmSync(context.root, { recursive: true, force: true });
+  }
+});

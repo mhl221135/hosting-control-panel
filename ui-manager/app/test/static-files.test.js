@@ -14,24 +14,77 @@ test("rejects public paths that escape the configured root", () => {
   assert.equal(resolvePublicFile("/app/public", "/%E0%A4%A"), null);
 });
 
+test("server exposes the bounded liveness endpoint used by standby promotion", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(server, /pathname === "\/health"/);
+  assert.match(server, /sendJson\(res, 200, \{ ok: true, role: installationRole\.publicView\(\)\.role \}/);
+  assert.match(server, /"Cache-Control": "no-store"/);
+});
+
 test("standby role is machine-local, read-only, and suppresses writable services", () => {
   const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
   const bootstrap = fs.readFileSync(path.resolve(__dirname, "../../../bootstrap.sh"), "utf8");
   const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
   const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  const prepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-standby.sh"), "utf8");
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
   assert.match(compose, /HOSTING_MACHINE_STATE_DIR[^\n]*:\/run\/hosting-machine:ro/);
   assert.match(bootstrap, /--role/);
   assert.match(bootstrap, /--server-id/);
-  assert.match(install, /Only hosting-agent and the read-only hosting-ui were started/);
+  assert.match(install, /Writable and public origin services remain stopped/);
+  assert.match(install, /compose up -d hosting-agent hosting-ui hosting-cloudflared/);
+  assert.match(compose, /hosting-cloudflared:[\s\S]*profiles:[\s\S]*- tunnel/);
+  assert.match(compose, /hosting-cloudflared:[\s\S]*cap_drop:[\s\S]*- ALL/);
+  assert.doesNotMatch(compose, /hosting-cloudflared:[\s\S]*\/var\/run\/docker\.sock/);
+  assert.match(compose, /PHP_GLOBAL_INI_PATH/);
+  assert.match(compose, /PHP_GLOBAL_INI_PATH[^\n]*:\/srv\/configs\/php\/global\.ini/);
+  assert.match(compose, /MYSQL_SERVER_ID/);
+  assert.match(compose, /MYSQL_INNODB_BUFFER_POOL_SIZE/);
+  assert.match(compose, /REDIS_MAXMEMORY/);
+  assert.match(compose, /STANDBY_PROFILE_NAME/);
+  assert.match(compose, /image: phpmyadmin:5\.2\.2-apache/);
+  assert.doesNotMatch(compose, /image: (?:arm64v8|amd64)\//);
+  assert.match(server, /resourceProfile:/);
   assert.match(upgrade, /compose stop hosting-files hosting-billing/);
+  assert.match(prepare, /--confirm PREPARE-STANDBY/);
+  assert.match(prepare, /\.role == "standby"/);
+  assert.match(prepare, /hosting-backup-receiver\/lock/);
+  assert.match(prepare, /deep-verify-state\.json/);
+  assert.match(prepare, /receiverReceiptSha256 == \$receiver_sha/);
+  assert.match(prepare, /receiver_receipt_sha256/);
+  assert.match(prepare, /deep_verification_sha256/);
+  assert.match(prepare, /Writable hosting containers are running/);
+  assert.match(prepare, /databases\.sql\.gz/);
+  assert.match(prepare, /latest_site_set_at_or_before/);
+  assert.match(prepare, /completed <= cutoff/);
+  assert.match(prepare, /mysql -uroot -Nse \"SELECT 1\"/);
+  assert.doesNotMatch(prepare, /mysqladmin[^\n]*ping/);
+  assert.match(prepare, /SELECT COUNT\(\*\) FROM information_schema\.tables/);
+  assert.doesNotMatch(prepare, /mysqlcheck/);
+  assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
+  assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
   assert.match(server, /if \(!installationRole\.isStandby\(\)\)/);
   assert.match(html, /id="installationRole"/);
   assert.match(source, /function applyInstallationRole/);
-  assert.match(source, /new Set\(\["sites", "stats", "health", "jobs", "account"\]\)/);
+  assert.match(source, /document\.title = role === "standby"/);
+  assert.match(source, /new Set\(\["sites", "stats", "replication", "health", "jobs", "settings", "account"\]\)/);
+  assert.match(html, /data-tab-link="replication"/);
+  assert.match(html, /data-tab-panel="replication"/);
+  assert.match(source, /switchTab\("replication"\)/);
+  assert.match(html, /id="standbyIngressForm"/);
+  assert.match(html, /id="runDeepVerify"/);
+  assert.match(html, /id="preflightLastReceive"/);
+  assert.match(html, /id="preflightReceiverState"/);
+  assert.match(html, /id="preflightRecoveryAge"/);
+  assert.match(source, /replication\.estimatedDataLossHours/);
+  assert.match(source, /replication\.receiverCompletedSets/);
+  assert.match(source, /receiverPercent/);
+  assert.match(source, /api\("\/api\/system\/deep-verify"/);
+  assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\), suppressDisallowed: true \}\)/);
+  assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);
 });
 
 test("backup restore UI exposes an explicit opt-in billing choice", () => {
@@ -53,6 +106,15 @@ test("provisioning startup loads uploaded WordPress package choices", () => {
   assert.match(source, /state\.wordpressPackages = packages/);
   assert.match(source, /renderWordPressPackages\(\)/);
   assert.doesNotMatch(source, /#saveHosts|#hostsTable/);
+});
+
+test("OpenCart imports submit and accept the canonical database archive flag", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(source, /body\.import_database_archive = Boolean\(importing && \(genericPhp \|\| openCart\) && databaseDump\)/);
+  assert.match(source, /wordpress \|\| body\.import_database_archive/);
+  assert.doesNotMatch(source, /body\.import_database_dump =/);
+  assert.match(server, /submitted\.import_database_archive === undefined && submitted\.import_database_dump !== undefined/);
 });
 
 test("PHP-FPM uses a directory bind so atomic pool replacements remain visible", () => {
@@ -184,6 +246,97 @@ test("runtime mutations use shared guarded validation", () => {
   assert.match(server, /validHostname\(raw\.host\)/);
   assert.match(server, /documentRoot\(raw\.root\)/);
   assert.match(server, /validPort\(body\.port/);
+});
+
+test("standby promotion remains a fenced host-level operation", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
+  assert.match(script, /--confirm PROMOTE-STANDBY/);
+  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /--recovery-id/);
+  assert.match(script, /receiverReceiptSha256/);
+  assert.match(script, /deep_verification_sha256/);
+  assert.match(script, /flock -n 9/);
+  assert.match(script, /compose config --quiet/);
+  assert.match(script, /docker exec hosting-php-fpm php-fpm -t/);
+  assert.match(script, /docker exec hosting-nginx nginx -t/);
+  assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);
+  assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
+  assert.match(script, /public_ingress_cutover:false/);
+  assert.match(script, /chmod 644 "\$temporary"/);
+  assert.match(script, /chmod 644 "\$promotion_tmp"/);
+  assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
+});
+
+test("read-only failover drills have a guarded standby reversion", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/revert-standby-drill.sh"), "utf8");
+  assert.match(script, /--confirm REVERT-STANDBY-DRILL/);
+  assert.match(script, /--writes-confirm NO-PUBLIC-WRITES/);
+  assert.match(script, /public_ingress_cutover == false/);
+  assert.match(script, /\.status == "rolled-back"/);
+  assert.match(script, /flock -n 9/);
+  assert.match(script, /compose stop hosting-npm/);
+  assert.match(script, /role:"standby"/);
+  assert.match(script, /chmod 644 "\$temporary"/);
+  assert.match(script, /promotion-state\.last-drill\.json/);
+  assert.match(script, /tunnel-cutover\.last-drill\.json/);
+  assert.match(script, /rm -f "\$cutover_marker"/);
+  assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
+  assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
+});
+
+test("deep backup verification has a standby-only operator CLI", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../cli/deep-verify.js"), "utf8");
+  assert.match(source, /marker\?\.version === 1 && marker\?\.role === "standby"/);
+  assert.match(source, /new DeepVerifyManager/);
+  assert.match(source, /manager\.runDeepVerify/);
+  assert.match(source, /Object\.assign\(progressState, progress\)/);
+  assert.match(source, /atomicWriteJson\(progressPath/);
+  assert.match(source, /writeProgress\("failed"/);
+  assert.match(source, /cancellationRequested/);
+  assert.doesNotMatch(source, /execSync|sh -c|Authorization|token|password/i);
+});
+
+test("successful standby reception schedules verification and fenced preparation", () => {
+  const receiver = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-receiver.service"), "utf8");
+  const verifier = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-deep-verify.service"), "utf8");
+  const prepare = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-standby-prepare.service"), "utf8");
+  const timer = fs.readFileSync(path.resolve(__dirname, "../../../examples/systemd/hosting-backup-receiver.timer"), "utf8");
+  assert.match(receiver, /^OnSuccess=hosting-backup-deep-verify\.service$/m);
+  assert.match(verifier, /^OnSuccess=hosting-standby-prepare\.service$/m);
+  assert.match(verifier, /^Type=oneshot$/m);
+  assert.match(verifier, /^Nice=15$/m);
+  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
+  assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
+  assert.match(prepare, /^Type=oneshot$/m);
+  assert.match(prepare, /^ExecStart=.*prepare-standby\.sh --apply --confirm PREPARE-STANDBY$/m);
+  assert.match(prepare, /^TimeoutStartSec=12h$/m);
+  assert.match(prepare, /^UMask=0077$/m);
+  assert.match(prepare, /^ProtectSystem=strict$/m);
+  assert.match(prepare, /^ReadWritePaths=\/media\/ssdmount\/websites-v2 \/etc\/hosting-control \/run\/hosting-backup-receiver$/m);
+  assert.doesNotMatch(prepare, /Environment|token|password|secret/i);
+  assert.match(timer, /^OnCalendar=\*-\*-\* 05:00:00 UTC$/m);
+  assert.match(timer, /^RandomizedDelaySec=10m$/m);
+});
+
+test("local promotion keeps public-ingress status visible", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  assert.match(html, /id="promotionNotice"/);
+  assert.match(source, /publicIngressCutover === false/);
+  assert.match(source, /Public ingress has not been cut over/);
+  assert.match(server, /readPromotionState/);
+  assert.match(server, /promotion: readPromotionState/);
+});
+
+test("tunnel cutover isolates connector-secret decoding from management", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/tunnel-cutover.sh"), "utf8");
+  assert.match(script, /--user 65532:65532/);
+  assert.match(script, /decodeTunnelToken/);
+  assert.match(script, /-e CLOUDFLARE_ACCOUNT_ID="\$account_id"/);
+  assert.match(script, /-e CLOUDFLARED_TUNNEL_ID="\$tunnel_id"/);
+  const management = script.slice(script.lastIndexOf("docker run --rm"));
+  assert.doesNotMatch(management, /hosting-tunnel-token/);
 });
 
 test("runtime exposes a bounded runtime-configuration audit history", () => {

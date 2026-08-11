@@ -122,8 +122,16 @@ ui_data_dir="$(env_value UI_DATA_DIR)"
 if [ -z "$ui_data_dir" ]; then
   if [ "$installation_role" = "standby" ]; then ui_data_dir="$machine_state_dir/ui-data"; else ui_data_dir="$hosting_root/app-data/ui-manager"; fi
 fi
+tunnel_enabled="$(env_value HOSTING_TUNNEL_ENABLED)"
+tunnel_enabled="${tunnel_enabled:-false}"
+tunnel_token_file="$(env_value HOSTING_TUNNEL_TOKEN_FILE)"
+tunnel_token_file="${tunnel_token_file:-/etc/hosting-control/cloudflared-hosting.token}"
 
 case "$installation_role" in standalone|primary|standby) ;; *) echo "INSTALLATION_ROLE is invalid." >&2; exit 1 ;; esac
+case "$tunnel_enabled" in true|false) ;; *) echo "HOSTING_TUNNEL_ENABLED must be true or false." >&2; exit 1 ;; esac
+if [ "$tunnel_enabled" = true ]; then
+  [ -f "$tunnel_token_file" ] || { echo "Hosting tunnel token file does not exist: $tunnel_token_file" >&2; exit 1; }
+fi
 case "$server_id" in ''|*[!A-Za-z0-9._-]*|-*|.*|_*) echo "SERVER_ID is invalid." >&2; exit 1 ;; esac
 if [ "${#server_id}" -gt 64 ]; then echo "SERVER_ID is too long." >&2; exit 1; fi
 
@@ -143,6 +151,7 @@ else
   chmod 644 "$marker_tmp"
   mv "$marker_tmp" "$role_marker"
 fi
+chmod 644 "$role_marker"
 
 case "$backups_dir" in
   /*) ;;
@@ -255,10 +264,19 @@ cd "$project_dir"
 compose config --quiet
 compose build
 if [ "$installation_role" = "standby" ]; then
-  compose up -d hosting-agent hosting-ui
-  echo "Standby installed. Only hosting-agent and the read-only hosting-ui were started."
+  if [ "$tunnel_enabled" = true ]; then
+    compose pull hosting-cloudflared
+    compose up -d hosting-agent hosting-ui hosting-cloudflared
+  else
+    compose up -d hosting-agent hosting-ui
+  fi
+  echo "Standby installed. Writable and public origin services remain stopped."
 else
   compose up -d
+  if [ "$tunnel_enabled" = true ]; then
+    compose pull hosting-cloudflared
+    compose up -d hosting-cloudflared
+  fi
 fi
 
 echo "Hosting stack installed. Existing persistent data and configuration were left unchanged."

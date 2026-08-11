@@ -28,7 +28,16 @@ database operations required by supported workflows.
 
 Machine-local `standalone`, `primary`, and `standby` roles are supported. A
 standby starts only the agent and read-only panel, rejects normal mutations
-with HTTP 423, and suppresses mutating schedulers.
+with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
+exception is the allowlisted deep backup-verification job; ingress metadata can
+also be saved without changing traffic or role.
+
+Backup reception, deep verification, fenced restore preparation, and guarded
+local promotion are separate stages. Local promotion requires the exact
+prepared recovery ID plus typed old-primary fencing confirmation, validates the
+runtime before changing the machine marker, and records that public ingress has
+not been cut over. Cloudflare/DNS/tunnel switching remains a separate pending
+control-plane workflow.
 
 ## Services
 
@@ -188,7 +197,8 @@ query strings, non-GET requests, and common WooCommerce session/cart traffic.
 1. The panel scheduler checks the configured local start time every 30 seconds.
 2. Enabled websites are processed sequentially.
 3. WordPress supplies the site's database name through WP-CLI.
-4. Website files are archived and MySQL creates a consistent compressed dump.
+4. Website files are archived while their SHA-256 is streamed, and MySQL
+   creates a consistent compressed dump.
 5. A manifest is written and the partial directory is atomically promoted.
 6. Complete backup sets beyond the configured retention are removed.
 7. Application data is archived, excluding live MySQL files and nginx cache,

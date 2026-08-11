@@ -153,6 +153,12 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .runtime-audit-row details p { margin: 6px 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .runtime-audit-row details code { margin-right: 6px; }
 
+.preflight-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.preflight-row:last-child { border-bottom: 0; }
+.preflight-row span { overflow-wrap: anywhere; }
+.preflight-row.fail span:last-child { color: var(--danger); }
+.preflight-row.warning span:last-child { color: var(--warning); }
+
 .data-row { display: grid; grid-template-columns: 60px minmax(120px, 1fr) minmax(160px, 1.5fr) 70px auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #edf0f2; font-size: 12px; }
 .data-row code { overflow-wrap: anywhere; }
 .compact-grid { display: grid; grid-template-columns: 90px minmax(130px, 1fr) minmax(100px, auto); gap: 10px; align-items: end; border-top: 1px solid var(--line); padding-top: 14px; }
@@ -462,3 +468,21 @@ pre { margin: 0; background: #172027; color: #d9e4e8; border-radius: 5px; paddin
 .pool-preset-apply .button-row { margin-top: 8px; }
 @media (max-width: 900px) { .preset-editor { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .pool-preset { grid-template-columns: 1fr; } }
+.standby-ingress-form { display: flex; align-items: end; gap: 12px; margin: 12px 0; flex-wrap: wrap; }
+.standby-summary-metrics { margin-bottom: 10px; }
+.standby-replication-metrics { margin-bottom: 12px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.standby-ingress-form > div { display: grid; gap: 4px; }
+.standby-ingress-form fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.standby-ingress-form legend { color: var(--muted); font-size: .82rem; margin-bottom: 5px; }
+.segmented-control { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.segmented-control label { cursor: pointer; }
+.segmented-control input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented-control span { display: block; padding: 9px 12px; background: var(--panel); }
+.segmented-control input:checked + span { background: var(--accent); color: white; }
+.segmented-control input:focus-visible + span { outline: 2px solid #96d5cd; outline-offset: -2px; }
+@media (max-width: 640px) {
+  .standby-ingress-form { align-items: stretch; }
+  .standby-ingress-form > *, .segmented-control { width: 100%; }
+  .segmented-control label { flex: 1; text-align: center; }
+  .standby-replication-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

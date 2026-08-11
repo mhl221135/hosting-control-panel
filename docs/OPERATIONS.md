@@ -166,12 +166,13 @@ Expected values are user `33:33`, `["ALL"]` capability drop,
 `no-new-privileges:true`, no Docker socket mount, and `false` for the broad
 `/srv/app-data` mount.
 
-On a host where `testsite.example.com` is not configured and its directory
-does not exist, the qualification drill exercises authenticated provisioning,
+On a host where the disposable `PANEL_SMOKE_DOMAIN` is not configured and its
+directory does not exist, the qualification drill exercises authenticated provisioning,
 local-origin health, backup, restore, portable export, and complete cleanup:
 
 ```bash
-docker exec -i hosting-ui node < scripts/qualify-unprivileged-panel.js
+docker exec -e PANEL_SMOKE_DOMAIN=qualification.example.com -i hosting-ui \
+  node < scripts/qualify-unprivileged-panel.js
 ```
 
 The drill is hard-coded to that temporary hostname, refuses pre-existing state,
@@ -194,11 +195,36 @@ Source rollback and data rollback are different operations.
 
 ## Host Failover
 
+**WARNING: Do not run standby mutation commands like `docker compose restart`, `docker compose up`, or database migrations on a standby machine.** Standby machines must remain in a strict fail-closed state where services are only activated through the controlled promotion process.
+
+At standby panel startup, queued jobs outside the deep-verification allowlist
+are marked cancelled and retained as historical evidence. They are not resumed.
+
 Do not start a second writable stack for the same websites without first
 fencing the old primary. The supported baseline is manual recovery from
 replicated, verified backup sets. See
 [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md) for state ownership, RPO/RTO
 levels, promotion order, public traffic switching, validation, and failback.
+
+## Promotion Readiness Preflight
+
+Before beginning a promotion, use the non-mutating preflight from the panel
+Health tab or `GET /api/system/promotion-preflight`. It audits the standby
+without changing configuration, containers, DNS, databases, or ingress. Each
+check returns `pass`, `warning`, or `fail`; the aggregate `ready` flag is
+false when any check fails. Preflight checks include standby role, server
+configuration, backup inventory and freshness, per-site manifest coverage
+(version-2 manifests, website archives, and database dumps by site type),
+filesystem free space, required configuration key presence, Docker
+availability, and Cloudflare tunnel readiness. The preflight is a planning
+tool; actual promotion requires the runbook in
+[HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md).
+
+For rigorous testing, the **Deep verification** background job (`POST
+/api/system/deep-verify`) validates every set in the current receiver receipt.
+It streams SHA-256 hashes and checks archive/gzip integrity and safe tar entry
+types without loading archives into memory. Success writes mode-`0600`
+`deep-verify-state.json` bound to the exact receiver-receipt hash.
 
 ## Backup Verification
 
@@ -213,6 +239,25 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
+Daily backup retries are resumable by local calendar date. A complete version-2
+site set from that date is reused after a panel interruption instead of
+creating another multi-gigabyte archive. Application data is never skipped by
+this optimization: it is created last on every retry so its logical database
+snapshot is not older than the selected website files.
+
+App-data backup prepares NPM's Let's Encrypt tree through an exact allowlisted
+control-agent command and fails closed when any included file is unreadable.
+This prevents certificate links from being archived without their private-key
+targets. Do not bypass this failure with tar's `--ignore-failed-read`; correct
+the source permissions and create a fresh app-data set instead. Redis
+persistence and nginx cache directories are intentionally excluded because
+they contain rebuildable cache state, not recovery data.
+
+If deep verification rejects an older retained set, quarantine the whole set
+outside its website or `app-data` group and rerun reception to produce a new
+receipt. Never edit checksums or remove individual archive entries. Quarantine
+is not retention-managed and requires a later explicit cleanup decision.
+
 New site and app-data sets use manifest version 2 and record each artifact's
 byte length and SHA-256 digest. Restore verifies these values before extracting
 files or importing SQL. Existing version-1 sets remain structurally verifiable
@@ -222,6 +267,21 @@ Per-site restore uses a scoped MySQL client session that remains strict but
 omits `NO_ZERO_DATE` and `NO_ZERO_IN_DATE` so legacy WordPress/WooCommerce table
 defaults can be recreated. This does not alter the server's global SQL mode.
 Run `scripts/qualify-local-recovery.sh` after database or backup changes.
+
+For a standby backup receiver, run `scripts/receive-backups.sh --dry-run` first.
+It accepts a local source path or `user@host:/absolute/path`, retains sets
+independently per destination, reserves configurable free disk space, and
+promotes a transfer only after manifest, checksum, size, gzip, tar, and archive
+path checks pass. See `docs/HIGH_AVAILABILITY.md`; never point the receiver at a
+live MySQL data directory.
+
+`scripts/prepare-standby.sh` restores and validates a recovery point while
+leaving the machine fenced as `standby`. Only after the old primary is actually
+fenced may an operator run `scripts/promote-standby.sh --dry-run`, followed by
+its apply form with the exact recovery ID and both typed confirmations. That
+command activates the local runtime and changes the machine-local role, but it
+does not change DNS, Cloudflare, NPM host definitions, router forwarding, or
+tunnel website routes. Public ingress cutover is a separate reviewed step.
 
 ## Website Deletion
 

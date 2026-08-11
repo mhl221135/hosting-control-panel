@@ -52,13 +52,17 @@ function safeAdminDirectory(root, storefrontConfig) {
         || values.DIR_CATALOG
         || name.toLowerCase() === "admin";
     });
-  if (candidates.length !== 1) {
+  const conventional = candidates.filter((name) => name.toLowerCase() === "admin");
+  const selected = candidates.length === 1
+    ? candidates[0]
+    : conventional.length === 1 ? conventional[0] : "";
+  if (!selected) {
     throw new Error(candidates.length
       ? "OpenCart archive contains multiple possible admin directories"
       : "OpenCart admin config.php was not found");
   }
   if (!storefrontConfig.DB_DATABASE) throw new Error("OpenCart storefront config.php is missing DB_DATABASE");
-  return candidates[0];
+  return selected;
 }
 
 function inspectOpenCart(root) {
@@ -105,7 +109,9 @@ function directoryValues(root, applicationDirectory, adminDirectory = "") {
     DIR_IMAGE: `${normalizedRoot}image/`,
     DIR_STORAGE: storage,
     DIR_LANGUAGE: `${application}language/`,
-    DIR_TEMPLATE: `${application}view/template/`,
+    DIR_TEMPLATE: adminDirectory
+      ? `${application}view/template/`
+      : `${application}view/theme/`,
     DIR_CONFIG: `${normalizedRoot}system/config/`,
     DIR_CACHE: `${storage}cache/`,
     DIR_DOWNLOAD: `${storage}download/`,

@@ -55,6 +55,19 @@ test("detects OpenCart and its renamed admin directory", () => {
   }
 });
 
+test("prefers a conventional admin directory over a false config candidate", () => {
+  const root = fixture();
+  try {
+    fs.renameSync(path.join(root, "control"), path.join(root, "admin"));
+    fs.writeFileSync(path.join(root, "admin", "config.php"), config("/old/path", "admin", true));
+    fs.writeFileSync(path.join(root, "system", "config.php"), config("/old/path", "admin", true));
+    const result = inspectOpenCart(root);
+    assert.equal(result.adminDirectory, "admin");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rewrites OpenCart URLs, database credentials, and absolute paths", () => {
   const root = fixture();
   try {
@@ -70,9 +83,11 @@ test("rewrites OpenCart URLs, database credentials, and absolute paths", () => {
     assert.match(storefront, /define\('DB_DATABASE', 'shop_db'\)/);
     assert.match(storefront, /define\('DB_PASSWORD', 'a\\'password'\)/);
     assert.match(storefront, /\/var\/www\/shop\.example\.com\/catalog\//);
+    assert.match(storefront, /define\('DIR_TEMPLATE', '\/var\/www\/shop\.example\.com\/catalog\/view\/theme\/'\)/);
     assert.match(admin, /https:\/\/shop\.example\.com\/control\//);
     assert.match(admin, /define\('HTTP_CATALOG', 'https:\/\/shop\.example\.com\/'\)/);
     assert.match(admin, /define\('DIR_CATALOG', '\/var\/www\/shop\.example\.com\/catalog\/'\)/);
+    assert.match(admin, /define\('DIR_TEMPLATE', '\/var\/www\/shop\.example\.com\/control\/view\/template\/'\)/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -1,0 +1,23 @@
+[Unit]
+Description=Receive and verify hosting backup sets from the primary
+After=network-online.target
+Wants=network-online.target
+OnSuccess=hosting-backup-deep-verify.service
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /media/ssdmount/websites-v2/sources/scripts/receive-backups.sh --source backup-reader@primary.internal:/srv/hosting-backups --destination /ssdmount/websites-v2/backups --retention 2 --reserve-gb 20 --source-server-id primary-1 --ssh-option -i --ssh-option /etc/hosting-control/ssh/backup-pull-ed25519 --ssh-option -o --ssh-option IdentitiesOnly=yes --ssh-option -o --ssh-option UserKnownHostsFile=/etc/hosting-control/ssh/known_hosts --ssh-option -o --ssh-option StrictHostKeyChecking=yes
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RuntimeDirectory=hosting-backup-receiver
+RuntimeDirectoryMode=0700
+ReadWritePaths=/ssdmount/websites-v2/backups
+
+[Install]
+WantedBy=multi-user.target

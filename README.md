@@ -307,6 +307,13 @@ read-only `hosting-ui`; writable and public services remain stopped. Replacing
 replicated `.env` or application data cannot promote the machine. Standby panel
 state is stored separately in `/etc/hosting-control/ui-data`.
 
+For a dedicated outbound Cloudflare Tunnel, set
+`HOSTING_TUNNEL_ENABLED=true`, configure `HOSTING_TUNNEL_TOKEN_FILE`, and
+provision that non-replicated token file with mode `0400` for uid/gid `65532`.
+The optional `hosting-cloudflared` container joins only `hosting-net`, exposes
+no host ports, and can reach service origins by container name. Do not store
+the tunnel token in `.env` or run a second connector for the same tunnel.
+
 ## Upgrade
 
 Upgrade an existing installation without replacing persistent data, websites,
@@ -563,6 +570,11 @@ The default profile targets a 16 GB Orange Pi 5:
 These values are editable in **Settings → Performance**. Do not deploy this
 profile unchanged on the current 2 GB OPI3 test host.
 
+Smaller standby hosts use machine-local Compose overrides for MySQL and Redis
+and may set `PHP_GLOBAL_INI_PATH` to a non-replicated global PHP configuration.
+The documented 8 GB standby baseline is 1 GB MySQL, 256 MB Redis, and 2 GB
+OPcache; it remains stopped until controlled promotion.
+
 ## Backups
 
 The host backup location is configured by `BACKUPS_DIR` in `.env`. It defaults
@@ -621,6 +633,8 @@ Image optimization uses the same `server-heavy` job conflict as backups, so
 archive compression and ImageMagick cannot saturate storage and CPU at the same time.
 Backup archives run with reduced CPU and I/O priority and omit transient WebP
 optimizer files.
+SHA-256 is calculated while each compressed archive is written, avoiding a
+second full read of multi-gigabyte website and application-data archives.
 
 ### Encrypted Off-Site Copies
 
@@ -893,6 +907,20 @@ not invoked or modified by this panel.
 - [docs/BILLING_PILOT_RUNBOOK.md](docs/BILLING_PILOT_RUNBOOK.md): safe payment and enforcement qualification
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): environment and persistent state
 - [docs/HIGH_AVAILABILITY.md](docs/HIGH_AVAILABILITY.md): primary/standby design and manual failover runbook
+- `scripts/receive-backups.sh`: staged, checksum-verified standby backup reception anchored to a coherent app-data cutoff, with independent retention and disk reserve
+- `scripts/prepare-standby.sh`: guarded restore of received sets into a fenced, non-public standby
+- `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
+- `scripts/tunnel-cutover.sh`: preview, apply, or roll back an explicit Cloudflare Tunnel hostname/DNS cutover after local promotion
+- `scripts/revert-standby-drill.sh`: return a no-write, rolled-back failover drill to a fenced standby; never use after public writes
+
+Successful reception records a bounded source identity and the exact retained
+set manifests in `receiver-state.json`. The standby Health view provides a
+quick receipt-bound readiness preflight and a cancellable deep-verification job.
+The example systemd receiver automatically starts deep verification as a
+separate low-priority service after each successful receive. When verification
+passes, a second guarded service refreshes the fenced standby from that exact
+recovery point. Its bounded progress receipt is shown in the standby Replication
+view. Neither service promotes the machine or switches public traffic.
 - [docs/API.md](docs/API.md): authenticated panel API route index
 - [docs/OPERATIONS.md](docs/OPERATIONS.md): deployment, rollback, and diagnostics
 - [docs/WORDPRESS_UPDATES.md](docs/WORDPRESS_UPDATES.md): controlled update and rollback workflow
