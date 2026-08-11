@@ -202,6 +202,15 @@ management-token file, and explicit confirmation that the old primary was
 externally fenced. See `docs/HIGH_AVAILABILITY.md` for the complete command and
 rollback boundaries.
 
+## Unmatched Public Requests
+
+The custom NPM image drops unmatched HTTP requests with nginx status `444` and
+rejects unmatched HTTPS handshakes. Direct-IP requests and unknown `Host`
+headers therefore do not expose NPM's bundled welcome page. The fallback HTTP
+server retains only the standard `/.well-known/acme-challenge/` location needed
+for HTTP-01 certificate issuance. Configured proxy hosts continue to use their
+generated NPM server blocks.
+
 **WARNING: Do not run standby mutation commands like `docker compose restart`, `docker compose up`, or database migrations on a standby machine.** Standby machines must remain in a strict fail-closed state where services are only activated through the controlled promotion process.
 
 At standby panel startup, queued jobs outside the deep-verification allowlist

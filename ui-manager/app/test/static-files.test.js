@@ -299,6 +299,18 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.doesNotMatch(script, /OLD-PRIMARY-FENCED.*=.*true/);
 });
 
+test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {
+  const dockerfile = fs.readFileSync(path.resolve(__dirname, "../../../npm-custom/Dockerfile"), "utf8");
+  const fallback = fs.readFileSync(path.resolve(__dirname, "../../../npm-custom/default.conf"), "utf8");
+  assert.match(dockerfile, /COPY default\.conf \/etc\/nginx\/conf\.d\/default\.conf/);
+  assert.match(fallback, /listen 80 default_server;/);
+  assert.match(fallback, /listen 443 default_server ssl;/);
+  assert.match(fallback, /include conf\.d\/include\/letsencrypt-acme-challenge\.conf;/);
+  assert.match(fallback, /location \/ \{[\s\S]+return 444;/);
+  assert.match(fallback, /ssl_reject_handshake on;/);
+  assert.doesNotMatch(fallback, /root \/var\/www\/html|index index\.html/);
+});
+
 test("deep backup verification has a standby-only operator CLI", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../cli/deep-verify.js"), "utf8");
   assert.match(source, /marker\?\.version === 1 && marker\?\.role === "standby"/);
