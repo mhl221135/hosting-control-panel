@@ -26,5 +26,6 @@ TimeoutStartSec=infinity
 WantedBy=multi-user.target
 EOF
 systemctl daemon-reload
-systemctl enable --now "$unit.service"
+systemctl enable "$unit.service"
+systemctl start --no-block "$unit.service"
 printf 'Warm-sync finalizer installed in %s mode.\n' "$role"
