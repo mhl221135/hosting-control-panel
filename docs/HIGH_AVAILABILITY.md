@@ -415,6 +415,18 @@ promotion/failover inventory markers without changing files, databases,
 services, role, DNS, or tunnel routes. `prepare-standby.sh` remains the slower
 archive-based disaster-recovery workflow.
 
+For the initial multi-hour baseline, install the resumable one-shot finalizer
+on each side. It survives reboot and never promotes or changes public traffic:
+
+```bash
+sudo ./scripts/install-warm-sync-finalizer.sh --source   # primary only
+sudo ./scripts/install-warm-sync-finalizer.sh --standby  # standby only
+```
+
+The source publishes a release-bound completion marker only after its index is
+idle and error-free. The standby then reverts stale receive-only drift to that
+authoritative index, waits for exact zero backlog, and runs warm preparation.
+
 1. Install or check out the recorded source commit on the standby.
 2. Keep the Compose stack stopped.
 3. Restore `app-data.tar.gz` into an empty `app-data` directory. It contains
