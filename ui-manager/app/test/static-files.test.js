@@ -35,6 +35,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
+  assert.doesNotMatch(dump, /gsub\([^\n]*\\"/);
   assert.match(warmPrepare, /check-sync-ready\.sh/);
   assert.match(warmPrepare, /restore-replication-dump\.sh" --verify/);
   assert.match(warmPrepare, /mode:"warm-sync"/);
