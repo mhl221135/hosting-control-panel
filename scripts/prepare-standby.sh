@@ -171,8 +171,8 @@ cleanup() {
     rm -rf "$root/app-data" "$root/websites"
     [ -z "$previous_app" ] || mv "$previous_app" "$root/app-data"
     [ -z "$previous_websites" ] || mv "$previous_websites" "$root/websites"
-    start_control_services >/dev/null 2>&1 || true
   fi
+  [ "$status" -eq 0 ] || start_control_services >/dev/null 2>&1 || true
   [ -z "$stage" ] || rm -rf "$stage"
   rm -f "$selection"
   exit "$status"
@@ -220,7 +220,7 @@ jq -e --arg receiver_sha "$receiver_sha" '
   || { printf 'Deep verification is missing, invalid, or stale for the current receiver receipt.\n' >&2; exit 1; }
 deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
 
-unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared)$/ { print }')"
+unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are running: %s\n' "$unexpected" >&2; exit 1; }
 
 available_kb="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
@@ -244,11 +244,13 @@ chown -R 33:33 "$stage/app-data" "$stage/websites"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 previous_app="$root/.standby-previous-app-data-$stamp"
 previous_websites="$root/.standby-previous-websites-$stamp"
-compose stop hosting-ui >/dev/null 2>&1 || true
+compose stop hosting-ui hosting-sync >/dev/null 2>&1 || true
 [ ! -e "$root/app-data" ] || mv "$root/app-data" "$previous_app"
 [ ! -e "$root/websites" ] || mv "$root/websites" "$previous_websites"
 mv "$stage/app-data" "$root/app-data"
 mv "$stage/websites" "$root/websites"
+mkdir -p "$root/websites/.stfolder" "$root/app-data/configs/.stfolder"
+chown 33:33 "$root/websites/.stfolder" "$root/app-data/configs/.stfolder"
 swapped=1
 
 compose up -d hosting-db
