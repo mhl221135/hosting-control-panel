@@ -4,6 +4,8 @@
 (?d)**/wp-content/upgrade
 (?d)**/wp-content/upgrade/**
 (?d)**/wp-content/debug.log
+(?d)**/wp-content/uploads/sb-instagram-feed-images
+(?d)**/wp-content/uploads/sb-instagram-feed-images/**
 (?d)**/error_log
 (?d)**/*.log
 (?d)**/system/storage/cache
