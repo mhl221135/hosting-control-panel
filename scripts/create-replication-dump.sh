@@ -45,6 +45,7 @@ jq -n --arg id "$id" --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{version:1,id:$id,createdAt:$created_at,artifact:"all-databases.sql.gz",size:$size,sha256:$sha256}' \
   > "$partial/manifest.json"
 chmod 640 "$partial/all-databases.sql.gz" "$partial/manifest.json"
+chown -R 33:33 "$partial"
 mv "$partial" "$complete"
 trap - EXIT HUP INT TERM
 
