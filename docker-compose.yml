@@ -21,7 +21,7 @@ services:
     networks:
       - hosting-net
     healthcheck:
-      test: ["CMD", "syncthing", "cli", "show", "system"]
+      test: ["CMD-SHELL", "key=$$(sed -n 's:.*<apikey>\\(.*\\)</apikey>.*:\\1:p' /var/syncthing/config/config.xml); syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey=$$key show system >/dev/null"]
       interval: 30s
       timeout: 10s
       retries: 5

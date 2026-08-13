@@ -41,14 +41,21 @@ done
 cd "$project_dir"
 docker compose up -d hosting-sync
 
+sync_cli() {
+  docker exec hosting-sync sh -c '
+    key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
+    exec syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey="$key" "$@"
+  ' sh "$@"
+}
+
 for _ in $(seq 1 60); do
-  docker exec hosting-sync syncthing cli show system >/dev/null 2>&1 && break
+  sync_cli show system >/dev/null 2>&1 && break
   sleep 2
 done
-docker exec hosting-sync syncthing cli show system >/dev/null 2>&1 \
+sync_cli show system >/dev/null 2>&1 \
   || { printf 'hosting-sync did not become ready.\n' >&2; exit 1; }
 
-device_id="$(docker exec hosting-sync syncthing cli show system | jq -er .myID)"
+device_id="$(sync_cli show system | jq -er .myID)"
 if [ "$show_id" -eq 1 ] && [ -z "$peer_id" ]; then
   printf '%s\n' "$device_id"
   exit 0
@@ -64,8 +71,8 @@ case "$peer_address" in ''|tcp://*:[0-9]*) ;; *) printf 'Peer address is invalid
 
 addresses="dynamic"
 [ -z "$peer_address" ] || addresses="$peer_address,dynamic"
-if ! docker exec hosting-sync syncthing cli config devices "$peer_id" dump >/dev/null 2>&1; then
-  docker exec hosting-sync syncthing cli config devices add \
+if ! sync_cli config devices "$peer_id" dump >/dev/null 2>&1; then
+  sync_cli config devices add \
     --device-id "$peer_id" --name "$peer_name" --addresses "$addresses"
 fi
 
@@ -73,13 +80,13 @@ configure_folder() {
   id="$1"
   label="$2"
   folder_path="$3"
-  if ! docker exec hosting-sync syncthing cli config folders "$id" dump >/dev/null 2>&1; then
-    docker exec hosting-sync syncthing cli config folders add \
+  if ! sync_cli config folders "$id" dump >/dev/null 2>&1; then
+    sync_cli config folders add \
       --id "$id" --label "$label" --path "$folder_path" --type "$mode" \
       --rescan-intervals 3600 --fswatcher-enabled --fswatcher-delays 2
   fi
-  if ! docker exec hosting-sync syncthing cli config folders "$id" devices "$peer_id" dump >/dev/null 2>&1; then
-    docker exec hosting-sync syncthing cli config folders "$id" devices add --device-id "$peer_id"
+  if ! sync_cli config folders "$id" devices "$peer_id" dump >/dev/null 2>&1; then
+    sync_cli config folders "$id" devices add --device-id "$peer_id"
   fi
 }
 
@@ -87,5 +94,5 @@ configure_folder hosting-websites "Hosting websites" /var/syncthing/websites
 configure_folder hosting-runtime-config "Hosting runtime config" /var/syncthing/runtime-config
 configure_folder hosting-db-recovery "Hosting database recovery" /var/syncthing/replication
 
-docker exec hosting-sync syncthing cli operations restart >/dev/null
+sync_cli operations restart >/dev/null
 printf 'Configured hosting-sync as %s. Device ID: %s\n' "$mode" "$device_id"
