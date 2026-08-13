@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -10,13 +10,19 @@ const SCRIPT = path.resolve(__dirname, "../../../scripts/generate-failover-hosts
 function fixture(content) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "failover-hosts-"));
   const sitesMap = path.join(directory, "sites.map");
+  const websitesRoot = path.join(directory, "websites");
   const output = path.join(directory, "candidates.txt");
+  fs.mkdirSync(websitesRoot);
   fs.writeFileSync(sitesMap, content);
-  return { directory, sitesMap, output };
+  return { directory, sitesMap, websitesRoot, output };
 }
 
 function run(files) {
-  return execFileSync(SCRIPT, ["--sites-map", files.sitesMap, "--output", files.output], {
+  return execFileSync(SCRIPT, [
+    "--sites-map", files.sitesMap,
+    "--websites-root", files.websitesRoot,
+    "--output", files.output,
+  ], {
     encoding: "utf8",
   });
 }
@@ -34,6 +40,8 @@ map $host $php_upstream {
   default hosting-php-fpm:9000;
 }
 `);
+  fs.mkdirSync(path.join(files.websitesRoot, "example.com"));
+  fs.mkdirSync(path.join(files.websitesRoot, "shop.example.net"));
   t.after(() => fs.rmSync(files.directory, { recursive: true, force: true }));
   assert.match(run(files), /Generated 3 failover hostname candidates/);
   assert.equal(fs.readFileSync(files.output, "utf8"), "example.com\nshop.example.net\nwww.example.com\n");
@@ -59,6 +67,26 @@ test("rejects unsafe roots and malformed site map entries", (t) => {
   assert.throws(() => run(malformed), /Command failed/);
   assert.equal(fs.existsSync(unsafe.output), false);
   assert.equal(fs.existsSync(malformed.output), false);
+});
+
+test("rejects mapped roots that were not restored", (t) => {
+  const files = fixture(`map $host $site_root {
+  default /var/www/_default;
+  example.com /var/www/example.com;
+  missing.example.net /var/www/missing.example.net;
+}
+`);
+  t.after(() => fs.rmSync(files.directory, { recursive: true, force: true }));
+  const result = spawnSync(SCRIPT, [
+    "--sites-map", files.sitesMap,
+    "--websites-root", files.websitesRoot,
+    "--output", files.output,
+  ], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Mapped website directories are unavailable/);
+  assert.match(result.stderr, /example\.com/);
+  assert.match(result.stderr, /missing\.example\.net/);
+  assert.equal(fs.existsSync(files.output), false);
 });
 
 test("rejects a missing root map and symlink paths", (t) => {

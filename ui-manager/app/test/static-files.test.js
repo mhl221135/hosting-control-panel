@@ -307,6 +307,7 @@ test("standby preparation generates a review-bound failover hostname inventory",
   assert.match(generator, /site_root/);
   assert.match(generator, /LC_ALL=C sort -u/);
   assert.match(generator, /\/var\\\/www/);
+  assert.match(generator, /Mapped website directories are unavailable/);
   assert.match(generator, /chmod 600 "\$temporary"/);
   assert.match(review, /Candidate inventory is stale or invalid/);
   assert.match(review, /--confirm ACCEPT-FAILOVER-HOSTS/);

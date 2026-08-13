@@ -276,6 +276,7 @@ candidate_stage="$stage/failover-hosts.candidates.txt"
 candidate_metadata_stage="$stage/failover-hosts.candidates.json"
 "$project_dir/scripts/generate-failover-hosts.sh" \
   --sites-map "$root/app-data/configs/nginx/conf.d/sites.map" \
+  --websites-root "$root/websites" \
   --output "$candidate_stage"
 candidate_count="$(wc -l < "$candidate_stage" | tr -d ' ')"
 candidate_sha="$(sha256sum "$candidate_stage" | awk '{print $1}')"
