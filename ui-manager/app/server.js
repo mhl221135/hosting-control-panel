@@ -42,6 +42,7 @@ const { PanelMetadataStore } = require("./lib/panel-metadata-store");
 const { runPreflight } = require("./lib/promotion-preflight");
 const { readPromotionState } = require("./lib/promotion-state");
 const { DeepVerifyManager } = require("./lib/deep-verify-manager");
+const { WarmReplicationStatus } = require("./lib/warm-replication-status");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -176,6 +177,7 @@ function installationView(ingressMode = panelMeta.read().ingressMode) {
   };
 }
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
+const warmReplicationStatus = new WarmReplicationStatus();
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -1933,6 +1935,10 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       },
     });
     sendJson(res, 200, { ok: true, ...result });
+    return true;
+  }
+  if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/replication-status") {
+    sendJson(res, 200, { ok: true, replication: await warmReplicationStatus.read() }, { "Cache-Control": "no-store" });
     return true;
   }
   const requestUrl = new URL(req.url, "http://ui-manager.local");

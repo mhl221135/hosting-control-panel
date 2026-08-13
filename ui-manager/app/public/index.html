@@ -190,6 +190,11 @@
 
         <section class="tab-panel hidden" data-tab-panel="replication">
           <div class="section-head"><div><h2>Standby replication</h2><p>Received recovery points and non-mutating promotion readiness.</p></div></div>
+          <article class="panel">
+            <div class="card-head"><div><h3>Warm replication</h3><p class="muted">Live one-way file/config state and the latest hourly database recovery point.</p></div><button id="refreshWarmReplication" class="secondary" type="button">Refresh</button></div>
+            <div class="metrics standby-replication-metrics"><article><span>Peer</span><strong id="warmPeer">-</strong></article><article><span>Websites needed</span><strong id="warmWebsiteNeed">-</strong></article><article><span>Replica-only</span><strong id="warmWebsiteDrift">-</strong></article><article><span>Runtime config</span><strong id="warmRuntime">-</strong></article><article><span>Database sync</span><strong id="warmDatabaseSync">-</strong></article><article><span>Recovery point</span><strong id="warmRecovery">-</strong></article></div>
+            <small id="warmReplicationUpdated" class="muted">Not checked.</small>
+          </article>
           <article id="promotionPreflightCard" class="panel">
             <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Checks do not promote the server or change files, databases, DNS, or public ingress.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
             <form id="standbyIngressForm" class="standby-ingress-form">

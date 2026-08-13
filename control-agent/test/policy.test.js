@@ -91,6 +91,20 @@ test("allows only the exact NPM certificate backup-readiness operation", () => {
 });
 
 test("allows standby read-only operations", () => {
+  const syncScript = 'key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"; exec wget -qO- --header="X-API-Key: $key" "http://127.0.0.1:8384$1"';
+  assert.doesNotThrow(() => validateArgs([
+    "exec", "hosting-sync", "sh", "-c", syncScript, "sh", "/rest/system/connections",
+  ]));
+  assert.doesNotThrow(() => validateArgs([
+    "exec", "hosting-sync", "sh", "-c", syncScript, "sh", "/rest/db/status?folder=hosting-websites",
+  ]));
+  assert.throws(() => validateArgs([
+    "exec", "hosting-sync", "sh", "-c", syncScript, "sh", "/rest/config",
+  ]), /not allowed/);
+  assert.throws(() => validateArgs([
+    "exec", "hosting-sync", "cat", "/var/syncthing/config/config.xml",
+  ]), /not allowed/);
+
   // Inspect tests
   assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State}}", "hosting-cloudflared"]));
   assert.doesNotThrow(() => validateArgs(["inspect", "--format", "{{json .State.Status}}", "hosting-db"]));

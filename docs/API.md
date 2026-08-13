@@ -29,6 +29,11 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   counts, app-data recovery identifier, oldest selected recovery-point age,
   and whether deep verification is current, stale, or missing. It contains no
   backup paths, site domains, credentials, or raw manifests.
+- `GET /api/system/replication-status` returns a bounded read-only warm-sync
+  snapshot: peer connectivity, backlog and exactness for the three
+  project-owned Syncthing folders, receive-only drift, and the age and size of
+  the latest hourly database recovery point. Peer addresses, API keys, paths,
+  hashes, and raw Syncthing responses are never returned.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact

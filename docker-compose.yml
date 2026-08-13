@@ -165,6 +165,7 @@ services:
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
       - ${EXPORTS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports}:/srv/exports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/imports:/srv/imports
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/replication:/srv/replication:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php

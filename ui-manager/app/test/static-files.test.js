@@ -116,6 +116,10 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(html, /id="preflightLastReceive"/);
   assert.match(html, /id="preflightReceiverState"/);
   assert.match(html, /id="preflightRecoveryAge"/);
+  assert.match(html, /id="refreshWarmReplication"/);
+  assert.match(html, /id="warmWebsiteNeed"/);
+  assert.match(source, /api\("\/api\/system\/replication-status"/);
+  assert.match(server, /warmReplicationStatus\.read\(\)/);
   assert.match(source, /replication\.estimatedDataLossHours/);
   assert.match(source, /replication\.receiverCompletedSets/);
   assert.match(source, /receiverPercent/);

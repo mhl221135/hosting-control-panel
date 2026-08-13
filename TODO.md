@@ -581,10 +581,10 @@ authority. Panel-based review remains future work.
 
 - Keep the implemented daily receiver recovery age clearly labeled as backup
   reception; never describe it as real-time or continuous synchronization.
-- Add panel status and lag reporting for the implemented project-owned
-  Syncthing warm path. Website files and runtime configuration synchronize
-  continuously one way; hourly logical database recovery points synchronize
-  independently of daily verified backups.
+- Extend the implemented panel status for the project-owned Syncthing warm
+  path with paired-server identity and historical lag alerts. Current status
+  reports peer connectivity, per-folder backlog/exactness, receive-only drift,
+  and hourly database recovery-point age.
 - The implemented database path intentionally uses hourly logical snapshots,
   not live MySQL file copying or GTID replication. Reconsider GTID only if the
   measured hourly recovery-point objective later proves insufficient.

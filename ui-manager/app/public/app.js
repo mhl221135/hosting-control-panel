@@ -571,8 +571,30 @@ async function loadHealth() {
 }
 
 async function loadPreflight() {
-  const data = await api("/api/system/promotion-preflight");
+  const [data] = await Promise.all([
+    api("/api/system/promotion-preflight"),
+    loadWarmReplication(),
+  ]);
   renderPreflight(data);
+}
+
+async function loadWarmReplication() {
+  const data = await api("/api/system/replication-status");
+  const replication = data.replication || {};
+  const folders = new Map((replication.folders || []).map((folder) => [folder.id, folder]));
+  const websites = folders.get("hosting-websites") || {};
+  const runtime = folders.get("hosting-runtime-config") || {};
+  const database = folders.get("hosting-db-recovery") || {};
+  const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
+  $("#warmPeer").textContent = replication.available ? (replication.peerConnected ? "Connected" : "Disconnected") : "Unavailable";
+  $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
+  $("#warmWebsiteDrift").textContent = replication.available ? String(websites.receiveOnlyItems || 0) : "-";
+  $("#warmRuntime").textContent = replication.available ? (exact(runtime) ? "Exact" : runtime.state || "Pending") : "-";
+  $("#warmDatabaseSync").textContent = replication.available ? (exact(database) ? "Exact" : database.state || "Pending") : "-";
+  $("#warmRecovery").textContent = replication.recovery ? `${replication.recovery.ageMinutes} min ago` : "Unavailable";
+  $("#warmReplicationUpdated").textContent = replication.available
+    ? `Checked ${new Date(replication.checkedAt).toLocaleString()} · ${replication.exact ? "all folders exact" : "synchronization in progress"}`
+    : escapeHtml(replication.error || "Replication status unavailable");
 }
 
 function renderPreflight(data) {
@@ -3570,6 +3592,10 @@ $("#applyPoolPresets").addEventListener("click", async (event) => {
 
 $("#refreshPreflight").addEventListener("click", async (event) => {
   await withButton(event.currentTarget, "Checking...", () => loadPreflight());
+});
+
+$("#refreshWarmReplication").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Checking...", () => loadWarmReplication());
 });
 
 $("#runDeepVerify").addEventListener("click", async (event) => {
