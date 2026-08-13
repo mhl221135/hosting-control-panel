@@ -7,6 +7,7 @@ services:
     ports:
       - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/tcp"
       - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/udp"
+      - "${SYNC_GUI_LISTEN_IP:-127.0.0.1}:${SYNC_GUI_PORT:-8834}:8384/tcp"
     volumes:
       - ${SYNC_CONFIG_DIR:-${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}/syncthing}:/var/syncthing/config
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/syncthing/websites
