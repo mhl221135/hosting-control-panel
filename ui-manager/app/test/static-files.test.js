@@ -64,6 +64,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /SELECT COUNT\(\*\) FROM information_schema\.tables/);
   assert.doesNotMatch(prepare, /mysqlcheck/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
+  assert.match(prepare, /generate-failover-hosts\.sh/);
+  assert.match(prepare, /failover-hosts\.candidates\.json/);
   assert.match(prepare, /rmdir "\$stage"[\s\S]+stage=""/);
   assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
@@ -297,6 +299,21 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(script, /token_owner" = 0/);
   assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
   assert.doesNotMatch(script, /OLD-PRIMARY-FENCED.*=.*true/);
+});
+
+test("standby preparation generates a review-bound failover hostname inventory", () => {
+  const generator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/generate-failover-hosts.sh"), "utf8");
+  const review = fs.readFileSync(path.resolve(__dirname, "../../../scripts/review-failover-hosts.sh"), "utf8");
+  assert.match(generator, /site_root/);
+  assert.match(generator, /LC_ALL=C sort -u/);
+  assert.match(generator, /\/var\\\/www/);
+  assert.match(generator, /chmod 600 "\$temporary"/);
+  assert.match(review, /Candidate inventory is stale or invalid/);
+  assert.match(review, /--confirm ACCEPT-FAILOVER-HOSTS/);
+  assert.match(review, /--recovery-id/);
+  assert.match(review, /comm -13/);
+  assert.match(review, /comm -23/);
+  assert.doesNotMatch(review, /cloudflare|dns_records|docker compose/);
 });
 
 test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {

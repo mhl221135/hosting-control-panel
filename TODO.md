@@ -500,6 +500,12 @@ guarded no-write drill reversion command is also implemented. Panel controls,
 route qualification, automatic public verification,
 pairing, and automatic failover remain future work.
 
+Successful preparation now generates a sorted, recovery-hash-bound candidate
+inventory from the restored routing map. A separate preview/typed-confirmation
+command promotes reviewed candidates to the active failover allowlist, so new
+sites are discovered automatically without silently gaining DNS cutover
+authority. Panel-based review remains future work.
+
 ### Roles And Pairing
 
 - Extend the implemented `standalone`, `primary`, and `standby` installation

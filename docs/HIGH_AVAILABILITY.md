@@ -337,6 +337,24 @@ tunnel-cutover implementations. It does not infer fencing. If the Cloudflare
 step fails, its transaction attempts to restore DNS and tunnel configuration;
 the locally promoted server stays isolated for operator inspection.
 
+Each successful standby preparation derives every website hostname and alias
+from the restored `sites.map` and writes a mode-`0600`, recovery-bound candidate
+inventory at `/etc/hosting-control/failover-hosts.candidates.txt`. Newly backed
+up websites therefore appear automatically, but they are not automatically
+authorized for public cutover. Review the exact additions and removals, then
+accept them for the displayed recovery point:
+
+```bash
+sudo ./scripts/review-failover-hosts.sh --preview
+sudo ./scripts/review-failover-hosts.sh --apply \
+  --recovery-id 2026-01-01T00-00-00Z \
+  --confirm ACCEPT-FAILOVER-HOSTS
+```
+
+Apply atomically updates `/etc/hosting-control/failover-hosts.txt`. It does not
+change DNS, tunnel routes, containers, or machine role. Use that reviewed file
+as `activate-standby.sh --hosts-file` only after the primary is fenced.
+
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 

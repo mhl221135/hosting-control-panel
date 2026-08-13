@@ -271,14 +271,25 @@ database_started=0
 # controlled promotion would start.
 compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx >/dev/null
 
+source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
+candidate_stage="$stage/failover-hosts.candidates.txt"
+candidate_metadata_stage="$stage/failover-hosts.candidates.json"
+"$project_dir/scripts/generate-failover-hosts.sh" \
+  --sites-map "$root/app-data/configs/nginx/conf.d/sites.map" \
+  --output "$candidate_stage"
+candidate_count="$(wc -l < "$candidate_stage" | tr -d ' ')"
+candidate_sha="$(sha256sum "$candidate_stage" | awk '{print $1}')"
+jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$app_id" \
+  --arg source_release "$source_release" --arg sha256 "$candidate_sha" --argjson count "$candidate_count" \
+  '{version:1,generated_at:$generated_at,recovery_id:$recovery_id,source_release:$source_release,
+    sha256:$sha256,count:$count}' > "$candidate_metadata_stage"
+chmod 600 "$candidate_metadata_stage"
+
 rm -rf "$previous_app" "$previous_websites"
 previous_app=""
 previous_websites=""
 swapped=0
-rmdir "$stage"
-stage=""
 
-source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
 temporary="$machine_state/standby-recovery.json.tmp.$$"
 jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
@@ -287,7 +298,11 @@ jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app
     source_release:$source_release, receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256}' > "$temporary"
 chmod 644 "$temporary"
+mv "$candidate_stage" "$machine_state/failover-hosts.candidates.txt"
+mv "$candidate_metadata_stage" "$machine_state/failover-hosts.candidates.json"
 mv "$temporary" "$machine_state/standby-recovery.json"
+rmdir "$stage"
+stage=""
 
 start_control_services
 printf 'Standby prepared at app-data recovery point %s. Role and public traffic were not changed.\n' "$app_id"

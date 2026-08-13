@@ -8,7 +8,7 @@ Usage: activate-standby.sh --preview|--apply [options]
 
 Options:
   --root PATH            Standby installation root
-  --hosts-file PATH      One production hostname per line
+  --hosts-file PATH      Reviewed production hostname allowlist
   --api-token-file PATH  Root-readable Cloudflare management token
   --recovery-id ID       Exact prepared recovery identifier
   --confirm TEXT         Required with --apply; must be ACTIVATE-STANDBY

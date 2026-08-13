@@ -202,6 +202,13 @@ management-token file, and explicit confirmation that the old primary was
 externally fenced. See `docs/HIGH_AVAILABILITY.md` for the complete command and
 rollback boundaries.
 
+Successful standby preparation refreshes a recovery-bound candidate hostname
+inventory without changing the active cutover allowlist. Run
+`scripts/review-failover-hosts.sh --preview`, inspect additions/removals, and
+accept it with the exact recovery ID before relying on newly provisioned sites
+during failover. The accepted file is
+`/etc/hosting-control/failover-hosts.txt`.
+
 ## Unmatched Public Requests
 
 The custom NPM image drops unmatched HTTP requests with nginx status `444` and
