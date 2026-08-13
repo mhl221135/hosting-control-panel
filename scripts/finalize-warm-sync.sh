@@ -12,7 +12,11 @@ case "$mode" in --source|--standby) ;; *) usage; exit 2 ;; esac
 [ -f "$env_file" ] || { printf 'Missing .env file.\n' >&2; exit 1; }
 
 env_value() {
-  awk -v key="$1" 'index($0,key "=")==1 { value=substr($0,length(key)+2); gsub(/^[\047\"]|[\047\"]$/, "", value); print value; exit }' "$env_file"
+  awk -v key="$1" 'index($0,key "=")==1 {
+    value=substr($0,length(key)+2)
+    if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) value=substr(value,2,length(value)-2)
+    print value; exit
+  }' "$env_file"
 }
 root="$(env_value HOSTING_ROOT)"
 root="${root:-/media/ssdmount/websites-v2}"
