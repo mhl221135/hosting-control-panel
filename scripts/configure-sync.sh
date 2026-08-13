@@ -69,23 +69,35 @@ esac
 case "$peer_name" in ''|*[!A-Za-z0-9._-]*) printf 'Peer name is invalid.\n' >&2; exit 2 ;; esac
 case "$peer_address" in ''|tcp://*:[0-9]*) ;; *) printf 'Peer address is invalid.\n' >&2; exit 2 ;; esac
 
-addresses="dynamic"
-[ -z "$peer_address" ] || addresses="$peer_address,dynamic"
-if ! sync_cli config devices "$peer_id" dump >/dev/null 2>&1; then
-  sync_cli config devices add \
-    --device-id "$peer_id" --name "$peer_name" --addresses "$addresses"
+if ! sync_cli config devices "$peer_id" dump-json >/dev/null 2>&1; then
+  if [ -n "$peer_address" ]; then
+    sync_cli config devices add --device-id "$peer_id" --name "$peer_name" \
+      --addresses "$peer_address" --addresses dynamic
+  else
+    sync_cli config devices add --device-id "$peer_id" --name "$peer_name" --addresses dynamic
+  fi
+else
+  first="${peer_address:-dynamic}"
+  sync_cli config devices "$peer_id" addresses 0 set "$first"
+  if [ -n "$peer_address" ]; then
+    if sync_cli config devices "$peer_id" addresses 1 get >/dev/null 2>&1; then
+      sync_cli config devices "$peer_id" addresses 1 set dynamic
+    else
+      sync_cli config devices "$peer_id" addresses add dynamic
+    fi
+  fi
 fi
 
 configure_folder() {
   id="$1"
   label="$2"
   folder_path="$3"
-  if ! sync_cli config folders "$id" dump >/dev/null 2>&1; then
+  if ! sync_cli config folders "$id" dump-json >/dev/null 2>&1; then
     sync_cli config folders add \
       --id "$id" --label "$label" --path "$folder_path" --type "$mode" \
       --rescan-intervals 3600 --fswatcher-enabled --fswatcher-delays 2
   fi
-  if ! sync_cli config folders "$id" devices "$peer_id" dump >/dev/null 2>&1; then
+  if ! sync_cli config folders "$id" devices "$peer_id" dump-json >/dev/null 2>&1; then
     sync_cli config folders "$id" devices add --device-id "$peer_id"
   fi
 }
