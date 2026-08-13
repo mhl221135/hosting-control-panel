@@ -42,7 +42,7 @@ size="$(stat -c %s "$partial/all-databases.sql.gz")"
 sha="$(sha256sum "$partial/all-databases.sql.gz" | awk '{print $1}')"
 jq -n --arg id "$id" --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg sha256 "$sha" --argjson size "$size" \
-  '{version:1,id:$id,createdAt:$created_at,artifact:"all-databases.sql.gz",size:$size,sha256:$sha}' \
+  '{version:1,id:$id,createdAt:$created_at,artifact:"all-databases.sql.gz",size:$size,sha256:$sha256}' \
   > "$partial/manifest.json"
 chmod 640 "$partial/all-databases.sql.gz" "$partial/manifest.json"
 mv "$partial" "$complete"
