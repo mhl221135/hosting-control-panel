@@ -8,6 +8,12 @@ continuous one-way website/runtime-config synchronization, and hourly logical
 database recovery points. Promotion is guarded and automatic outage detection
 remains pending; verified daily backups remain the disaster-recovery layer.
 
+The project-managed website `.stignore` excludes generated cache, log,
+temporary upgrade, and session paths. Website code, media uploads, plugins,
+themes, configuration, and other durable content remain synchronized. This
+keeps frequently changing runtime files from indefinitely delaying a zero-lag
+standby readiness result.
+
 Do not run two writable copies of the stack for the same websites. The panel,
 WordPress, NPM, MySQL, scheduled backups, and Cloudflare automation all mutate
 state. Concurrent primaries can diverge databases, issue conflicting

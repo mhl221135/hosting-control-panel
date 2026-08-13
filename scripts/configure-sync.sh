@@ -55,6 +55,18 @@ done
 sync_cli show system >/dev/null 2>&1 \
   || { printf 'hosting-sync did not become ready.\n' >&2; exit 1; }
 
+ignore_file="$project_dir/examples/syncthing-websites.stignore"
+[ -f "$ignore_file" ] || { printf 'Missing website sync ignore file.\n' >&2; exit 1; }
+docker exec -i hosting-sync sh -c '
+  set -eu
+  umask 027
+  temporary=/var/syncthing/websites/.stignore.tmp
+  trap '\''rm -f "$temporary"'\'' EXIT HUP INT TERM
+  cat > "$temporary"
+  mv "$temporary" /var/syncthing/websites/.stignore
+  trap - EXIT HUP INT TERM
+' < "$ignore_file"
+
 device_id="$(sync_cli show system | jq -er .myID)"
 if [ "$show_id" -eq 1 ] && [ -z "$peer_id" ]; then
   printf '%s\n' "$device_id"
