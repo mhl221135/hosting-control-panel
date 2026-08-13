@@ -16,7 +16,7 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    mem_limit: 512m
+    mem_limit: ${SYNC_MEMORY_LIMIT:-1g}
     cpus: 1.50
     networks:
       - hosting-net
