@@ -34,6 +34,14 @@ sync_status() {
   '
 }
 
+request_rescan() {
+  docker exec hosting-sync sh -c '
+    key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
+    exec wget -qO- --post-data="" --header="X-API-Key: $key" \
+      "http://127.0.0.1:8384/rest/db/scan?folder=hosting-websites"
+  ' >/dev/null
+}
+
 wait_for_idle() {
   allow_drift="$1"
   while :; do
@@ -43,6 +51,9 @@ wait_for_idle() {
       ($allow_drift or ((.receiveOnlyTotalItems // 0) == 0))
     ' >/dev/null; then
       return 0
+    fi
+    if printf '%s' "$status" | jq -e '.state == "idle" and .needTotalItems == 0 and .errors > 0' >/dev/null; then
+      request_rescan
     fi
     sleep 60
   done
