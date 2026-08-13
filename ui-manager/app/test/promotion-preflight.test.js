@@ -5,7 +5,19 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   appendContainerChecks, runPreflight, readSiteManifest, validateDeepVerifyProgress, validateReceiverProgress,
+  validateStandbyRecovery,
 } = require("../lib/promotion-preflight");
+
+test("accepts bounded warm-sync preparation markers without backup receipt hashes", () => {
+  const marker = {
+    version: 1, mode: "warm-sync", prepared_at: "2026-08-13T12:00:00Z",
+    app_data_id: "2026-08-13T11-57-11Z", database_recovery_id: "2026-08-13T11-57-11Z",
+    site_count: 50, source_release: "abcdef1",
+  };
+  assert.deepEqual(validateStandbyRecovery(marker), marker);
+  assert.equal(validateStandbyRecovery({ ...marker, database_recovery_id: "2026-08-13T11-00-00Z" }), null);
+  assert.equal(validateStandbyRecovery({ ...marker, token: "secret" }), null);
+});
 
 function makeBackup(root, domain, hasDb = true, ageHours = 1) {
   const now = new Date(Date.now() - ageHours * 3_600_000);

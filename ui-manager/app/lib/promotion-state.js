@@ -6,7 +6,7 @@ const RELEASE = /^[A-Za-z0-9._-]{1,128}$/;
 const KEYS = new Set([
   "version", "status", "promoted_at", "recovery_id", "source_release",
   "receiver_receipt_sha256", "deep_verification_sha256", "previous_role",
-  "public_ingress_cutover",
+  "database_recovery_id", "preparation_mode", "public_ingress_cutover",
 ]);
 
 function validatePromotionState(value) {
@@ -16,6 +16,8 @@ function validatePromotionState(value) {
   if (!Number.isFinite(Date.parse(value.promoted_at)) || !SET_ID.test(String(value.recovery_id || ""))) return null;
   if (!RELEASE.test(String(value.source_release || ""))) return null;
   if (!SHA256.test(String(value.receiver_receipt_sha256 || "")) || !SHA256.test(String(value.deep_verification_sha256 || ""))) return null;
+  if (value.database_recovery_id !== undefined && !SET_ID.test(String(value.database_recovery_id))) return null;
+  if (!["backup", "warm-sync"].includes(value.preparation_mode || "backup")) return null;
   if (typeof value.public_ingress_cutover !== "boolean") return null;
   return {
     status: value.status,

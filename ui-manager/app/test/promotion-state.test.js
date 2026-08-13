@@ -44,3 +44,13 @@ test("fails closed on absent or malformed promotion markers", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("accepts a bounded warm-sync promotion receipt", () => {
+  const state = {
+    ...validState(), preparation_mode: "warm-sync",
+    database_recovery_id: "2026-08-09T00-00-00Z",
+  };
+  assert.equal(validatePromotionState(state).status, "local-primary");
+  assert.equal(validatePromotionState({ ...state, preparation_mode: "unknown" }), null);
+  assert.equal(validatePromotionState({ ...state, database_recovery_id: "../db" }), null);
+});

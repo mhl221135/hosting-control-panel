@@ -26,7 +26,7 @@ const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt",
 const ARTIFACT_KEYS = new Set(["size", "sha256"]);
 const RECOVERY_KEYS = new Set([
   "version", "prepared_at", "app_data_id", "site_count", "source_release",
-  "receiver_receipt_sha256", "deep_verification_sha256",
+  "receiver_receipt_sha256", "deep_verification_sha256", "mode", "database_recovery_id",
 ]);
 
 function check(status, reason) {
@@ -163,7 +163,10 @@ function validateStandbyRecovery(value) {
   if (!SET_ID_PATTERN.test(String(value.app_data_id || ""))) return null;
   if (!Number.isInteger(value.site_count) || value.site_count < 0 || value.site_count > 5000) return null;
   if (typeof value.source_release !== "string" || !value.source_release || value.source_release.length > 128 || CONTROL_CHARS.test(value.source_release)) return null;
-  if (!HEX_SHA256.test(String(value.receiver_receipt_sha256 || "")) || !HEX_SHA256.test(String(value.deep_verification_sha256 || ""))) return null;
+  const mode = value.mode || "backup";
+  if (!["backup", "warm-sync"].includes(mode)) return null;
+  if (mode === "backup" && (!HEX_SHA256.test(String(value.receiver_receipt_sha256 || "")) || !HEX_SHA256.test(String(value.deep_verification_sha256 || "")))) return null;
+  if (mode === "warm-sync" && (!SET_ID_PATTERN.test(String(value.database_recovery_id || "")) || value.database_recovery_id !== value.app_data_id)) return null;
   return value;
 }
 
@@ -351,11 +354,13 @@ async function runPreflight(opts = {}) {
     const recoveryIssues = [];
     if (!recovery) recoveryIssues.push("no valid prepared recovery marker");
     else {
-      if (recovery.app_data_id !== appDataSet) recoveryIssues.push("app-data recovery point changed");
       if (recovery.site_count !== sites.length) recoveryIssues.push("configured website count changed");
-      if (recovery.receiver_receipt_sha256 !== receiptHash) recoveryIssues.push("receiver receipt changed");
-      const deepHash = fileSha256(path.join(backupsRoot, "deep-verify-state.json"));
-      if (!deepHash || recovery.deep_verification_sha256 !== deepHash) recoveryIssues.push("deep-verification result changed");
+      if ((recovery.mode || "backup") === "backup") {
+        if (recovery.app_data_id !== appDataSet) recoveryIssues.push("app-data recovery point changed");
+        if (recovery.receiver_receipt_sha256 !== receiptHash) recoveryIssues.push("receiver receipt changed");
+        const deepHash = fileSha256(path.join(backupsRoot, "deep-verify-state.json"));
+        if (!deepHash || recovery.deep_verification_sha256 !== deepHash) recoveryIssues.push("deep-verification result changed");
+      }
       let currentRelease = "";
       try { currentRelease = fs.readFileSync(path.join(sourcesRoot, ".source-release"), "utf8").trim(); } catch {}
       if (!currentRelease || recovery.source_release !== currentRelease) recoveryIssues.push("source release changed or is unavailable");

@@ -25,6 +25,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
   const promotion = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
   const dump = fs.readFileSync(path.resolve(__dirname, "../../../scripts/create-replication-dump.sh"), "utf8");
+  const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
   const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
   assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
   assert.match(syncService, /\/var\/syncthing\/websites/);
@@ -33,6 +34,11 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
+  assert.match(warmPrepare, /check-sync-ready\.sh/);
+  assert.match(warmPrepare, /restore-replication-dump\.sh" --verify/);
+  assert.match(warmPrepare, /mode:"warm-sync"/);
+  assert.doesNotMatch(warmPrepare, /tar -x/);
+  assert.doesNotMatch(warmPrepare, /docker compose up/);
   const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
   assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
   assert.match(automatic, /peer_connected/);

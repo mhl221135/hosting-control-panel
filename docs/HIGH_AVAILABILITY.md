@@ -401,6 +401,20 @@ even though it prints the full non-mutating plan for operator review.
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 
+For the normal warm-replica path, do not restore daily website archives over
+the synchronized tree. After all Syncthing folders report exact zero backlog
+and zero receive-only drift, prepare the synchronized state with:
+
+```bash
+sudo ./scripts/prepare-warm-standby.sh --dry-run
+sudo ./scripts/prepare-warm-standby.sh --apply --confirm PREPARE-WARM-STANDBY
+```
+
+This verifies the latest hourly logical database recovery point and writes the
+promotion/failover inventory markers without changing files, databases,
+services, role, DNS, or tunnel routes. `prepare-standby.sh` remains the slower
+archive-based disaster-recovery workflow.
+
 1. Install or check out the recorded source commit on the standby.
 2. Keep the Compose stack stopped.
 3. Restore `app-data.tar.gz` into an empty `app-data` directory. It contains

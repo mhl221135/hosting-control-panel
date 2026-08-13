@@ -86,28 +86,36 @@ fi
 jq -e '.version == 1 and .role == "standby" and (.server_id | type == "string") and (.server_id | length > 0)' \
   "$role_marker" >/dev/null || { printf 'This machine is not an authoritative standby.\n' >&2; exit 1; }
 jq -e '.version == 1 and (.app_data_id | type == "string") and (.site_count | type == "number") and
-  (.source_release | type == "string") and (.receiver_receipt_sha256 | type == "string") and
-  (.deep_verification_sha256 | type == "string")' "$recovery_marker" >/dev/null \
+  (.source_release | type == "string") and
+  (((.mode // "backup") == "backup" and (.receiver_receipt_sha256 | type == "string") and
+    (.deep_verification_sha256 | type == "string")) or
+   (.mode == "warm-sync" and .database_recovery_id == .app_data_id))' "$recovery_marker" >/dev/null \
   || { printf 'Prepared recovery marker is invalid.\n' >&2; exit 1; }
 
 prepared_id="$(jq -r .app_data_id "$recovery_marker")"
+preparation_mode="$(jq -r '.mode // "backup"' "$recovery_marker")"
 case "$prepared_id" in ????-??-??T??-??-??Z) ;; *) printf 'Prepared recovery identifier is invalid.\n' >&2; exit 1 ;; esac
 [ -z "$recovery_id" ] || [ "$recovery_id" = "$prepared_id" ] \
   || { printf 'Requested recovery identifier does not match prepared recovery %s.\n' "$prepared_id" >&2; exit 1; }
 
-receiver_receipt="$backups/receiver-state.json"
-deep_receipt="$backups/deep-verify-state.json"
-[ -f "$receiver_receipt" ] && [ -f "$deep_receipt" ] \
-  || { printf 'Receiver and deep-verification receipts are required.\n' >&2; exit 1; }
-receiver_sha="$(sha256sum "$receiver_receipt" | awk '{print $1}')"
-deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
-[ "$receiver_sha" = "$(jq -r .receiver_receipt_sha256 "$recovery_marker")" ] \
-  || { printf 'Receiver receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
-[ "$deep_sha" = "$(jq -r .deep_verification_sha256 "$recovery_marker")" ] \
-  || { printf 'Deep-verification receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
-jq -e --arg receiver_sha "$receiver_sha" '.version == 1 and .result == "success" and
-  .receiverReceiptSha256 == $receiver_sha and (.verifiedCount | type == "number") and .verifiedCount > 0' \
-  "$deep_receipt" >/dev/null || { printf 'Deep verification is invalid or stale.\n' >&2; exit 1; }
+zero_sha=0000000000000000000000000000000000000000000000000000000000000000
+receiver_sha="$(jq -r --arg fallback "$zero_sha" '.receiver_receipt_sha256 // $fallback' "$recovery_marker")"
+deep_sha="$(jq -r --arg fallback "$zero_sha" '.deep_verification_sha256 // $fallback' "$recovery_marker")"
+if [ "$preparation_mode" = backup ]; then
+  receiver_receipt="$backups/receiver-state.json"
+  deep_receipt="$backups/deep-verify-state.json"
+  [ -f "$receiver_receipt" ] && [ -f "$deep_receipt" ] \
+    || { printf 'Receiver and deep-verification receipts are required.\n' >&2; exit 1; }
+  receiver_sha="$(sha256sum "$receiver_receipt" | awk '{print $1}')"
+  deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
+  [ "$receiver_sha" = "$(jq -r .receiver_receipt_sha256 "$recovery_marker")" ] \
+    || { printf 'Receiver receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
+  [ "$deep_sha" = "$(jq -r .deep_verification_sha256 "$recovery_marker")" ] \
+    || { printf 'Deep-verification receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
+  jq -e --arg receiver_sha "$receiver_sha" '.version == 1 and .result == "success" and
+    .receiverReceiptSha256 == $receiver_sha and (.verifiedCount | type == "number") and .verifiedCount > 0' \
+    "$deep_receipt" >/dev/null || { printf 'Deep verification is invalid or stale.\n' >&2; exit 1; }
+fi
 
 source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
 prepared_release="$(jq -r .source_release "$recovery_marker")"
@@ -128,8 +136,8 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
 compose config --quiet
 "$project_dir/scripts/check-sync-ready.sh" >/dev/null
 replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
-printf 'Prepared recovery %s (%s sites) is bound to source %s.\n' \
-  "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
+printf 'Prepared %s recovery %s (%s sites) is bound to source %s.\n' \
+  "$preparation_mode" "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
 printf 'Latest synchronized database recovery point is %s.\n' "$replicated_db_id"
 
 if [ "$mode" = dry-run ]; then
@@ -221,10 +229,12 @@ promotion_tmp="$promotion_marker.tmp.$$"
 jq -n --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$prepared_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
   --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby --arg database_recovery_id "$replicated_db_id" \
+  --arg preparation_mode "$preparation_mode" \
   '{version:1,status:"local-primary",promoted_at:$promoted_at,recovery_id:$recovery_id,
     source_release:$source_release,receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256,previous_role:$previous_role,
-    database_recovery_id:$database_recovery_id,public_ingress_cutover:false}' > "$promotion_tmp"
+    database_recovery_id:$database_recovery_id,preparation_mode:$preparation_mode,
+    public_ingress_cutover:false}' > "$promotion_tmp"
 chmod 644 "$promotion_tmp"
 mv "$promotion_tmp" "$promotion_marker"
 
