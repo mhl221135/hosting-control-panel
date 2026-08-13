@@ -560,9 +560,10 @@ authority. Panel-based review remains future work.
 - Do not mirror backup deletions. The replica receives only completed sets into
   staging, verifies manifests/checksums/archive integrity, atomically promotes
   them, and applies its own retention after a newer usable set exists.
-- Add role-specific performance profiles and explicit overrides. An 8 GB
-  standby must not inherit the 16 GB primary's MySQL, Redis, OPcache, PHP-FPM,
-  or cache settings.
+- Extend the installed role-specific performance defaults with panel-managed,
+  previewable overrides. Fresh 8 GB standbys now receive conservative MySQL,
+  Redis, and machine-local OPcache defaults and do not inherit the primary's
+  capacity assumptions.
 - While in standby mode, run only replication, verification, health, and the
   minimum internal services required for readiness. Redis and FastCGI cache are
   disposable and should remain empty; PHP/public nginx may remain stopped until

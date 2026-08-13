@@ -126,8 +126,12 @@ tunnel_enabled="$(env_value HOSTING_TUNNEL_ENABLED)"
 tunnel_enabled="${tunnel_enabled:-false}"
 tunnel_token_file="$(env_value HOSTING_TUNNEL_TOKEN_FILE)"
 tunnel_token_file="${tunnel_token_file:-/etc/hosting-control/cloudflared-hosting.token}"
+php_global_ini_path="$(env_value PHP_GLOBAL_INI_PATH)"
 
 case "$installation_role" in standalone|primary|standby) ;; *) echo "INSTALLATION_ROLE is invalid." >&2; exit 1 ;; esac
+if [ -n "$php_global_ini_path" ]; then
+  case "$php_global_ini_path" in /*) ;; *) echo "PHP_GLOBAL_INI_PATH must be absolute." >&2; exit 1 ;; esac
+fi
 case "$tunnel_enabled" in true|false) ;; *) echo "HOSTING_TUNNEL_ENABLED must be true or false." >&2; exit 1 ;; esac
 if [ "$tunnel_enabled" = true ]; then
   [ -f "$tunnel_token_file" ] || { echo "Hosting tunnel token file does not exist: $tunnel_token_file" >&2; exit 1; }
@@ -251,6 +255,13 @@ initialize_config "$project_dir/global-configs-new-upd/nginx" "$hosting_root/app
 initialize_config "$project_dir/global-configs-new-upd/php-fpm" "$hosting_root/app-data/configs/php-fpm" "php-fpm.conf"
 initialize_config "$project_dir/global-configs-new-upd/php" "$hosting_root/app-data/configs/php" "global.ini"
 initialize_config "$project_dir/global-configs-new-upd/wp" "$hosting_root/app-data/configs/wp" "wp-global.php"
+
+if [ -n "$php_global_ini_path" ] && [ ! -e "$php_global_ini_path" ]; then
+  mkdir -p "$(dirname -- "$php_global_ini_path")"
+  cp "$project_dir/global-configs-new-upd/php/global.ini" "$php_global_ini_path"
+  chown 33:33 "$php_global_ini_path"
+  chmod 640 "$php_global_ini_path"
+fi
 
 php_fpm_config="$hosting_root/app-data/configs/php-fpm/php-fpm.conf"
 if ! grep -qxF 'include=/runtime-php-fpm/pools.conf' "$php_fpm_config"; then

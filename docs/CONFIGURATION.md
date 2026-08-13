@@ -222,6 +222,10 @@ cutover. Set `STANDBY_PROFILE_NAME=standby-8gb`; promotion preflight fails when
 the profile name, server ID, configured limits, or active OPcache file do not
 match the bounded standby policy.
 
+`scripts/configure.sh --role standby` writes these defaults automatically for
+new installations. Existing standbys retain their private `.env` and should be
+updated only through a reviewed preparation cycle.
+
 ## Ports And Network
 
 Published by default: `80`, `81`, `443`, `8687`, `8787`, and `8484`. File Browser,
