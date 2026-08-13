@@ -9,6 +9,16 @@ case "$mode" in --source|--standby) ;; *) usage; exit 2 ;; esac
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 role="${mode#--}"
 unit=hosting-warm-sync-finalizer
+
+# Large website trees exceed common distribution defaults. Persist enough
+# inotify capacity so Syncthing can detect changes promptly after every boot.
+cat > /etc/sysctl.d/90-hosting-syncthing.conf <<'EOF'
+fs.inotify.max_user_watches=1048576
+fs.inotify.max_user_instances=8192
+fs.inotify.max_queued_events=32768
+EOF
+sysctl --system >/dev/null
+
 cat > "/etc/systemd/system/$unit.service" <<EOF
 [Unit]
 Description=Complete the initial hosting warm-sync baseline ($role)

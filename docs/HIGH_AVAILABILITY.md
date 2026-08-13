@@ -45,6 +45,11 @@ runtime configuration, and hourly logical database recovery points as
 relays keep the connection usable behind CGNAT, while an optional direct peer
 address accelerates transfers on the same LAN.
 
+The warm-sync finalizer installer persists host inotify limits in
+`/etc/sysctl.d/90-hosting-syncthing.conf`. Large WordPress trees can exceed
+distribution defaults; without the higher limits Syncthing falls back to
+periodic scans and reports a filesystem-watcher warning.
+
 The GUI publication defaults to loopback. If `SYNC_GUI_LISTEN_IP=0.0.0.0` is
 used, configure a GUI username and password before publishing port 8834. HTTP
 is supported when explicitly selected, but credentials must not be reused.
