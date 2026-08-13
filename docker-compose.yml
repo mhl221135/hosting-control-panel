@@ -17,7 +17,7 @@ services:
     cap_drop:
       - ALL
     mem_limit: ${SYNC_MEMORY_LIMIT:-1g}
-    cpus: 1.50
+    cpus: ${SYNC_CPU_LIMIT:-1.50}
     networks:
       - hosting-net
     healthcheck:
