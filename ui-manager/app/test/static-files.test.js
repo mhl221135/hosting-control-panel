@@ -33,6 +33,11 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
+  const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
+  assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
+  assert.match(automatic, /peer_connected/);
+  assert.match(automatic, /check-sync-ready\.sh/);
+  assert.match(automatic, /activate-standby\.sh" --preview/);
 });
 
 test("standby role is machine-local, read-only, and suppresses writable services", () => {

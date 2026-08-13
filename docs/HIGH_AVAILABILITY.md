@@ -40,6 +40,13 @@ compressed `mysqldump` hourly and retains three points under
 folders to be idle, verifies the newest dump, and imports it before nginx, PHP,
 or NPM starts. Daily backup reception remains independent.
 
+The optional automatic watchdog checks the public primary health endpoint
+every 30 seconds. It promotes only after six consecutive failures, the
+Syncthing peer is also disconnected, all received folders are complete, the
+hourly SQL point is fresh, and the reviewed Cloudflare preview passes. Its
+hostname file is an explicit allowlist; zones unavailable to the management
+token are not silently included.
+
 ## Required Topology
 
 Use two independent hosts with Docker Engine, Compose, time synchronization,
