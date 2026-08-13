@@ -72,6 +72,13 @@ function desiredTunnelConfig(current, hosts, service) {
   return config;
 }
 
+function blockedPreviewMessage(plan) {
+  const count = Array.isArray(plan?.records)
+    ? plan.records.filter((record) => record?.status !== "ready").length
+    : 0;
+  return count ? `Tunnel cutover preview contains ${count} blocked hostname${count === 1 ? "" : "s"}` : "";
+}
+
 class CloudflareCutoverApi {
   constructor({ token, fetchImpl = fetch, baseUrl = "https://api.cloudflare.com/client/v4" }) {
     this.token = String(token || "");
@@ -298,6 +305,7 @@ class TunnelCutover {
 module.exports = {
   CloudflareCutoverApi,
   TunnelCutover,
+  blockedPreviewMessage,
   decodeTunnelToken,
   desiredTunnelConfig,
   normalizeHosts,

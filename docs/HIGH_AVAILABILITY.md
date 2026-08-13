@@ -362,6 +362,8 @@ sudo ./scripts/review-failover-hosts.sh --apply \
 Apply atomically updates `/etc/hosting-control/failover-hosts.txt`. It does not
 change DNS, tunnel routes, containers, or machine role. Use that reviewed file
 as `activate-standby.sh --hosts-file` only after the primary is fenced.
+Activation preview exits with failure when any selected hostname is blocked,
+even though it prints the full non-mutating plan for operator review.
 
 The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:

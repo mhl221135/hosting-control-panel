@@ -5,6 +5,7 @@ const path = require("path");
 const {
   CloudflareCutoverApi,
   TunnelCutover,
+  blockedPreviewMessage,
   decodeTunnelToken,
   normalizeHosts,
 } = require("../lib/tunnel-cutover");
@@ -72,7 +73,13 @@ async function main() {
     promotionPath: path.join(machineState, "promotion-state.json"),
   });
   let result;
-  if (options.mode === "preview") result = cutover.publicPlan(await cutover.plan(hostsFrom(options.hostsFile)));
+  if (options.mode === "preview") {
+    result = cutover.publicPlan(await cutover.plan(hostsFrom(options.hostsFile)));
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    const blocked = blockedPreviewMessage(result);
+    if (blocked) throw new Error(blocked);
+    return;
+  }
   else if (options.mode === "apply") result = await cutover.apply(hostsFrom(options.hostsFile), options.confirmation);
   else result = await cutover.rollback(options.confirmation);
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

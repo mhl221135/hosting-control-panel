@@ -5,6 +5,7 @@ const path = require("path");
 const test = require("node:test");
 const {
   TunnelCutover,
+  blockedPreviewMessage,
   decodeTunnelToken,
   desiredTunnelConfig,
   normalizeHosts,
@@ -105,6 +106,14 @@ test("preview is non-mutating and shows exact DNS replacement", async () => {
   assert.equal(plan.records[0].desired.content, `${TUNNEL}.cfargotunnel.com`);
   assert.equal(api.updatedConfigs.length, 0);
   assert.equal(fs.existsSync(files.statePath), false);
+});
+
+test("blocked preview produces a bounded failure summary", () => {
+  assert.equal(blockedPreviewMessage({ records: [{ status: "ready" }] }), "");
+  assert.equal(
+    blockedPreviewMessage({ records: [{ status: "blocked" }, { status: "ready" }, { status: "blocked" }] }),
+    "Tunnel cutover preview contains 2 blocked hostnames",
+  );
 });
 
 test("apply refuses a standby even with confirmation", async () => {

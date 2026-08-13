@@ -299,6 +299,9 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(script, /token_owner" = 0/);
   assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
   assert.doesNotMatch(script, /OLD-PRIMARY-FENCED.*=.*true/);
+  const cli = fs.readFileSync(path.resolve(__dirname, "../cli/tunnel-cutover.js"), "utf8");
+  assert.match(cli, /blockedPreviewMessage\(result\)/);
+  assert.match(cli, /if \(blocked\) throw new Error\(blocked\)/);
 });
 
 test("standby preparation generates a review-bound failover hostname inventory", () => {
