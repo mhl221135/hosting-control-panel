@@ -14,6 +14,11 @@ themes, configuration, and other durable content remain synchronized. This
 keeps frequently changing runtime files from indefinitely delaying a zero-lag
 standby readiness result.
 
+Standby readiness also requires `receiveOnlyTotalItems` to be zero. If a
+standby was seeded from an older restore, reconcile its receive-only changes
+to the completed primary index before promotion; stale receiver-only files are
+not accepted as a synchronized replica.
+
 Do not run two writable copies of the stack for the same websites. The panel,
 WordPress, NPM, MySQL, scheduled backups, and Cloudflare automation all mutate
 state. Concurrent primaries can diverge databases, issue conflicting
