@@ -576,10 +576,10 @@ authority. Panel-based review remains future work.
 
 - Keep the implemented daily receiver recovery age clearly labeled as backup
   reception; never describe it as real-time or continuous synchronization.
-- Add optional low-load warm replication: snapshot/staged one-way website-file
-  synchronization at a configurable interval and MySQL GTID replication with
-  measured lag. Keep the daily verified backup sets as an independent recovery
-  layer rather than replacing them with live replication.
+- Add panel status and lag reporting for the implemented project-owned
+  Syncthing warm path. Website files and runtime configuration synchronize
+  continuously one way; hourly logical database recovery points synchronize
+  independently of daily verified backups.
 - Use unique MySQL server IDs, GTID replication, encrypted credentials,
   retention sized for outages, and monitored replica lag.
 - Replicate website files and required non-database application data one way

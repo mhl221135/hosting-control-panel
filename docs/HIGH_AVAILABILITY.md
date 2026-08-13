@@ -3,10 +3,10 @@
 ## Scope
 
 This document defines a conservative primary/standby design for Websites V2.
-The current release implements machine-local roles and a locked-down standby
-runtime, but does not yet provide continuous replication, automatic promotion,
-or a quorum system. Its supported data-recovery baseline remains manual
-disaster recovery from replicated, verified backups.
+The current release implements machine-local roles, a locked-down standby,
+continuous one-way website/runtime-config synchronization, and hourly logical
+database recovery points. Promotion is guarded and automatic outage detection
+remains pending; verified daily backups remain the disaster-recovery layer.
 
 Do not run two writable copies of the stack for the same websites. The panel,
 WordPress, NPM, MySQL, scheduled backups, and Cloudflare automation all mutate
@@ -24,6 +24,21 @@ certificates, overwrite DNS, and run the same scheduled work twice.
 RPO is the maximum expected data loss. RTO is the expected restoration time.
 Choose targets based on measured website size, database write rate, available
 bandwidth, and completed recovery drills.
+
+## Warm Data Path
+
+`hosting-sync` is a project-owned Syncthing container, separate from any
+host-level Syncthing service. OPI5 shares `websites`, generated nginx/PHP
+runtime configuration, and hourly logical database recovery points as
+`sendonly`; hp-server receives them as `receiveonly`. Global discovery and
+relays keep the connection usable behind CGNAT, while an optional direct peer
+address accelerates transfers on the same LAN.
+
+Live MariaDB files are never synchronized. The primary creates an atomic
+compressed `mysqldump` hourly and retains three points under
+`HOSTING_ROOT/replication/database`. Promotion requires all three Syncthing
+folders to be idle, verifies the newest dump, and imports it before nginx, PHP,
+or NPM starts. Daily backup reception remains independent.
 
 ## Required Topology
 

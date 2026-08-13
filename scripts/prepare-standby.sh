@@ -82,9 +82,9 @@ fi
 
 start_control_services() {
   if [ "$(env_value HOSTING_TUNNEL_ENABLED)" = true ]; then
-    compose up -d hosting-agent hosting-ui hosting-cloudflared
+    compose up -d hosting-agent hosting-ui hosting-cloudflared hosting-sync
   else
-    compose up -d hosting-agent hosting-ui
+    compose up -d hosting-agent hosting-ui hosting-sync
   fi
 }
 

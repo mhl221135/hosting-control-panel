@@ -1,4 +1,34 @@
 services:
+  hosting-sync:
+    image: syncthing/syncthing:2.1.2
+    container_name: hosting-sync
+    restart: unless-stopped
+    environment:
+      PUID: 33
+      PGID: 33
+    ports:
+      - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/tcp"
+      - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/udp"
+    volumes:
+      - ${SYNC_CONFIG_DIR:-${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}/syncthing}:/var/syncthing/config
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/syncthing/websites
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs:/var/syncthing/runtime-config
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/replication:/var/syncthing/replication
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 512m
+    cpus: 1.50
+    networks:
+      - hosting-net
+    healthcheck:
+      test: ["CMD", "syncthing", "cli", "show", "system"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   hosting-agent:
     image: hosting-agent:1.1
     build:

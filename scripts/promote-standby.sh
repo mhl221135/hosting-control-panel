@@ -126,8 +126,11 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
   || { printf 'Interrupted backup staging exists; promotion refused.\n' >&2; exit 1; }
 
 compose config --quiet
+"$project_dir/scripts/check-sync-ready.sh" >/dev/null
+replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
 printf 'Prepared recovery %s (%s sites) is bound to source %s.\n' \
   "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
+printf 'Latest synchronized database recovery point is %s.\n' "$replicated_db_id"
 
 if [ "$mode" = dry-run ]; then
   printf 'Local promotion dry run passed. Public ingress was not inspected or changed.\n'
@@ -158,6 +161,7 @@ cleanup() {
       compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db >/dev/null 2>&1 || true
     fi
     docker restart hosting-ui >/dev/null 2>&1 || true
+    compose up -d hosting-sync >/dev/null 2>&1 || true
     if [ "$receiver_timer_was_enabled" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
       systemctl enable --now hosting-backup-receiver.timer >/dev/null 2>&1 || true
     fi
@@ -172,7 +176,8 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service
 fi
 
-compose up -d hosting-db hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
+compose stop hosting-sync >/dev/null 2>&1 || true
+compose up -d hosting-db
 runtime_started=1
 
 db_ready=0
@@ -186,6 +191,8 @@ for _ in $(seq 1 60); do
 done
 [ "$db_ready" -eq 1 ] || { printf 'Database did not become ready.\n' >&2; exit 1; }
 docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -uroot -Nse "SELECT 1"' | grep -qx 1
+replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
+compose up -d hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
 docker exec hosting-php-fpm php-fpm -t >/dev/null
 docker exec hosting-nginx nginx -t >/dev/null
 
@@ -196,6 +203,9 @@ chmod 644 "$temporary"
 mv "$temporary" "$role_marker"
 role_changed=1
 docker restart hosting-ui >/dev/null
+if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
+  systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 || true
+fi
 
 ui_ready=0
 for _ in $(seq 1 30); do
@@ -210,11 +220,11 @@ done
 promotion_tmp="$promotion_marker.tmp.$$"
 jq -n --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$prepared_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
-  --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby \
+  --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby --arg database_recovery_id "$replicated_db_id" \
   '{version:1,status:"local-primary",promoted_at:$promoted_at,recovery_id:$recovery_id,
     source_release:$source_release,receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256,previous_role:$previous_role,
-    public_ingress_cutover:false}' > "$promotion_tmp"
+    database_recovery_id:$database_recovery_id,public_ingress_cutover:false}' > "$promotion_tmp"
 chmod 644 "$promotion_tmp"
 mv "$promotion_tmp" "$promotion_marker"
 

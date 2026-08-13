@@ -232,6 +232,7 @@ mkdir -p \
   "$hosting_root/app-data/npm/data" \
   "$hosting_root/app-data/npm/letsencrypt" \
   "$hosting_root/app-data/redis" \
+  "$hosting_root/replication/database" \
   "$hosting_root/app-data/ui-manager" \
   "$backups_dir/app-data" \
   "$backups_dir/billing" \
@@ -240,6 +241,13 @@ mkdir -p \
   "$hosting_root/websites/_default"
 
 chown -R 33:33 "$hosting_root/app-data/billing" "$backups_dir/billing"
+mkdir -p "$machine_state_dir/syncthing"
+chown -R 33:33 "$machine_state_dir/syncthing" "$hosting_root/replication"
+if [ ! -e "$hosting_root/replication/.stignore" ]; then
+  printf '(?d) database/.partial-*\n' > "$hosting_root/replication/.stignore"
+  chown 33:33 "$hosting_root/replication/.stignore"
+  chmod 640 "$hosting_root/replication/.stignore"
+fi
 
 initialize_config() {
   source_path="$1"
@@ -277,9 +285,9 @@ compose build
 if [ "$installation_role" = "standby" ]; then
   if [ "$tunnel_enabled" = true ]; then
     compose pull hosting-cloudflared
-    compose up -d hosting-agent hosting-ui hosting-cloudflared
+    compose up -d hosting-agent hosting-ui hosting-cloudflared hosting-sync
   else
-    compose up -d hosting-agent hosting-ui
+    compose up -d hosting-agent hosting-ui hosting-sync
   fi
   echo "Standby installed. Writable and public origin services remain stopped."
 else

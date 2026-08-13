@@ -15,6 +15,7 @@ const INSPECT_CONTAINERS = new Set([
   "hosting-files",
   "hosting-npm",
   "hosting-phpmyadmin",
+  "hosting-sync",
   "hosting-ui",
 ]);
 const WP_COMMANDS = new Set([

@@ -21,6 +21,20 @@ test("server exposes the bounded liveness endpoint used by standby promotion", (
   assert.match(server, /"Cache-Control": "no-store"/);
 });
 
+test("warm standby uses a project-owned one-way Syncthing data path", () => {
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  const promotion = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
+  const dump = fs.readFileSync(path.resolve(__dirname, "../../../scripts/create-replication-dump.sh"), "utf8");
+  const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
+  assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
+  assert.match(syncService, /\/var\/syncthing\/websites/);
+  assert.doesNotMatch(syncService, /\/var\/lib\/mysql/);
+  assert.match(promotion, /check-sync-ready\.sh/);
+  assert.match(promotion, /restore-replication-dump\.sh" --apply/);
+  assert.match(promotion, /compose stop hosting-sync/);
+  assert.match(dump, /--all-databases --single-transaction/);
+});
+
 test("standby role is machine-local, read-only, and suppresses writable services", () => {
   const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
   const bootstrap = fs.readFileSync(path.resolve(__dirname, "../../../bootstrap.sh"), "utf8");
