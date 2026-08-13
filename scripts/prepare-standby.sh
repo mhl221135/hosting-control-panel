@@ -228,9 +228,14 @@ available_kb="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
 
 stage="$root/.standby-prepare.$$"
 mkdir -p "$stage/app-data" "$stage/websites"
+printf 'Extracting application data...\n'
 tar -xzf "$app_set/app-data.tar.gz" -C "$stage/app-data" --no-same-owner
+extracted=0
 while IFS= read -r set_dir; do
   [ -n "$set_dir" ] || continue
+  extracted=$((extracted + 1))
+  site_domain="$(jq -r .domain "$set_dir/manifest.json")"
+  printf 'Extracting %s/%s %s...\n' "$extracted" "$site_count" "$site_domain"
   tar -xzf "$set_dir/website.tar.gz" -C "$stage/websites" --no-same-owner
 done < "$selection"
 mkdir -p "$stage/app-data/mysql" "$stage/app-data/nginx-cache" "$stage/app-data/redis"
@@ -248,6 +253,7 @@ swapped=1
 
 compose up -d hosting-db
 database_started=1
+printf 'Waiting for the restored database service...\n'
 ready=0
 for _ in $(seq 1 60); do
   if docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT 1"' 2>/dev/null \
@@ -258,11 +264,13 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$ready" -eq 1 ] || { printf 'Replica database did not become ready.\n' >&2; exit 1; }
+printf 'Restoring the database snapshot...\n'
 gzip -dc "$app_set/databases.sql.gz" \
   | docker exec -i hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot'
 restored_tables="$(docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema NOT IN (0x696e666f726d6174696f6e5f736368656d61,0x706572666f726d616e63655f736368656d61,0x737973)"')"
 case "$restored_tables" in ''|*[!0-9]*) printf 'Restored database inventory is invalid.\n' >&2; exit 1 ;; esac
 [ "$restored_tables" -gt 0 ] || { printf 'Restored database inventory is empty.\n' >&2; exit 1; }
+printf 'Restored database inventory contains %s tables.\n' "$restored_tables"
 compose stop hosting-db
 database_started=0
 

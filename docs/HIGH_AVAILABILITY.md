@@ -160,6 +160,8 @@ The example receiver unit uses systemd `OnSuccess` to start the separate
 `hosting-standby-prepare.service`, which refreshes the fenced standby from that
 exact receipt-bound recovery point. Both follow-ups run at lower CPU and I/O
 priority and only after reception has atomically published a successful receipt.
+Preparation reports bounded per-site extraction progress and its database
+restore phases in the systemd journal.
 A deep-verification failure does not invalidate or delete that receiver receipt;
 it leaves preparation and promotion blocked until verification succeeds. The
 follow-ups use the same host lock as reception and promotion. Verification also

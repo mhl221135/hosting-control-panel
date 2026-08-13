@@ -357,6 +357,9 @@ test("successful standby reception schedules verification and fenced preparation
   assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
   assert.match(prepare, /^Type=oneshot$/m);
   assert.match(prepare, /^ExecStart=.*prepare-standby\.sh --apply --confirm PREPARE-STANDBY$/m);
+  const prepareScript = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-standby.sh"), "utf8");
+  assert.match(prepareScript, /Extracting %s\/%s %s/);
+  assert.match(prepareScript, /Restoring the database snapshot/);
   assert.match(prepare, /^TimeoutStartSec=12h$/m);
   assert.match(prepare, /^UMask=0077$/m);
   assert.match(prepare, /^ProtectSystem=strict$/m);
