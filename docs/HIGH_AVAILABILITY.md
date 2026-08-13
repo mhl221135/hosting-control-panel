@@ -225,9 +225,11 @@ before this policy must be migrated to the same group-readable modes once.
 
 Each non-dry receiver run atomically maintains mode-`0600`
 `receiver-progress.json` with running/succeeded/failed state, bounded set
-counts, bounded byte-level transfer progress, and the current backup group. The standby Replication workspace reads
-this file directly; it contains no SSH command, path, credential, or error
-output. `receiver-state.json` remains the authoritative successful receipt.
+counts, bounded byte-level transfer progress, and the current backup group. It
+publishes a fresh running state before remote inventory discovery, then adds
+transfer totals after selection. The standby Replication workspace reads this
+file directly; it contains no SSH command, path, credential, or error output.
+`receiver-state.json` remains the authoritative successful receipt.
 
 The preferred hosting connector is the optional `hosting-cloudflared` Compose
 service. Enable it with `HOSTING_TUNNEL_ENABLED=true`, provision the token at

@@ -8,6 +8,14 @@ echo "Running receiver shell tests..."
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 script="$project_dir/scripts/receive-backups.sh"
 
+inventory_progress_line=$(grep -n 'write_progress running' "$script" | sed -n '1s/:.*//p')
+inventory_command_line=$(grep -n 'hosting-backup-inventory > "\$inventory"' "$script" | sed -n '1s/:.*//p')
+if [ -z "$inventory_progress_line" ] || [ -z "$inventory_command_line" ] \
+  || [ "$inventory_progress_line" -ge "$inventory_command_line" ]; then
+  echo "FAIL: Receiver does not publish running progress before remote inventory"
+  exit 1
+fi
+
 temp_dir="$(mktemp -d)"
 cleanup() {
   rm -rf "$temp_dir"
