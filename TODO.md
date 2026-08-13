@@ -472,8 +472,12 @@ write rejection, mutating-scheduler suppression, and a clearly labeled
 read-only panel mode are implemented. Checksum-verified backup reception,
 guarded backup-based standby preparation, and a systemd success-chain that
 refreshes the fenced prepared standby after deep verification are implemented.
-Pairing, live replication, lag reporting, and panel-driven ingress cutover
-remain future work. A guarded host-level local promotion command is implemented;
+The project-owned Syncthing path now continuously mirrors website files and
+runtime configuration one way, while hourly verified logical database recovery
+points synchronize separately. Resumable first-baseline finalizers, exact
+receive-only reconciliation, warm preparation without archive restoration, and
+a disabled-by-default automatic outage watchdog are implemented. Panel pairing,
+lag reporting, and panel-driven ingress cutover remain future work. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
 
@@ -487,8 +491,8 @@ and ingress. A durable allowlisted deep-verification job streams checksums,
 checks archive integrity and safe entry types, and binds its result to the exact
 receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
 covered by tests. Fenced local promotion is implemented as a host-level command.
-DNS/tunnel cutover, panel-driven promotion, pairing, and optional warm-replication
-lag reporting remain future work; backup receiver recovery-point health is
+Panel-driven promotion, pairing, and warm-replication lag reporting remain
+future work; backup receiver recovery-point health is
 already reported in the panel.
 
 A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
@@ -497,8 +501,9 @@ DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
 attempts. A guarded operator wrapper now previews and runs local promotion plus
 the allowlisted tunnel cutover without weakening the external-fencing gate. A
 guarded no-write drill reversion command is also implemented. Panel controls,
-route qualification, automatic public verification,
-pairing, and automatic failover remain future work.
+route qualification, automatic public verification, and pairing remain future
+work. Automatic failover exists but must stay disabled until the controlled
+outage drill and post-promotion write tests pass.
 
 Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation
@@ -580,10 +585,9 @@ authority. Panel-based review remains future work.
   Syncthing warm path. Website files and runtime configuration synchronize
   continuously one way; hourly logical database recovery points synchronize
   independently of daily verified backups.
-- Use unique MySQL server IDs, GTID replication, encrypted credentials,
-  retention sized for outages, and monitored replica lag.
-- Replicate website files and required non-database application data one way
-  with snapshot/staging semantics.
+- The implemented database path intentionally uses hourly logical snapshots,
+  not live MySQL file copying or GTID replication. Reconsider GTID only if the
+  measured hourly recovery-point objective later proves insufficient.
 - Define and test exact replication mechanisms for NPM state/certificates,
   panel state, encryption keys, agent secrets, and active runtime
   configuration. Never copy live databases as ordinary files.
@@ -599,9 +603,11 @@ authority. Panel-based review remains future work.
 - Require fencing so the old primary cannot serve traffic, write databases, or
   update Cloudflare before promotion.
 - Begin with operator-confirmed promotion using the documented runbook.
-- After repeated drills, optional automatic promotion may update selected
-  Cloudflare DNS records to the standby WAN IP with anti-flap timing, quorum or
-  witness confirmation, allowlists, and an audit trail.
+- Complete a controlled outage drill against the prepared hp-server replica,
+  validate public reads and writes through its Cloudflare tunnel, then revert
+  only if no public writes occurred. After the drill, enable the implemented
+  thresholded watchdog for the reviewed 112-host allowlist. It must remain off
+  until exact synchronization and warm preparation both pass.
 - For one router/WAN address, promotion changes the router/load-balancer target;
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two
