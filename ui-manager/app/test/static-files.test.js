@@ -353,7 +353,7 @@ test("successful standby reception schedules verification and fenced preparation
   assert.match(verifier, /^OnSuccess=hosting-standby-prepare\.service$/m);
   assert.match(verifier, /^Type=oneshot$/m);
   assert.match(verifier, /^Nice=15$/m);
-  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
+  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui \/usr\/bin\/flock -n \/srv\/backups\/\.deep-verify\.lock node \/app\/cli\/deep-verify\.js \/srv\/backups/);
   assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
   assert.match(prepare, /^Type=oneshot$/m);
   assert.match(prepare, /^ExecStart=.*prepare-standby\.sh --apply --confirm PREPARE-STANDBY$/m);

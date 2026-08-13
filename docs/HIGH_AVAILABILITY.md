@@ -151,7 +151,8 @@ The same bounded verifier is available to a host operator without a panel
 session. It still refuses any machine whose local marker is not `standby`:
 
 ```bash
-docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
+docker exec hosting-ui flock -n /srv/backups/.deep-verify.lock \
+  node /app/cli/deep-verify.js /srv/backups
 ```
 
 The example receiver unit uses systemd `OnSuccess` to start the separate
@@ -161,8 +162,10 @@ exact receipt-bound recovery point. Both follow-ups run at lower CPU and I/O
 priority and only after reception has atomically published a successful receipt.
 A deep-verification failure does not invalidate or delete that receiver receipt;
 it leaves preparation and promotion blocked until verification succeeds. The
-follow-ups use the same host lock as reception and promotion, so those operations
-cannot alter or consume a recovery point concurrently. Preparation does not
+follow-ups use the same host lock as reception and promotion. Verification also
+holds an in-container lock so a disconnected `docker exec` cannot leave an
+untracked verifier racing a later run. Those operations therefore cannot alter
+or consume a recovery point concurrently. Preparation does not
 change the machine role, start public services, or cut over ingress.
 The standalone verifier also maintains a bounded mode-`0600`
 `deep-verify-progress.json`; the Replication view uses it for running, failed,
@@ -343,8 +346,9 @@ Each successful standby preparation derives every website hostname and alias
 from the restored `sites.map` and writes a mode-`0600`, recovery-bound candidate
 inventory at `/etc/hosting-control/failover-hosts.candidates.txt`. Newly backed
 up websites therefore appear automatically, but they are not automatically
-authorized for public cutover. Review the exact additions and removals, then
-accept them for the displayed recovery point:
+authorized for public cutover. Preparation fails and reports all missing roots
+if any mapped website directory was not restored or is a symlink. Review the
+exact additions and removals, then accept them for the displayed recovery point:
 
 ```bash
 sudo ./scripts/review-failover-hosts.sh --preview

@@ -208,6 +208,9 @@ inventory without changing the active cutover allowlist. Run
 accept it with the exact recovery ID before relying on newly provisioned sites
 during failover. The accepted file is
 `/etc/hosting-control/failover-hosts.txt`.
+Preparation rejects the complete candidate inventory when any mapped website
+root is absent or symlinked; repair backup coverage instead of accepting a
+partial failover list.
 
 ## Unmatched Public Requests
 
