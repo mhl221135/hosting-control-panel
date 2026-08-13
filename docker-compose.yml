@@ -3,9 +3,7 @@ services:
     image: syncthing/syncthing:2.1.2
     container_name: hosting-sync
     restart: unless-stopped
-    environment:
-      PUID: 33
-      PGID: 33
+    user: "33:33"
     ports:
       - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/tcp"
       - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/udp"
