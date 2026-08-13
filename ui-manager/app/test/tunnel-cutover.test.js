@@ -108,6 +108,25 @@ test("preview is non-mutating and shows exact DNS replacement", async () => {
   assert.equal(fs.existsSync(files.statePath), false);
 });
 
+test("apex mail and verification records are preserved while subdomain conflicts block", async () => {
+  const files = fixture();
+  const api = new FakeApi();
+  api.records.set("example.com", [
+    { id: "old-a", type: "A", name: "example.com", content: "192.0.2.10", ttl: 1, proxied: true },
+    { id: "mx", type: "MX", name: "example.com", content: "mail.example.com", ttl: 300, priority: 10 },
+    { id: "txt", type: "TXT", name: "example.com", content: "verification", ttl: 300 },
+  ]);
+  api.records.set("www.example.com", [
+    { id: "txt-www", type: "TXT", name: "www.example.com", content: "verification", ttl: 300 },
+  ]);
+  const cutover = manager(api, files);
+  const apex = await cutover.plan(["example.com"]);
+  const subdomain = await cutover.plan(["www.example.com"]);
+  assert.equal(apex.ready, true);
+  assert.equal(apex.records[0].current.length, 1);
+  assert.equal(subdomain.ready, false);
+});
+
 test("blocked preview produces a bounded failure summary", () => {
   assert.equal(blockedPreviewMessage({ records: [{ status: "ready" }] }), "");
   assert.equal(

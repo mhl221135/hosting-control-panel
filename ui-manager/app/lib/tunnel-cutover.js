@@ -5,6 +5,7 @@ const { atomicWriteJson } = require("./safe-write");
 const HOST = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IDENTIFIER = /^[a-zA-Z0-9-]{16,64}$/;
 const DNS_TYPES = new Set(["A", "AAAA", "CNAME"]);
+const APEX_COMPATIBLE_TYPES = new Set(["MX", "TXT", "CAA"]);
 
 function cutoverError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -190,11 +191,12 @@ class TunnelCutover {
       const current = (await this.api.dnsRecords(zone.id, hostname)) || [];
       const ingress = current.filter((record) => DNS_TYPES.has(String(record.type)) && record.name === hostname);
       const unsupported = current.filter((record) => record.name === hostname && !DNS_TYPES.has(String(record.type)));
+      const blocking = unsupported.filter((record) => hostname !== zone.name || !APEX_COMPATIBLE_TYPES.has(String(record.type)));
       records.push({
         hostname,
         zone,
-        status: unsupported.length ? "blocked" : "ready",
-        reason: unsupported.length ? "Conflicting non-ingress DNS record exists at hostname" : "",
+        status: blocking.length ? "blocked" : "ready",
+        reason: blocking.length ? "Conflicting non-ingress DNS record exists at hostname" : "",
         current: ingress.map((record) => ({ id: String(record.id), ...recordPayload(record) })),
         desired: {
           type: "CNAME",
