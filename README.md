@@ -41,6 +41,10 @@ into dedicated directories.
 - Versioned artifact sizes and SHA-256 verification before site restore
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
+- Project-owned one-way warm-replica sync for website files and runtime
+  configuration, plus hourly checksummed logical database recovery points
+- Resumable initial replica reconciliation and non-restoring warm preparation;
+  guarded promotion and Cloudflare tunnel cutover remain separately gated
 - Backup history and complete-set deletion from the panel
 - Durable ownership-aware website removal jobs with selectable routes, pool,
   files, database, NPM, certificate, Cloudflare DNS, panel state, and backups
@@ -98,6 +102,10 @@ hosting-ui :8687
 hosting-agent (Docker network only)
   +--> Docker socket
   +--> fixed runtime inspection, validation, reload, WP-CLI, and database operations
+
+hosting-sync
+  +--> one-way website and runtime-config synchronization
+  +--> hourly logical database recovery points (never live MySQL files)
 
 Billing administrator
   |

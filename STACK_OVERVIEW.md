@@ -32,16 +32,21 @@ with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
 exception is the allowlisted deep backup-verification job; ingress metadata can
 also be saved without changing traffic or role.
 
-Backup reception, deep verification, fenced restore preparation, and guarded
-local promotion are separate stages. Local promotion requires the exact
+Backup reception remains the disaster-recovery layer. The warm path uses the
+project-owned `hosting-sync` container for continuous one-way website and
+runtime-config synchronization plus hourly checksummed logical database dumps.
+Its resumable finalizer reconciles an initially restored standby to the exact
+primary index and prepares it without restoring archives. Local promotion requires the exact
 prepared recovery ID plus typed old-primary fencing confirmation, validates the
 runtime before changing the machine marker, and records that public ingress has
-not been cut over. Cloudflare/DNS/tunnel switching remains a separate pending
-control-plane workflow.
+not been cut over. Cloudflare tunnel switching remains a separate guarded step;
+the automatic watchdog stays disabled until an outage drill passes.
 
 ## Services
 
 - `hosting-ui`: authenticated control panel on port 8687
+- `hosting-sync`: project-owned one-way Syncthing service; no management UI is
+  published, and it never synchronizes live MySQL, Redis, or FastCGI data
 - `hosting-agent`: private allowlisted Docker control boundary with no host port
 - `hosting-billing`: isolated renewal inventory and signed entitlement API on port 8787
 - `hosting-nginx`: internal virtual hosts and optional FastCGI cache
