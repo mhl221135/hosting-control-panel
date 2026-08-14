@@ -61,6 +61,12 @@ wait_for_idle() {
 
 if [ "$mode" = --source ]; then
   [ "$role" = primary ] || { printf 'Source finalization requires the primary role.\n' >&2; exit 1; }
+  rm -f -- "$marker"
+  wait_for_idle false
+  # Do not publish readiness until the source remains idle across a stability
+  # interval. Publishing first lets the standby reconcile against an index
+  # while a follow-up scan is still active.
+  sleep 10
   wait_for_idle false
   temporary="$marker.tmp.$$"
   jq -n --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg source_release "$source_release" \
@@ -68,7 +74,6 @@ if [ "$mode" = --source ]; then
   chmod 644 "$temporary"
   chown 33:33 "$temporary"
   mv "$temporary" "$marker"
-  wait_for_idle false
   printf 'Primary warm-sync baseline is complete for source %s.\n' "$source_release"
   exit 0
 fi
