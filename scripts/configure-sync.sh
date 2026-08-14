@@ -104,11 +104,16 @@ configure_folder() {
   id="$1"
   label="$2"
   folder_path="$3"
+  rescan_interval=3600
+  [ "$id" != hosting-websites ] || rescan_interval=86400
   if ! sync_cli config folders "$id" dump-json >/dev/null 2>&1; then
     sync_cli config folders add \
       --id "$id" --label "$label" --path "$folder_path" --type "$mode" \
-      --rescan-intervals 3600 --fswatcher-enabled --fswatcher-delays 2
+      --rescan-intervals "$rescan_interval" --fswatcher-enabled --fswatcher-delays 2
   fi
+  sync_cli config folders "$id" rescan-intervals set "$rescan_interval"
+  sync_cli config folders "$id" fswatcher-enabled set true
+  sync_cli config folders "$id" fswatcher-delays set 2
   if ! sync_cli config folders "$id" devices "$peer_id" dump-json >/dev/null 2>&1; then
     sync_cli config folders "$id" devices add --device-id "$peer_id"
   fi
