@@ -226,6 +226,12 @@ match the bounded standby policy.
 new installations. Existing standbys retain their private `.env` and should be
 updated only through a reviewed preparation cycle.
 
+For a 16 GB standby that is intended to match a 16 GB primary, use
+`STANDBY_PROFILE_NAME=standby-16gb`. The readiness policy permits up to 4 GiB
+InnoDB, 2 GiB Redis, and 8 GiB OPcache for that profile. Keep a unique
+`MYSQL_SERVER_ID`; the remaining values may match the primary after accounting
+for other workloads on the standby host.
+
 ## Ports And Network
 
 Published by default: `80`, `81`, `443`, `8687`, `8787`, and `8484`. File Browser,

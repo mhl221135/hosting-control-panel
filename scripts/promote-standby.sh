@@ -136,6 +136,8 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
 compose config --quiet
 "$project_dir/scripts/check-sync-ready.sh" >/dev/null
 replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
+[ "$replicated_db_id" = "$prepared_id" ] \
+  || { printf 'A newer database recovery point exists. Prepare the standby again.\n' >&2; exit 1; }
 printf 'Prepared %s recovery %s (%s sites) is bound to source %s.\n' \
   "$preparation_mode" "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
 printf 'Latest synchronized database recovery point is %s.\n' "$replicated_db_id"
@@ -205,7 +207,15 @@ for _ in $(seq 1 60); do
 done
 [ "$db_ready" -eq 1 ] || { printf 'Database did not become ready.\n' >&2; exit 1; }
 docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -uroot -Nse "SELECT 1"' | grep -qx 1
-replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
+prepared_database_marker="$machine_state/standby-database-prepared.json"
+artifact_sha="$(jq -r .sha256 "$root/replication/database/$replicated_db_id/manifest.json")"
+if [ -f "$prepared_database_marker" ] && jq -e --arg id "$replicated_db_id" --arg sha "$artifact_sha" '
+  .version == 1 and .recovery_id == $id and .artifact_sha256 == $sha
+' "$prepared_database_marker" >/dev/null 2>&1; then
+  printf 'Using pre-staged database recovery point %s.\n' "$replicated_db_id"
+else
+  replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
+fi
 compose up -d hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
 docker exec hosting-php-fpm php-fpm -t >/dev/null
 docker exec hosting-nginx nginx -t >/dev/null

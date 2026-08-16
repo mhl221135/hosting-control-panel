@@ -27,6 +27,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const dump = fs.readFileSync(path.resolve(__dirname, "../../../scripts/create-replication-dump.sh"), "utf8");
   const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
   const finalizer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/finalize-warm-sync.sh"), "utf8");
+  const databaseStage = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stage-standby-database.sh"), "utf8");
   const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
   const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
   const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
@@ -48,10 +49,16 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(finalizer, /rest\/db\/scan\?folder=hosting-websites/);
   assert.match(finalizer, /\.errors > 0/);
   assert.match(finalizer, /check-sync-ready\.sh/);
+  assert.match(finalizer, /stage-standby-database\.sh/);
   assert.match(finalizer, /prepare-warm-standby\.sh" --apply/);
   assert.doesNotMatch(finalizer, /promote-standby/);
   assert.doesNotMatch(finalizer, /tunnel-cutover/);
   assert.match(finalizerInstall, /hosting-standby-fence\.service/);
+  assert.match(finalizerInstall, /hosting-warm-sync-finalizer\.timer/);
+  assert.match(databaseStage, /standby-database-prepared\.json/);
+  assert.match(databaseStage, /restore-replication-dump\.sh" --apply/);
+  assert.match(databaseStage, /docker compose stop hosting-db/);
+  assert.doesNotMatch(databaseStage, /hosting-nginx|tunnel-cutover/);
   assert.match(standbyFence, /\[ "\$role" = standby \]/);
   assert.match(standbyFence, /docker compose stop/);
   assert.match(standbyFence, /hosting-db/);
@@ -312,6 +319,9 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
   assert.match(script, /chmod 755 "\$root\/websites"/);
   assert.match(script, /chown 0:0 "\$root\/app-data\/nginx-cache"/);
+  assert.match(script, /standby-database-prepared\.json/);
+  assert.match(script, /Using pre-staged database recovery point/);
+  assert.match(script, /A newer database recovery point exists/);
   assert.match(script, /public_ingress_cutover:false/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /chmod 644 "\$promotion_tmp"/);

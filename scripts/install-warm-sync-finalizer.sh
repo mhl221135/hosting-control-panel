@@ -57,5 +57,21 @@ EOF
   systemctl daemon-reload
   systemctl enable hosting-standby-fence.service
   systemctl restart hosting-standby-fence.service
+  cat > /etc/systemd/system/hosting-warm-sync-finalizer.timer <<EOF
+[Unit]
+Description=Refresh the prepared warm standby
+After=hosting-standby-fence.service
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=10min
+Persistent=true
+Unit=hosting-warm-sync-finalizer.service
+
+[Install]
+WantedBy=timers.target
+EOF
+  systemctl daemon-reload
+  systemctl enable --now hosting-warm-sync-finalizer.timer
 fi
 printf 'Warm-sync finalizer installed in %s mode.\n' "$role"

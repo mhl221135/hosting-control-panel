@@ -5,8 +5,21 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   appendContainerChecks, runPreflight, readSiteManifest, validateDeepVerifyProgress, validateReceiverProgress,
-  validateStandbyRecovery,
+  resourceProfileChecks, validateStandbyRecovery,
 } = require("../lib/promotion-preflight");
+
+test("accepts a bounded 16 GB standby resource profile", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-16gb-"));
+  try {
+    const phpIniPath = path.join(dir, "php.ini");
+    fs.writeFileSync(phpIniPath, "opcache.memory_consumption = 5000\n");
+    const result = resourceProfileChecks({
+      name: "standby-16gb", mysqlServerId: "2", mysqlBuffer: "2G",
+      mysqlRedo: "1G", mysqlConnections: "150", redisMaxMemory: "1024mb", phpIniPath,
+    });
+    assert.equal(result.checks.every((item) => item.status === "pass"), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("accepts bounded warm-sync preparation markers without backup receipt hashes", () => {
   const marker = {

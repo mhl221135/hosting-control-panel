@@ -446,6 +446,12 @@ authoritative index, waits for exact zero backlog, and runs warm preparation.
 Reconciliation covers website files, runtime configuration, and database
 recovery snapshots, including changes published while standby replication was
 intentionally stopped for a drill.
+On the standby, a ten-minute timer repeats this bounded finalization. When a
+new hourly database snapshot arrives, it starts only MariaDB, imports that
+snapshot into the private standby volume, records its checksum-bound recovery
+ID, and stops MariaDB again. Unchanged snapshots are skipped. Promotion uses
+the pre-staged volume and refuses a newer, not-yet-prepared snapshot, avoiding
+a full SQL import during the outage.
 The standby installer also enables `hosting-standby-fence.service`. After each
 Docker/host reboot it stops database, PHP, nginx, NPM, billing, file-manager,
 and phpMyAdmin services whenever the machine-local role is still `standby`;

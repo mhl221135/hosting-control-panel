@@ -205,13 +205,17 @@ function resourceProfileChecks(profile = {}) {
   const mysqlConnections = Number(profile.mysqlConnections);
   const redisMb = memoryMb(profile.redisMaxMemory);
   const opcacheMb = iniInteger(profile.phpIniPath, "opcache.memory_consumption");
-  checks.push(check(name === "standby-8gb" ? "pass" : "fail", `Standby resource profile: ${name || "not configured"}`));
+  const profileValid = name === "standby-8gb" || name === "standby-16gb";
+  const mysqlBufferMax = name === "standby-16gb" ? 4096 : 2048;
+  const redisMax = name === "standby-16gb" ? 2048 : 512;
+  const opcacheMax = name === "standby-16gb" ? 8192 : 3072;
+  checks.push(check(profileValid ? "pass" : "fail", `Standby resource profile: ${name || "not configured"}`));
   checks.push(check(Number.isInteger(serverId) && serverId >= 2 && serverId <= 4_294_967_295 ? "pass" : "fail", "Standby MySQL server ID is unique"));
-  checks.push(check(mysqlBufferMb !== null && mysqlBufferMb >= 512 && mysqlBufferMb <= 2048 ? "pass" : "fail", `Standby MySQL buffer: ${mysqlBufferMb ?? "invalid"} MB`));
+  checks.push(check(mysqlBufferMb !== null && mysqlBufferMb >= 512 && mysqlBufferMb <= mysqlBufferMax ? "pass" : "fail", `Standby MySQL buffer: ${mysqlBufferMb ?? "invalid"} MB`));
   checks.push(check(mysqlRedoMb !== null && mysqlRedoMb >= 256 && mysqlRedoMb <= 1024 ? "pass" : "fail", `Standby MySQL redo: ${mysqlRedoMb ?? "invalid"} MB`));
   checks.push(check(Number.isInteger(mysqlConnections) && mysqlConnections >= 25 && mysqlConnections <= 150 ? "pass" : "fail", `Standby MySQL connections: ${Number.isFinite(mysqlConnections) ? mysqlConnections : "invalid"}`));
-  checks.push(check(redisMb !== null && redisMb >= 128 && redisMb <= 512 ? "pass" : "fail", `Standby Redis: ${redisMb ?? "invalid"} MB`));
-  checks.push(check(Number.isInteger(opcacheMb) && opcacheMb >= 512 && opcacheMb <= 3072 ? "pass" : "fail", `Standby OPcache: ${opcacheMb ?? "invalid"} MB`));
+  checks.push(check(redisMb !== null && redisMb >= 128 && redisMb <= redisMax ? "pass" : "fail", `Standby Redis: ${redisMb ?? "invalid"} MB`));
+  checks.push(check(Number.isInteger(opcacheMb) && opcacheMb >= 512 && opcacheMb <= opcacheMax ? "pass" : "fail", `Standby OPcache: ${opcacheMb ?? "invalid"} MB`));
   return { checks, name, mysqlBufferMb, mysqlRedoMb, mysqlConnections, redisMb, opcacheMb, serverId };
 }
 

@@ -97,5 +97,6 @@ docker exec hosting-sync sh -c '
   done
 '
 while ! "$project_dir/scripts/check-sync-ready.sh" >/dev/null 2>&1; do sleep 60; done
+"$project_dir/scripts/stage-standby-database.sh"
 "$project_dir/scripts/prepare-warm-standby.sh" --apply --confirm PREPARE-WARM-STANDBY
 printf 'Standby warm-sync baseline is reconciled, exact, and prepared. Promotion and traffic remain unchanged.\n'
