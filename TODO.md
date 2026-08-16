@@ -474,9 +474,12 @@ guarded backup-based standby preparation, and a systemd success-chain that
 refreshes the fenced prepared standby after deep verification are implemented.
 The project-owned Syncthing path now continuously mirrors website files and
 runtime configuration one way, while hourly verified logical database recovery
-points synchronize separately. Resumable first-baseline finalizers, exact
-receive-only reconciliation, warm preparation without archive restoration, and
-a disabled-by-default automatic outage watchdog are implemented. Panel pairing,
+points synchronize separately. The standby now pre-imports each new logical
+snapshot into its stopped database volume and refreshes the coordinated warm
+recovery marker every ten minutes, so promotion does not normally import SQL
+during an outage. Resumable finalizers, exact all-folder reconciliation, a
+reboot-time writable-service fence, warm preparation, and a disabled-by-default
+automatic outage watchdog are implemented. Panel pairing,
 lag reporting, and panel-driven ingress cutover remain future work. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
@@ -568,7 +571,9 @@ authority. Panel-based review remains future work.
 - Extend the installed role-specific performance defaults with panel-managed,
   previewable overrides. Fresh 8 GB standbys now receive conservative MySQL,
   Redis, and machine-local OPcache defaults and do not inherit the primary's
-  capacity assumptions.
+  capacity assumptions. The current 16 GB hp-server uses the implemented
+  `standby-16gb` policy and matches the primary's 2 GiB InnoDB, 1 GiB Redis,
+  and 5 GB OPcache limits while retaining MySQL server ID 2.
 - While in standby mode, run only replication, verification, health, and the
   minimum internal services required for readiness. Redis and FastCGI cache are
   disposable and should remain empty; PHP/public nginx may remain stopped until
@@ -603,9 +608,12 @@ authority. Panel-based review remains future work.
 - Require fencing so the old primary cannot serve traffic, write databases, or
   update Cloudflare before promotion.
 - Begin with operator-confirmed promotion using the documented runbook.
-- Complete a controlled outage drill against the prepared hp-server replica,
-  validate public reads and writes through its Cloudflare tunnel, then revert
-  only if no public writes occurred. After the drill, enable the implemented
+- The controlled local outage drill against hp-server is complete: OPI5 was
+  fenced, the synchronized database was restored, representative WordPress,
+  PHP, and static sites were validated internally, HP was reverted, replication
+  resumed, and OPI5/public traffic recovered. Complete the remaining public
+  tunnel drill, validate public reads and deliberate test writes, and rebuild
+  rather than revert after any public write. After that drill, enable the implemented
   thresholded watchdog for the reviewed 112-host allowlist. It must remain off
   until exact synchronization and warm preparation both pass.
 - For one router/WAN address, promotion changes the router/load-balancer target;
