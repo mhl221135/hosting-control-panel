@@ -91,8 +91,10 @@ done
 wait_for_idle true
 docker exec hosting-sync sh -c '
   key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
-  exec syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey="$key" \
-    operations folder-override hosting-websites
+  for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
+    syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey="$key" \
+      operations folder-override "$folder"
+  done
 '
 while ! "$project_dir/scripts/check-sync-ready.sh" >/dev/null 2>&1; do sleep 60; done
 "$project_dir/scripts/prepare-warm-standby.sh" --apply --confirm PREPARE-WARM-STANDBY

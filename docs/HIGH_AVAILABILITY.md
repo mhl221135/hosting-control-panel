@@ -443,6 +443,9 @@ sudo ./scripts/install-warm-sync-finalizer.sh --standby  # standby only
 The source publishes a release-bound completion marker only after its index is
 idle and error-free. The standby then reverts stale receive-only drift to that
 authoritative index, waits for exact zero backlog, and runs warm preparation.
+Reconciliation covers website files, runtime configuration, and database
+recovery snapshots, including changes published while standby replication was
+intentionally stopped for a drill.
 The standby installer also enables `hosting-standby-fence.service`. After each
 Docker/host reboot it stops database, PHP, nginx, NPM, billing, file-manager,
 and phpMyAdmin services whenever the machine-local role is still `standby`;
