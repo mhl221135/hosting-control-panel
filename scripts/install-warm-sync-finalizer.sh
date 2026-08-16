@@ -38,4 +38,24 @@ EOF
 systemctl daemon-reload
 systemctl enable "$unit.service"
 systemctl start --no-block "$unit.service"
+if [ "$mode" = --standby ]; then
+  cat > /etc/systemd/system/hosting-standby-fence.service <<EOF
+[Unit]
+Description=Stop writable hosting services when this machine is standby
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/sleep 10
+ExecStart=$project_dir/scripts/enforce-standby-fence.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable hosting-standby-fence.service
+  systemctl restart hosting-standby-fence.service
+fi
 printf 'Warm-sync finalizer installed in %s mode.\n' "$role"

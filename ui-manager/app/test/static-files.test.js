@@ -27,6 +27,8 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const dump = fs.readFileSync(path.resolve(__dirname, "../../../scripts/create-replication-dump.sh"), "utf8");
   const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
   const finalizer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/finalize-warm-sync.sh"), "utf8");
+  const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
+  const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
   const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
   assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
   assert.match(syncService, /\/var\/syncthing\/websites/);
@@ -48,6 +50,11 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(finalizer, /prepare-warm-standby\.sh" --apply/);
   assert.doesNotMatch(finalizer, /promote-standby/);
   assert.doesNotMatch(finalizer, /tunnel-cutover/);
+  assert.match(finalizerInstall, /hosting-standby-fence\.service/);
+  assert.match(standbyFence, /\[ "\$role" = standby \]/);
+  assert.match(standbyFence, /docker compose stop/);
+  assert.match(standbyFence, /hosting-db/);
+  assert.doesNotMatch(standbyFence, /docker compose up/);
   const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
   assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
   assert.match(automatic, /peer_connected/);
