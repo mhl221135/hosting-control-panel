@@ -110,7 +110,7 @@ exec 9>"/run/hosting-backup-receiver/lock"
 flock -n 9 || { printf 'Backup reception or another standby operation is active.\n' >&2; exit 1; }
 
 compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db
-unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared)$/ { print }')"
+unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are still running: %s\n' "$unexpected" >&2; exit 1; }
 
 temporary="$machine_state/role.json.drill.$$"
@@ -136,9 +136,9 @@ if [ -f "$cutover_marker" ]; then
 fi
 
 if [ "$(env_value HOSTING_TUNNEL_ENABLED)" = true ]; then
-  compose up -d hosting-agent hosting-ui hosting-cloudflared
+  compose up -d hosting-agent hosting-ui hosting-cloudflared hosting-sync
 else
-  compose up -d hosting-agent hosting-ui
+  compose up -d hosting-agent hosting-ui hosting-sync
 fi
 docker restart hosting-ui >/dev/null
 if command -v systemctl >/dev/null 2>&1; then
