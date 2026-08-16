@@ -362,6 +362,10 @@ writable runtime. It writes `/etc/hosting-control/promotion-state.json` with
 hosts, router forwarding, or tunnel public-hostname routes; those remain an
 explicit separately reviewed cutover.
 
+Before nginx starts, promotion normalizes only the two mount-root permissions
+needed by runtime workers: the websites root is traversable and the nginx cache
+root is root-owned and traversable. It does not rewrite site file permissions.
+
 Authenticated role, session, and status responses expose only the bounded
 display fields from this marker. After local promotion the panel keeps a
 persistent warning visible while `public_ingress_cutover` is false, so a

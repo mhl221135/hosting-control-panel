@@ -309,6 +309,8 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /docker exec hosting-nginx nginx -t/);
   assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);
   assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
+  assert.match(script, /chmod 755 "\$root\/websites"/);
+  assert.match(script, /chown 0:0 "\$root\/app-data\/nginx-cache"/);
   assert.match(script, /public_ingress_cutover:false/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /chmod 644 "\$promotion_tmp"/);

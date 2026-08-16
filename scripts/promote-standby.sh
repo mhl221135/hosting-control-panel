@@ -185,6 +185,12 @@ if command -v systemctl >/dev/null 2>&1; then
 fi
 
 compose stop hosting-sync >/dev/null 2>&1 || true
+# Standby tools can create these bind-mount roots with mode 0700. Normalize
+# only the roots needed by runtime workers; site file permissions stay intact.
+chmod 755 "$root/websites"
+mkdir -p "$root/app-data/nginx-cache"
+chown 0:0 "$root/app-data/nginx-cache"
+chmod 755 "$root/app-data/nginx-cache"
 compose up -d hosting-db
 runtime_started=1
 
