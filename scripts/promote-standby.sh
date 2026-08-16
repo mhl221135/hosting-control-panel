@@ -227,9 +227,6 @@ chmod 644 "$temporary"
 mv "$temporary" "$role_marker"
 role_changed=1
 docker restart hosting-ui >/dev/null
-if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
-  systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 || true
-fi
 
 ui_ready=0
 for _ in $(seq 1 30); do

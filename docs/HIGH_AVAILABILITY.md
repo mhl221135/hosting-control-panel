@@ -370,6 +370,9 @@ Authenticated role, session, and status responses expose only the bounded
 display fields from this marker. After local promotion the panel keeps a
 persistent warning visible while `public_ingress_cutover` is false, so a
 locally writable server is not mistaken for an already active public origin.
+The hourly database-dump timer remains disabled during isolated local
+promotion and read-only drills. It is enabled only after the reviewed public
+tunnel cutover succeeds; drill reversion disables it again.
 
 For an operator-reviewed outage, preview local promotion and the exact
 Cloudflare hostname changes together, then activate them with one guarded

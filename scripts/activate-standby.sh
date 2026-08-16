@@ -89,5 +89,8 @@ if ! "$project_dir/scripts/tunnel-cutover.sh" --apply --hosts-file "$hosts_file"
   printf 'Do not restart the old primary. Correct ingress or use drill reversion only if no public writes occurred.\n' >&2
   exit 1
 fi
+if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
+  systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 || true
+fi
 
 printf 'Standby activation completed for the explicitly selected hostnames.\n'
