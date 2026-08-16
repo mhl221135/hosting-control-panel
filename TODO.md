@@ -611,9 +611,12 @@ authority. Panel-based review remains future work.
 - The controlled local outage drill against hp-server is complete: OPI5 was
   fenced, the synchronized database was restored, representative WordPress,
   PHP, and static sites were validated internally, HP was reverted, replication
-  resumed, and OPI5/public traffic recovered. Complete the remaining public
-  tunnel drill, validate public reads and deliberate test writes, and rebuild
-  rather than revert after any public write. After that drill, enable the implemented
+  resumed, and OPI5/public traffic recovered. The two-host public tunnel drill
+  is also complete: `mishaweb.com` and its `www` alias were served through HP's
+  tunnel, verified in HP nginx logs, rolled back to their exact prior records,
+  and HP returned to standby with no public writes. A deliberate write/failback
+  drill still remains; rebuild rather than revert after any public write. Only
+  after that drill, enable the implemented
   thresholded watchdog for the reviewed 112-host allowlist. It must remain off
   until exact synchronization and warm preparation both pass.
 - For one router/WAN address, promotion changes the router/load-balancer target;
