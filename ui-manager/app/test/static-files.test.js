@@ -327,6 +327,7 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /chmod 644 "\$promotion_tmp"/);
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
   assert.doesNotMatch(script, /enable --now hosting-database-replication\.timer/);
+  assert.match(script, /disable --now hosting-warm-sync-finalizer\.timer/);
 });
 
 test("read-only failover drills have a guarded standby reversion", () => {
@@ -346,6 +347,7 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.match(script, /hosting-ui hosting-sync/);
   assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
   assert.match(script, /disable --now hosting-database-replication\.timer/);
+  assert.match(script, /enable --now hosting-warm-sync-finalizer\.timer/);
   assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
 });
 

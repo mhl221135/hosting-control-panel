@@ -147,5 +147,6 @@ fi
 docker restart hosting-ui >/dev/null
 if command -v systemctl >/dev/null 2>&1; then
   systemctl enable --now hosting-backup-receiver.timer >/dev/null 2>&1 || true
+  systemctl enable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
 fi
 printf 'Read-only drill reverted. The machine is fenced as standby and public ingress remains rolled back.\n'

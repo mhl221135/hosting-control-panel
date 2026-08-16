@@ -373,6 +373,8 @@ locally writable server is not mistaken for an already active public origin.
 The hourly database-dump timer remains disabled during isolated local
 promotion and read-only drills. It is enabled only after the reviewed public
 tunnel cutover succeeds; drill reversion disables it again.
+The standby finalizer timer is disabled for every promotion and restored only
+when a no-write drill is explicitly reverted to standby.
 
 For an operator-reviewed outage, preview local promotion and the exact
 Cloudflare hostname changes together, then activate them with one guarded

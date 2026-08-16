@@ -155,6 +155,7 @@ fi
   || { printf 'Apply requires --recovery-id %s.\n' "$prepared_id" >&2; exit 2; }
 
 receiver_timer_was_enabled=0
+finalizer_timer_was_enabled=0
 role_changed=0
 runtime_started=0
 cleanup() {
@@ -175,6 +176,9 @@ cleanup() {
     if [ "$receiver_timer_was_enabled" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
       systemctl enable --now hosting-backup-receiver.timer >/dev/null 2>&1 || true
     fi
+    if [ "$finalizer_timer_was_enabled" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
+      systemctl enable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
+    fi
     printf 'Promotion failed before public cutover; standby role and stopped runtime were restored.\n' >&2
   fi
   exit "$status"
@@ -183,7 +187,9 @@ trap cleanup EXIT HUP INT TERM
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl is-enabled hosting-backup-receiver.timer >/dev/null 2>&1 && receiver_timer_was_enabled=1 || true
+  systemctl is-enabled hosting-warm-sync-finalizer.timer >/dev/null 2>&1 && finalizer_timer_was_enabled=1 || true
   systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service
+  systemctl disable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
 fi
 
 compose stop hosting-sync >/dev/null 2>&1 || true
