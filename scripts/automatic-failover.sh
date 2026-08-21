@@ -16,12 +16,16 @@ write_state() {
   state_status="$1"
   state_failures="$2"
   state_recovery_id="${3:-}"
+  state_unreachable_since="${4:-}"
   temporary="$state.tmp.$$"
   jq -n --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg status "$state_status" --arg recovery_id "$state_recovery_id" \
+    --arg unreachable_since "$state_unreachable_since" \
+    --arg fence_policy "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" \
     --argjson failures "$state_failures" --argjson threshold "$AUTO_FAILOVER_FAILURES" \
-    '{version:1,checkedAt:$checked_at,status:$status,failures:$failures,threshold:$threshold}
-     + if $recovery_id == "" then {} else {recoveryId:$recovery_id} end' > "$temporary"
+    '{version:1,checkedAt:$checked_at,status:$status,failures:$failures,threshold:$threshold,fencePolicy:$fence_policy}
+     + (if $recovery_id == "" then {} else {recoveryId:$recovery_id} end)
+     + (if $unreachable_since == "" then {} else {unreachableSince:$unreachable_since} end)' > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$state"
   public_state="${AUTO_FAILOVER_PUBLIC_STATE_FILE:-$project_dir/../app-data/ui-manager/automatic-failover-state.json}"
@@ -60,6 +64,7 @@ case "${AUTO_FAILOVER_ENABLED:-false}" in
   *) exit 1 ;;
 esac
 case "${AUTO_FAILOVER_MODE:-monitor}" in monitor|activate) ;; *) exit 1 ;; esac
+case "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" in receipt|unreachable) ;; *) exit 1 ;; esac
 case "${AUTO_FAILOVER_FAILURES:-6}" in ''|*[!0-9]*) exit 1 ;; esac
 [ "$AUTO_FAILOVER_FAILURES" -ge 3 ] && [ "$AUTO_FAILOVER_FAILURES" -le 30 ] || exit 1
 case "${PRIMARY_HEALTH_URL:-}" in https://*) ;; *) exit 1 ;; esac
@@ -87,25 +92,28 @@ case "$previous" in ''|*[!0-9]*) previous=0 ;; esac
 if [ "$healthy" -eq 1 ] || [ "$peer_connected" -eq 1 ]; then
   failures=0
   status=healthy
+  unreachable_since=""
 else
   failures=$((previous + 1))
   status=primary-unreachable
+  unreachable_since="$(jq -r '.unreachableSince // empty' "$state" 2>/dev/null || true)"
+  case "$unreachable_since" in ????-??-??T??:??:??Z) ;; *) unreachable_since="$(date -u +%Y-%m-%dT%H:%M:%SZ)" ;; esac
 fi
 
-write_state "$status" "$failures"
+write_state "$status" "$failures" "" "$unreachable_since"
 
 [ "$failures" -ge "$AUTO_FAILOVER_FAILURES" ] || exit 0
 if ! "$project_dir/scripts/check-sync-ready.sh"; then
-  write_state blocked-sync "$failures"
+  write_state blocked-sync "$failures" "" "$unreachable_since"
   exit 1
 fi
 if ! recovery_id="$(jq -er '.app_data_id' /etc/hosting-control/standby-recovery.json)"; then
-  write_state blocked-recovery "$failures"
+  write_state blocked-recovery "$failures" "" "$unreachable_since"
   exit 1
 fi
 
 if [ "${AUTO_FAILOVER_MODE:-monitor}" = monitor ]; then
-  write_state threshold-reached "$failures" "$recovery_id"
+  write_state threshold-reached "$failures" "$recovery_id" "$unreachable_since"
   printf 'Automatic failover threshold reached; monitor mode will not promote.\n' >&2
   exit 0
 fi
@@ -113,32 +121,53 @@ fi
 case "${AUTO_FAILOVER_PRIMARY_SERVER_ID:-}" in
   ''|*[!A-Za-z0-9._-]*) write_state invalid-config "$failures" "$recovery_id"; exit 1 ;;
 esac
-case "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" in ''|*[!0-9]*) exit 1 ;; esac
-[ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -ge 60 ] \
-  && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
-if ! valid_fence_receipt "$recovery_id"; then
-  write_state awaiting-fence "$failures" "$recovery_id"
-  printf 'Automatic failover is waiting for a fresh fencing receipt for %s.\n' \
-    "$AUTO_FAILOVER_PRIMARY_SERVER_ID" >&2
-  exit 0
+fence_confirmation=OLD-PRIMARY-FENCED
+if [ "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" = receipt ]; then
+  case "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -ge 60 ] \
+    && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
+  if ! valid_fence_receipt "$recovery_id"; then
+    write_state awaiting-fence "$failures" "$recovery_id" "$unreachable_since"
+    printf 'Automatic failover is waiting for a fresh fencing receipt for %s.\n' \
+      "$AUTO_FAILOVER_PRIMARY_SERVER_ID" >&2
+    exit 0
+  fi
+else
+  [ "${AUTO_FAILOVER_UNREACHABLE_RISK_ACCEPTED:-}" = I-ACCEPT-SPLIT-BRAIN-RISK ] \
+    || { write_state invalid-config "$failures" "$recovery_id" "$unreachable_since"; exit 1; }
+  case "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" -ge 180 ] \
+    && [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" -le 3600 ] || exit 1
+  unreachable_epoch="$(date -u -d "$unreachable_since" +%s 2>/dev/null || printf 0)"
+  now_epoch="$(date -u +%s)"
+  if [ "$unreachable_epoch" -le 0 ] \
+    || [ $((now_epoch - unreachable_epoch)) -lt "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" ]; then
+    write_state awaiting-unreachable-grace "$failures" "$recovery_id" "$unreachable_since"
+    exit 0
+  fi
+  fence_confirmation=PRIMARY-UNREACHABLE-RISK-ACCEPTED
 fi
 
-write_state activating "$failures" "$recovery_id"
+write_state activating "$failures" "$recovery_id" "$unreachable_since"
 if ! "$project_dir/scripts/activate-standby.sh" --preview \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
   --recovery-id "$recovery_id"; then
-  write_state preview-failed "$failures" "$recovery_id"
+  write_state preview-failed "$failures" "$recovery_id" "$unreachable_since"
   exit 1
 fi
 if ! "$project_dir/scripts/activate-standby.sh" --apply \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
   --recovery-id "$recovery_id" \
-  --confirm ACTIVATE-STANDBY --fence-confirm OLD-PRIMARY-FENCED; then
-  write_state activation-failed "$failures" "$recovery_id"
+  --confirm ACTIVATE-STANDBY --fence-confirm "$fence_confirmation"; then
+  write_state activation-failed "$failures" "$recovery_id" "$unreachable_since"
   exit 1
 fi
 
-write_state promoted 0 "$recovery_id"
+if [ "$fence_confirmation" = PRIMARY-UNREACHABLE-RISK-ACCEPTED ]; then
+  write_state promoted-unreachable 0 "$recovery_id" "$unreachable_since"
+else
+  write_state promoted 0 "$recovery_id"
+fi
 rm -f "${AUTO_FAILOVER_FENCE_RECEIPT:-/etc/hosting-control/primary-fence-receipt.json}"

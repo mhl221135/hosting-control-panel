@@ -491,6 +491,13 @@ recovery point; the receipt is consumed after success. A qualified external
 fencing provider or witness is still required before promotion can be fully
 unattended.
 
+An explicitly risk-accepted `unreachable` emergency policy is implemented for
+the requested home-hosting power-loss case. It waits through a bounded grace
+period after both public health and the Syncthing peer disappear, rechecks the
+prepared recovery and Cloudflare preview, records the degraded fencing mode,
+and can then promote automatically. It remains disabled until a deliberate
+write/failback drill proves that the recovered former primary stays isolated.
+
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`

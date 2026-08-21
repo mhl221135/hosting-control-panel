@@ -4,7 +4,8 @@ const path = require("path");
 const STATUSES = new Set([
   "activation-failed", "activating", "awaiting-fence", "blocked-recovery",
   "blocked-sync", "disabled", "healthy", "invalid-config", "preview-failed",
-  "primary-unreachable", "promoted", "threshold-reached",
+  "primary-unreachable", "promoted", "promoted-unreachable",
+  "threshold-reached", "awaiting-unreachable-grace",
 ]);
 const RECOVERY_ID = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/;
 
@@ -20,6 +21,8 @@ function unavailable() {
     failures: 0,
     threshold: 0,
     recoveryId: null,
+    fencePolicy: null,
+    unreachableSince: null,
   };
 }
 
@@ -43,6 +46,10 @@ function readAutomaticFailoverStatus(dataDir) {
       threshold: threshold || 0,
       recoveryId: typeof value.recoveryId === "string" && RECOVERY_ID.test(value.recoveryId)
         ? value.recoveryId
+        : null,
+      fencePolicy: ["receipt", "unreachable"].includes(value.fencePolicy) ? value.fencePolicy : null,
+      unreachableSince: typeof value.unreachableSince === "string" && Number.isFinite(Date.parse(value.unreachableSince))
+        ? value.unreachableSince
         : null,
     };
   } catch {

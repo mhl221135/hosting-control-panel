@@ -600,11 +600,16 @@ async function loadWarmReplication() {
   $("#autoFailoverFailures").textContent = automatic.available && automatic.threshold
     ? `${automatic.failures}/${automatic.threshold}`
     : "-";
+  $("#autoFailoverPolicy").textContent = automatic.fencePolicy || "-";
   $("#autoFailoverRecovery").textContent = automatic.recoveryId || "-";
   $("#autoFailoverChecked").textContent = automatic.checkedAt ? new Date(automatic.checkedAt).toLocaleString() : "-";
   $("#autoFailoverMessage").textContent = automatic.status === "awaiting-fence"
     ? "The outage threshold passed. Promotion is blocked until the old primary is externally fenced."
-    : automatic.status === "disabled"
+    : automatic.status === "awaiting-unreachable-grace"
+      ? "OPI5 is unreachable. HP is waiting for the configured emergency grace period before promotion."
+      : automatic.status === "promoted-unreachable"
+        ? "HP promoted under the unreachable-primary emergency policy. Do not restart the former primary as writable."
+        : automatic.status === "disabled"
       ? "Automatic outage monitoring is disabled."
       : automatic.available
         ? "The watchdog is fail-closed and cannot infer old-primary fencing from connectivity loss."

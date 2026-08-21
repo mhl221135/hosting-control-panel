@@ -113,6 +113,30 @@ the durable watchdog state remains `awaiting-fence`; no role, database, DNS,
 tunnel route, or container is changed. Truly unattended promotion therefore
 still requires a separately qualified external fencing provider or witness.
 
+For a small installation that explicitly prioritizes availability over strict
+split-brain prevention, an emergency `unreachable` policy is also available.
+It requires both the primary health endpoint and Syncthing peer to remain down,
+the local synchronized state to pass, a minimum three-minute grace period, and
+the Cloudflare preview to pass before promotion. Configure it only after the
+controlled write/failback drill:
+
+```bash
+sudo ./scripts/install-automatic-failover.sh \
+  --health-url https://PRIMARY-PANEL/health \
+  --hosts-file /etc/hosting-control/failover-hosts.txt \
+  --mode activate --primary-server-id PRIMARY-SERVER-ID \
+  --fence-policy unreachable --unreachable-grace 300 \
+  --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK \
+  --panel-state-file UI_DATA_DIR/automatic-failover-state.json \
+  --enable
+```
+
+This policy makes HP switch the reviewed website routes when OPI5 is powered
+off. It cannot distinguish a powered-off host from a network partition. The
+promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
+`OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
+as writable; rebuild and fail back from HP's authoritative data.
+
 ## Required Topology
 
 Use two independent hosts with Docker Engine, Compose, time synchronization,

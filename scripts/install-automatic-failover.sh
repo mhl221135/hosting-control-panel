@@ -12,6 +12,9 @@ Options:
   --primary-server-id ID      Required for activate mode
   --fence-receipt PATH        Root-owned fencing receipt path
   --panel-state-file PATH     Sanitized status file visible to hosting-ui
+  --fence-policy POLICY      receipt (default) or unreachable
+  --unreachable-grace SEC    180-3600 seconds (default: 300)
+  --risk-confirm TEXT        Required for unreachable policy
 EOF
 }
 
@@ -23,6 +26,9 @@ mode=monitor
 primary_server_id=""
 fence_receipt=/etc/hosting-control/primary-fence-receipt.json
 panel_state_file="$project_dir/../app-data/ui-manager/automatic-failover-state.json"
+fence_policy=receipt
+unreachable_grace=300
+risk_confirmation=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --health-url) shift; health_url="${1:-}" ;;
@@ -32,6 +38,9 @@ while [ "$#" -gt 0 ]; do
     --primary-server-id) shift; primary_server_id="${1:-}" ;;
     --fence-receipt) shift; fence_receipt="${1:-}" ;;
     --panel-state-file) shift; panel_state_file="${1:-}" ;;
+    --fence-policy) shift; fence_policy="${1:-}" ;;
+    --unreachable-grace) shift; unreachable_grace="${1:-}" ;;
+    --risk-confirm) shift; risk_confirmation="${1:-}" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -43,6 +52,13 @@ case "$hosts_file" in /*) ;; *) usage; exit 2 ;; esac
 case "$mode" in monitor|activate) ;; *) usage; exit 2 ;; esac
 case "$fence_receipt" in /*) ;; *) usage; exit 2 ;; esac
 case "$panel_state_file" in /*) ;; *) usage; exit 2 ;; esac
+case "$fence_policy" in receipt|unreachable) ;; *) usage; exit 2 ;; esac
+case "$unreachable_grace" in ''|*[!0-9]*) usage; exit 2 ;; esac
+[ "$unreachable_grace" -ge 180 ] && [ "$unreachable_grace" -le 3600 ] || { usage; exit 2; }
+if [ "$fence_policy" = unreachable ] && [ "$risk_confirmation" != I-ACCEPT-SPLIT-BRAIN-RISK ]; then
+  printf 'Unreachable policy requires --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK.\n' >&2
+  exit 2
+fi
 if [ "$mode" = activate ]; then
   case "$primary_server_id" in ''|*[!A-Za-z0-9._-]*) usage; exit 2 ;; esac
 fi
@@ -60,6 +76,9 @@ umask 077
   printf "AUTO_FAILOVER_PRIMARY_SERVER_ID='%s'\n" "$primary_server_id"
   printf "AUTO_FAILOVER_FENCE_RECEIPT='%s'\n" "$fence_receipt"
   printf "AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS='900'\n"
+  printf "AUTO_FAILOVER_FENCE_POLICY='%s'\n" "$fence_policy"
+  printf "AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS='%s'\n" "$unreachable_grace"
+  printf "AUTO_FAILOVER_UNREACHABLE_RISK_ACCEPTED='%s'\n" "$risk_confirmation"
   printf "AUTO_FAILOVER_PUBLIC_STATE_FILE='%s'\n" "$panel_state_file"
 } > "$temporary"
 mv "$temporary" /etc/hosting-control/automatic-failover.env

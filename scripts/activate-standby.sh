@@ -12,7 +12,7 @@ Options:
   --api-token-file PATH  Root-readable Cloudflare management token
   --recovery-id ID       Exact prepared recovery identifier
   --confirm TEXT         Required with --apply; must be ACTIVATE-STANDBY
-  --fence-confirm TEXT   Required with --apply; must be OLD-PRIMARY-FENCED
+  --fence-confirm TEXT   OLD-PRIMARY-FENCED or PRIMARY-UNREACHABLE-RISK-ACCEPTED
 
 Preview validates both local promotion and the selected Cloudflare changes.
 Apply promotes the prepared standby first, then switches only the listed hosts.
@@ -74,13 +74,15 @@ fi
 
 [ "$confirmation" = ACTIVATE-STANDBY ] \
   || { printf 'Apply requires --confirm ACTIVATE-STANDBY.\n' >&2; exit 2; }
-[ "$fence_confirmation" = OLD-PRIMARY-FENCED ] \
-  || { printf 'Apply requires --fence-confirm OLD-PRIMARY-FENCED.\n' >&2; exit 2; }
+case "$fence_confirmation" in
+  OLD-PRIMARY-FENCED|PRIMARY-UNREACHABLE-RISK-ACCEPTED) ;;
+  *) printf 'Apply requires a supported --fence-confirm value.\n' >&2; exit 2 ;;
+esac
 [ -n "$recovery_id" ] \
   || { printf 'Apply requires the exact --recovery-id shown by preview.\n' >&2; exit 2; }
 
 "$project_dir/scripts/promote-standby.sh" --apply "$@" \
-  --confirm PROMOTE-STANDBY --fence-confirm OLD-PRIMARY-FENCED
+  --confirm PROMOTE-STANDBY --fence-confirm "$fence_confirmation"
 
 export CLOUDFLARE_TUNNEL_API_TOKEN
 if ! "$project_dir/scripts/tunnel-cutover.sh" --apply --hosts-file "$hosts_file" \

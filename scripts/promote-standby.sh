@@ -12,7 +12,7 @@ Options:
   --apply              Activate the prepared local stack and change the role to primary
   --recovery-id ID     Exact prepared app-data recovery identifier
   --confirm TEXT       Required with --apply; must be PROMOTE-STANDBY
-  --fence-confirm TEXT Required with --apply; must be OLD-PRIMARY-FENCED
+  --fence-confirm TEXT OLD-PRIMARY-FENCED or PRIMARY-UNREACHABLE-RISK-ACCEPTED
 
 This command never changes DNS, Cloudflare routes, NPM hosts, router settings,
 or public tunnel hostname routes.
@@ -149,8 +149,10 @@ fi
 
 [ "$confirmation" = PROMOTE-STANDBY ] \
   || { printf 'Apply requires --confirm PROMOTE-STANDBY.\n' >&2; exit 2; }
-[ "$fence_confirmation" = OLD-PRIMARY-FENCED ] \
-  || { printf 'Apply requires --fence-confirm OLD-PRIMARY-FENCED.\n' >&2; exit 2; }
+case "$fence_confirmation" in
+  OLD-PRIMARY-FENCED|PRIMARY-UNREACHABLE-RISK-ACCEPTED) ;;
+  *) printf 'Apply requires a supported --fence-confirm value.\n' >&2; exit 2 ;;
+esac
 [ "$recovery_id" = "$prepared_id" ] \
   || { printf 'Apply requires --recovery-id %s.\n' "$prepared_id" >&2; exit 2; }
 
@@ -248,11 +250,11 @@ promotion_tmp="$promotion_marker.tmp.$$"
 jq -n --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$prepared_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
   --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby --arg database_recovery_id "$replicated_db_id" \
-  --arg preparation_mode "$preparation_mode" \
+  --arg preparation_mode "$preparation_mode" --arg fencing_mode "$fence_confirmation" \
   '{version:1,status:"local-primary",promoted_at:$promoted_at,recovery_id:$recovery_id,
     source_release:$source_release,receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256,previous_role:$previous_role,
-    database_recovery_id:$database_recovery_id,preparation_mode:$preparation_mode,
+    database_recovery_id:$database_recovery_id,preparation_mode:$preparation_mode,fencing_mode:$fencing_mode,
     public_ingress_cutover:false}' > "$promotion_tmp"
 chmod 644 "$promotion_tmp"
 mv "$promotion_tmp" "$promotion_marker"

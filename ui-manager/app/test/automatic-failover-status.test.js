@@ -19,6 +19,8 @@ test("returns a bounded automatic failover status", () => {
     failures: 8,
     threshold: 6,
     recoveryId: "2026-08-21T19-55-00Z",
+    fencePolicy: "unreachable",
+    unreachableSince: "2026-08-21T19:50:00Z",
     secret: "must-not-return",
   }));
   assert.deepEqual(readAutomaticFailoverStatus(directory), {
@@ -28,6 +30,8 @@ test("returns a bounded automatic failover status", () => {
     failures: 8,
     threshold: 6,
     recoveryId: "2026-08-21T19-55-00Z",
+    fencePolicy: "unreachable",
+    unreachableSince: "2026-08-21T19:50:00Z",
   });
 });
 

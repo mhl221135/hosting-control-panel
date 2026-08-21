@@ -79,6 +79,10 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /valid_fence_receipt/);
   assert.match(automatic, /awaiting-fence/);
   assert.match(automatic, /AUTO_FAILOVER_PUBLIC_STATE_FILE/);
+  assert.match(automatic, /AUTO_FAILOVER_FENCE_POLICY:-receipt/);
+  assert.match(automatic, /I-ACCEPT-SPLIT-BRAIN-RISK/);
+  assert.match(automatic, /awaiting-unreachable-grace/);
+  assert.match(automatic, /PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(automatic, /primaryServerId == \$primary and \.recoveryId == \$recovery/);
   assert.match(automatic, /activate-standby\.sh" --preview/);
   assert.match(automatic, /write_state activation-failed/);
@@ -324,7 +328,7 @@ test("runtime mutations use shared guarded validation", () => {
 test("standby promotion remains a fenced host-level operation", () => {
   const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
   assert.match(script, /--confirm PROMOTE-STANDBY/);
-  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /OLD-PRIMARY-FENCED\|PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(script, /--recovery-id/);
   assert.match(script, /receiverReceiptSha256/);
   assert.match(script, /deep_verification_sha256/);
@@ -340,6 +344,7 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /Using pre-staged database recovery point/);
   assert.match(script, /A newer database recovery point exists/);
   assert.match(script, /public_ingress_cutover:false/);
+  assert.match(script, /fencing_mode:\$fencing_mode/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /chmod 644 "\$promotion_tmp"/);
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
@@ -371,7 +376,7 @@ test("read-only failover drills have a guarded standby reversion", () => {
 test("standby activation composes promotion and allowlisted tunnel cutover", () => {
   const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/activate-standby.sh"), "utf8");
   assert.match(script, /--confirm ACTIVATE-STANDBY/);
-  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /OLD-PRIMARY-FENCED\|PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(script, /promote-standby\.sh" --dry-run/);
   assert.match(script, /tunnel-cutover\.sh" --preview/);
   assert.match(script, /promote-standby\.sh" --apply/);
