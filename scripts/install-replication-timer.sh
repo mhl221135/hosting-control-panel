@@ -25,7 +25,7 @@ cat > /etc/systemd/system/hosting-database-replication.timer <<'EOF'
 Description=Create hourly hosting database recovery points
 
 [Timer]
-OnBootSec=10m
+OnActiveSec=10m
 OnUnitActiveSec=1h
 RandomizedDelaySec=5m
 Persistent=true

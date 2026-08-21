@@ -24,7 +24,9 @@ destination="$root/replication/database"
 mkdir -p "$destination"
 chmod 750 "$root/replication" "$destination"
 
-exec 9>"$root/replication/.database-dump.lock"
+lock_dir=/run/hosting-control
+install -d -m 700 "$lock_dir"
+exec 9>"$lock_dir/database-replication.lock"
 flock -n 9 || { printf 'A database replication dump is already running.\n' >&2; exit 0; }
 
 id="$(date -u +%Y-%m-%dT%H-%M-%SZ)"

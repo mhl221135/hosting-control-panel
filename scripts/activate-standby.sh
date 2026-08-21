@@ -90,7 +90,12 @@ if ! "$project_dir/scripts/tunnel-cutover.sh" --apply --hosts-file "$hosts_file"
   exit 1
 fi
 if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
-  systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 || true
+  if systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 \
+    && systemctl start hosting-database-replication.service; then
+    systemctl restart hosting-database-replication.timer >/dev/null 2>&1 || true
+  else
+    printf 'Warning: public cutover succeeded, but the initial database replication snapshot failed.\n' >&2
+  fi
 fi
 
 printf 'Standby activation completed for the explicitly selected hostnames.\n'

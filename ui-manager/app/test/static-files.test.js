@@ -29,6 +29,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const finalizer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/finalize-warm-sync.sh"), "utf8");
   const databaseStage = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stage-standby-database.sh"), "utf8");
   const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
+  const replicationInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-replication-timer.sh"), "utf8");
   const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
   const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
   assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
@@ -38,7 +39,11 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
+  assert.match(dump, /lock_dir=\/run\/hosting-control/);
+  assert.match(dump, /database-replication\.lock/);
+  assert.doesNotMatch(dump, /replication\/\.database-dump\.lock/);
   assert.doesNotMatch(dump, /gsub\([^\n]*\\"/);
+  assert.match(replicationInstall, /OnActiveSec=10m/);
   assert.match(warmPrepare, /check-sync-ready\.sh/);
   assert.match(warmPrepare, /restore-replication-dump\.sh" --verify/);
   assert.match(warmPrepare, /mode:"warm-sync"/);
@@ -360,6 +365,8 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(script, /promote-standby\.sh" --apply/);
   assert.match(script, /tunnel-cutover\.sh" --apply/);
   assert.match(script, /enable --now hosting-database-replication\.timer/);
+  assert.match(script, /start hosting-database-replication\.service/);
+  assert.match(script, /restart hosting-database-replication\.timer/);
   assert.match(script, /token_mode" = 600/);
   assert.match(script, /token_owner" = 0/);
   assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
