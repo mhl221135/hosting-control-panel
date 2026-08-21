@@ -334,6 +334,7 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /deep_verification_sha256/);
   assert.match(script, /flock -n 9/);
   assert.match(script, /compose config --quiet/);
+  assert.match(script, /cd "\$project_dir"/);
   assert.match(script, /docker exec hosting-php-fpm php-fpm -t/);
   assert.match(script, /docker exec hosting-nginx nginx -t/);
   assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);

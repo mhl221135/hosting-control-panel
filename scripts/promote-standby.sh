@@ -44,6 +44,7 @@ done
 [ -f "$env_file" ] || { printf 'Environment file does not exist: %s\n' "$env_file" >&2; exit 1; }
 [ -n "$mode" ] || { printf 'Select --dry-run or --apply.\n' >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { printf 'Run this command as root.\n' >&2; exit 1; }
+cd "$project_dir"
 
 env_value() {
   awk -v key="$1" '
