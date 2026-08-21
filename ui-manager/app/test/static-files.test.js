@@ -31,6 +31,9 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
   const replicationInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-replication-timer.sh"), "utf8");
   const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
   const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
   assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
   assert.match(syncService, /\/var\/syncthing\/websites/);
@@ -75,9 +78,13 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /check-sync-ready\.sh/);
   assert.match(automatic, /valid_fence_receipt/);
   assert.match(automatic, /awaiting-fence/);
+  assert.match(automatic, /AUTO_FAILOVER_PUBLIC_STATE_FILE/);
   assert.match(automatic, /primaryServerId == \$primary and \.recoveryId == \$recovery/);
   assert.match(automatic, /activate-standby\.sh" --preview/);
   assert.match(automatic, /write_state activation-failed/);
+  assert.match(server, /automaticFailover: readAutomaticFailoverStatus\(DATA_DIR\)/);
+  assert.match(html, /id="autoFailoverStatus"/);
+  assert.match(source, /automatic\.status === "awaiting-fence"/);
 });
 
 test("standby role is machine-local, read-only, and suppresses writable services", () => {

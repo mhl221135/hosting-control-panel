@@ -119,6 +119,10 @@ last received recovery point, estimated recovery age, verified set and website
 counts, deep-verification freshness, ingress preference, and the complete
 non-mutating promotion preflight. Saving the ingress preference does not alter
 DNS or activate routes. Promotion remains a separate fenced runbook operation.
+The **Automatic failover** card shows watchdog state, consecutive failures,
+the bound recovery point, and the last check. `awaiting fence` means outage
+detection passed but promotion remains blocked until the old primary is
+externally fenced.
 
 Mutating operational sections are hidden on a standby and their server APIs
 remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,

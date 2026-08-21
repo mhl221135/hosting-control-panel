@@ -585,6 +585,7 @@ async function loadWarmReplication() {
   const websites = folders.get("hosting-websites") || {};
   const runtime = folders.get("hosting-runtime-config") || {};
   const database = folders.get("hosting-db-recovery") || {};
+  const automatic = data.automaticFailover || {};
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
   $("#warmPeer").textContent = replication.available ? (replication.peerConnected ? "Connected" : "Disconnected") : "Unavailable";
   $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
@@ -595,6 +596,19 @@ async function loadWarmReplication() {
   $("#warmReplicationUpdated").textContent = replication.available
     ? `Checked ${new Date(replication.checkedAt).toLocaleString()} · ${replication.exact ? "all folders exact" : "synchronization in progress"}`
     : escapeHtml(replication.error || "Replication status unavailable");
+  $("#autoFailoverStatus").textContent = automatic.available ? String(automatic.status || "unknown").replaceAll("-", " ") : "Unavailable";
+  $("#autoFailoverFailures").textContent = automatic.available && automatic.threshold
+    ? `${automatic.failures}/${automatic.threshold}`
+    : "-";
+  $("#autoFailoverRecovery").textContent = automatic.recoveryId || "-";
+  $("#autoFailoverChecked").textContent = automatic.checkedAt ? new Date(automatic.checkedAt).toLocaleString() : "-";
+  $("#autoFailoverMessage").textContent = automatic.status === "awaiting-fence"
+    ? "The outage threshold passed. Promotion is blocked until the old primary is externally fenced."
+    : automatic.status === "disabled"
+      ? "Automatic outage monitoring is disabled."
+      : automatic.available
+        ? "The watchdog is fail-closed and cannot infer old-primary fencing from connectivity loss."
+        : "No bounded watchdog state has been published yet.";
 }
 
 function renderPreflight(data) {

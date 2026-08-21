@@ -56,6 +56,7 @@ umask 077
   printf "AUTO_FAILOVER_PRIMARY_SERVER_ID='%s'\n" "$primary_server_id"
   printf "AUTO_FAILOVER_FENCE_RECEIPT='%s'\n" "$fence_receipt"
   printf "AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS='900'\n"
+  printf "AUTO_FAILOVER_PUBLIC_STATE_FILE='%s'\n" "$project_dir/../app-data/ui-manager/automatic-failover-state.json"
 } > "$temporary"
 mv "$temporary" /etc/hosting-control/automatic-failover.env
 

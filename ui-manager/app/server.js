@@ -43,6 +43,7 @@ const { runPreflight } = require("./lib/promotion-preflight");
 const { readPromotionState } = require("./lib/promotion-state");
 const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { WarmReplicationStatus } = require("./lib/warm-replication-status");
+const { readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -1938,7 +1939,11 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     return true;
   }
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/replication-status") {
-    sendJson(res, 200, { ok: true, replication: await warmReplicationStatus.read() }, { "Cache-Control": "no-store" });
+    sendJson(res, 200, {
+      ok: true,
+      replication: await warmReplicationStatus.read(),
+      automaticFailover: readAutomaticFailoverStatus(DATA_DIR),
+    }, { "Cache-Control": "no-store" });
     return true;
   }
   const requestUrl = new URL(req.url, "http://ui-manager.local");

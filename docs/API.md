@@ -33,7 +33,11 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   snapshot: peer connectivity, backlog and exactness for the three
   project-owned Syncthing folders, receive-only drift, and the age and size of
   the latest hourly database recovery point. Peer addresses, API keys, paths,
-  hashes, and raw Syncthing responses are never returned.
+  hashes, and raw Syncthing responses are never returned. It also includes a
+  bounded `automaticFailover` status with availability, state, failure
+  count/threshold, check time, and optional recovery ID. The health URL,
+  hostname allowlist, primary identity, Cloudflare token, and fencing receipt
+  are never returned.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact

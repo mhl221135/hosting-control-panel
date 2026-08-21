@@ -12,13 +12,6 @@ lock=/run/hosting-automatic-failover.lock
 # shellcheck disable=SC1090
 . "$config"
 
-[ "${AUTO_FAILOVER_ENABLED:-false}" = true ] || exit 0
-case "${AUTO_FAILOVER_MODE:-monitor}" in monitor|activate) ;; *) exit 1 ;; esac
-case "${AUTO_FAILOVER_FAILURES:-6}" in ''|*[!0-9]*) exit 1 ;; esac
-[ "$AUTO_FAILOVER_FAILURES" -ge 3 ] && [ "$AUTO_FAILOVER_FAILURES" -le 30 ] || exit 1
-case "${PRIMARY_HEALTH_URL:-}" in https://*) ;; *) exit 1 ;; esac
-[ -f "${AUTO_FAILOVER_HOSTS_FILE:-}" ] || exit 1
-
 write_state() {
   state_status="$1"
   state_failures="$2"
@@ -31,6 +24,18 @@ write_state() {
      + if $recovery_id == "" then {} else {recoveryId:$recovery_id} end' > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$state"
+  public_state="${AUTO_FAILOVER_PUBLIC_STATE_FILE:-$project_dir/../app-data/ui-manager/automatic-failover-state.json}"
+  public_dir="$(dirname -- "$public_state")"
+  if [ -d "$public_dir" ] && [ ! -L "$public_dir" ]; then
+    public_temporary="$public_state.tmp.$$"
+    if cp "$state" "$public_temporary" && chmod 644 "$public_temporary" \
+      && mv "$public_temporary" "$public_state"; then
+      :
+    else
+      rm -f "$public_temporary"
+      printf 'Warning: automatic failover panel status could not be published.\n' >&2
+    fi
+  fi
 }
 
 valid_fence_receipt() {
@@ -48,6 +53,17 @@ valid_fence_receipt() {
       and ((.expiresAt | fromdateiso8601) >= now)
     ' "$receipt" >/dev/null 2>&1
 }
+
+case "${AUTO_FAILOVER_ENABLED:-false}" in
+  true) ;;
+  false) write_state disabled 0; exit 0 ;;
+  *) exit 1 ;;
+esac
+case "${AUTO_FAILOVER_MODE:-monitor}" in monitor|activate) ;; *) exit 1 ;; esac
+case "${AUTO_FAILOVER_FAILURES:-6}" in ''|*[!0-9]*) exit 1 ;; esac
+[ "$AUTO_FAILOVER_FAILURES" -ge 3 ] && [ "$AUTO_FAILOVER_FAILURES" -le 30 ] || exit 1
+case "${PRIMARY_HEALTH_URL:-}" in https://*) ;; *) exit 1 ;; esac
+[ -f "${AUTO_FAILOVER_HOSTS_FILE:-}" ] || exit 1
 
 exec 9>"$lock"
 flock -n 9 || exit 0
