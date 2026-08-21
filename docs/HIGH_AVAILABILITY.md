@@ -84,6 +84,10 @@ sudo ./scripts/install-automatic-failover.sh \
   --enable
 ```
 
+When `UI_DATA_DIR` is customized, also pass
+`--panel-state-file UI_DATA_DIR/automatic-failover-state.json` so the standby
+Replication view can read the sanitized watchdog state.
+
 After qualification, activation can be armed with `--mode activate` and the
 exact machine-local primary server ID. It still cannot invent external fencing:
 

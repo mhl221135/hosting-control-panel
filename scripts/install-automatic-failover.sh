@@ -11,6 +11,7 @@ Options:
   --mode monitor|activate     Monitor only (default) or activate after fencing
   --primary-server-id ID      Required for activate mode
   --fence-receipt PATH        Root-owned fencing receipt path
+  --panel-state-file PATH     Sanitized status file visible to hosting-ui
 EOF
 }
 
@@ -21,6 +22,7 @@ enabled=false
 mode=monitor
 primary_server_id=""
 fence_receipt=/etc/hosting-control/primary-fence-receipt.json
+panel_state_file="$project_dir/../app-data/ui-manager/automatic-failover-state.json"
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --health-url) shift; health_url="${1:-}" ;;
@@ -29,6 +31,7 @@ while [ "$#" -gt 0 ]; do
     --mode) shift; mode="${1:-}" ;;
     --primary-server-id) shift; primary_server_id="${1:-}" ;;
     --fence-receipt) shift; fence_receipt="${1:-}" ;;
+    --panel-state-file) shift; panel_state_file="${1:-}" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -39,6 +42,7 @@ case "$hosts_file" in /*) ;; *) usage; exit 2 ;; esac
 [ -f "$hosts_file" ] || { printf 'Automatic failover host file is missing.\n' >&2; exit 1; }
 case "$mode" in monitor|activate) ;; *) usage; exit 2 ;; esac
 case "$fence_receipt" in /*) ;; *) usage; exit 2 ;; esac
+case "$panel_state_file" in /*) ;; *) usage; exit 2 ;; esac
 if [ "$mode" = activate ]; then
   case "$primary_server_id" in ''|*[!A-Za-z0-9._-]*) usage; exit 2 ;; esac
 fi
@@ -56,7 +60,7 @@ umask 077
   printf "AUTO_FAILOVER_PRIMARY_SERVER_ID='%s'\n" "$primary_server_id"
   printf "AUTO_FAILOVER_FENCE_RECEIPT='%s'\n" "$fence_receipt"
   printf "AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS='900'\n"
-  printf "AUTO_FAILOVER_PUBLIC_STATE_FILE='%s'\n" "$project_dir/../app-data/ui-manager/automatic-failover-state.json"
+  printf "AUTO_FAILOVER_PUBLIC_STATE_FILE='%s'\n" "$panel_state_file"
 } > "$temporary"
 mv "$temporary" /etc/hosting-control/automatic-failover.env
 
