@@ -6,7 +6,9 @@ This document defines a conservative primary/standby design for Websites V2.
 The current release implements machine-local roles, a locked-down standby,
 continuous one-way website/runtime-config synchronization, and hourly logical
 database recovery points. Promotion is guarded and automatic outage detection
-remains pending; verified daily backups remain the disaster-recovery layer.
+is available as a disabled-by-default watchdog; verified daily backups remain
+the disaster-recovery layer. The watchdog never treats connectivity loss as
+proof that the old primary is fenced.
 
 The project-managed website `.stignore` excludes generated cache, log,
 temporary upgrade, and session paths. Website code, media uploads, plugins,
@@ -65,11 +67,47 @@ folders to be idle, verifies the newest dump, and imports it before nginx, PHP,
 or NPM starts. Daily backup reception remains independent.
 
 The optional automatic watchdog checks the public primary health endpoint
-every 30 seconds. It promotes only after six consecutive failures, the
-Syncthing peer is also disconnected, all received folders are complete, the
-hourly SQL point is fresh, and the reviewed Cloudflare preview passes. Its
-hostname file is an explicit allowlist; zones unavailable to the management
-token are not silently included.
+every 30 seconds. After six consecutive failures and a disconnected Syncthing
+peer, it verifies that all received folders are complete and that a prepared
+recovery point exists. `monitor` mode stops there. `activate` mode additionally
+requires a fresh root-owned fencing receipt bound to the configured primary
+identity and exact recovery point before it previews and applies the reviewed
+Cloudflare cutover. Its hostname file is an explicit allowlist; zones
+unavailable to the management token are not silently included.
+
+Install monitoring without activation first:
+
+```bash
+sudo ./scripts/install-automatic-failover.sh \
+  --health-url https://PRIMARY-PANEL/health \
+  --hosts-file /etc/hosting-control/failover-hosts.txt \
+  --enable
+```
+
+After qualification, activation can be armed with `--mode activate` and the
+exact machine-local primary server ID. It still cannot invent external fencing:
+
+```bash
+sudo ./scripts/install-automatic-failover.sh \
+  --health-url https://PRIMARY-PANEL/health \
+  --hosts-file /etc/hosting-control/failover-hosts.txt \
+  --mode activate --primary-server-id PRIMARY-SERVER-ID --enable
+```
+
+Only after the old primary is actually powered off, network-fenced, or
+service-fenced, record the short-lived confirmation on the standby:
+
+```bash
+sudo ./scripts/record-primary-fence.sh \
+  --primary-server-id PRIMARY-SERVER-ID --method power \
+  --confirm OLD-PRIMARY-FENCED
+```
+
+The mode-`0600` receipt expires after 15 minutes, matches only the currently
+prepared recovery ID, and is removed after successful activation. Without it,
+the durable watchdog state remains `awaiting-fence`; no role, database, DNS,
+tunnel route, or container is changed. Truly unattended promotion therefore
+still requires a separately qualified external fencing provider or witness.
 
 ## Required Topology
 
@@ -575,8 +613,9 @@ hosts. Do not expose both NPM instances on the same public address and ports.
 ### Separate Public Addresses
 
 With independent public addresses, point DNS or a health-checked external load
-balancer only at the active host. Automatic health-based switching is not
-supported by this stack and must include anti-flap controls and fencing.
+balancer only at the active host. Health loss alone is not fencing; automatic
+switching must remain behind the receipt gate unless a qualified external
+fencing provider or witness supplies equivalent evidence.
 
 ## Warm-Standby Design Target
 

@@ -70,9 +70,14 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.doesNotMatch(standbyFence, /docker compose up/);
   const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
   assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
+  assert.match(automatic, /AUTO_FAILOVER_MODE:-monitor/);
   assert.match(automatic, /peer_connected/);
   assert.match(automatic, /check-sync-ready\.sh/);
+  assert.match(automatic, /valid_fence_receipt/);
+  assert.match(automatic, /awaiting-fence/);
+  assert.match(automatic, /primaryServerId == \$primary and \.recoveryId == \$recovery/);
   assert.match(automatic, /activate-standby\.sh" --preview/);
+  assert.match(automatic, /write_state activation-failed/);
 });
 
 test("standby role is machine-local, read-only, and suppresses writable services", () => {

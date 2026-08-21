@@ -920,6 +920,8 @@ not invoked or modified by this panel.
 - `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
 - `scripts/tunnel-cutover.sh`: preview, apply, or roll back an explicit Cloudflare Tunnel hostname/DNS cutover after local promotion
 - `scripts/revert-standby-drill.sh`: return a no-write, rolled-back failover drill to a fenced standby; never use after public writes
+- `scripts/automatic-failover.sh`: disabled-by-default outage watchdog with monitor and fence-receipt-gated activation modes
+- `scripts/record-primary-fence.sh`: create a short-lived, recovery-bound fencing receipt after the old primary is actually fenced
 
 Successful reception records a bounded source identity and the exact retained
 set manifests in `receiver-state.json`. The standby Health view provides a

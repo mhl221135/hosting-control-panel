@@ -484,6 +484,13 @@ lag reporting, and panel-driven ingress cutover remain future work. A guarded ho
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
 
+The watchdog now fails closed in `monitor` mode and cannot fabricate the
+`OLD-PRIMARY-FENCED` assertion. Optional activation requires a fresh root-owned
+fencing receipt bound to the configured primary identity and exact prepared
+recovery point; the receipt is consumed after success. A qualified external
+fencing provider or witness is still required before promotion can be fully
+unattended.
+
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
@@ -607,13 +614,16 @@ authority. Panel-based review remains future work.
 - Check the active host from an independent location, not only from its standby.
 - Require fencing so the old primary cannot serve traffic, write databases, or
   update Cloudflare before promotion.
+- Integrate a qualified external fence or witness that can issue the bounded
+  recovery-bound receipt without relying on the failed primary. Until then,
+  automatic activation deliberately pauses in `awaiting-fence`.
 - Begin with operator-confirmed promotion using the documented runbook.
 - The controlled local outage drill against hp-server is complete: OPI5 was
   fenced, the synchronized database was restored, representative WordPress,
   PHP, and static sites were validated internally, HP was reverted, replication
   resumed, and OPI5/public traffic recovered. The two-host public tunnel drill
-  is also complete: `mishaweb.com` and its `www` alias were served through HP's
-  tunnel, verified in HP nginx logs, rolled back to their exact prior records,
+  is also complete: a qualification hostname and its `www` alias were served
+  through HP's tunnel, verified in HP nginx logs, rolled back to their prior records,
   and HP returned to standby with no public writes. A deliberate write/failback
   drill still remains; rebuild rather than revert after any public write. Only
   after that drill, enable the implemented

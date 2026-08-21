@@ -13,10 +13,41 @@ lock=/run/hosting-automatic-failover.lock
 . "$config"
 
 [ "${AUTO_FAILOVER_ENABLED:-false}" = true ] || exit 0
+case "${AUTO_FAILOVER_MODE:-monitor}" in monitor|activate) ;; *) exit 1 ;; esac
 case "${AUTO_FAILOVER_FAILURES:-6}" in ''|*[!0-9]*) exit 1 ;; esac
 [ "$AUTO_FAILOVER_FAILURES" -ge 3 ] && [ "$AUTO_FAILOVER_FAILURES" -le 30 ] || exit 1
 case "${PRIMARY_HEALTH_URL:-}" in https://*) ;; *) exit 1 ;; esac
 [ -f "${AUTO_FAILOVER_HOSTS_FILE:-}" ] || exit 1
+
+write_state() {
+  state_status="$1"
+  state_failures="$2"
+  state_recovery_id="${3:-}"
+  temporary="$state.tmp.$$"
+  jq -n --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg status "$state_status" --arg recovery_id "$state_recovery_id" \
+    --argjson failures "$state_failures" --argjson threshold "$AUTO_FAILOVER_FAILURES" \
+    '{version:1,checkedAt:$checked_at,status:$status,failures:$failures,threshold:$threshold}
+     + if $recovery_id == "" then {} else {recoveryId:$recovery_id} end' > "$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$state"
+}
+
+valid_fence_receipt() {
+  receipt="${AUTO_FAILOVER_FENCE_RECEIPT:-/etc/hosting-control/primary-fence-receipt.json}"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  [ "$(stat -c '%u' "$receipt" 2>/dev/null || true)" = 0 ] || return 1
+  [ "$(stat -c '%a' "$receipt" 2>/dev/null || true)" = 600 ] || return 1
+  jq -e --arg primary "${AUTO_FAILOVER_PRIMARY_SERVER_ID:-}" --arg recovery "$1" \
+    --argjson max_age "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" '
+      .version == 1 and .status == "fenced"
+      and .primaryServerId == $primary and .recoveryId == $recovery
+      and (.method | IN("power", "network", "service"))
+      and ((.fencedAt | fromdateiso8601) <= (now + 30))
+      and ((now - (.fencedAt | fromdateiso8601)) <= $max_age)
+      and ((.expiresAt | fromdateiso8601) >= now)
+    ' "$receipt" >/dev/null 2>&1
+}
 
 exec 9>"$lock"
 flock -n 9 || exit 0
@@ -45,27 +76,53 @@ else
   status=primary-unreachable
 fi
 
-temporary="$state.tmp.$$"
-jq -n --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg status "$status" \
-  --argjson failures "$failures" --argjson threshold "$AUTO_FAILOVER_FAILURES" \
-  '{version:1,checkedAt:$checked_at,status:$status,failures:$failures,threshold:$threshold}' > "$temporary"
-chmod 600 "$temporary"
-mv "$temporary" "$state"
+write_state "$status" "$failures"
 
 [ "$failures" -ge "$AUTO_FAILOVER_FAILURES" ] || exit 0
-"$project_dir/scripts/check-sync-ready.sh"
-recovery_id="$(jq -er '.app_data_id' /etc/hosting-control/standby-recovery.json)"
-"$project_dir/scripts/activate-standby.sh" --preview \
+if ! "$project_dir/scripts/check-sync-ready.sh"; then
+  write_state blocked-sync "$failures"
+  exit 1
+fi
+if ! recovery_id="$(jq -er '.app_data_id' /etc/hosting-control/standby-recovery.json)"; then
+  write_state blocked-recovery "$failures"
+  exit 1
+fi
+
+if [ "${AUTO_FAILOVER_MODE:-monitor}" = monitor ]; then
+  write_state threshold-reached "$failures" "$recovery_id"
+  printf 'Automatic failover threshold reached; monitor mode will not promote.\n' >&2
+  exit 0
+fi
+
+case "${AUTO_FAILOVER_PRIMARY_SERVER_ID:-}" in
+  ''|*[!A-Za-z0-9._-]*) write_state invalid-config "$failures" "$recovery_id"; exit 1 ;;
+esac
+case "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" in ''|*[!0-9]*) exit 1 ;; esac
+[ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -ge 60 ] \
+  && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
+if ! valid_fence_receipt "$recovery_id"; then
+  write_state awaiting-fence "$failures" "$recovery_id"
+  printf 'Automatic failover is waiting for a fresh fencing receipt for %s.\n' \
+    "$AUTO_FAILOVER_PRIMARY_SERVER_ID" >&2
+  exit 0
+fi
+
+write_state activating "$failures" "$recovery_id"
+if ! "$project_dir/scripts/activate-standby.sh" --preview \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
-  --recovery-id "$recovery_id"
-"$project_dir/scripts/activate-standby.sh" --apply \
+  --recovery-id "$recovery_id"; then
+  write_state preview-failed "$failures" "$recovery_id"
+  exit 1
+fi
+if ! "$project_dir/scripts/activate-standby.sh" --apply \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
   --recovery-id "$recovery_id" \
-  --confirm ACTIVATE-STANDBY --fence-confirm OLD-PRIMARY-FENCED
+  --confirm ACTIVATE-STANDBY --fence-confirm OLD-PRIMARY-FENCED; then
+  write_state activation-failed "$failures" "$recovery_id"
+  exit 1
+fi
 
-jq -n --arg completed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$recovery_id" \
-  '{version:1,checkedAt:$completed_at,status:"promoted",failures:0,recoveryId:$recovery_id}' > "$temporary"
-chmod 600 "$temporary"
-mv "$temporary" "$state"
+write_state promoted 0 "$recovery_id"
+rm -f "${AUTO_FAILOVER_FENCE_RECEIPT:-/etc/hosting-control/primary-fence-receipt.json}"

@@ -40,7 +40,9 @@ primary index and prepares it without restoring archives. Local promotion requir
 prepared recovery ID plus typed old-primary fencing confirmation, validates the
 runtime before changing the machine marker, and records that public ingress has
 not been cut over. Cloudflare tunnel switching remains a separate guarded step;
-the automatic watchdog stays disabled until an outage drill passes.
+the automatic watchdog stays disabled until an outage drill passes. Monitoring
+never asserts fencing; activation requires a fresh root-owned receipt bound to
+the old primary identity and exact prepared recovery point.
 
 ## Services
 
