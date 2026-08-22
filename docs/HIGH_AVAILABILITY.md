@@ -172,8 +172,10 @@ failures and the five-minute grace, HP promoted recovery
 Cloudflare routes, reached `promoted-unreachable`, and served the selected
 site through the HP tunnel. The routes were rolled back, OPI5's signals and
 safety timers were restored, and HP returned to fenced standby with no public
-writes. This proves the bounded automatic path, not a full 112-host outage or
-a write/failback workflow.
+writes. This proved the bounded automatic path. The later operator-controlled
+111-host write/failback drill is recorded in the Failback section; fully
+unattended all-host promotion remains intentionally unqualified without an
+external quorum witness.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
@@ -800,15 +802,30 @@ The guarded rebuild half is implemented by `scripts/rebuild-former-primary.sh`
 on the promoted primary and `scripts/accept-former-primary-rebuild.sh` on the
 durably fenced former primary. Its dry run verifies promotion/cutover state,
 the remote fence, mutual SSH, and fixed Syncthing identities. Apply reverses
-all three managed Syncthing folders, briefly pauses website writes, creates a
-final logical database recovery point, waits for exact synchronization, and
-requires the former primary to stage that exact recovery. It records a bounded
-receipt and resumes HP without changing DNS or public ingress. Traffic
-failback is implemented separately by `scripts/complete-failback.sh`. It takes
-one final delta while HP writes are fenced, promotes the rebuilt host at that
-exact recovery, transactionally rolls back HP tunnel ingress to the recorded
-direct records, and demotes HP to receive-only standby. A live write/failback
-qualification remains required before routine use.
+all three managed Syncthing folders and creates a
+final logical database recovery point. Database recovery and runtime
+configuration must be exact; website-file lag may remain only when it is
+error-free, conflict-free, and no more than 100 items or 10 MiB. The former
+primary stages the exact database recovery and the rebuild records a bounded
+receipt without changing public ingress.
+
+Traffic failback is implemented separately by `scripts/complete-failback.sh`.
+HP remains online while a live logical database snapshot transfers and OPI5
+pre-imports it. OPI5 starts and validates its runtime before Cloudflare restores
+the recorded direct records. HP remains online for a 60-second ingress grace,
+then demotes to receive-only standby. This availability-first overlap can lose
+writes made on HP after the final logical snapshot; it deliberately favors
+continuous service over zero-RPO failback. The former-primary fence timer is
+paused before OPI5 changes role, restored if promotion fails, and disabled only
+after successful promotion.
+
+The full 111-host write/failback drill completed on 2026-08-22. A database and
+filesystem write made on promoted HP was present after OPI5 restoration, all
+111 managed hostnames returned non-5xx responses after failback, OPI5 resumed
+`sendonly` website synchronization and scheduled database snapshots, and HP
+returned to `receiveonly` standby with its outage watchdog active. The drill
+also established that active website service must never be stopped while
+waiting for a website-tree rescan or standby SQL import.
 
 After every incident or drill, record actual RPO/RTO, failed checks, manual
 steps, and documentation changes. Automatic failover should not be introduced

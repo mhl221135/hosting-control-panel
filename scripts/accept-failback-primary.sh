@@ -33,8 +33,19 @@ args=(--dry-run --recovery-id "$recovery_id")
 "$project_dir/scripts/promote-standby.sh" "${args[@]}"
 [[ "$mode" == --dry-run ]] && exit 0
 [[ "$confirmation" == ACCEPT-FAILBACK-PRIMARY ]] || { printf 'Apply requires --confirm ACCEPT-FAILBACK-PRIMARY.\n' >&2; exit 2; }
-"$project_dir/scripts/promote-standby.sh" --apply --recovery-id "$recovery_id" \
-  --confirm PROMOTE-STANDBY --fence-confirm OLD-PRIMARY-FENCED
+former_fence_enabled=0
+if systemctl is-enabled hosting-former-primary-fence.timer >/dev/null 2>&1; then
+  former_fence_enabled=1
+fi
+systemctl stop hosting-former-primary-fence.timer hosting-former-primary-fence.service >/dev/null 2>&1 || true
+if ! "$project_dir/scripts/promote-standby.sh" --apply --recovery-id "$recovery_id" \
+  --confirm PROMOTE-STANDBY --fence-confirm OLD-PRIMARY-FENCED; then
+  if (( former_fence_enabled == 1 )); then
+    systemctl enable --now hosting-former-primary-fence.timer >/dev/null 2>&1 || true
+  fi
+  exit 1
+fi
+systemctl disable hosting-former-primary-fence.timer >/dev/null 2>&1 || true
 sync_args=(--peer-id "$peer_id" --peer-name failback-standby --mode sendonly)
 [[ -z "$peer_address" ]] || sync_args+=(--peer-address "$peer_address")
 "$project_dir/scripts/configure-sync.sh" "${sync_args[@]}"

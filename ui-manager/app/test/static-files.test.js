@@ -460,6 +460,7 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   const complete = fs.readFileSync(path.resolve(__dirname, "../../../scripts/complete-failback.sh"), "utf8");
   const accept = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-failback-primary.sh"), "utf8");
   const demote = fs.readFileSync(path.resolve(__dirname, "../../../scripts/demote-after-failback.sh"), "utf8");
+  const ready = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
   assert.match(complete, /--confirm COMPLETE-FAILBACK/);
   assert.match(complete, /create-replication-dump\.sh/);
   assert.match(complete, /accept-failback-primary\.sh/);
@@ -468,10 +469,20 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(complete, /demote-after-failback\.sh/);
   assert.ok(complete.indexOf("accept-failback-primary") < complete.indexOf("--rollback --confirm"));
   assert.ok(complete.indexOf("--rollback --confirm") < complete.indexOf("demote-after-failback"));
+  assert.doesNotMatch(complete, /docker compose stop hosting-ui|docker compose stop hosting-db/);
+  assert.match(complete, /keeping HP online for a 60-second ingress transition grace/);
+  assert.match(complete, /ready_count >= 2/);
   assert.match(accept, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(accept, /systemctl stop hosting-former-primary-fence\.timer/);
+  assert.match(accept, /systemctl disable hosting-former-primary-fence\.timer/);
   assert.match(accept, /--mode sendonly/);
   assert.match(demote, /\.status == "rolled-back"/);
+  assert.match(demote, /\.public_ingress_cutover == false/);
   assert.match(demote, /--mode receiveonly/);
+  assert.match(ready, /--allow-small-website-lag/);
+  assert.match(ready, /needTotalItems <= 100/);
+  assert.match(ready, /needBytes <= 10485760/);
+  assert.match(ready, /folder" = hosting-websites/);
 });
 
 test("standby preparation generates a review-bound failover hostname inventory", () => {

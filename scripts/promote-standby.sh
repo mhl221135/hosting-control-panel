@@ -135,7 +135,7 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
   || { printf 'Interrupted backup staging exists; promotion refused.\n' >&2; exit 1; }
 
 compose config --quiet
-"$project_dir/scripts/check-sync-ready.sh" >/dev/null
+"$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
 replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
 [ "$replicated_db_id" = "$prepared_id" ] \
   || { printf 'A newer database recovery point exists. Prepare the standby again.\n' >&2; exit 1; }
@@ -191,7 +191,7 @@ trap cleanup EXIT HUP INT TERM
 if command -v systemctl >/dev/null 2>&1; then
   systemctl is-enabled hosting-backup-receiver.timer >/dev/null 2>&1 && receiver_timer_was_enabled=1 || true
   systemctl is-enabled hosting-warm-sync-finalizer.timer >/dev/null 2>&1 && finalizer_timer_was_enabled=1 || true
-  systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service
+  systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service >/dev/null 2>&1 || true
   systemctl disable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
 fi
 

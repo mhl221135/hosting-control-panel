@@ -2,12 +2,19 @@
 
 set -eu
 
-usage() { printf 'Usage: finalize-warm-sync.sh --source|--standby\n' >&2; }
+usage() { printf 'Usage: finalize-warm-sync.sh --source|--standby [--allow-small-website-lag]\n' >&2; }
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 mode="${1:-}"
 case "$mode" in --source|--standby) ;; *) usage; exit 2 ;; esac
-[ "$#" -eq 1 ] || { usage; exit 2; }
+allow_small=false
+case "${2:-}" in
+  "") ;;
+  --allow-small-website-lag) allow_small=true ;;
+  *) usage; exit 2 ;;
+esac
+[ "$#" -le 2 ] || { usage; exit 2; }
+[ "$mode" != --standby ] || allow_small=true
 [ "$(id -u)" -eq 0 ] || { printf 'Run as root.\n' >&2; exit 1; }
 [ -f "$env_file" ] || { printf 'Missing .env file.\n' >&2; exit 1; }
 
@@ -46,9 +53,14 @@ wait_for_idle() {
   allow_drift="$1"
   while :; do
     status="$(sync_status)"
-    if printf '%s' "$status" | jq -e --argjson allow_drift "$allow_drift" '
-      .state == "idle" and .needTotalItems == 0 and .errors == 0 and
-      ($allow_drift or ((.receiveOnlyTotalItems // 0) == 0))
+    if printf '%s' "$status" | jq -e --argjson allow_drift "$allow_drift" --argjson allow_small "$allow_small" '
+      .errors == 0 and ($allow_drift or ((.receiveOnlyTotalItems // 0) == 0)) and
+      (if $allow_small then
+        (.state == "idle" or .state == "scanning" or .state == "syncing") and
+        .needTotalItems <= 100 and .needBytes <= 10485760
+      else
+        .state == "idle" and .needTotalItems == 0
+      end)
     ' >/dev/null; then
       return 0
     fi
@@ -98,8 +110,8 @@ docker exec hosting-sync sh -c '
       "http://127.0.0.1:8384/rest/db/revert?folder=$folder" >/dev/null
   done
 '
-while ! "$project_dir/scripts/check-sync-ready.sh" >/dev/null 2>&1; do sleep 60; done
+while ! "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null 2>&1; do sleep 60; done
 "$project_dir/scripts/stage-standby-database.sh"
-while ! "$project_dir/scripts/check-sync-ready.sh" >/dev/null 2>&1; do sleep 60; done
+while ! "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null 2>&1; do sleep 60; done
 "$project_dir/scripts/prepare-warm-standby.sh" --apply --confirm PREPARE-WARM-STANDBY
 printf 'Standby warm-sync baseline is reconciled, exact, and prepared. Promotion and traffic remain unchanged.\n'

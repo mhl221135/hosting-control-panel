@@ -477,7 +477,8 @@ runtime configuration one way, while hourly verified logical database recovery
 points synchronize separately. The standby now pre-imports each new logical
 snapshot into its stopped database volume and refreshes the coordinated warm
 recovery marker every ten minutes, so promotion does not normally import SQL
-during an outage. Resumable finalizers, exact all-folder reconciliation, a
+during an outage. Resumable finalizers, exact database/runtime reconciliation
+with bounded website-file lag during planned rebuild/failback, a
 reboot-time writable-service fence, warm preparation, and a disabled-by-default
 automatic outage watchdog are implemented. Authenticated panel pairing,
 historical lag alerts, and panel-driven promotion remain future work. A
@@ -498,8 +499,8 @@ the requested home-hosting power-loss case. It waits through a bounded grace
 period after both public health and the Syncthing peer disappear, rechecks the
 prepared recovery and Cloudflare preview, records the degraded fencing mode,
 and can then promote automatically. It is armed on the current HP standby
-after the contained no-write cutover drill; a deliberate write/failback drill
-still remains.
+after the contained no-write cutover drill. The full write/failback drill is
+also complete.
 
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
@@ -537,8 +538,9 @@ automatic public verification are implemented. The emergency unreachable-primary
   contained two-host allowlist: HP waited for the threshold and grace period,
   promoted the prepared recovery, switched and verified both Cloudflare
   routes, served the selected site, and returned to standby after a no-write
-  rollback. A full unattended 112-host promotion remains intentionally
-  unforced until a real primary outage or a scheduled write/failback drill.
+  rollback. A later operator-controlled 111-host write/failback drill passed;
+  fully unattended all-host promotion remains intentionally unforced because
+  the two-node design has no external quorum witness.
   Cloudflare cutover performs read-after-write verification for every selected
   tunnel ingress rule and DNS record before recording success.
   Timer restart recovery reconstructs a missing final promoted state only from
@@ -650,11 +652,12 @@ Panel-based acceptance remains future work.
   resumed, and OPI5/public traffic recovered. The two-host public tunnel drill
   is also complete: a qualification hostname and its `www` alias were served
   through HP's tunnel, verified in HP nginx logs, rolled back to their prior records,
-  and HP returned to standby with no public writes. A deliberate write/failback
-  drill still remains; rebuild rather than revert after any public write. Only
-  after that drill, retain evidence for the implemented thresholded watchdog
-  on the reviewed 112-host allowlist. The watchdog is armed only while exact
-  synchronization and warm preparation continue to pass.
+  and HP returned to standby with no public writes. The later 111-host
+  write/failback drill is also complete: a promoted-HP database/file write was
+  restored on OPI5, ingress returned to OPI5, the public sweep had zero
+  failures, and HP demoted to receive-only standby. The automatic outage
+  watchdog still requires exact synchronization; planned failback permits only
+  a small bounded website-file delta while database/runtime state stays exact.
 - The automatic outage path was qualified on 2026-08-22 with a temporary
   two-host allowlist. OPI5's panel-health and exact Syncthing-peer signals were
   stopped while its website-serving nginx/NPM remained online. HP reached
@@ -672,16 +675,11 @@ Panel-based acceptance remains future work.
   authoritative primary. A recovered former primary must remain fenced and
   must not resume its old replication, schedulers, DNS authority, or writable
   services.
-- Qualify the implemented guarded **Rebuild former primary as standby** host
-  workflow in a live promoted-primary maintenance drill. It reverses the three
-  managed Syncthing folders, creates a final logical database recovery point,
-  prepares the returned machine at that exact point, and records a bounded
-  receipt without changing ingress.
-- Qualify the implemented controlled **Fail back traffic** workflow in the
-  live write/failback drill. It stops HP writes, synchronizes one final logical
-  recovery point, promotes the rebuilt host, restores recorded direct ingress,
-  and demotes HP to receive-only standby. Never perform bidirectional database
-  merge or start both machines as writable primaries.
+- Keep the qualified **Rebuild former primary as standby** and **Fail back
+  traffic** workflows covered by regression tests. Failback keeps HP serving
+  while OPI5 imports and starts, restores recorded direct ingress, waits through
+  a transition grace, and only then demotes HP. Database/runtime state remains
+  exact; website lag is bounded. Never perform a bidirectional database merge.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
 

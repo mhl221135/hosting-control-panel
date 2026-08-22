@@ -29,8 +29,8 @@ state=/etc/hosting-control
 role_file="$state/role.json"
 fence_file="$state/former-primary-fence-state.json"
 [ -f "$role_file" ] && [ -f "$fence_file" ] || { printf 'Former-primary role or fence receipt is missing.\n' >&2; exit 1; }
-jq -e '.version == 1 and .role == "primary" and (.server_id | type == "string")' "$role_file" >/dev/null \
-  || { printf 'This host is not the former primary.\n' >&2; exit 1; }
+jq -e '.version == 1 and (.role == "primary" or .role == "standby") and (.server_id | type == "string")' "$role_file" >/dev/null \
+  || { printf 'This host is not a fenced former primary or its partial standby rebuild.\n' >&2; exit 1; }
 jq -e '.version == 1 and .status == "fenced" and (.peerServerId | type == "string") and (.recoveryId | type == "string")' \
   "$fence_file" >/dev/null || { printf 'The former primary is not durably fenced.\n' >&2; exit 1; }
 printf 'Former primary is fenced and can be rebuilt as a receive-only standby.\n'

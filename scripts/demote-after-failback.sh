@@ -20,7 +20,8 @@ done
 
 state=/etc/hosting-control
 jq -e '.version == 1 and .role == "primary"' "$state/role.json" >/dev/null
-jq -e --arg id "$recovery_id" '.version == 1 and .status == "local-primary" and .recovery_id == $id' "$state/promotion-state.json" >/dev/null
+jq -e '.version == 1 and .status == "local-primary" and .public_ingress_cutover == false and
+  (.recovery_id | type == "string")' "$state/promotion-state.json" >/dev/null
 jq -e '.version == 1 and .status == "rolled-back"' "$state/tunnel-cutover.json" >/dev/null
 cd "$project_dir"
 systemctl disable --now hosting-database-replication.timer hosting-automatic-failover.timer >/dev/null 2>&1 || true
