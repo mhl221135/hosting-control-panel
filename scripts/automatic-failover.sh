@@ -141,6 +141,46 @@ valid_host_qualification() {
   ' "$receipt" >/dev/null 2>&1
 }
 
+apply_public_cutover() {
+  token_file=/etc/hosting-control/cloudflare-tunnel-api.token
+  [ -f "$token_file" ] && [ ! -L "$token_file" ] || return 1
+  [ "$(stat -c '%u' "$token_file" 2>/dev/null || true)" = 0 ] || return 1
+  [ "$(stat -c '%a' "$token_file" 2>/dev/null || true)" = 600 ] || return 1
+  CLOUDFLARE_TUNNEL_API_TOKEN="$(cat "$token_file")"
+  [ -n "$CLOUDFLARE_TUNNEL_API_TOKEN" ] || return 1
+  export CLOUDFLARE_TUNNEL_API_TOKEN
+  "$project_dir/scripts/tunnel-cutover.sh" --preview \
+    --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" >/dev/null \
+    && "$project_dir/scripts/tunnel-cutover.sh" --apply \
+      --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
+      --confirm SWITCH-TUNNEL-INGRESS
+  result=$?
+  unset CLOUDFLARE_TUNNEL_API_TOKEN
+  return "$result"
+}
+
+start_promoted_replication() {
+  if command -v systemctl >/dev/null 2>&1 \
+    && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
+    systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 \
+      && systemctl start hosting-database-replication.service >/dev/null 2>&1 \
+      && systemctl restart hosting-database-replication.timer >/dev/null 2>&1 \
+      || printf 'Warning: public cutover succeeded, but the initial database replication snapshot failed.\n' >&2
+  fi
+}
+
+write_promoted_state() {
+  promoted_recovery="$1"
+  promoted_failures="${2:-0}"
+  promoted_unreachable_since="${3:-}"
+  promoted_fencing_mode="$(jq -r '.fencing_mode // empty' /etc/hosting-control/promotion-state.json)"
+  if [ "$promoted_fencing_mode" = PRIMARY-UNREACHABLE-RISK-ACCEPTED ]; then
+    write_state promoted-unreachable "$promoted_failures" "$promoted_recovery" "$promoted_unreachable_since"
+  else
+    write_state promoted "$promoted_failures" "$promoted_recovery"
+  fi
+}
+
 case "${AUTO_FAILOVER_ENABLED:-false}" in
   true) ;;
   false) write_state disabled 0; exit 0 ;;
@@ -160,20 +200,46 @@ role="$(jq -r '.role // empty' /etc/hosting-control/role.json 2>/dev/null || tru
 if [ "$role" = primary ]; then
   promotion=/etc/hosting-control/promotion-state.json
   cutover=/etc/hosting-control/tunnel-cutover.json
-  if [ -f "$promotion" ] && [ ! -L "$promotion" ] && [ -f "$cutover" ] && [ ! -L "$cutover" ] \
-    && recovery_id="$(jq -er '.recovery_id' "$promotion" 2>/dev/null)" \
-    && jq -e --arg recovery "$recovery_id" '
-      .version == 1 and .status == "local-primary" and .public_ingress_cutover == true
-      and .recovery_id == $recovery
-    ' "$promotion" >/dev/null 2>&1 \
+  [ -f "$promotion" ] && [ ! -L "$promotion" ] || exit 0
+  recovery_id="$(jq -er '.recovery_id' "$promotion" 2>/dev/null || true)"
+  [ -n "$recovery_id" ] || exit 0
+  jq -e --arg recovery "$recovery_id" '
+    .version == 1 and .status == "local-primary" and .recovery_id == $recovery
+  ' "$promotion" >/dev/null 2>&1 || exit 0
+  previous_failures="$(jq -r '.failures // 0' "$state" 2>/dev/null || printf 0)"
+  previous_unreachable="$(jq -r '.unreachableSince // empty' "$state" 2>/dev/null || true)"
+  case "$previous_failures" in ''|*[!0-9]*) previous_failures=0 ;; esac
+
+  if [ -f "$cutover" ] && [ ! -L "$cutover" ] \
     && jq -e '.version == 1 and .status == "active"' "$cutover" >/dev/null 2>&1; then
-    fencing_mode="$(jq -r '.fencing_mode // empty' "$promotion")"
-    if [ "$fencing_mode" = PRIMARY-UNREACHABLE-RISK-ACCEPTED ]; then
-      write_state promoted-unreachable 0 "$recovery_id"
-    else
-      write_state promoted 0 "$recovery_id"
+    if ! jq -e '.public_ingress_cutover == true' "$promotion" >/dev/null 2>&1; then
+      temporary="$promotion.tmp.$$"
+      jq '.public_ingress_cutover = true' "$promotion" > "$temporary"
+      chmod 644 "$temporary"
+      mv "$temporary" "$promotion"
     fi
+    write_promoted_state "$recovery_id" 0 "$previous_unreachable"
+    exit 0
   fi
+
+  jq -e '.public_ingress_cutover == false' "$promotion" >/dev/null 2>&1 || exit 0
+  [ "${AUTO_FAILOVER_MODE:-monitor}" = activate ] || exit 0
+  jq -e --arg recovery "$recovery_id" '.app_data_id == $recovery and .database_recovery_id == $recovery' \
+    /etc/hosting-control/standby-recovery.json >/dev/null 2>&1 \
+    || { write_state blocked-recovery "$previous_failures" "$recovery_id" "$previous_unreachable"; exit 1; }
+  valid_host_qualification "$recovery_id" \
+    || { write_state blocked-host-qualification "$previous_failures" "$recovery_id" "$previous_unreachable"; exit 1; }
+  if [ -f "$cutover" ] && ! jq -e '.version == 1 and .status == "rolled-back"' "$cutover" >/dev/null 2>&1; then
+    write_state activation-failed "$previous_failures" "$recovery_id" "$previous_unreachable"
+    exit 1
+  fi
+  write_state activating "$previous_failures" "$recovery_id" "$previous_unreachable"
+  if ! apply_public_cutover; then
+    write_state activation-failed "$previous_failures" "$recovery_id" "$previous_unreachable"
+    exit 1
+  fi
+  start_promoted_replication
+  write_promoted_state "$recovery_id" 0 "$previous_unreachable"
   exit 0
 fi
 [ "$role" = standby ] || exit 0
@@ -291,9 +357,5 @@ if ! "$project_dir/scripts/activate-standby.sh" --apply \
   exit 1
 fi
 
-if [ "$fence_confirmation" = PRIMARY-UNREACHABLE-RISK-ACCEPTED ]; then
-  write_state promoted-unreachable 0 "$recovery_id" "$unreachable_since"
-else
-  write_state promoted 0 "$recovery_id"
-fi
+write_promoted_state "$recovery_id" 0 "$unreachable_since"
 rm -f "${AUTO_FAILOVER_FENCE_RECEIPT:-/etc/hosting-control/primary-fence-receipt.json}"
