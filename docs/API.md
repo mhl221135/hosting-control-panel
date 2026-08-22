@@ -37,7 +37,9 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   bounded `automaticFailover` status with availability, state, failure
   count/threshold, check time, and optional recovery ID. The health URL,
   hostname allowlist, primary identity, Cloudflare token, and fencing receipt
-  are never returned.
+  are never returned. The bounded `failoverInventory` summary validates the
+  generated candidate checksum and reports active/candidate counts plus at most
+  100 pending additions and removals. It does not authorize or apply cutover.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact

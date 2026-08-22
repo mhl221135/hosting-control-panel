@@ -120,7 +120,9 @@ counts, deep-verification freshness, ingress preference, and the complete
 non-mutating promotion preflight. Saving the ingress preference does not alter
 DNS or activate routes. Promotion remains a separate fenced runbook operation.
 The **Automatic failover** card shows watchdog state, consecutive failures,
-the bound recovery point, and the last check. `awaiting fence` means outage
+the bound recovery point, the last check, and candidate-versus-active hostname
+drift. Pending hostnames remain visible until the root-level review command
+accepts them; the panel does not silently grant cutover authority. `awaiting fence` means outage
 detection passed but promotion remains blocked until the old primary is
 externally fenced.
 

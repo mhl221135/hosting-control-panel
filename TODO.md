@@ -530,7 +530,8 @@ Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation
 command promotes reviewed candidates to the active failover allowlist, so new
 sites are discovered automatically without silently gaining DNS cutover
-authority. Panel-based review remains future work.
+authority. The standby panel now shows validated active/candidate counts and
+bounded pending additions/removals. Panel-based acceptance remains future work.
 
 ### Roles And Pairing
 

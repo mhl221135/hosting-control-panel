@@ -586,6 +586,7 @@ async function loadWarmReplication() {
   const runtime = folders.get("hosting-runtime-config") || {};
   const database = folders.get("hosting-db-recovery") || {};
   const automatic = data.automaticFailover || {};
+  const inventory = data.failoverInventory || {};
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
   $("#warmPeer").textContent = replication.available ? (replication.peerConnected ? "Connected" : "Disconnected") : "Unavailable";
   $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
@@ -616,6 +617,17 @@ async function loadWarmReplication() {
       : automatic.available
         ? "The watchdog is fail-closed and cannot infer old-primary fencing from connectivity loss."
         : "No bounded watchdog state has been published yet.";
+  $("#failoverActiveHosts").textContent = inventory.available ? inventory.activeCount : "-";
+  $("#failoverCandidateHosts").textContent = inventory.available ? inventory.candidateCount : "-";
+  $("#failoverHostAdditions").textContent = inventory.available ? inventory.pendingAdditionCount : "-";
+  $("#failoverHostRemovals").textContent = inventory.available ? inventory.pendingRemovalCount : "-";
+  const pending = [...(inventory.additions || []).map((host) => `+ ${host}`),
+    ...(inventory.removals || []).map((host) => `- ${host}`)];
+  $("#failoverInventoryMessage").textContent = !inventory.available
+    ? "Hostname inventory is missing or invalid. Automatic cutover cannot include unreviewed sites."
+    : pending.length
+      ? `${pending.join(" · ")}${inventory.truncated ? " · more changes omitted" : ""}`
+      : "The active automatic-failover allowlist matches the prepared website inventory.";
 }
 
 function renderPreflight(data) {
