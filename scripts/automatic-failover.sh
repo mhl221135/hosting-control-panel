@@ -17,15 +17,18 @@ write_state() {
   state_failures="$2"
   state_recovery_id="${3:-}"
   state_unreachable_since="${4:-}"
+  state_recovery_age="${5:-}"
   temporary="$state.tmp.$$"
   jq -n --arg checked_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg status "$state_status" --arg recovery_id "$state_recovery_id" \
     --arg unreachable_since "$state_unreachable_since" \
+    --arg recovery_age "$state_recovery_age" \
     --arg fence_policy "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" \
     --argjson failures "$state_failures" --argjson threshold "$AUTO_FAILOVER_FAILURES" \
     '{version:1,checkedAt:$checked_at,status:$status,failures:$failures,threshold:$threshold,fencePolicy:$fence_policy}
      + (if $recovery_id == "" then {} else {recoveryId:$recovery_id} end)
-     + (if $unreachable_since == "" then {} else {unreachableSince:$unreachable_since} end)' > "$temporary"
+     + (if $unreachable_since == "" then {} else {unreachableSince:$unreachable_since} end)
+     + (if $recovery_age == "" then {} else {recoveryAgeSeconds:($recovery_age | tonumber)} end)' > "$temporary"
   chmod 600 "$temporary"
   mv "$temporary" "$state"
   public_state="${AUTO_FAILOVER_PUBLIC_STATE_FILE:-$project_dir/../app-data/ui-manager/automatic-failover-state.json}"
@@ -111,9 +114,21 @@ if ! recovery_id="$(jq -er '.app_data_id' /etc/hosting-control/standby-recovery.
   write_state blocked-recovery "$failures" "" "$unreachable_since"
   exit 1
 fi
+case "${AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS:-7200}" in ''|*[!0-9]*) exit 1 ;; esac
+[ "${AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS:-7200}" -ge 1800 ] \
+  && [ "${AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS:-7200}" -le 86400 ] || exit 1
+recovery_iso="$(printf '%s' "$recovery_id" | sed -E 's/^([0-9]{4}-[0-9]{2}-[0-9]{2})T([0-9]{2})-([0-9]{2})-([0-9]{2})Z$/\1T\2:\3:\4Z/')"
+recovery_epoch="$(date -u -d "$recovery_iso" +%s 2>/dev/null || printf 0)"
+now_epoch="$(date -u +%s)"
+recovery_age=$((now_epoch - recovery_epoch))
+if [ "$recovery_epoch" -le 0 ] || [ "$recovery_age" -lt -300 ] \
+  || [ "$recovery_age" -gt "${AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS:-7200}" ]; then
+  write_state blocked-stale-recovery "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
+  exit 1
+fi
 
 if [ "${AUTO_FAILOVER_MODE:-monitor}" = monitor ]; then
-  write_state threshold-reached "$failures" "$recovery_id" "$unreachable_since"
+  write_state threshold-reached "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
   printf 'Automatic failover threshold reached; monitor mode will not promote.\n' >&2
   exit 0
 fi
@@ -127,7 +142,7 @@ if [ "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" = receipt ]; then
   [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -ge 60 ] \
     && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
   if ! valid_fence_receipt "$recovery_id"; then
-    write_state awaiting-fence "$failures" "$recovery_id" "$unreachable_since"
+    write_state awaiting-fence "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
     printf 'Automatic failover is waiting for a fresh fencing receipt for %s.\n' \
       "$AUTO_FAILOVER_PRIMARY_SERVER_ID" >&2
     exit 0
@@ -142,7 +157,7 @@ else
   now_epoch="$(date -u +%s)"
   if [ "$unreachable_epoch" -le 0 ] \
     || [ $((now_epoch - unreachable_epoch)) -lt "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" ]; then
-    write_state awaiting-unreachable-grace "$failures" "$recovery_id" "$unreachable_since"
+    write_state awaiting-unreachable-grace "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
     exit 0
   fi
   fence_confirmation=PRIMARY-UNREACHABLE-RISK-ACCEPTED

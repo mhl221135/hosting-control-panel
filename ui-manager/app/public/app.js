@@ -607,6 +607,8 @@ async function loadWarmReplication() {
     ? "The outage threshold passed. Promotion is blocked until the old primary is externally fenced."
     : automatic.status === "awaiting-unreachable-grace"
       ? "OPI5 is unreachable. HP is waiting for the configured emergency grace period before promotion."
+      : automatic.status === "blocked-stale-recovery"
+        ? `Promotion is blocked because the database recovery point is stale (${Math.ceil((automatic.recoveryAgeSeconds || 0) / 60)} minutes old).`
       : automatic.status === "promoted-unreachable"
         ? "HP promoted under the unreachable-primary emergency policy. Do not restart the former primary as writable."
         : automatic.status === "disabled"

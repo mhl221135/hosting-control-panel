@@ -4,6 +4,7 @@ const path = require("path");
 const STATUSES = new Set([
   "activation-failed", "activating", "awaiting-fence", "blocked-recovery",
   "blocked-sync", "disabled", "healthy", "invalid-config", "preview-failed",
+  "blocked-stale-recovery",
   "primary-unreachable", "promoted", "promoted-unreachable",
   "threshold-reached", "awaiting-unreachable-grace",
 ]);
@@ -23,6 +24,7 @@ function unavailable() {
     recoveryId: null,
     fencePolicy: null,
     unreachableSince: null,
+    recoveryAgeSeconds: null,
   };
 }
 
@@ -51,6 +53,7 @@ function readAutomaticFailoverStatus(dataDir) {
       unreachableSince: typeof value.unreachableSince === "string" && Number.isFinite(Date.parse(value.unreachableSince))
         ? value.unreachableSince
         : null,
+      recoveryAgeSeconds: boundedInteger(value.recoveryAgeSeconds, 0, 86_400),
     };
   } catch {
     return unavailable();

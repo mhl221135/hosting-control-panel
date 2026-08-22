@@ -519,8 +519,12 @@ attempts. A guarded operator wrapper now previews and runs local promotion plus
 the allowlisted tunnel cutover without weakening the external-fencing gate. A
 guarded no-write drill reversion command is also implemented. Panel controls,
 route qualification, automatic public verification, and pairing remain future
-work. Automatic failover exists but must stay disabled until the controlled
-outage drill and post-promotion write tests pass.
+  work. The emergency unreachable-primary policy is now explicitly armed on
+  the HP standby for the reviewed allowlist after local and public tunnel
+  drills. It requires exact Syncthing state, a prepared database recovery point
+  no older than two hours, six failed checks, and a five-minute outage grace.
+  A recovered former primary still requires operator fencing and rebuild; this
+  mode deliberately accepts split-brain risk and is not quorum-based HA.
 
 Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation
@@ -633,9 +637,9 @@ authority. Panel-based review remains future work.
   through HP's tunnel, verified in HP nginx logs, rolled back to their prior records,
   and HP returned to standby with no public writes. A deliberate write/failback
   drill still remains; rebuild rather than revert after any public write. Only
-  after that drill, enable the implemented
-  thresholded watchdog for the reviewed 112-host allowlist. It must remain off
-  until exact synchronization and warm preparation both pass.
+  after that drill, retain evidence for the implemented thresholded watchdog
+  on the reviewed 112-host allowlist. The watchdog is armed only while exact
+  synchronization and warm preparation continue to pass.
 - For one router/WAN address, promotion changes the router/load-balancer target;
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two

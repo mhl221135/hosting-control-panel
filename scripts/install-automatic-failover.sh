@@ -14,6 +14,7 @@ Options:
   --panel-state-file PATH     Sanitized status file visible to hosting-ui
   --fence-policy POLICY      receipt (default) or unreachable
   --unreachable-grace SEC    180-3600 seconds (default: 300)
+  --max-recovery-age SEC     1800-86400 seconds (default: 7200)
   --risk-confirm TEXT        Required for unreachable policy
 EOF
 }
@@ -28,6 +29,7 @@ fence_receipt=/etc/hosting-control/primary-fence-receipt.json
 panel_state_file="$project_dir/../app-data/ui-manager/automatic-failover-state.json"
 fence_policy=receipt
 unreachable_grace=300
+max_recovery_age=7200
 risk_confirmation=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -40,6 +42,7 @@ while [ "$#" -gt 0 ]; do
     --panel-state-file) shift; panel_state_file="${1:-}" ;;
     --fence-policy) shift; fence_policy="${1:-}" ;;
     --unreachable-grace) shift; unreachable_grace="${1:-}" ;;
+    --max-recovery-age) shift; max_recovery_age="${1:-}" ;;
     --risk-confirm) shift; risk_confirmation="${1:-}" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
@@ -55,6 +58,8 @@ case "$panel_state_file" in /*) ;; *) usage; exit 2 ;; esac
 case "$fence_policy" in receipt|unreachable) ;; *) usage; exit 2 ;; esac
 case "$unreachable_grace" in ''|*[!0-9]*) usage; exit 2 ;; esac
 [ "$unreachable_grace" -ge 180 ] && [ "$unreachable_grace" -le 3600 ] || { usage; exit 2; }
+case "$max_recovery_age" in ''|*[!0-9]*) usage; exit 2 ;; esac
+[ "$max_recovery_age" -ge 1800 ] && [ "$max_recovery_age" -le 86400 ] || { usage; exit 2; }
 if [ "$fence_policy" = unreachable ] && [ "$risk_confirmation" != I-ACCEPT-SPLIT-BRAIN-RISK ]; then
   printf 'Unreachable policy requires --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK.\n' >&2
   exit 2
@@ -78,6 +83,7 @@ umask 077
   printf "AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS='900'\n"
   printf "AUTO_FAILOVER_FENCE_POLICY='%s'\n" "$fence_policy"
   printf "AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS='%s'\n" "$unreachable_grace"
+  printf "AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS='%s'\n" "$max_recovery_age"
   printf "AUTO_FAILOVER_UNREACHABLE_RISK_ACCEPTED='%s'\n" "$risk_confirmation"
   printf "AUTO_FAILOVER_PUBLIC_STATE_FILE='%s'\n" "$panel_state_file"
 } > "$temporary"
