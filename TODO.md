@@ -677,10 +677,10 @@ Panel-based acceptance remains future work.
   managed Syncthing folders, creates a final logical database recovery point,
   prepares the returned machine at that exact point, and records a bounded
   receipt without changing ingress.
-- Add an optional controlled **Fail back traffic** workflow only after the
-  rebuilt host is fully synchronized. It must stop new writes, wait for the
-  final database/files delta, verify a common recovery point, switch ingress,
-  and demote the previous active host. Never perform bidirectional database
+- Qualify the implemented controlled **Fail back traffic** workflow in the
+  live write/failback drill. It stops HP writes, synchronizes one final logical
+  recovery point, promotes the rebuilt host, restores recorded direct ingress,
+  and demotes HP to receive-only standby. Never perform bidirectional database
   merge or start both machines as writable primaries.
 
 ### Direct NPM And Cloudflare Tunnel Ingress

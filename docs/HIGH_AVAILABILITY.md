@@ -804,7 +804,11 @@ all three managed Syncthing folders, briefly pauses website writes, creates a
 final logical database recovery point, waits for exact synchronization, and
 requires the former primary to stage that exact recovery. It records a bounded
 receipt and resumes HP without changing DNS or public ingress. Traffic
-failback and the live write/failback qualification remain separate work.
+failback is implemented separately by `scripts/complete-failback.sh`. It takes
+one final delta while HP writes are fenced, promotes the rebuilt host at that
+exact recovery, transactionally rolls back HP tunnel ingress to the recorded
+direct records, and demotes HP to receive-only standby. A live write/failback
+qualification remains required before routine use.
 
 After every incident or drill, record actual RPO/RTO, failed checks, manual
 steps, and documentation changes. Automatic failover should not be introduced

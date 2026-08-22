@@ -456,6 +456,24 @@ test("former-primary rebuild reverses synchronization and prepares without chang
   assert.match(sync, /folders "\$id" type set "\$mode"/);
 });
 
+test("controlled failback promotes, restores ingress, and demotes in order", () => {
+  const complete = fs.readFileSync(path.resolve(__dirname, "../../../scripts/complete-failback.sh"), "utf8");
+  const accept = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-failback-primary.sh"), "utf8");
+  const demote = fs.readFileSync(path.resolve(__dirname, "../../../scripts/demote-after-failback.sh"), "utf8");
+  assert.match(complete, /--confirm COMPLETE-FAILBACK/);
+  assert.match(complete, /create-replication-dump\.sh/);
+  assert.match(complete, /accept-failback-primary\.sh/);
+  assert.match(complete, /--rollback --confirm ROLLBACK-TUNNEL-INGRESS/);
+  assert.match(complete, /--mark-ingress-active/);
+  assert.match(complete, /demote-after-failback\.sh/);
+  assert.ok(complete.indexOf("accept-failback-primary") < complete.indexOf("--rollback --confirm"));
+  assert.ok(complete.indexOf("--rollback --confirm") < complete.indexOf("demote-after-failback"));
+  assert.match(accept, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(accept, /--mode sendonly/);
+  assert.match(demote, /\.status == "rolled-back"/);
+  assert.match(demote, /--mode receiveonly/);
+});
+
 test("standby preparation generates a review-bound failover hostname inventory", () => {
   const generator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/generate-failover-hosts.sh"), "utf8");
   const review = fs.readFileSync(path.resolve(__dirname, "../../../scripts/review-failover-hosts.sh"), "utf8");
