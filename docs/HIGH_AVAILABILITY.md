@@ -494,6 +494,20 @@ sudo ./scripts/review-failover-hosts.sh --apply \
 Apply atomically updates `/etc/hosting-control/failover-hosts.txt`. It does not
 change DNS, tunnel routes, containers, or machine role. Use that reviewed file
 as `activate-standby.sh --hosts-file` only after the primary is fenced.
+
+When some prepared hostnames are outside the configured Cloudflare account,
+qualify the complete candidate inventory and accept only provider-ready hosts:
+
+```bash
+sudo ./scripts/qualify-failover-hosts.sh --preview
+sudo ./scripts/qualify-failover-hosts.sh --apply \
+  --recovery-id RECOVERY-ID \
+  --confirm ACCEPT-QUALIFIED-FAILOVER-HOSTS
+```
+
+Both commands use Cloudflare's preview path only. Apply atomically replaces the
+local automatic-failover allowlist with the ready subset and records a bounded
+qualification receipt; it does not change DNS or tunnel routes.
 Activation preview exits with failure when any selected hostname is blocked,
 even though it prints the full non-mutating plan for operator review.
 

@@ -921,6 +921,7 @@ not invoked or modified by this panel.
 - `scripts/tunnel-cutover.sh`: preview, apply, or roll back an explicit Cloudflare Tunnel hostname/DNS cutover after local promotion
 - `scripts/revert-standby-drill.sh`: return a no-write, rolled-back failover drill to a fenced standby; never use after public writes
 - `scripts/automatic-failover.sh`: disabled-by-default outage watchdog with monitor, fence-receipt, and explicitly accepted unreachable-primary activation modes; activation rejects stale database recovery points
+- `scripts/qualify-failover-hosts.sh`: preview and accept only Cloudflare-ready candidates into the local automatic-failover allowlist without changing public ingress
 - `scripts/record-primary-fence.sh`: create a short-lived, recovery-bound fencing receipt after the old primary is actually fenced
 
 Successful reception records a bounded source identity and the exact retained

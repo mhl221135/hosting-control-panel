@@ -414,6 +414,15 @@ test("standby preparation generates a review-bound failover hostname inventory",
   assert.doesNotMatch(review, /cloudflare|dns_records|docker compose/);
 });
 
+test("failover hostname qualification keeps blocked Cloudflare zones out of the active allowlist", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/qualify-failover-hosts.sh"), "utf8");
+  assert.match(script, /tunnel-cutover\.sh" --preview/);
+  assert.match(script, /select\(\.status == "ready"\)/);
+  assert.match(script, /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
+  assert.match(script, /cmp -s "\$candidates" "\$observed"/);
+  assert.doesNotMatch(script, /tunnel-cutover\.sh" --apply/);
+});
+
 test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {
   const dockerfile = fs.readFileSync(path.resolve(__dirname, "../../../npm-custom/Dockerfile"), "utf8");
   const fallback = fs.readFileSync(path.resolve(__dirname, "../../../npm-custom/default.conf"), "utf8");
