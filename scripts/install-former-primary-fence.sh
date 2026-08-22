@@ -51,9 +51,9 @@ cat > /etc/systemd/system/hosting-former-primary-fence.timer <<'EOF'
 Description=Check whether the former hosting primary must self-fence
 
 [Timer]
-OnBootSec=90s
-OnUnitActiveSec=60s
-AccuracySec=10s
+OnBootSec=15s
+OnUnitActiveSec=30s
+AccuracySec=5s
 Unit=hosting-former-primary-fence.service
 
 [Install]

@@ -24,11 +24,14 @@ test("server exposes the bounded liveness endpoint used by standby promotion", (
 
 test("a recovered former primary self-fences only for a promoted expected peer", () => {
   const fence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/fence-former-primary.sh"), "utf8");
+  const installer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-former-primary-fence.sh"), "utf8");
   assert.match(fence, /\.serverId == \$peer/);
   assert.match(fence, /IN\("promoted", "promoted-unreachable"\)/);
   assert.match(fence, /docker stop \$containers/);
   assert.doesNotMatch(fence, /containers="[^"]*hosting-npm/);
   assert.match(fence, /It never auto-unfences|Former primary fenced/);
+  assert.match(installer, /OnBootSec=15s/);
+  assert.match(installer, /OnUnitActiveSec=30s/);
 });
 
 test("warm standby uses a project-owned one-way Syncthing data path", () => {

@@ -186,7 +186,8 @@ sudo ./scripts/install-former-primary-fence.sh \
   --peer-server-id REPLICA-SERVER-ID --enable
 ```
 
-Every minute and after boot, OPI5 checks HP's no-store health response. It acts
+Fifteen seconds after boot and every 30 seconds thereafter, OPI5 checks HP's
+no-store health response. It acts
 only when the expected HP server reports `primary` together with a durable
 `promoted` or `promoted-unreachable` watchdog state. OPI5 then disables its
 database-replication/finalizer timers and stops the panel, Syncthing, nginx,
