@@ -610,6 +610,9 @@ sudo ./scripts/install-warm-sync-finalizer.sh --standby  # standby only
 The source publishes a release-bound completion marker only after its index is
 idle and error-free. The standby then reverts stale receive-only drift to that
 authoritative index, waits for exact zero backlog, and runs warm preparation.
+Successful install and upgrade runs atomically stamp `.source-release` from the
+checked-out Git commit. Reviewed patched deployments can set
+`HOSTING_SOURCE_RELEASE` explicitly before invoking the stamping helper.
 While waiting, it rereads the release marker each cycle so a source update does
 not leave a long-running standby finalizer pinned to an obsolete release.
 The revert uses Syncthing's receive-only `/rest/db/revert` operation; it does

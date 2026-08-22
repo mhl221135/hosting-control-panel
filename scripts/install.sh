@@ -298,4 +298,5 @@ else
   fi
 fi
 
+sh "$project_dir/scripts/stamp-source-release.sh"
 echo "Hosting stack installed. Existing persistent data and configuration were left unchanged."

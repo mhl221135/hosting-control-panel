@@ -42,6 +42,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   const finalizer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/finalize-warm-sync.sh"), "utf8");
   const databaseStage = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stage-standby-database.sh"), "utf8");
   const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
+  const sourceStamp = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stamp-source-release.sh"), "utf8");
   const replicationInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-replication-timer.sh"), "utf8");
   const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
@@ -74,6 +75,8 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(finalizer, /check-sync-ready\.sh/);
   assert.match(finalizer, /stage-standby-database\.sh/);
   assert.match(finalizer, /prepare-warm-standby\.sh" --apply/);
+  assert.match(sourceStamp, /git -C "\$project_dir" rev-parse --verify HEAD/);
+  assert.match(sourceStamp, /mv "\$temporary" "\$project_dir\/\.source-release"/);
   assert.doesNotMatch(finalizer, /promote-standby/);
   assert.doesNotMatch(finalizer, /tunnel-cutover/);
   assert.match(finalizerInstall, /hosting-standby-fence\.service/);

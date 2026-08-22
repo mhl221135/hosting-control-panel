@@ -185,4 +185,5 @@ else
   sh "$project_dir/scripts/migrate-webp-cache.sh"
 fi
 
+sh "$project_dir/scripts/stamp-source-release.sh"
 echo "Upgrade complete. Persistent data, websites, backups, and active configuration were not replaced."
