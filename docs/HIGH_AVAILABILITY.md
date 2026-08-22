@@ -137,6 +137,13 @@ off. It cannot distinguish a powered-off host from a network partition. The
 watchdog refuses promotion when the prepared database recovery point is more
 than two hours old; adjust the bound explicitly only when the database snapshot
 schedule has a different measured RPO.
+
+The production detector path was qualified on 2026-08-22 without interrupting
+website traffic: HP was changed temporarily to monitor mode, only OPI5's panel
+health and Syncthing signal were stopped, and HP advanced from two failures to
+`threshold-reached` at six consecutive checks. OPI5's nginx, PHP, MySQL, and
+NPM remained online. Both signals were restored and HP returned to
+`activate`, `healthy`, zero failures, and the durable `standby` role.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.

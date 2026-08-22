@@ -525,6 +525,10 @@ route qualification, automatic public verification, and pairing remain future
   no older than two hours, six failed checks, and a five-minute outage grace.
   A recovered former primary still requires operator fencing and rebuild; this
   mode deliberately accepts split-brain risk and is not quorum-based HA.
+  The six-check detector and healthy recovery were qualified live in
+  monitor-only mode on 2026-08-22 while production website services remained
+  online; a full unattended 112-host promotion remains intentionally unforced
+  until a real primary outage or a scheduled write/failback drill.
 
 Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation
