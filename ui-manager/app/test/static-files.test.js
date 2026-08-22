@@ -65,6 +65,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(finalizer, /for folder in hosting-websites hosting-runtime-config hosting-db-recovery/);
   assert.match(finalizer, /\/rest\/db\/revert\?folder=\$folder/);
   assert.doesNotMatch(finalizer, /operations folder-override/);
+  assert.match(finalizer, /source_release="\$\(cat "\$project_dir\/\.source-release"/);
   assert.match(finalizer, /rest\/db\/scan\?folder=hosting-websites/);
   assert.match(finalizer, /\.errors > 0/);
   assert.match(finalizer, /check-sync-ready\.sh/);

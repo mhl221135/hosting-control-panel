@@ -80,6 +80,8 @@ fi
 
 [ "$role" = standby ] || { printf 'Standby finalization requires the standby role.\n' >&2; exit 1; }
 while :; do
+  source_release="$(cat "$project_dir/.source-release" 2>/dev/null || true)"
+  [ -n "$source_release" ] || { sleep 60; continue; }
   if [ -f "$marker" ] && jq -e --arg source_release "$source_release" '
     .version == 1 and .source_release == $source_release and
     (.completed_at | type == "string")
