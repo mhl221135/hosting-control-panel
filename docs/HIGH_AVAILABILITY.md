@@ -565,6 +565,13 @@ If the watchdog is interrupted after public cutover but before its final state
 write, the next timer run reconstructs `promoted` from the matching durable
 local-promotion and active tunnel-cutover receipts. It never infers promotion
 from the role marker alone.
+If local promotion succeeded but the Cloudflare transaction rolled back, the
+machine remains an isolated primary and the next timer run retries only the
+qualified tunnel/DNS transaction. The recovery ID and current qualification
+receipt must still match. The retry does not restore SQL or repeat local
+promotion. An `active` cutover receipt repairs an interrupted
+`public_ingress_cutover` flag; a `rollback-failed` receipt is never replaced
+automatically because its public state is uncertain.
 Activation preview exits with failure when any selected hostname is blocked,
 even though it prints the full non-mutating plan for operator review.
 

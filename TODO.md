@@ -540,6 +540,11 @@ route qualification, automatic public verification, and pairing remain future
   tunnel ingress rule and DNS record before recording success.
   Timer restart recovery reconstructs a missing final promoted state only from
   matching durable local-promotion and active tunnel-cutover receipts.
+  If local promotion completed but a transactional Cloudflare attempt rolled
+  back, later watchdog runs now retry only the still-qualified public cutover;
+  they do not reimport databases or rerun local promotion. An active cutover
+  receipt can repair an interrupted promotion-flag write, while an uncertain
+  `rollback-failed` receipt remains blocked for manual recovery.
   Standby notification delivery now stays active and emits deduplicated
   Telegram/SMTP events on meaningful watchdog state transitions. Warning and
   recovery delivery through both channels was qualified live on 2026-08-22.
