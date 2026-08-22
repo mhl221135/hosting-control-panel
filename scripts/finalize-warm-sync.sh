@@ -92,8 +92,8 @@ wait_for_idle true
 docker exec hosting-sync sh -c '
   key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
   for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
-    syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey="$key" \
-      operations folder-override "$folder"
+    wget -qO- --post-data="" --header="X-API-Key: $key" \
+      "http://127.0.0.1:8384/rest/db/revert?folder=$folder" >/dev/null
   done
 '
 while ! "$project_dir/scripts/check-sync-ready.sh" >/dev/null 2>&1; do sleep 60; done
