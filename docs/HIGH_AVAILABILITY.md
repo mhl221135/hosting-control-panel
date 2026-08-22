@@ -522,7 +522,9 @@ sudo ./scripts/activate-standby.sh --apply \
 
 The token file must be a root-owned, non-symlink regular file with mode
 `0600`. The wrapper delegates to the same verified promotion and transactional
-tunnel-cutover implementations. It does not infer fencing. If the Cloudflare
+tunnel-cutover implementations. A successful preview prints only bounded host
+and record counts instead of the complete production DNS inventory. It does
+not infer fencing. If the Cloudflare
 step fails, its transaction attempts to restore DNS and tunnel configuration;
 the locally promoted server stays isolated for operator inspection.
 Apply is recorded as active only after a read-after-write check confirms one

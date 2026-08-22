@@ -67,7 +67,16 @@ set --
 if [ "$mode" = --preview ]; then
   "$project_dir/scripts/promote-standby.sh" --dry-run "$@"
   export CLOUDFLARE_TUNNEL_API_TOKEN
-  "$project_dir/scripts/tunnel-cutover.sh" --preview --hosts-file "$hosts_file"
+  preview_file="$(mktemp)"
+  trap 'rm -f -- "$preview_file"' EXIT HUP INT TERM
+  "$project_dir/scripts/tunnel-cutover.sh" --preview --hosts-file "$hosts_file" > "$preview_file"
+  jq -e '.ready == true and (.hosts | type == "array") and (.records | type == "array")' \
+    "$preview_file" >/dev/null \
+    || { printf 'Tunnel cutover preview returned an invalid result.\n' >&2; exit 1; }
+  printf 'Tunnel cutover preview passed for %s hostnames (%s DNS records).\n' \
+    "$(jq '.hosts | length' "$preview_file")" "$(jq '.records | length' "$preview_file")"
+  rm -f -- "$preview_file"
+  trap - EXIT HUP INT TERM
   printf 'Standby activation preview passed. No local role, service, DNS, or tunnel route changed.\n'
   exit 0
 fi

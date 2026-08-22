@@ -424,6 +424,9 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(script, /OLD-PRIMARY-FENCED\|PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(script, /promote-standby\.sh" --dry-run/);
   assert.match(script, /tunnel-cutover\.sh" --preview/);
+  assert.match(script, /--preview --hosts-file "\$hosts_file" > "\$preview_file"/);
+  assert.match(script, /Tunnel cutover preview passed for %s hostnames/);
+  assert.match(script, /\.ready == true/);
   assert.match(script, /promote-standby\.sh" --apply/);
   assert.match(script, /tunnel-cutover\.sh" --apply/);
   assert.match(script, /enable --now hosting-database-replication\.timer/);

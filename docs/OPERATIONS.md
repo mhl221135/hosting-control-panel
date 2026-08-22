@@ -200,7 +200,8 @@ outage workflow as one guarded operator action. It still requires the exact
 prepared recovery ID, an allowlisted hostname file, a mode-`0600` Cloudflare
 management-token file, and explicit confirmation that the old primary was
 externally fenced. See `docs/HIGH_AVAILABILITY.md` for the complete command and
-rollback boundaries.
+rollback boundaries. Successful previews print bounded counts rather than the
+complete production hostname and Cloudflare-zone inventory.
 
 Successful standby preparation refreshes a recovery-bound candidate hostname
 inventory without changing the active cutover allowlist. Run
