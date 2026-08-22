@@ -796,6 +796,16 @@ state. Repair or reinstall it, erase or quarantine obsolete service data,
 restore/replicate from the current primary, validate it as a standby, and run a
 planned promotion using the same fencing checklist.
 
+The guarded rebuild half is implemented by `scripts/rebuild-former-primary.sh`
+on the promoted primary and `scripts/accept-former-primary-rebuild.sh` on the
+durably fenced former primary. Its dry run verifies promotion/cutover state,
+the remote fence, mutual SSH, and fixed Syncthing identities. Apply reverses
+all three managed Syncthing folders, briefly pauses website writes, creates a
+final logical database recovery point, waits for exact synchronization, and
+requires the former primary to stage that exact recovery. It records a bounded
+receipt and resumes HP without changing DNS or public ingress. Traffic
+failback and the live write/failback qualification remain separate work.
+
 After every incident or drill, record actual RPO/RTO, failed checks, manual
 steps, and documentation changes. Automatic failover should not be introduced
 until repeated manual promotions are predictable and measurable.

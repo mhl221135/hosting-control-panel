@@ -672,10 +672,11 @@ Panel-based acceptance remains future work.
   authoritative primary. A recovered former primary must remain fenced and
   must not resume its old replication, schedulers, DNS authority, or writable
   services.
-- Add a guarded **Rebuild former primary as standby** workflow that transfers
-  current website files, databases, required application state, and the tested
-  source release from the promoted primary; validates checksums, schema,
-  configuration, and health; then establishes a new one-way replication epoch.
+- Qualify the implemented guarded **Rebuild former primary as standby** host
+  workflow in a live promoted-primary maintenance drill. It reverses the three
+  managed Syncthing folders, creates a final logical database recovery point,
+  prepares the returned machine at that exact point, and records a bounded
+  receipt without changing ingress.
 - Add an optional controlled **Fail back traffic** workflow only after the
   rebuilt host is fully synchronized. It must stop new writes, wait for the
   final database/files delta, verify a common recovery point, switch ingress,

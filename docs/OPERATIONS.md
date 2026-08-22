@@ -233,6 +233,12 @@ replicated, verified backup sets. See
 [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md) for state ownership, RPO/RTO
 levels, promotion order, public traffic switching, validation, and failback.
 
+After a real HP promotion, run `scripts/rebuild-former-primary.sh --dry-run`
+on HP before rebuilding OPI5. Apply requires `--confirm
+REBUILD-FORMER-PRIMARY`, creates a final logical recovery point, and leaves HP
+authoritative. Success is recorded in
+`/etc/hosting-control/former-primary-rebuild.json`; it does not switch DNS.
+
 ## Promotion Readiness Preflight
 
 Before beginning a promotion, use the non-mutating preflight from the panel

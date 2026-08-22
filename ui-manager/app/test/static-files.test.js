@@ -441,6 +441,21 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(cli, /if \(blocked\) throw new Error\(blocked\)/);
 });
 
+test("former-primary rebuild reverses synchronization and prepares without changing ingress", () => {
+  const orchestrator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/rebuild-former-primary.sh"), "utf8");
+  const receiver = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-former-primary-rebuild.sh"), "utf8");
+  const sync = fs.readFileSync(path.resolve(__dirname, "../../../scripts/configure-sync.sh"), "utf8");
+  assert.match(orchestrator, /--confirm REBUILD-FORMER-PRIMARY/);
+  assert.match(orchestrator, /create-replication-dump\.sh/);
+  assert.match(orchestrator, /finalize-warm-sync\.sh" --source/);
+  assert.match(orchestrator, /former-primary-rebuild\.json/);
+  assert.doesNotMatch(orchestrator, /tunnel-cutover\.sh|api\.cloudflare|dns_records/);
+  assert.match(receiver, /\.status == "fenced"/);
+  assert.match(receiver, /--confirm REBUILD-AS-STANDBY/);
+  assert.match(receiver, /install-warm-sync-finalizer\.sh" --standby/);
+  assert.match(sync, /folders "\$id" type set "\$mode"/);
+});
+
 test("standby preparation generates a review-bound failover hostname inventory", () => {
   const generator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/generate-failover-hosts.sh"), "utf8");
   const review = fs.readFileSync(path.resolve(__dirname, "../../../scripts/review-failover-hosts.sh"), "utf8");

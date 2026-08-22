@@ -111,6 +111,7 @@ configure_folder() {
       --id "$id" --label "$label" --path "$folder_path" --type "$mode" \
       --rescan-intervals "$rescan_interval" --fswatcher-enabled --fswatcher-delays 2
   fi
+  sync_cli config folders "$id" type set "$mode"
   sync_cli config folders "$id" rescan-intervals set "$rescan_interval"
   sync_cli config folders "$id" fswatcher-enabled set true
   sync_cli config folders "$id" fswatcher-delays set 2
