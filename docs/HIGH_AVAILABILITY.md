@@ -166,6 +166,23 @@ promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
 
+Install the non-reversing peer fence on the current primary:
+
+```bash
+sudo ./scripts/install-former-primary-fence.sh \
+  --peer-health-url https://REPLICA-PANEL/health \
+  --peer-server-id REPLICA-SERVER-ID --enable
+```
+
+Every minute and after boot, OPI5 checks HP's no-store health response. It acts
+only when the expected HP server reports `primary` together with a durable
+`promoted` or `promoted-unreachable` watchdog state. OPI5 then disables its
+database-replication/finalizer timers and stops the panel, Syncthing, nginx,
+PHP, database, Redis, billing, file, phpMyAdmin, and agent containers.
+`hosting-npm` deliberately remains running for unrelated proxy hosts. This
+fence never starts services or auto-unfences; rebuild/failback remains an
+explicit operator workflow.
+
 ## Required Topology
 
 Use two independent hosts with Docker Engine, Compose, time synchronization,

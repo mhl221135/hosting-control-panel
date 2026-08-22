@@ -17,8 +17,18 @@ test("rejects public paths that escape the configured root", () => {
 test("server exposes the bounded liveness endpoint used by standby promotion", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(server, /pathname === "\/health"/);
-  assert.match(server, /sendJson\(res, 200, \{ ok: true, role: installationRole\.publicView\(\)\.role \}/);
+  assert.match(server, /serverId: installation\.serverId/);
+  assert.match(server, /failoverStatus: failover\.available \? failover\.status : "unavailable"/);
   assert.match(server, /"Cache-Control": "no-store"/);
+});
+
+test("a recovered former primary self-fences only for a promoted expected peer", () => {
+  const fence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/fence-former-primary.sh"), "utf8");
+  assert.match(fence, /\.serverId == \$peer/);
+  assert.match(fence, /IN\("promoted", "promoted-unreachable"\)/);
+  assert.match(fence, /docker stop \$containers/);
+  assert.doesNotMatch(fence, /containers="[^"]*hosting-npm/);
+  assert.match(fence, /It never auto-unfences|Former primary fenced/);
 });
 
 test("warm standby uses a project-owned one-way Syncthing data path", () => {

@@ -525,6 +525,9 @@ route qualification, automatic public verification, and pairing remain future
   no older than two hours, six failed checks, and a five-minute outage grace.
   A recovered former primary still requires operator fencing and rebuild; this
   mode deliberately accepts split-brain risk and is not quorum-based HA.
+  The current primary now has an optional non-reversing peer fence: after an
+  expected replica reports a completed promotion, it stops hosting write and
+  replication services while leaving NPM available for unrelated routes.
   The six-check detector and healthy recovery were qualified live in
   monitor-only mode on 2026-08-22 while production website services remained
   online; a full unattended 112-host promotion remains intentionally unforced
