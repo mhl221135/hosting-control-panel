@@ -3,6 +3,8 @@
 !.env.example
 .security-deny-patterns
 .nonprod-configs/
+.source-release
+.source-release.tmp.*
 .DS_Store
 *.bak
 *.log
