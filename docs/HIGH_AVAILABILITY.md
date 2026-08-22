@@ -816,8 +816,8 @@ the recorded direct records. HP remains online for a 60-second ingress grace,
 then demotes to receive-only standby. This availability-first overlap can lose
 writes made on HP after the final logical snapshot; it deliberately favors
 continuous service over zero-RPO failback. The former-primary fence timer is
-paused before OPI5 changes role, restored if promotion fails, and disabled only
-after successful promotion.
+paused before OPI5 changes role, restored if promotion fails, and re-armed only
+after HP has demoted to standby.
 
 The full 111-host write/failback drill completed on 2026-08-22. A database and
 filesystem write made on promoted HP was present after OPI5 restoration, all

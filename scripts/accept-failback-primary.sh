@@ -45,7 +45,6 @@ if ! "$project_dir/scripts/promote-standby.sh" --apply --recovery-id "$recovery_
   fi
   exit 1
 fi
-systemctl disable hosting-former-primary-fence.timer >/dev/null 2>&1 || true
 sync_args=(--peer-id "$peer_id" --peer-name failback-standby --mode sendonly)
 [[ -z "$peer_address" ]] || sync_args+=(--peer-address "$peer_address")
 "$project_dir/scripts/configure-sync.sh" "${sync_args[@]}"

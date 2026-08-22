@@ -474,7 +474,8 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(complete, /ready_count >= 2/);
   assert.match(accept, /--fence-confirm OLD-PRIMARY-FENCED/);
   assert.match(accept, /systemctl stop hosting-former-primary-fence\.timer/);
-  assert.match(accept, /systemctl disable hosting-former-primary-fence\.timer/);
+  assert.doesNotMatch(accept, /systemctl disable hosting-former-primary-fence\.timer/);
+  assert.match(complete, /systemctl start hosting-former-primary-fence\.timer/);
   assert.match(accept, /--mode sendonly/);
   assert.match(demote, /\.status == "rolled-back"/);
   assert.match(demote, /\.public_ingress_cutover == false/);

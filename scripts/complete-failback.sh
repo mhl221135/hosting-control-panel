@@ -86,5 +86,6 @@ sleep 60
 demote_args=(--recovery-id "$recovery_id" --peer-id "$peer_id" --confirm DEMOTE-AFTER-FAILBACK)
 [[ -z "$peer_address" ]] || demote_args+=(--peer-address "$peer_address")
 "$project_dir/scripts/demote-after-failback.sh" "${demote_args[@]}"
+ssh -o BatchMode=yes "root@$peer_host" systemctl start hosting-former-primary-fence.timer
 ssh -o BatchMode=yes "root@$peer_host" systemctl start hosting-database-replication.service
 printf 'Failback completed at recovery %s. The rebuilt former primary is authoritative; HP is standby.\n' "$recovery_id"
