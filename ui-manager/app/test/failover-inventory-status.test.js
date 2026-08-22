@@ -1,5 +1,4 @@
 const assert = require("node:assert/strict");
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -8,14 +7,17 @@ const { readFailoverInventoryStatus } = require("../lib/failover-inventory-statu
 
 function fixture(candidates, active) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "failover-inventory-"));
-  const content = `${candidates.join("\n")}\n`;
-  fs.writeFileSync(path.join(directory, "failover-hosts.candidates.txt"), content);
-  fs.writeFileSync(path.join(directory, "failover-hosts.auto.txt"), `${active.join("\n")}\n`);
-  fs.writeFileSync(path.join(directory, "failover-hosts.candidates.json"), JSON.stringify({
+  fs.writeFileSync(path.join(directory, "failover-inventory.json"), JSON.stringify({
     version: 1,
-    recovery_id: "2026-08-22T06-24-29Z",
-    count: candidates.length,
-    sha256: crypto.createHash("sha256").update(content).digest("hex"),
+    available: true,
+    recoveryId: "2026-08-22T06-24-29Z",
+    candidateCount: candidates.length,
+    activeCount: active.length,
+    pendingAdditionCount: 1,
+    pendingRemovalCount: 1,
+    additions: ["b.example.com"],
+    removals: ["old.example.com"],
+    truncated: false,
   }));
   return directory;
 }
@@ -39,9 +41,9 @@ test("reports bounded candidate drift without exposing unrelated metadata", () =
 
 test("fails closed for mismatched metadata and unsafe files", () => {
   const directory = fixture(["a.example.com"], ["a.example.com"]);
-  fs.writeFileSync(path.join(directory, "failover-hosts.candidates.json"), "{}");
+  fs.writeFileSync(path.join(directory, "failover-inventory.json"), "{}");
   assert.equal(readFailoverInventoryStatus(directory).available, false);
-  fs.unlinkSync(path.join(directory, "failover-hosts.candidates.txt"));
-  fs.symlinkSync("missing", path.join(directory, "failover-hosts.candidates.txt"));
+  fs.unlinkSync(path.join(directory, "failover-inventory.json"));
+  fs.symlinkSync("missing", path.join(directory, "failover-inventory.json"));
   assert.equal(readFailoverInventoryStatus(directory).available, false);
 });

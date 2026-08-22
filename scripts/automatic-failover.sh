@@ -45,6 +45,55 @@ write_state() {
   fi
 }
 
+write_inventory_state() {
+  public_state="${AUTO_FAILOVER_PUBLIC_STATE_FILE:-$project_dir/../app-data/ui-manager/automatic-failover-state.json}"
+  public_dir="$(dirname -- "$public_state")"
+  output="$public_dir/failover-inventory.json"
+  candidates="${AUTO_FAILOVER_CANDIDATES_FILE:-/etc/hosting-control/failover-hosts.candidates.txt}"
+  metadata="${candidates%.txt}.json"
+  active="${AUTO_FAILOVER_HOSTS_FILE:-}"
+  temporary="$output.tmp.$$"
+  additions="$(mktemp)"
+  removals="$(mktemp)"
+  trap 'rm -f "$temporary" "$additions" "$removals"' RETURN
+  available=false
+  if [ -d "$public_dir" ] && [ ! -L "$public_dir" ] \
+    && [ -f "$candidates" ] && [ ! -L "$candidates" ] \
+    && [ -f "$metadata" ] && [ ! -L "$metadata" ] \
+    && [ -f "$active" ] && [ ! -L "$active" ] \
+    && LC_ALL=C sort -c -u "$candidates" >/dev/null 2>&1 \
+    && LC_ALL=C sort -c -u "$active" >/dev/null 2>&1; then
+    candidate_count="$(wc -l < "$candidates" | tr -d ' ')"
+    active_count="$(wc -l < "$active" | tr -d ' ')"
+    candidate_sha="$(sha256sum "$candidates" | awk '{print $1}')"
+    if jq -e --arg sha "$candidate_sha" --argjson count "$candidate_count" \
+      '.version == 1 and .sha256 == $sha and .count == $count and .count > 0 and .count <= 5000' \
+      "$metadata" >/dev/null 2>&1; then
+      LC_ALL=C comm -13 "$active" "$candidates" > "$additions"
+      LC_ALL=C comm -23 "$active" "$candidates" > "$removals"
+      addition_count="$(wc -l < "$additions" | tr -d ' ')"
+      removal_count="$(wc -l < "$removals" | tr -d ' ')"
+      additions_json="$(sed -n '1,100p' "$additions" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+      removals_json="$(sed -n '1,100p' "$removals" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+      recovery_id="$(jq -r '.recovery_id // empty' "$metadata")"
+      jq -n --arg recovery_id "$recovery_id" --argjson candidate_count "$candidate_count" \
+        --argjson active_count "$active_count" --argjson addition_count "$addition_count" \
+        --argjson removal_count "$removal_count" --argjson additions "$additions_json" \
+        --argjson removals "$removals_json" \
+        '{version:1,available:true,recoveryId:$recovery_id,candidateCount:$candidate_count,
+          activeCount:$active_count,pendingAdditionCount:$addition_count,pendingRemovalCount:$removal_count,
+          additions:$additions,removals:$removals,truncated:($addition_count > 100 or $removal_count > 100)}' > "$temporary"
+      available=true
+    fi
+  fi
+  if [ "$available" = false ] && [ -d "$public_dir" ] && [ ! -L "$public_dir" ]; then
+    printf '%s\n' '{"version":1,"available":false}' > "$temporary"
+  fi
+  if [ -f "$temporary" ]; then chmod 644 "$temporary"; mv "$temporary" "$output"; fi
+  rm -f "$additions" "$removals"
+  trap - RETURN
+}
+
 valid_fence_receipt() {
   receipt="${AUTO_FAILOVER_FENCE_RECEIPT:-/etc/hosting-control/primary-fence-receipt.json}"
   [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
@@ -72,6 +121,7 @@ case "${AUTO_FAILOVER_FAILURES:-6}" in ''|*[!0-9]*) exit 1 ;; esac
 [ "$AUTO_FAILOVER_FAILURES" -ge 3 ] && [ "$AUTO_FAILOVER_FAILURES" -le 30 ] || exit 1
 case "${PRIMARY_HEALTH_URL:-}" in https://*) ;; *) exit 1 ;; esac
 [ -f "${AUTO_FAILOVER_HOSTS_FILE:-}" ] || exit 1
+write_inventory_state
 
 exec 9>"$lock"
 flock -n 9 || exit 0

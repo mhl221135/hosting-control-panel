@@ -1944,7 +1944,7 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       ok: true,
       replication: await warmReplicationStatus.read(),
       automaticFailover: readAutomaticFailoverStatus(DATA_DIR),
-      failoverInventory: readFailoverInventoryStatus(path.dirname(installationRole.markerPath)),
+      failoverInventory: readFailoverInventoryStatus(DATA_DIR),
     }, { "Cache-Control": "no-store" });
     return true;
   }
