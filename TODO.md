@@ -617,7 +617,7 @@ Panel-based acceptance remains future work.
 
 ### Replication
 
-- Keep the implemented daily receiver recovery age clearly labeled as backup
+- Keep the implemented hourly receiver recovery age clearly labeled as backup
   reception; never describe it as real-time or continuous synchronization.
 - Extend the implemented panel status for the project-owned Syncthing warm
   path with paired-server identity and historical lag alerts. Current status
