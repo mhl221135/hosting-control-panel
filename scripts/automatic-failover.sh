@@ -110,6 +110,37 @@ valid_fence_receipt() {
     ' "$receipt" >/dev/null 2>&1
 }
 
+valid_host_qualification() {
+  receipt="${AUTO_FAILOVER_QUALIFICATION_RECEIPT:-/etc/hosting-control/failover-hosts.qualification.json}"
+  hosts="${AUTO_FAILOVER_HOSTS_FILE:-}"
+  candidates="${AUTO_FAILOVER_CANDIDATES_FILE:-/etc/hosting-control/failover-hosts.candidates.txt}"
+  metadata="${candidates%.txt}.json"
+  [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
+  [ -f "$hosts" ] && [ ! -L "$hosts" ] || return 1
+  [ -f "$candidates" ] && [ ! -L "$candidates" ] || return 1
+  [ -f "$metadata" ] && [ ! -L "$metadata" ] || return 1
+  [ "$(stat -c '%u' "$receipt" 2>/dev/null || true)" = 0 ] || return 1
+  [ "$(stat -c '%a' "$receipt" 2>/dev/null || true)" = 600 ] || return 1
+  LC_ALL=C sort -c -u "$hosts" >/dev/null 2>&1 || return 1
+  LC_ALL=C sort -c -u "$candidates" >/dev/null 2>&1 || return 1
+  host_count="$(wc -l < "$hosts" | tr -d ' ')"
+  host_sha="$(sha256sum "$hosts" | awk '{print $1}')"
+  candidate_count="$(wc -l < "$candidates" | tr -d ' ')"
+  candidate_sha="$(sha256sum "$candidates" | awk '{print $1}')"
+  jq -e --arg recovery "$1" --arg sha "$candidate_sha" --argjson count "$candidate_count" '
+    .version == 1 and .recovery_id == $recovery and .sha256 == $sha and .count == $count
+  ' "$metadata" >/dev/null 2>&1 || return 1
+  jq -e --arg candidate_sha "$candidate_sha" --arg qualified_sha "$host_sha" \
+    --argjson candidate_count "$candidate_count" --argjson qualified_count "$host_count" '
+    .version == 1 and .candidateSha256 == $candidate_sha and .candidateCount == $candidate_count
+    and .qualifiedSha256 == $qualified_sha and .qualifiedCount == $qualified_count
+    and .qualifiedCount > 0 and .qualifiedCount <= 5000
+    and .candidateCount >= .qualifiedCount
+    and (.blockedCount | type == "number")
+    and .blockedCount == (.candidateCount - .qualifiedCount)
+  ' "$receipt" >/dev/null 2>&1
+}
+
 case "${AUTO_FAILOVER_ENABLED:-false}" in
   true) ;;
   false) write_state disabled 0; exit 0 ;;
@@ -181,6 +212,12 @@ if [ "${AUTO_FAILOVER_MODE:-monitor}" = monitor ]; then
   write_state threshold-reached "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
   printf 'Automatic failover threshold reached; monitor mode will not promote.\n' >&2
   exit 0
+fi
+
+if ! valid_host_qualification "$recovery_id"; then
+  write_state blocked-host-qualification "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
+  printf 'Automatic failover host qualification is missing, stale, or does not match the active allowlist.\n' >&2
+  exit 1
 fi
 
 case "${AUTO_FAILOVER_PRIMARY_SERVER_ID:-}" in

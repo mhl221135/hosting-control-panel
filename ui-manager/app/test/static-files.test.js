@@ -416,11 +416,16 @@ test("standby preparation generates a review-bound failover hostname inventory",
 
 test("failover hostname qualification keeps blocked Cloudflare zones out of the active allowlist", () => {
   const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/qualify-failover-hosts.sh"), "utf8");
+  const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
   assert.match(script, /tunnel-cutover\.sh" --preview/);
   assert.match(script, /select\(\.status == "ready"\)/);
   assert.match(script, /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
   assert.match(script, /cmp -s "\$candidates" "\$observed"/);
   assert.doesNotMatch(script, /tunnel-cutover\.sh" --apply/);
+  assert.match(automatic, /valid_host_qualification "\$recovery_id"/);
+  assert.match(automatic, /\.candidateSha256 == \$candidate_sha and \.candidateCount == \$candidate_count/);
+  assert.match(automatic, /\.qualifiedSha256 == \$qualified_sha and \.qualifiedCount == \$qualified_count/);
+  assert.match(automatic, /blocked-host-qualification/);
 });
 
 test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {

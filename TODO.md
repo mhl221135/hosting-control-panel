@@ -535,7 +535,10 @@ inventory from the restored routing map. A separate preview/typed-confirmation
 command promotes reviewed candidates to the active failover allowlist, so new
 sites are discovered automatically without silently gaining DNS cutover
 authority. The standby panel now shows validated active/candidate counts and
-bounded pending additions/removals. Panel-based acceptance remains future work.
+bounded pending additions/removals. Automatic activation now also requires the
+current recovery-bound candidate inventory and active allowlist checksums and
+counts to match the qualification receipt. Unchanged candidates remain valid
+across newer database recovery points. Panel-based acceptance remains future work.
 
 ### Roles And Pairing
 

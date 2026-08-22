@@ -508,6 +508,11 @@ sudo ./scripts/qualify-failover-hosts.sh --apply \
 Both commands use Cloudflare's preview path only. Apply atomically replaces the
 local automatic-failover allowlist with the ready subset and records a bounded
 qualification receipt; it does not change DNS or tunnel routes.
+The automatic watchdog verifies that the current prepared recovery owns the
+candidate inventory and that its checksum, the accepted allowlist checksum,
+and both hostname counts match the qualification receipt. An unchanged
+candidate inventory remains qualified across newer database recovery points;
+missing, edited, or changed inventories stop at `blocked-host-qualification`.
 Activation preview exits with failure when any selected hostname is blocked,
 even though it prints the full non-mutating plan for operator review.
 
