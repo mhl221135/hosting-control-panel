@@ -10,9 +10,13 @@ the supported keys.
 | `HOSTING_ROOT` | Absolute installation/data root | Compose mount source |
 | `INSTALLATION_ROLE` | `standalone`, `primary`, or `standby` | Initial value; machine marker is authoritative |
 | `SERVER_ID` | Unique 1-64 character machine identity | Stored in the machine marker |
-| `HOSTING_PEER_HEALTH_URL` | Optional HTTPS `/health` URL for the paired server | Read-only status probe; no credentials |
+| `HOSTING_PEER_HEALTH_URL` | Optional HTTPS `/ha/v1/status` URL for the paired server | Token-authenticated, read-only status probe |
+| `HOSTING_PEER_API_TOKEN` | Shared random pairing credential, at least 32 characters | Sent only as a Bearer header; never returned by either API |
 | `HOSTING_SYNC_PEER_DEVICE_ID` | Expected project Syncthing device ID of the paired server | Restricts panel sync connectivity to the intended peer |
 | `HOSTING_PEER_SERVER_ID` | Expected identity returned by the peer health endpoint | Rejects an unrelated healthy endpoint as the peer |
+| `HA_PEER_SSH_HOST` | Root SSH target used by promoted-primary rebuild/failback workflows | Stored only in the machine-local `.env` |
+| `HA_PEER_ROOT` | Peer installation root | Defaults to `/media/ssdmount/websites-v2` |
+| `HA_PEER_SYNC_DEVICE_ID`, `HA_LOCAL_SYNC_DEVICE_ID` | Exact Syncthing identities used by rebuild/failback | Required before those panel actions can run |
 | `HOSTING_MACHINE_STATE_DIR` | Non-replicated role/state root | Defaults to `/etc/hosting-control` |
 | `UI_DATA_DIR` | Panel state directory | Standby defaults to machine-local `ui-data` |
 | `BACKUPS_DIR` | Absolute backup storage directory | Mounted at `/srv/backups` in the panel |

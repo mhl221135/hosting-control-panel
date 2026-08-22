@@ -7,6 +7,13 @@ const ACTIONS = Object.freeze({
   "replicate-now": { role: "primary", confirm: "REPLICATE-NOW" },
   "finalize-standby": { role: "standby", confirm: "FINALIZE-STANDBY" },
   "failover-check": { role: "standby", confirm: "CHECK-FAILOVER" },
+  "promotion-preview": { role: "standby", confirm: "PREVIEW-PROMOTION" },
+  "promote-standby": { role: "standby", confirm: "PROMOTE-STANDBY-RISK-ACCEPTED" },
+  "request-witness-fence": { role: "standby", confirm: "REQUEST-WITNESS-FENCE" },
+  "rebuild-preview": { role: "promoted-primary", confirm: "PREVIEW-REBUILD" },
+  "rebuild-former-primary": { role: "promoted-primary", confirm: "REBUILD-FORMER-PRIMARY" },
+  "failback-preview": { role: "promoted-primary", confirm: "PREVIEW-FAILBACK" },
+  "complete-failback": { role: "promoted-primary", confirm: "COMPLETE-FAILBACK" },
 });
 
 function readJson(filePath) {
@@ -25,7 +32,7 @@ class HaControl {
     this.now = options.now || (() => Date.now());
   }
 
-  view(role, serverId) {
+  view(role, serverId, promotion = null) {
     const request = readJson(this.processingPath) || readJson(this.requestPath);
     const result = readJson(this.resultPath);
     return {
@@ -43,17 +50,22 @@ class HaControl {
         completedAt: String(result.completedAt || "").slice(0, 40),
       } : null,
       actions: Object.entries(ACTIONS)
-        .filter(([, definition]) => definition.role === role)
+        .filter(([, definition]) => definition.role === role
+          || (definition.role === "promoted-primary" && role === "primary"
+            && promotion?.status === "local-primary" && promotion.publicIngressCutover === true))
         .map(([action]) => action),
       role,
       serverId,
     };
   }
 
-  request(input, role, serverId, operator) {
+  request(input, role, serverId, operator, promotion = null) {
     const action = String(input?.action || "");
     const definition = ACTIONS[action];
-    if (!definition || definition.role !== role) {
+    const allowed = definition && (definition.role === role
+      || (definition.role === "promoted-primary" && role === "primary"
+        && promotion?.status === "local-primary" && promotion.publicIngressCutover === true));
+    if (!allowed) {
       throw Object.assign(new Error("HA action is not available for this server role"), { statusCode: 409 });
     }
     if (input.confirm !== definition.confirm) {

@@ -31,8 +31,12 @@ standby starts only the agent and read-only panel, rejects normal mutations
 with HTTP 423, and suppresses mutating schedulers. Its narrow panel exceptions
 are ingress metadata, the deep backup-verification job, and bounded HA requests
 processed by a root systemd timer. These requests can refresh preparation or
-run the existing failover watchdog, but cannot supply commands, change role, or
-bypass the watchdog's fencing policy.
+run the existing failover watchdog. Role-gated requests can also delegate to
+the existing promotion/rebuild/failback scripts, but cannot supply commands or
+arguments and cannot bypass their fencing and rollback checks. Authenticated
+peer status and bounded replication history are exposed by the panel. An
+optional signed external-fencing client consumes receipts from an independent
+provider; the provider itself is not hosted in this two-server stack.
 
 Backup reception remains the disaster-recovery layer. The warm path uses the
 project-owned `hosting-sync` container for continuous one-way website and

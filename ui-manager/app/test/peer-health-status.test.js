@@ -14,15 +14,20 @@ test("reports a matching bounded peer health response", async () => {
   const status = new PeerHealthStatus({
     url: "https://peer.example.com/health",
     expectedServerId: "primary-1",
+    token: "x".repeat(32),
     now: () => { tick += 7; return tick; },
-    fetch: async () => ({
-      ok: true,
-      json: async () => ({ ok: true, role: "primary", serverId: "primary-1", failoverStatus: "healthy", recoveryId: null, ignored: "secret" }),
-    }),
+    fetch: async (_url, options) => {
+      assert.equal(options.headers.authorization, `Bearer ${"x".repeat(32)}`);
+      return {
+        ok: true,
+        json: async () => ({ ok: true, role: "primary", serverId: "primary-1", failoverStatus: "healthy", recoveryId: null, ignored: "secret" }),
+      };
+    },
   });
   assert.deepEqual(await status.read(), {
     configured: true,
     reachable: true,
+    authenticated: true,
     identityMatched: true,
     expectedServerId: "primary-1",
     serverId: "primary-1",
@@ -38,12 +43,14 @@ test("fails closed on identity mismatch and network failure", async () => {
   const mismatch = new PeerHealthStatus({
     url: "https://peer.example.com/health",
     expectedServerId: "primary-1",
+    token: "x".repeat(32),
     fetch: async () => ({ ok: true, json: async () => ({ ok: true, role: "primary", serverId: "other" }) }),
   });
   assert.equal((await mismatch.read()).identityMatched, false);
   const failed = new PeerHealthStatus({
     url: "https://peer.example.com/health",
     expectedServerId: "primary-1",
+    token: "x".repeat(32),
     fetch: async () => { throw new Error("offline\nprivate detail"); },
   });
   const result = await failed.read();

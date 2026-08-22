@@ -14,8 +14,26 @@ test("exposes only role-appropriate HA actions", () => {
   const value = fixture();
   try {
     assert.deepEqual(value.control.view("primary", "one").actions, ["replicate-now"]);
-    assert.deepEqual(value.control.view("standby", "two").actions, ["finalize-standby", "failover-check"]);
+    assert.deepEqual(value.control.view("standby", "two").actions, [
+      "finalize-standby", "failover-check", "promotion-preview", "promote-standby", "request-witness-fence",
+    ]);
     assert.deepEqual(value.control.view("standalone", "three").actions, []);
+  } finally { fs.rmSync(value.dataDir, { recursive: true, force: true }); }
+});
+
+test("exposes role transitions only for standby or a receipt-backed promoted primary", () => {
+  const value = fixture();
+  try {
+    assert.deepEqual(value.control.view("standby", "two").actions, [
+      "finalize-standby", "failover-check", "promotion-preview", "promote-standby", "request-witness-fence",
+    ]);
+    assert.deepEqual(value.control.view("primary", "one").actions, ["replicate-now"]);
+    const promotion = { status: "local-primary", publicIngressCutover: true };
+    assert.deepEqual(value.control.view("primary", "one", promotion).actions, [
+      "replicate-now", "rebuild-preview", "rebuild-former-primary", "failback-preview", "complete-failback",
+    ]);
+    assert.equal(value.control.request({ action: "rebuild-preview", confirm: "PREVIEW-REBUILD" },
+      "primary", "one", "operator", promotion).action, "rebuild-preview");
   } finally { fs.rmSync(value.dataDir, { recursive: true, force: true }); }
 });
 

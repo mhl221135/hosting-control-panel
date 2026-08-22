@@ -38,9 +38,15 @@ test("HA panel controls queue only bounded machine-local operations", () => {
   assert.match(html, /id="replicateNow"/);
   assert.match(html, /id="finalizeStandby"/);
   assert.match(html, /id="runFailoverCheck"/);
+  assert.match(html, /id="promoteStandby"/);
+  assert.match(html, /id="completeFailback"/);
+  assert.match(html, /id="requestWitnessFence"/);
   assert.match(processor, /primary:replicate-now/);
   assert.match(processor, /standby:finalize-standby/);
   assert.match(processor, /standby:failover-check/);
+  assert.match(processor, /standby:promotion-preview\|standby:promote-standby/);
+  assert.match(processor, /primary:rebuild-preview\|primary:rebuild-former-primary/);
+  assert.match(processor, /awaiting-unreachable-grace/);
   assert.match(processor, /\.server_id \/\/ \.serverId/);
   assert.match(install, /install-ha-panel-control\.sh/);
   assert.match(upgrade, /install-wordpress-cache-control\.js/);
@@ -58,6 +64,15 @@ test("server exposes the bounded liveness endpoint used by standby promotion", (
   assert.match(server, /serverId: installation\.serverId/);
   assert.match(server, /failoverStatus: failover\.available \? failover\.status : "unavailable"/);
   assert.match(server, /"Cache-Control": "no-store"/);
+});
+
+test("server exposes a token-authenticated bounded peer endpoint and lag history", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  assert.match(server, /pathname === "\/ha\/v1\/status"/);
+  assert.match(server, /haPeerAuth\.authorized\(req\.headers\.authorization\)/);
+  assert.match(server, /replicationHistory\.sample/);
+  assert.match(compose, /HOSTING_PEER_API_TOKEN/);
 });
 
 test("a recovered former primary self-fences only for a promoted expected peer", () => {

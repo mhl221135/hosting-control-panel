@@ -15,6 +15,7 @@ class PeerHealthStatus {
   constructor(options = {}) {
     this.url = configuredUrl(options.url);
     this.expectedServerId = String(options.expectedServerId || "").trim();
+    this.token = String(options.token || "").trim();
     if (this.expectedServerId && !SERVER_ID.test(this.expectedServerId)) {
       throw new Error("Peer server ID is invalid");
     }
@@ -25,7 +26,7 @@ class PeerHealthStatus {
 
   async read() {
     const checkedAt = new Date(this.now()).toISOString();
-    if (!this.url || !this.expectedServerId) {
+    if (!this.url || !this.expectedServerId || !this.token) {
       return { configured: false, reachable: false, identityMatched: false, checkedAt };
     }
     const started = this.now();
@@ -36,7 +37,7 @@ class PeerHealthStatus {
         method: "GET",
         redirect: "error",
         signal: controller.signal,
-        headers: { accept: "application/json" },
+        headers: { accept: "application/json", authorization: `Bearer ${this.token}` },
       });
       if (!response.ok) throw new Error(`Peer returned HTTP ${response.status}`);
       const body = await response.json();
@@ -45,7 +46,8 @@ class PeerHealthStatus {
       const identityMatched = serverId === this.expectedServerId;
       return {
         configured: true,
-        reachable: body?.ok === true,
+        reachable: body?.ok === true && identityMatched,
+        authenticated: body?.ok === true,
         identityMatched,
         expectedServerId: this.expectedServerId,
         serverId,

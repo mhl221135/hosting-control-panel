@@ -48,7 +48,10 @@ into dedicated directories.
 - Resumable initial replica reconciliation and non-restoring warm preparation;
   guarded promotion and Cloudflare tunnel cutover remain separately gated
 - Guarded HA operations for on-demand database recovery points, standby
-  refresh, and immediate execution of the existing failover watchdog
+  refresh, immediate failover checks, authenticated peer status, bounded lag
+  history/alerts, and typed promotion/rebuild/failback workflows
+- Optional signed external-witness fencing client; disabled until an
+  independent provider and root-owned credentials are configured
 - Backup history and complete-set deletion from the panel
 - Durable ownership-aware website removal jobs with selectable routes, pool,
   files, database, NPM, certificate, Cloudflare DNS, panel state, and backups

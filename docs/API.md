@@ -34,7 +34,8 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   project-owned Syncthing folders, receive-only drift, and the age and size of
   the latest hourly database recovery point. When configured, `peerHealth`
   reports the expected peer identity, identity match, role, bounded failover
-  state, reachability, and request latency from its public `/health` response.
+  state, reachability, and request latency from its authenticated
+  `/ha/v1/status` response.
   When `HOSTING_SYNC_PEER_DEVICE_ID` is configured, `replication.peerConnected`
   refers only to that exact Syncthing device; the device ID itself is omitted.
   Peer addresses, API keys, paths,
@@ -53,12 +54,12 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   SHA-256 hashes, validates gzip streams, and rejects unsafe tar paths, links,
   and special files. Success writes a mode-`0600` receipt bound to the exact
   `receiver-state.json`; it does not restore data or promote the server.
-- `POST /api/system/ha-control` accepts only `replicate-now` on a primary, or
-  `finalize-standby` and `failover-check` on a standby, with the action's exact
-  typed confirmation. It writes a mode-`0600` request consumed by the host
-  systemd timer. Request data cannot select a command, unit, argument, role,
-  DNS record, or tunnel route. Running the watchdog does not bypass its
-  recovery and fencing gates.
+- `POST /api/system/ha-control` accepts only role-appropriate fixed actions with
+  the action's exact typed confirmation. It writes a mode-`0600` request
+  consumed by the host systemd timer. Request data cannot select a command,
+  unit, argument, role, DNS record, or tunnel route. Standby promotion and
+  promoted-primary rebuild/failback delegate to the existing guarded scripts;
+  their recovery, fencing, validation, and rollback gates remain authoritative.
 - On a standby, every other non-read API request returns `423 Locked`. The
   standby job worker executes only `standby.deep-verify` jobs. Disallowed
   queued jobs recovered from local history become cancelled historical records
@@ -682,3 +683,22 @@ unless every restoration step succeeds.
 4. Use a specific HTTP status and a non-secret error response.
 5. Add a Node test and a browser workflow check when the UI changes.
 6. Update this route index when public behavior changes.
+
+### Authenticated HA Pairing
+
+`GET /ha/v1/status` is the narrow server-to-server pairing endpoint. It requires
+`Authorization: Bearer <HOSTING_PEER_API_TOKEN>` and returns only the bounded
+server identity, role, failover state, recovery identifier, and replication
+summary. The normal public `/health` endpoint remains a liveness signal for the
+existing outage watchdog; it is not considered authenticated pairing.
+
+`GET /api/system/replication-status` includes a bounded local history (288
+five-minute samples, 96 returned by default). Health transitions enqueue the
+existing Telegram/SMTP notifications without storing peer credentials.
+
+`POST /api/system/ha-control` accepts only fixed role-appropriate actions. In
+addition to recovery/finalizer checks, standby actions can preview or apply the
+existing guarded activation workflow and request an independently signed
+fencing receipt. A receipt-backed promoted primary can preview/run former-primary
+rebuild and controlled failback. Typed confirmations are mandatory for every
+mutating role workflow; arbitrary commands or arguments are never accepted.

@@ -447,9 +447,9 @@ recovery marker every ten minutes, so promotion does not normally import SQL
 during an outage. Resumable finalizers, exact database/runtime reconciliation
 with bounded website-file lag during planned rebuild/failback, a
 reboot-time writable-service fence, warm preparation, and a disabled-by-default
-automatic outage watchdog are implemented. Authenticated panel pairing,
-historical lag alerts, and panel-driven promotion remain future work. A
-bounded read-only peer health probe with expected server identity is
+automatic outage watchdog are implemented. Token-authenticated panel pairing,
+bounded historical lag alerts, and panel-driven promotion/rebuild/failback are
+implemented. A bounded read-only peer health probe with expected server identity is
 implemented in the standby Replication view. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
@@ -479,25 +479,22 @@ and ingress. A durable allowlisted deep-verification job streams checksums,
 checks archive integrity and safe entry types, and binds its result to the exact
 receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
 covered by tests. Fenced local promotion is implemented as a host-level command.
-Panel-driven promotion, pairing, and warm-replication lag reporting remain
-future work; backup receiver recovery-point health is
+External witness-provider deployment and live qualification remain future
+work; backup receiver recovery-point health is
 already reported in the panel.
 
-The Replication workspace now also queues three bounded machine-local actions:
-create a primary database recovery point, refresh standby preparation, and run
-the existing automatic-failover watchdog immediately. A root systemd processor
-maps each request to one fixed unit. These are operational controls, not role
-transitions: panel-driven promotion, demotion/rebuild, and fencing approval
-remain in the backlog below.
+The Replication workspace queues bounded machine-local recovery, finalizer,
+watchdog, promotion, rebuild, failback, and optional witness-fencing actions. A
+root systemd processor maps each request to one fixed unit or guarded script;
+request payloads cannot choose commands or arguments.
 
 A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
 hostname file, read-only preview, promoted-primary gating, exact machine-local
 DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
 attempts. A guarded operator wrapper now previews and runs local promotion plus
 the allowlisted tunnel cutover without weakening the external-fencing gate. A
-guarded no-write drill reversion command is also implemented. Panel promotion
-controls and authenticated pairing remain future work; route qualification and
-automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
+guarded no-write drill reversion command is also implemented. Route
+qualification and automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
   the HP standby for the reviewed allowlist after local and public tunnel
   drills. It requires exact Syncthing state, a prepared database recovery point
   no older than two hours, six failed checks, and a five-minute outage grace.
@@ -543,14 +540,8 @@ Panel-based acceptance remains future work.
 
 ### Roles And Pairing
 
-- Extend the implemented `standalone`, `primary`, and `standby` installation
-  roles into pairing and promotion workflows.
-- Pair servers through a narrow authenticated API using independently rotatable
-  credentials or mutual TLS.
-- Extend the implemented backup-receiver and peer-health status (expected peer
-  identity, reachability, role, last receive, recovery age, set/group counts,
-  and deep-verification freshness) with authenticated pairing and historical
-  MySQL/filesystem lag alerts.
+- Add panel-based rotation/revocation for the implemented narrow Bearer-token
+  pairing credential; initial rotation remains a machine-local `.env` operation.
 
 ### Role-Aware Panel And API
 
@@ -559,10 +550,8 @@ Panel-based acceptance remains future work.
   only valid transitions. Changing role must use preview, readiness checks,
   explicit typed confirmation, an audit event, and rollback; it must never be
   implemented as an unrestricted settings dropdown.
-- Add **Promote standby** and **Demote/rebuild as standby** workflows. Promotion
-  must verify a completed recovery point, fence the previous primary, disable
-  incoming replication, apply the standby resource profile, start and validate
-  the writable stack, and only then allow public-ingress cutover.
+- Add a bounded audit-history view for panel-driven promotion, rebuild, and
+  failback results; the current card retains only the latest processor result.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.
@@ -616,8 +605,8 @@ Panel-based acceptance remains future work.
 - Check the active host from an independent location, not only from its standby.
 - Require fencing so the old primary cannot serve traffic, write databases, or
   update Cloudflare before promotion.
-- Integrate a qualified external fence or witness that can issue the bounded
-  recovery-bound receipt without relying on the failed primary. Until then,
+- Deploy and qualify an independent external fence provider against the
+  implemented signed, recovery-bound witness client. Until then, receipt-mode
   automatic activation deliberately pauses in `awaiting-fence`.
 - Begin with operator-confirmed promotion using the documented runbook.
 - The controlled local outage drill against hp-server is complete: OPI5 was

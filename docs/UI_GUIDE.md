@@ -145,9 +145,12 @@ externally fenced.
 
 The **HA operations** card queues fixed host services through a machine-local
 request processor installed with `scripts/install-ha-panel-control.sh`. It does
-not provide a shell, select arbitrary services, promote directly, or change
-Cloudflare. **Run failover check** simply executes the already configured
-watchdog now.
+not provide a shell or select arbitrary commands. It exposes authenticated-pair
+status, bounded replication history, promotion preview/apply on standby, and
+rebuild/failback controls only on a receipt-backed promoted primary. Mutating
+role controls require typing the displayed confirmation and delegate to the
+existing rollback-aware host scripts. **Request external fence** remains
+fail-closed until a signed independent witness is configured on that machine.
 
 Mutating operational sections are hidden on a standby and their server APIs
 remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,

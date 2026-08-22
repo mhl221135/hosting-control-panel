@@ -48,6 +48,8 @@ const { PeerHealthStatus } = require("./lib/peer-health-status");
 const { AutomaticFailoverNotificationMonitor, readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
 const { readFailoverInventoryStatus } = require("./lib/failover-inventory-status");
 const { HaControl } = require("./lib/ha-control");
+const { HaPeerAuth } = require("./lib/ha-peer-auth");
+const { ReplicationHistory } = require("./lib/replication-history");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -190,7 +192,9 @@ const warmReplicationStatus = new WarmReplicationStatus({
 const peerHealthStatus = new PeerHealthStatus({
   url: process.env.HOSTING_PEER_HEALTH_URL,
   expectedServerId: process.env.HOSTING_PEER_SERVER_ID,
+  token: process.env.HOSTING_PEER_API_TOKEN,
 });
+const haPeerAuth = new HaPeerAuth({ token: process.env.HOSTING_PEER_API_TOKEN });
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -272,6 +276,7 @@ const notificationManager = new NotificationManager({
   settings: notificationSettings,
   maxHistory: Number(process.env.NOTIFICATION_HISTORY_LIMIT || 500),
 });
+const replicationHistory = new ReplicationHistory({ dataDir: DATA_DIR, notificationManager });
 const automaticFailoverNotificationMonitor = new AutomaticFailoverNotificationMonitor({
   dataDir: DATA_DIR,
   notificationManager,
@@ -2019,13 +2024,19 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
   }
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/replication-status") {
     const installation = installationRole.publicView();
+    const [replication, peerHealth] = await Promise.all([
+      warmReplicationStatus.read(),
+      peerHealthStatus.read(),
+    ]);
+    replicationHistory.sample(replication, peerHealth);
     sendJson(res, 200, {
       ok: true,
-      replication: await warmReplicationStatus.read(),
-      peerHealth: await peerHealthStatus.read(),
+      replication,
+      peerHealth,
+      history: replicationHistory.view(),
       automaticFailover: readAutomaticFailoverStatus(DATA_DIR),
       failoverInventory: readFailoverInventoryStatus(DATA_DIR),
-      haControl: haControl.view(installation.role, installation.serverId),
+      haControl: haControl.view(installation.role, installation.serverId, readPromotionState(promotionStatePath)),
     }, { "Cache-Control": "no-store" });
     return true;
   }
@@ -2059,11 +2070,12 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       label: "HA control",
     });
     const installation = installationRole.publicView();
-    const request = haControl.request(body, installation.role, installation.serverId, req.auth.email);
+    const promotion = readPromotionState(promotionStatePath);
+    const request = haControl.request(body, installation.role, installation.serverId, req.auth.email, promotion);
     sendJson(res, 202, {
       ok: true,
       request: { id: request.id, action: request.action, requestedAt: request.requestedAt },
-      haControl: haControl.view(installation.role, installation.serverId),
+      haControl: haControl.view(installation.role, installation.serverId, promotion),
     });
     return true;
   }
@@ -4328,6 +4340,29 @@ async function handleAuthApi(req, res) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/ha/v1/status") {
+      if (!haPeerAuth.authorized(req.headers.authorization)) {
+        sendJson(res, 401, { ok: false, message: "Authenticated HA pairing is required" }, { "Cache-Control": "no-store" });
+        return;
+      }
+      const installation = installationRole.publicView();
+      const failover = readAutomaticFailoverStatus(DATA_DIR);
+      const replication = await warmReplicationStatus.read();
+      sendJson(res, 200, {
+        ok: true,
+        serverId: installation.serverId,
+        role: installation.role,
+        failoverStatus: failover.available ? failover.status : "unavailable",
+        recoveryId: replication.recovery?.id || failover.recoveryId || null,
+        replication: {
+          available: replication.available,
+          peerConnected: replication.peerConnected,
+          exact: replication.exact,
+          recoveryAgeMinutes: replication.recovery?.ageMinutes ?? null,
+        },
+      }, { "Cache-Control": "no-store" });
+      return;
+    }
     if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/health") {
       const installation = installationRole.publicView();
       const failover = readAutomaticFailoverStatus(DATA_DIR);
@@ -4467,6 +4502,20 @@ server.listen(PORT, "0.0.0.0", () => {
   healthMonitor.start();
   notificationManager.start(jobManager);
   automaticFailoverNotificationMonitor.start();
+  let replicationSampleActive = false;
+  const sampleReplication = async () => {
+    if (replicationSampleActive) return;
+    replicationSampleActive = true;
+    try {
+      const [replication, peer] = await Promise.all([warmReplicationStatus.read(), peerHealthStatus.read()]);
+      replicationHistory.sample(replication, peer);
+    } catch (error) {
+      console.error(`Replication history sample failed: ${String(error?.message || error).replace(/[\r\n\t]+/g, " ").slice(0, 200)}`);
+    } finally { replicationSampleActive = false; }
+  };
+  sampleReplication();
+  const replicationHistoryTimer = setInterval(sampleReplication, 300_000);
+  replicationHistoryTimer.unref?.();
   if (!installationRole.isStandby()) {
     telegramCommandManager.start();
     billingEntitlementObserver.start();

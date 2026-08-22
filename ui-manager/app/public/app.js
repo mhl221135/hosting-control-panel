@@ -593,13 +593,14 @@ async function loadWarmReplication() {
   const inventory = data.failoverInventory || {};
   const peer = data.peerHealth || {};
   const control = data.haControl || {};
+  const history = data.history?.entries || [];
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
   $("#warmPeer").textContent = replication.available
     ? replication.peerConnected ? "Expected peer connected"
       : replication.peerIdentityConfigured ? "Expected peer disconnected" : "Disconnected"
     : "Unavailable";
   $("#peerIdentity").textContent = !peer.configured ? "Not configured"
-    : peer.identityMatched ? peer.serverId : peer.reachable ? "Mismatch" : "Unavailable";
+    : peer.identityMatched && peer.authenticated ? `${peer.serverId} · authenticated` : peer.identityMatched ? peer.serverId : "Unavailable";
   $("#peerRole").textContent = peer.reachable ? peer.role : "-";
   $("#peerLatency").textContent = Number.isFinite(peer.latencyMs) ? `${peer.latencyMs} ms` : "-";
   $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
@@ -610,6 +611,12 @@ async function loadWarmReplication() {
   $("#warmReplicationUpdated").textContent = replication.available
     ? `Checked ${new Date(replication.checkedAt).toLocaleString()} · ${replication.exact ? "all folders exact" : "synchronization in progress"}`
     : escapeHtml(replication.error || "Replication status unavailable");
+  $("#replicationHistory").className = history.length ? "health-list" : "health-list empty";
+  $("#replicationHistory").innerHTML = history.length ? history.slice(0, 24).map((entry) => `
+    <div class="health-row">
+      <span class="health-severity ${escapeHtml(entry.status === "critical" ? "failure" : entry.status)}">${escapeHtml(entry.status)}</span>
+      <div><strong>${escapeHtml(entry.reason)}</strong><p>${entry.needFiles} files · ${formatBytes(entry.needBytes)} · recovery ${entry.recoveryAgeMinutes === null ? "unavailable" : `${entry.recoveryAgeMinutes} min`}</p><small>${new Date(entry.at).toLocaleString()}</small></div>
+    </div>`).join("") : "No replication samples recorded.";
   $("#autoFailoverStatus").textContent = automatic.available ? String(automatic.status || "unknown").replaceAll("-", " ") : "Unavailable";
   $("#autoFailoverFailures").textContent = automatic.available && automatic.threshold
     ? `${automatic.failures}/${automatic.threshold}`
@@ -645,7 +652,15 @@ async function loadWarmReplication() {
   $("#replicateNow").classList.toggle("hidden", !actions.has("replicate-now"));
   $("#finalizeStandby").classList.toggle("hidden", !actions.has("finalize-standby"));
   $("#runFailoverCheck").classList.toggle("hidden", !actions.has("failover-check"));
-  for (const button of [$("#replicateNow"), $("#finalizeStandby"), $("#runFailoverCheck")]) {
+  $("#requestWitnessFence").classList.toggle("hidden", !actions.has("request-witness-fence"));
+  $("#previewPromotion").classList.toggle("hidden", !actions.has("promotion-preview"));
+  $("#promoteStandby").classList.toggle("hidden", !actions.has("promote-standby"));
+  $("#previewRebuild").classList.toggle("hidden", !actions.has("rebuild-preview"));
+  $("#rebuildFormerPrimary").classList.toggle("hidden", !actions.has("rebuild-former-primary"));
+  $("#previewFailback").classList.toggle("hidden", !actions.has("failback-preview"));
+  $("#completeFailback").classList.toggle("hidden", !actions.has("complete-failback"));
+  for (const button of [$("#replicateNow"), $("#finalizeStandby"), $("#runFailoverCheck"), $("#requestWitnessFence"), $("#previewPromotion"),
+    $("#promoteStandby"), $("#previewRebuild"), $("#rebuildFormerPrimary"), $("#previewFailback"), $("#completeFailback")]) {
     button.disabled = Boolean(control.pending);
   }
   $("#haControlStatus").textContent = control.pending
@@ -3708,8 +3723,10 @@ $("#runDeepVerify").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 
-async function requestHaControl(action, confirmText, button) {
-  if (!confirm(`Run ${action.replaceAll("-", " ")} on this server now?`)) return;
+async function requestHaControl(action, confirmText, button, typed = false) {
+  if (typed) {
+    if (prompt(`Type ${confirmText} to run ${action.replaceAll("-", " ")}.`) !== confirmText) return;
+  } else if (!confirm(`Run ${action.replaceAll("-", " ")} on this server now?`)) return;
   const data = await withButton(button, "Queueing...", () => api("/api/system/ha-control", {
     method: "POST",
     body: JSON.stringify({ action, confirm: confirmText }),
@@ -3728,6 +3745,34 @@ $("#finalizeStandby").addEventListener("click", async (event) => {
 });
 $("#runFailoverCheck").addEventListener("click", async (event) => {
   try { await requestHaControl("failover-check", "CHECK-FAILOVER", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#requestWitnessFence").addEventListener("click", async (event) => {
+  try { await requestHaControl("request-witness-fence", "REQUEST-WITNESS-FENCE", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewPromotion").addEventListener("click", async (event) => {
+  try { await requestHaControl("promotion-preview", "PREVIEW-PROMOTION", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#promoteStandby").addEventListener("click", async (event) => {
+  try { await requestHaControl("promote-standby", "PROMOTE-STANDBY-RISK-ACCEPTED", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewRebuild").addEventListener("click", async (event) => {
+  try { await requestHaControl("rebuild-preview", "PREVIEW-REBUILD", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#rebuildFormerPrimary").addEventListener("click", async (event) => {
+  try { await requestHaControl("rebuild-former-primary", "REBUILD-FORMER-PRIMARY", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewFailback").addEventListener("click", async (event) => {
+  try { await requestHaControl("failback-preview", "PREVIEW-FAILBACK", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#completeFailback").addEventListener("click", async (event) => {
+  try { await requestHaControl("complete-failback", "COMPLETE-FAILBACK", event.currentTarget, true); }
   catch (error) { notice(error.message, "warning"); }
 });
 
