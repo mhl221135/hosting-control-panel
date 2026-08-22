@@ -163,6 +163,27 @@ test("apply records rollback state and marks ingress active", async () => {
   assert.equal(fs.statSync(files.promotionPath).mode & 0o777, 0o644);
 });
 
+test("apply archives a completed rollback receipt before a new cutover", async () => {
+  const files = fixture();
+  fs.writeFileSync(files.statePath, JSON.stringify({ version: 1, status: "rolled-back" }), { mode: 0o600 });
+  const result = await manager(new FakeApi(), files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS");
+  assert.equal(result.status, "active");
+  assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "active");
+  assert.equal(
+    fs.readdirSync(files.directory).some((name) => name.startsWith("tunnel-cutover.json.rolled-back.")),
+    true,
+  );
+});
+
+test("apply still refuses an active cutover receipt", async () => {
+  const files = fixture();
+  fs.writeFileSync(files.statePath, JSON.stringify({ version: 1, status: "active" }), { mode: 0o600 });
+  await assert.rejects(
+    manager(new FakeApi(), files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS"),
+    /cutover state already exists/,
+  );
+});
+
 test("rollback restores the prior tunnel config and DNS record", async () => {
   const files = fixture();
   const api = new FakeApi();

@@ -173,6 +173,20 @@ class TunnelCutover {
     return { role, promotion };
   }
 
+  archiveCompletedState() {
+    if (!fs.existsSync(this.statePath)) return;
+    const state = this.readJson(this.statePath);
+    if (state.version !== 1 || state.status !== "rolled-back") {
+      throw cutoverError("A tunnel cutover state already exists; rollback or archive it first", 409);
+    }
+    const suffix = String(this.now()).replace(/[^0-9A-Za-z.-]/g, "-");
+    let archivePath = `${this.statePath}.rolled-back.${suffix}`;
+    for (let index = 1; fs.existsSync(archivePath); index += 1) {
+      archivePath = `${this.statePath}.rolled-back.${suffix}.${index}`;
+    }
+    fs.renameSync(this.statePath, archivePath);
+  }
+
   async plan(values) {
     const hosts = normalizeHosts(values);
     const [zones, tunnel] = await Promise.all([
@@ -271,7 +285,7 @@ class TunnelCutover {
   async apply(values, confirmation) {
     if (confirmation !== "SWITCH-TUNNEL-INGRESS") throw cutoverError("Apply requires SWITCH-TUNNEL-INGRESS confirmation");
     const { promotion } = this.requirePromotedPrimary();
-    if (fs.existsSync(this.statePath)) throw cutoverError("A tunnel cutover state already exists; rollback or archive it first", 409);
+    this.archiveCompletedState();
     const plan = await this.plan(values);
     if (!plan.ready) throw cutoverError("Tunnel cutover preview contains blocked hostnames", 409);
     const state = {
