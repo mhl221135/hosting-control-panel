@@ -218,6 +218,16 @@ test("provisioning startup loads uploaded WordPress package choices", () => {
   assert.doesNotMatch(source, /#saveHosts|#hostsTable/);
 });
 
+test("www aliases are opt-in and NPM follows the selected site's aliases", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(html, /name="add_www" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /name="add_www" type="checkbox" checked/);
+  assert.match(source, /site\?\.aliases\?\.includes\(`www\.\$\{domain\}`\)/);
+  assert.match(source, /add_www: addWww/);
+  assert.doesNotMatch(source, /add_www: true, issue_ssl/);
+});
+
 test("OpenCart imports submit and accept the canonical database archive flag", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");

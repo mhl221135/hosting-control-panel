@@ -243,14 +243,14 @@ controls.
 
 | Control | Function |
 | --- | --- |
-| **Add www alias** | Adds `www.domain` for an apex domain and configures the canonical route. |
+| **Add www alias** | Opt-in. Adds `www.domain` for an apex domain and configures the canonical route. Leave off for subdomains. |
 | **Enable Redis object cache** | Installs and configures Redis Cache during provisioning. |
 | **Create MySQL database and user** | Generates one database/user for Generic PHP. Credentials are revealed once; application configuration remains manual. |
 | **Enable FastCGI page cache** | Enables anonymous HTML caching for the new route. |
 | **Enable PHP OPcache** | Enables PHP bytecode caching for the site. |
 | **Enable daily backup** | Includes the new site in scheduled backup runs. |
 | **Enable daily image optimization** | Includes the new site in the optional incremental WebP schedule. |
-| **Create NPM proxy host** | Creates the public NPM edge host targeting `hosting-nginx`. |
+| **Create NPM proxy host** | Creates the public NPM edge host targeting `hosting-nginx`; later repair actions preserve the site's configured aliases. |
 | **Request SSL** | Requests or attaches a Let's Encrypt certificate after the NPM host exists. DNS must already resolve to the server. |
 | **Enable comments by default** | Leaves WordPress comments enabled; the default is off. |
 | **Keep bundled WordPress plugins/themes** | Retains packages shipped with WordPress. Both are off by default so unwanted defaults are removed. |

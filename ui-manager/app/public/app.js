@@ -2763,9 +2763,11 @@ $("#applyDnsPreset").addEventListener("click", async (event) => {
 async function ensureNpm(issueSsl) {
   const domain = state.selectedDomain;
   if (!domain) return;
+  const site = primarySites().find((entry) => entry.host === domain);
+  const addWww = Boolean(site?.aliases?.includes(`www.${domain}`));
   const result = await api("/api/npm/hosts/ensure", {
     method: "POST",
-    body: JSON.stringify({ domain, add_www: true, issue_ssl: issueSsl }),
+    body: JSON.stringify({ domain, add_www: addWww, issue_ssl: issueSsl }),
   });
   if (issueSsl) {
     rememberJob(result.job, `SSL certificate issuance queued for ${domain}`);
