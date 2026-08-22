@@ -480,7 +480,7 @@ recovery marker every ten minutes, so promotion does not normally import SQL
 during an outage. Resumable finalizers, exact all-folder reconciliation, a
 reboot-time writable-service fence, warm preparation, and a disabled-by-default
 automatic outage watchdog are implemented. Authenticated panel pairing,
-historical lag alerts, and panel-driven ingress cutover remain future work. A
+historical lag alerts, and panel-driven promotion remain future work. A
 bounded read-only peer health probe with expected server identity is
 implemented in the standby Replication view. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
@@ -497,8 +497,9 @@ An explicitly risk-accepted `unreachable` emergency policy is implemented for
 the requested home-hosting power-loss case. It waits through a bounded grace
 period after both public health and the Syncthing peer disappear, rechecks the
 prepared recovery and Cloudflare preview, records the degraded fencing mode,
-and can then promote automatically. It remains disabled until a deliberate
-write/failback drill proves that the recovered former primary stays isolated.
+and can then promote automatically. It is armed on the current HP standby
+after the contained no-write cutover drill; a deliberate write/failback drill
+still remains.
 
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
@@ -519,9 +520,9 @@ hostname file, read-only preview, promoted-primary gating, exact machine-local
 DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
 attempts. A guarded operator wrapper now previews and runs local promotion plus
 the allowlisted tunnel cutover without weakening the external-fencing gate. A
-guarded no-write drill reversion command is also implemented. Panel controls,
-route qualification, automatic public verification, and pairing remain future
-  work. The emergency unreachable-primary policy is now explicitly armed on
+guarded no-write drill reversion command is also implemented. Panel promotion
+controls and authenticated pairing remain future work; route qualification and
+automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
   the HP standby for the reviewed allowlist after local and public tunnel
   drills. It requires exact Syncthing state, a prepared database recovery point
   no older than two hours, six failed checks, and a five-minute outage grace.
@@ -574,14 +575,6 @@ Panel-based acceptance remains future work.
   identity, reachability, role, last receive, recovery age, set/group counts,
   and deep-verification freshness) with authenticated pairing and historical
   MySQL/filesystem lag alerts.
-- A standby must suppress provisioning, scheduled maintenance, backups,
-  certificate issuance, DNS writes, and all other mutating control-plane work.
-- Store the effective role and unique server identity in a local durable marker
-  outside every replicated path. Replication must never overwrite a standby
-  role with the primary role.
-- Keep machine-local `.env`, storage paths, backup retention, performance
-  limits, WAN addresses, and role policy separate. Do not synchronize them from
-  the primary.
 
 ### Role-Aware Panel And API
 
@@ -597,17 +590,6 @@ Panel-based acceptance remains future work.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.
-- Hide or visibly disable **Provision**, **Maintenance**, WordPress updates,
-  image optimization, site removal, Cloudflare changes, NPM/certificate
-  changes, cache controls, local backup scheduling, package deployment, import,
-  and every other action that can mutate hosted service state.
-- UI hiding is not an authorization boundary. Every corresponding server API,
-  background scheduler, Telegram command, startup task, and job worker must
-  check the local role and reject or suppress mutating work while the role is
-  `standby`.
-- Keep read-only website inventory, replication status, received-backup
-  verification, database lag, filesystem recovery point, source commit,
-  configuration compatibility, disk capacity, and promotion readiness visible.
 - Keep the implemented standby startup suppression for queued non-verification
   jobs; future pairing must import remote job evidence as non-runnable history.
 
