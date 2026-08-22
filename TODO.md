@@ -543,7 +543,10 @@ authority. The standby panel now shows validated active/candidate counts and
 bounded pending additions/removals. Automatic activation now also requires the
 current recovery-bound candidate inventory and active allowlist checksums and
 counts to match the qualification receipt. Unchanged candidates remain valid
-across newer database recovery points. Panel-based acceptance remains future work.
+across newer database recovery points. The standby can now automatically
+requalify changed candidates after warm preparation and refresh unchanged
+provider eligibility at most daily; only Cloudflare-ready hosts are accepted.
+Panel-based acceptance remains future work.
 
 ### Roles And Pairing
 

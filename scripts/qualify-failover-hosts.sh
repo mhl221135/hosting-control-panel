@@ -13,6 +13,7 @@ Options:
                       Root-owned Cloudflare tunnel management token
   --recovery-id ID    Exact prepared recovery identifier (required for apply)
   --confirm TEXT      Required for apply; ACCEPT-QUALIFIED-FAILOVER-HOSTS
+  --skip-if-current   Skip provider calls when a matching receipt is under 24h old
 
 The Cloudflare/tunnel operation is preview-only. Apply writes only hostnames
 reported ready by that preview into the local automatic-failover allowlist.
@@ -26,6 +27,7 @@ output=/etc/hosting-control/failover-hosts.auto.txt
 api_token_file=/etc/hosting-control/cloudflare-tunnel-api.token
 recovery_id=""
 confirmation=""
+skip_if_current=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --preview|--apply) mode="$1" ;;
@@ -34,6 +36,7 @@ while [ "$#" -gt 0 ]; do
     --api-token-file) shift; api_token_file="${1:-}" ;;
     --recovery-id) shift; recovery_id="${1:-}" ;;
     --confirm) shift; confirmation="${1:-}" ;;
+    --skip-if-current) skip_if_current=1 ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -49,10 +52,6 @@ for command in jq sha256sum sort cmp mktemp awk wc; do
   command -v "$command" >/dev/null 2>&1 || { printf 'Required command is missing: %s\n' "$command" >&2; exit 1; }
 done
 [ -f "$candidates" ] && [ ! -L "$candidates" ] || { printf 'Candidate inventory is unavailable.\n' >&2; exit 1; }
-[ -f "$api_token_file" ] && [ ! -L "$api_token_file" ] || { printf 'API token file is unavailable.\n' >&2; exit 1; }
-[ "$(stat -c '%u' "$api_token_file" 2>/dev/null || true)" = 0 ] \
-  && [ "$(stat -c '%a' "$api_token_file" 2>/dev/null || true)" = 600 ] \
-  || { printf 'API token file must be root-owned mode 600.\n' >&2; exit 1; }
 LC_ALL=C sort -c -u "$candidates" >/dev/null 2>&1 || { printf 'Candidates must be sorted and unique.\n' >&2; exit 1; }
 
 machine_state="$(dirname -- "$candidates")"
@@ -70,6 +69,34 @@ candidate_sha="$(sha256sum "$candidates" | awk '{print $1}')"
 jq -e --arg id "$prepared_id" --arg sha "$candidate_sha" --argjson count "$candidate_count" '
   .version == 1 and .recovery_id == $id and .sha256 == $sha and .count == $count and .count > 0
 ' "$metadata" >/dev/null || { printf 'Candidate inventory is stale or invalid.\n' >&2; exit 1; }
+
+receipt="$machine_state/failover-hosts.qualification.json"
+if [ "$mode" = --apply ] && [ "$skip_if_current" -eq 1 ] \
+  && [ -f "$output" ] && [ ! -L "$output" ] && [ -f "$receipt" ] && [ ! -L "$receipt" ] \
+  && [ "$(stat -c '%u' "$receipt" 2>/dev/null || true)" = 0 ] \
+  && [ "$(stat -c '%a' "$receipt" 2>/dev/null || true)" = 600 ] \
+  && LC_ALL=C sort -c -u "$output" >/dev/null 2>&1; then
+  output_count="$(wc -l < "$output" | tr -d ' ')"
+  output_sha="$(sha256sum "$output" | awk '{print $1}')"
+  qualified_at="$(jq -r '.qualifiedAt // empty' "$receipt" 2>/dev/null || true)"
+  qualified_epoch="$(date -u -d "$qualified_at" +%s 2>/dev/null || printf 0)"
+  now_epoch="$(date -u +%s)"
+  if [ "$qualified_epoch" -gt 0 ] && [ $((now_epoch - qualified_epoch)) -ge 0 ] \
+    && [ $((now_epoch - qualified_epoch)) -lt 86400 ] \
+    && jq -e --arg candidate_sha "$candidate_sha" --arg output_sha "$output_sha" \
+      --argjson candidate_count "$candidate_count" --argjson output_count "$output_count" '
+        .version == 1 and .candidateSha256 == $candidate_sha and .candidateCount == $candidate_count
+        and .qualifiedSha256 == $output_sha and .qualifiedCount == $output_count
+      ' "$receipt" >/dev/null 2>&1; then
+    printf 'Failover hostname qualification is current; provider preview skipped.\n'
+    exit 0
+  fi
+fi
+
+[ -f "$api_token_file" ] && [ ! -L "$api_token_file" ] || { printf 'API token file is unavailable.\n' >&2; exit 1; }
+[ "$(stat -c '%u' "$api_token_file" 2>/dev/null || true)" = 0 ] \
+  && [ "$(stat -c '%a' "$api_token_file" 2>/dev/null || true)" = 600 ] \
+  || { printf 'API token file must be root-owned mode 600.\n' >&2; exit 1; }
 
 preview="$(mktemp)"
 ready="$(mktemp)"
@@ -114,7 +141,6 @@ cp "$ready" "$temporary"
 chmod 600 "$temporary"
 mv "$temporary" "$output"
 temporary=""
-receipt="$machine_state/failover-hosts.qualification.json"
 receipt_tmp="$receipt.tmp.$$"
 jq -n --arg qualified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$prepared_id" \
   --arg candidate_sha "$candidate_sha" --arg qualified_sha "$(sha256sum "$output" | awk '{print $1}')" \

@@ -126,6 +126,7 @@ sudo ./scripts/install-automatic-failover.sh \
   --hosts-file /etc/hosting-control/failover-hosts.txt \
   --mode activate --primary-server-id PRIMARY-SERVER-ID \
   --primary-sync-device-id PRIMARY-SYNCTHING-DEVICE-ID \
+  --auto-qualify-hosts \
   --fence-policy unreachable --unreachable-grace 300 \
   --max-recovery-age 7200 \
   --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK \
@@ -140,6 +141,13 @@ unrelated connected peer cannot suppress outage detection. The
 watchdog refuses promotion when the prepared database recovery point is more
 than two hours old; adjust the bound explicitly only when the database snapshot
 schedule has a different measured RPO.
+
+With `--auto-qualify-hosts`, each completed warm preparation compares the
+candidate checksum with the existing qualification receipt. Changed candidate
+sets are previewed against Cloudflare and only ready hosts enter the active
+allowlist. Unchanged sets skip provider calls for 24 hours, then refresh zone
+eligibility. This discovers new sites without granting authority to blocked or
+unavailable zones and never changes DNS during qualification.
 
 The production detector path was qualified on 2026-08-22 without interrupting
 website traffic: HP was changed temporarily to monitor mode, only OPI5's panel

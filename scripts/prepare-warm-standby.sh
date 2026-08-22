@@ -87,4 +87,20 @@ mv "$stage/failover-hosts.candidates.json" "$machine_state/failover-hosts.candid
 mv "$stage/standby-recovery.json" "$machine_state/standby-recovery.json"
 trap - EXIT HUP INT TERM
 rmdir "$stage"
-printf 'Warm standby prepared at synchronized database recovery point %s. No files, databases, roles, DNS, or services were changed.\n' "$database_recovery_id"
+automatic_config="$machine_state/automatic-failover.env"
+if [ -e "$automatic_config" ]; then
+  [ -f "$automatic_config" ] && [ ! -L "$automatic_config" ] \
+    && [ "$(stat -c '%u' "$automatic_config" 2>/dev/null || true)" = 0 ] \
+    && [ "$(stat -c '%a' "$automatic_config" 2>/dev/null || true)" = 600 ] \
+    || { printf 'Automatic failover configuration must be root-owned mode 600.\n' >&2; exit 1; }
+  # shellcheck disable=SC1090
+  . "$automatic_config"
+  if [ "${AUTO_FAILOVER_AUTO_QUALIFY_HOSTS:-false}" = true ]; then
+    "$project_dir/scripts/qualify-failover-hosts.sh" --apply --skip-if-current \
+      --candidates "$machine_state/failover-hosts.candidates.txt" \
+      --output "${AUTO_FAILOVER_HOSTS_FILE:-$machine_state/failover-hosts.auto.txt}" \
+      --api-token-file "$machine_state/cloudflare-tunnel-api.token" \
+      --recovery-id "$database_recovery_id" --confirm ACCEPT-QUALIFIED-FAILOVER-HOSTS
+  fi
+fi
+printf 'Warm standby prepared at synchronized database recovery point %s. No website files, databases, roles, DNS, or services were changed.\n' "$database_recovery_id"

@@ -422,12 +422,16 @@ test("failover hostname qualification keeps blocked Cloudflare zones out of the 
   assert.match(script, /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
   assert.match(script, /cmp -s "\$candidates" "\$observed"/);
   assert.doesNotMatch(script, /tunnel-cutover\.sh" --apply/);
+  assert.match(script, /--skip-if-current/);
   assert.match(automatic, /valid_host_qualification "\$recovery_id"/);
   assert.match(automatic, /\.candidateSha256 == \$candidate_sha and \.candidateCount == \$candidate_count/);
   assert.match(automatic, /\.qualifiedSha256 == \$qualified_sha and \.qualifiedCount == \$qualified_count/);
   assert.match(automatic, /blocked-host-qualification/);
   assert.match(automatic, /\.connections\[\$device\]\.connected == true/);
   assert.match(automatic, /AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID/);
+  const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
+  assert.match(warmPrepare, /AUTO_FAILOVER_AUTO_QUALIFY_HOSTS/);
+  assert.match(warmPrepare, /qualify-failover-hosts\.sh" --apply --skip-if-current/);
 });
 
 test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {
