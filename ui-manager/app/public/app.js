@@ -587,8 +587,13 @@ async function loadWarmReplication() {
   const database = folders.get("hosting-db-recovery") || {};
   const automatic = data.automaticFailover || {};
   const inventory = data.failoverInventory || {};
+  const peer = data.peerHealth || {};
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
   $("#warmPeer").textContent = replication.available ? (replication.peerConnected ? "Connected" : "Disconnected") : "Unavailable";
+  $("#peerIdentity").textContent = !peer.configured ? "Not configured"
+    : peer.identityMatched ? peer.serverId : peer.reachable ? "Mismatch" : "Unavailable";
+  $("#peerRole").textContent = peer.reachable ? peer.role : "-";
+  $("#peerLatency").textContent = Number.isFinite(peer.latencyMs) ? `${peer.latencyMs} ms` : "-";
   $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
   $("#warmWebsiteDrift").textContent = replication.available ? String(websites.receiveOnlyItems || 0) : "-";
   $("#warmRuntime").textContent = replication.available ? (exact(runtime) ? "Exact" : runtime.state || "Pending") : "-";

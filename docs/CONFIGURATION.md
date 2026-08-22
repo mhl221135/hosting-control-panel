@@ -10,6 +10,8 @@ the supported keys.
 | `HOSTING_ROOT` | Absolute installation/data root | Compose mount source |
 | `INSTALLATION_ROLE` | `standalone`, `primary`, or `standby` | Initial value; machine marker is authoritative |
 | `SERVER_ID` | Unique 1-64 character machine identity | Stored in the machine marker |
+| `HOSTING_PEER_HEALTH_URL` | Optional HTTPS `/health` URL for the paired server | Read-only status probe; no credentials |
+| `HOSTING_PEER_SERVER_ID` | Expected identity returned by the peer health endpoint | Rejects an unrelated healthy endpoint as the peer |
 | `HOSTING_MACHINE_STATE_DIR` | Non-replicated role/state root | Defaults to `/etc/hosting-control` |
 | `UI_DATA_DIR` | Panel state directory | Standby defaults to machine-local `ui-data` |
 | `BACKUPS_DIR` | Absolute backup storage directory | Mounted at `/srv/backups` in the panel |

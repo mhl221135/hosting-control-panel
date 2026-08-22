@@ -479,8 +479,10 @@ snapshot into its stopped database volume and refreshes the coordinated warm
 recovery marker every ten minutes, so promotion does not normally import SQL
 during an outage. Resumable finalizers, exact all-folder reconciliation, a
 reboot-time writable-service fence, warm preparation, and a disabled-by-default
-automatic outage watchdog are implemented. Panel pairing,
-lag reporting, and panel-driven ingress cutover remain future work. A guarded host-level local promotion command is implemented;
+automatic outage watchdog are implemented. Authenticated panel pairing,
+historical lag alerts, and panel-driven ingress cutover remain future work. A
+bounded read-only peer health probe with expected server identity is
+implemented in the standby Replication view. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
 
@@ -568,9 +570,10 @@ Panel-based acceptance remains future work.
   roles into pairing and promotion workflows.
 - Pair servers through a narrow authenticated API using independently rotatable
   credentials or mutual TLS.
-- Extend the implemented backup-receiver status (source identity, last receive,
-  recovery age, set/group counts, and deep-verification freshness) with pairing
-  health and MySQL/filesystem replication lag once warm replication exists.
+- Extend the implemented backup-receiver and peer-health status (expected peer
+  identity, reachability, role, last receive, recovery age, set/group counts,
+  and deep-verification freshness) with authenticated pairing and historical
+  MySQL/filesystem lag alerts.
 - A standby must suppress provisioning, scheduled maintenance, backups,
   certificate issuance, DNS writes, and all other mutating control-plane work.
 - Store the effective role and unique server identity in a local durable marker

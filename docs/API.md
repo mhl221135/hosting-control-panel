@@ -32,7 +32,10 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
 - `GET /api/system/replication-status` returns a bounded read-only warm-sync
   snapshot: peer connectivity, backlog and exactness for the three
   project-owned Syncthing folders, receive-only drift, and the age and size of
-  the latest hourly database recovery point. Peer addresses, API keys, paths,
+  the latest hourly database recovery point. When configured, `peerHealth`
+  reports the expected peer identity, identity match, role, bounded failover
+  state, reachability, and request latency from its public `/health` response.
+  Peer addresses, API keys, paths,
   hashes, and raw Syncthing responses are never returned. It also includes a
   bounded `automaticFailover` status with availability, state, failure
   count/threshold, check time, and optional recovery ID. The health URL,

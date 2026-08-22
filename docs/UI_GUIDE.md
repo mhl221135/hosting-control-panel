@@ -119,6 +119,9 @@ last received recovery point, estimated recovery age, verified set and website
 counts, deep-verification freshness, ingress preference, and the complete
 non-mutating promotion preflight. Saving the ingress preference does not alter
 DNS or activate routes. Promotion remains a separate fenced runbook operation.
+When peer health is configured, the warm-replication card separately shows
+Syncthing connectivity and the expected peer panel's identity, role, and
+latency; an unrelated healthy endpoint is displayed as an identity mismatch.
 The **Automatic failover** card shows watchdog state, consecutive failures,
 the bound recovery point, the last check, and candidate-versus-active hostname
 drift. Pending hostnames remain visible until the root-level review command

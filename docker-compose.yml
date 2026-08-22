@@ -145,6 +145,8 @@ services:
       UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
       INSTALLATION_ROLE: ${INSTALLATION_ROLE:-standalone}
       SERVER_ID: ${SERVER_ID:-hosting-server}
+      HOSTING_PEER_HEALTH_URL: ${HOSTING_PEER_HEALTH_URL:-}
+      HOSTING_PEER_SERVER_ID: ${HOSTING_PEER_SERVER_ID:-}
       INSTALLATION_ROLE_PATH: /run/hosting-machine/role.json
       NPM_API_URL: ${NPM_API_URL:-http://hosting-npm:81/api}
       NPM_IDENTITY: ${NPM_IDENTITY:?Set NPM_IDENTITY in .env}

@@ -43,6 +43,7 @@ const { runPreflight } = require("./lib/promotion-preflight");
 const { readPromotionState } = require("./lib/promotion-state");
 const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { WarmReplicationStatus } = require("./lib/warm-replication-status");
+const { PeerHealthStatus } = require("./lib/peer-health-status");
 const { AutomaticFailoverNotificationMonitor, readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
 const { readFailoverInventoryStatus } = require("./lib/failover-inventory-status");
 const { DnsPresetStore } = require("./lib/dns-presets");
@@ -180,6 +181,10 @@ function installationView(ingressMode = panelMeta.read().ingressMode) {
 }
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
 const warmReplicationStatus = new WarmReplicationStatus();
+const peerHealthStatus = new PeerHealthStatus({
+  url: process.env.HOSTING_PEER_HEALTH_URL,
+  expectedServerId: process.env.HOSTING_PEER_SERVER_ID,
+});
 const auth = new AuthStore(DATA_DIR);
 const integrationSettings = new IntegrationSettings(DATA_DIR);
 const cloudflare = new CloudflareClient(() => integrationSettings.resolved());
@@ -1947,6 +1952,7 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     sendJson(res, 200, {
       ok: true,
       replication: await warmReplicationStatus.read(),
+      peerHealth: await peerHealthStatus.read(),
       automaticFailover: readAutomaticFailoverStatus(DATA_DIR),
       failoverInventory: readFailoverInventoryStatus(DATA_DIR),
     }, { "Cache-Control": "no-store" });
