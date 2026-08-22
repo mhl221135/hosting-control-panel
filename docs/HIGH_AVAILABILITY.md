@@ -144,6 +144,10 @@ health and Syncthing signal were stopped, and HP advanced from two failures to
 `threshold-reached` at six consecutive checks. OPI5's nginx, PHP, MySQL, and
 NPM remained online. Both signals were restored and HP returned to
 `activate`, `healthy`, zero failures, and the durable `standby` role.
+The notification delivery worker remains active on a fenced standby while
+mutating schedulers and Telegram commands stay disabled. It sends transition-
+only Telegram/SMTP alerts for outage detection, blocked activation, activation,
+promotion, and recovery rather than repeating alerts on every watchdog poll.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.

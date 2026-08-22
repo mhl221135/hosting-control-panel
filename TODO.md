@@ -531,6 +531,8 @@ route qualification, automatic public verification, and pairing remain future
   until a real primary outage or a scheduled write/failback drill.
   Cloudflare cutover performs read-after-write verification for every selected
   tunnel ingress rule and DNS record before recording success.
+  Standby notification delivery now stays active and emits deduplicated
+  Telegram/SMTP events on meaningful watchdog state transitions.
 
 Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation

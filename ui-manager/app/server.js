@@ -43,7 +43,7 @@ const { runPreflight } = require("./lib/promotion-preflight");
 const { readPromotionState } = require("./lib/promotion-state");
 const { DeepVerifyManager } = require("./lib/deep-verify-manager");
 const { WarmReplicationStatus } = require("./lib/warm-replication-status");
-const { readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
+const { AutomaticFailoverNotificationMonitor, readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
 const { readFailoverInventoryStatus } = require("./lib/failover-inventory-status");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
@@ -255,6 +255,10 @@ const notificationManager = new NotificationManager({
   dataDir: DATA_DIR,
   settings: notificationSettings,
   maxHistory: Number(process.env.NOTIFICATION_HISTORY_LIMIT || 500),
+});
+const automaticFailoverNotificationMonitor = new AutomaticFailoverNotificationMonitor({
+  dataDir: DATA_DIR,
+  notificationManager,
 });
 billingEnforcementManager.notificationManager = notificationManager;
 const healthSettings = new HealthSettings(DATA_DIR);
@@ -4289,8 +4293,9 @@ server.listen(PORT, "0.0.0.0", () => {
   const address = server.address();
   console.log(`UI manager listening on :${typeof address === "object" && address ? address.port : PORT}`);
   healthMonitor.start();
+  notificationManager.start(jobManager);
+  automaticFailoverNotificationMonitor.start();
   if (!installationRole.isStandby()) {
-    notificationManager.start(jobManager);
     telegramCommandManager.start();
     billingEntitlementObserver.start();
     billingEnforcementManager.start();
