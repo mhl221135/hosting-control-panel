@@ -626,6 +626,8 @@ snapshot into the private standby volume, records its checksum-bound recovery
 ID, and stops MariaDB again. Unchanged snapshots are skipped. Promotion uses
 the pre-staged volume and refuses a newer, not-yet-prepared snapshot, avoiding
 a full SQL import during the outage.
+After a database import, the finalizer waits for all folders to become exact
+again before recording preparation, covering changes that arrived during import.
 The standby installer also enables `hosting-standby-fence.service`. After each
 Docker/host reboot it stops database, PHP, nginx, NPM, billing, file-manager,
 and phpMyAdmin services whenever the machine-local role is still `standby`;

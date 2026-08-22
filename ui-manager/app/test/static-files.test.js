@@ -74,6 +74,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(finalizer, /\.errors > 0/);
   assert.match(finalizer, /check-sync-ready\.sh/);
   assert.match(finalizer, /stage-standby-database\.sh/);
+  assert.match(finalizer, /stage-standby-database\.sh"\nwhile ! "\$project_dir\/scripts\/check-sync-ready\.sh"/);
   assert.match(finalizer, /prepare-warm-standby\.sh" --apply/);
   assert.match(sourceStamp, /git -C "\$project_dir" rev-parse --verify HEAD/);
   assert.match(sourceStamp, /mv "\$temporary" "\$project_dir\/\.source-release"/);
