@@ -28,9 +28,11 @@ database operations required by supported workflows.
 
 Machine-local `standalone`, `primary`, and `standby` roles are supported. A
 standby starts only the agent and read-only panel, rejects normal mutations
-with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
-exception is the allowlisted deep backup-verification job; ingress metadata can
-also be saved without changing traffic or role.
+with HTTP 423, and suppresses mutating schedulers. Its narrow panel exceptions
+are ingress metadata, the deep backup-verification job, and bounded HA requests
+processed by a root systemd timer. These requests can refresh preparation or
+run the existing failover watchdog, but cannot supply commands, change role, or
+bypass the watchdog's fencing policy.
 
 Backup reception remains the disaster-recovery layer. The warm path uses the
 project-owned `hosting-sync` container for continuous one-way website and
@@ -67,6 +69,9 @@ The panel provides:
 - Site and PHP-FPM pool management
 - One-click WordPress provisioning
 - Per-site Redis object cache, OPcache, and FastCGI page-cache controls
+- A panel-managed WordPress MU cache Tools page with hashed site enrollment,
+  bounded local OPcache invalidation, selective Redis flush, and panel-mediated
+  FastCGI/Cloudflare purge
 - Global PHP, OPcache, FastCGI, Redis, and MySQL performance settings
 - Global gzip and on-demand WebP generation with original-image fallback
 - Read-only WordPress inventory and manual backup-protected updates with

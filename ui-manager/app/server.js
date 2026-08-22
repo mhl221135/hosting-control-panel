@@ -20,6 +20,7 @@ const {
   randomPassword,
   removeSiteDirectory,
   setRedis,
+  setRedisSelectiveFlush,
   updateWordPressUrl,
   validateDomain,
   wordpressDatabaseConfig,
@@ -46,6 +47,7 @@ const { WarmReplicationStatus } = require("./lib/warm-replication-status");
 const { PeerHealthStatus } = require("./lib/peer-health-status");
 const { AutomaticFailoverNotificationMonitor, readAutomaticFailoverStatus } = require("./lib/automatic-failover-status");
 const { readFailoverInventoryStatus } = require("./lib/failover-inventory-status");
+const { HaControl } = require("./lib/ha-control");
 const { DnsPresetStore } = require("./lib/dns-presets");
 const { IpAddressStore, validateIpv4 } = require("./lib/ip-addresses");
 const { PerformanceSettings } = require("./lib/performance-settings");
@@ -69,6 +71,7 @@ const {
 const { ImageOptimizationManager } = require("./lib/image-optimization-manager");
 const { resolvePublicFile } = require("./lib/static-files");
 const { WordPressPackageStore } = require("./lib/wordpress-packages");
+const { WordPressCacheControl } = require("./lib/wordpress-cache-control");
 const { StatsCollector } = require("./lib/stats-collector");
 const { buildSiteRemovalPlan } = require("./lib/site-removal-plan");
 const { jobInput: siteRemovalJobInput, parseSelection: parseSiteRemovalSelection, validateSelection: validateSiteRemovalSelection } = require("./lib/site-removal-job");
@@ -180,6 +183,7 @@ function installationView(ingressMode = panelMeta.read().ingressMode) {
   };
 }
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
+const haControl = new HaControl({ dataDir: DATA_DIR });
 const warmReplicationStatus = new WarmReplicationStatus({
   expectedDeviceId: process.env.HOSTING_SYNC_PEER_DEVICE_ID,
 });
@@ -198,6 +202,11 @@ const cloudflareSecurity = new CloudflareClient(() => integrationSettings.resolv
 });
 const dnsPresets = new DnsPresetStore(DATA_DIR);
 const wordpressPackages = new WordPressPackageStore(DATA_DIR);
+const wordpressCacheControl = new WordPressCacheControl({
+  dataDir: DATA_DIR,
+  websitesRoot: WEBSITES_ROOT,
+  statePath: process.env.WP_CACHE_CONTROL_STATE_PATH || "/srv/configs/wp/wordpress-cache-control.json",
+});
 const ipAddresses = new IpAddressStore(DATA_DIR);
 const ipinfo = new IpinfoClient({ dataDir: DATA_DIR, settings: () => integrationSettings.resolved() });
 const performanceSettings = new PerformanceSettings({
@@ -444,7 +453,7 @@ jobManager.register("sites.import", async (context, payload) =>
     if (preview.blockingConflicts.length) {
       throw new Error("Import is blocked by conflicts; create a new preview after resolving them");
     }
-    return migrationManager.importSites({
+    const imported = await migrationManager.importSites({
       sourceDirectory: migrationManager.importSource(payload.source),
       manifest: preview.manifest,
       useExistingFiles: preview.useExistingFiles,
@@ -452,6 +461,20 @@ jobManager.register("sites.import", async (context, payload) =>
       includeCredentials: false,
       onProgress: context.update,
     });
+    for (const site of preview.manifest.sites.filter((item) => item.siteType === "wordpress")) {
+      const result = imported.results.find((item) => item.domain === site.domain);
+      try {
+        wordpressCacheControl.install({ host: site.domain, directory: site.websitePath }, { rotate: true });
+      } catch (error) {
+        if (result) {
+          result.ok = false;
+          result.warnings = [...(result.warnings || []), `Cache control: ${error.message}`];
+          result.message = "Imported with cache-control warning";
+        }
+      }
+    }
+    imported.ok = imported.results.every((item) => item.ok);
+    return imported;
   }));
 jobManager.register("sites.import-cleanup", async (context, payload) => {
   context.update({ completed: 0, total: 1, currentStep: `Removing staged import ${payload.source}` });
@@ -1112,6 +1135,36 @@ function siteStateTxnDeps() {
   };
 }
 
+function wordpressCacheSites() {
+  const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+  const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+  return getSitesWithPools(mapParsed, poolsParsed)
+    .filter((site) => !site.isAlias && site.state?.siteType === "wordpress")
+    .map((site) => ({
+      ...site,
+      directory: String(site.root || "").replace(/^\/var\/www\//, "").replace(/\/$/, ""),
+    }));
+}
+
+async function purgeFastcgiForSite(site) {
+  return applySiteStateTransaction({
+    site,
+    opcache: undefined,
+    buildState: (snapshot) => {
+      const data = snapshot.stateExists ? JSON.parse(snapshot.stateContent) : { sites: {} };
+      if (!data.sites || typeof data.sites !== "object") data.sites = {};
+      const current = { ...siteState.defaults(), ...(data.sites[site.host] || {}) };
+      data.sites[site.host] = {
+        ...current,
+        cacheVersion: Number(current.cacheVersion || 1) + 1,
+        updatedAt: new Date().toISOString(),
+      };
+      return data;
+    },
+    deps: siteStateTxnDeps(),
+  });
+}
+
 function execCommand(command, timeout = 30_000) {
   return new Promise((resolve, reject) => {
     exec(command, { timeout }, (error, stdout, stderr) => {
@@ -1531,6 +1584,12 @@ async function provisionImportedWebsite({ body, domain, directory, dnsIp, preset
       siteType: "wordpress",
       notes: String(body.notes || "").slice(0, 2000),
     });
+    try {
+      const installed = wordpressCacheControl.install({ host: domain, directory }, { rotate: true });
+      steps.push({ name: "cache-control", status: "complete", version: installed.version });
+    } catch (error) {
+      steps.push({ name: "cache-control", status: "warning", message: error.message });
+    }
     provisionImports.remove(uploadId);
     jobContext?.update({ completed: 8, currentStep: "Finalizing imported website" });
     return {
@@ -1811,6 +1870,14 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
     siteType,
     Boolean(body.apply_security_defaults),
   ));
+  if (siteType === "wordpress") {
+    try {
+      const installed = wordpressCacheControl.install({ host: domain, directory }, { rotate: true });
+      steps.push({ name: "cache-control", status: "complete", version: installed.version });
+    } catch (error) {
+      steps.push({ name: "cache-control", status: "warning", message: error.message });
+    }
+  }
   if (siteType !== "wordpress" && sourceMode === "import") provisionImports.remove(String(body.import_upload_id || ""));
   jobContext?.update({ completed: 8, currentStep: "Finalizing website" });
   return {
@@ -1951,12 +2018,14 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     return true;
   }
   if (req.method === "GET" && new URL(req.url, "http://ui-manager.local").pathname === "/api/system/replication-status") {
+    const installation = installationRole.publicView();
     sendJson(res, 200, {
       ok: true,
       replication: await warmReplicationStatus.read(),
       peerHealth: await peerHealthStatus.read(),
       automaticFailover: readAutomaticFailoverStatus(DATA_DIR),
       failoverInventory: readFailoverInventoryStatus(DATA_DIR),
+      haControl: haControl.view(installation.role, installation.serverId),
     }, { "Cache-Control": "no-store" });
     return true;
   }
@@ -1980,6 +2049,22 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       retryable: true,
     });
     sendJson(res, 202, { ok: true, job: decorateJob(job, req.auth.email) });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/system/ha-control") {
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["action", "confirm"]),
+      stringKeys: ["action", "confirm"],
+      label: "HA control",
+    });
+    const installation = installationRole.publicView();
+    const request = haControl.request(body, installation.role, installation.serverId, req.auth.email);
+    sendJson(res, 202, {
+      ok: true,
+      request: { id: request.id, action: request.action, requestedAt: request.requestedAt },
+      haControl: haControl.view(installation.role, installation.serverId),
+    });
     return true;
   }
 
@@ -3123,22 +3208,7 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     const mapContent = fs.readFileSync(SITES_MAP_PATH, "utf8");
     const mapParsed = parseSitesMap(mapContent);
     const site = requirePrimarySite(mapParsed, domain, "Manage the primary website, not a www alias");
-    const result = await applySiteStateTransaction({
-      site,
-      opcache: undefined,
-      buildState: (snap) => {
-        const data = snap.stateExists ? JSON.parse(snap.stateContent) : { sites: {} };
-        if (!data.sites || typeof data.sites !== "object") data.sites = {};
-        const current = { ...siteState.defaults(), ...(data.sites[domain] || {}) };
-        data.sites[domain] = {
-          ...current,
-          cacheVersion: Number(current.cacheVersion || 1) + 1,
-          updatedAt: new Date().toISOString(),
-        };
-        return data;
-      },
-      deps: siteStateTxnDeps(),
-    });
+    const result = await purgeFastcgiForSite(site);
     sendJson(res, 200, { ok: true, state: result.state });
     return true;
   }
@@ -3211,7 +3281,58 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       updateHistory: wordpressUpdateManager.publicView(),
       updatePins,
       updatePinsError,
+      cacheControl: wordpressCacheControl.status(wordpressCacheSites()),
     });
+    return true;
+  }
+
+  if (req.method === "POST" && requestUrl.pathname === "/api/maintenance/cache-control/install") {
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["domains", "rotate"]),
+      label: "WordPress cache control",
+    });
+    if (body.domains !== undefined && (!Array.isArray(body.domains) || body.domains.length > 500
+        || body.domains.some((domain) => typeof domain !== "string"))) {
+      throw Object.assign(new Error("domains must be a bounded string array"), { statusCode: 400 });
+    }
+    if (body.rotate !== undefined && typeof body.rotate !== "boolean") {
+      throw Object.assign(new Error("rotate must be a boolean"), { statusCode: 400 });
+    }
+    const available = wordpressCacheSites();
+    const requested = new Set((body.domains || available.map((site) => site.host)).map(validateDomain));
+    const sites = available.filter((site) => requested.has(site.host));
+    if (sites.length !== requested.size) {
+      throw Object.assign(new Error("Every selected domain must be a canonical WordPress website"), { statusCode: 400 });
+    }
+    const result = wordpressCacheControl.installMany(sites, { rotate: Boolean(body.rotate) });
+    for (const item of result.results.filter((entry) => entry.ok)) {
+      const site = sites.find((entry) => entry.host === item.domain);
+      if (site?.state?.redis) {
+        try {
+          await setRedisSelectiveFlush(site.directory);
+        } catch (error) {
+          item.ok = false;
+          item.message = `Selective Redis flush configuration failed: ${String(error.message).slice(0, 180)}`;
+        }
+      }
+    }
+    result.completed = result.results.filter((item) => item.ok).length;
+    result.ok = result.completed === result.total;
+    sendJson(res, result.ok ? 200 : 207, { ...result, cacheControl: wordpressCacheControl.status(available) });
+    return true;
+  }
+
+  if (req.method === "DELETE" && requestUrl.pathname === "/api/maintenance/cache-control") {
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set(["domain", "confirm"]),
+      stringKeys: ["domain", "confirm"],
+      label: "WordPress cache control removal",
+    });
+    const domain = validateDomain(body.domain);
+    if (body.confirm !== domain) throw Object.assign(new Error("Type the website domain to confirm removal"), { statusCode: 400 });
+    const site = wordpressCacheSites().find((item) => item.host === domain);
+    if (!site) throw Object.assign(new Error("Canonical WordPress website is not configured"), { statusCode: 404 });
+    sendJson(res, 200, { ok: true, ...wordpressCacheControl.remove(site) });
     return true;
   }
 
@@ -4253,6 +4374,41 @@ const server = http.createServer(async (req, res) => {
       }, { "Cache-Control": "no-store" });
       return;
     }
+    if (new URL(req.url, "http://ui-manager.local").pathname === "/remote/cache/v1/purge" && req.method === "POST") {
+      installationRole.requireMutable();
+      const body = guardSettingsBody(await readJsonBody(req), {
+        allowed: new Set(["domain", "layers"]),
+        stringKeys: ["domain"],
+        label: "cache-control request",
+      });
+      const domain = validateDomain(body.domain);
+      if (!Array.isArray(body.layers) || !body.layers.length || body.layers.length > 2
+          || body.layers.some((layer) => !["fastcgi", "cloudflare"].includes(layer))) {
+        throw Object.assign(new Error("Cache-control layers are invalid"), { statusCode: 400 });
+      }
+      const authorization = /^Bearer ([A-Za-z0-9_-]+)$/.exec(String(req.headers.authorization || ""));
+      wordpressCacheControl.authenticate(domain, authorization?.[1] || "", req.socket.remoteAddress || "");
+      const site = wordpressCacheSites().find((item) => item.host === domain);
+      if (!site) throw Object.assign(new Error("Canonical WordPress website is not configured"), { statusCode: 404 });
+      const results = {};
+      for (const layer of [...new Set(body.layers)]) {
+        try {
+          if (layer === "fastcgi") {
+            await purgeFastcgiForSite(site);
+            results.fastcgi = { ok: true, message: "Site FastCGI cache purged" };
+          } else {
+            const purged = await cloudflareSecurity.purgeZoneCache(domain);
+            results.cloudflare = { ok: true, message: `Cloudflare cache purged for ${purged.zone.name}` };
+          }
+        } catch (error) {
+          results[layer] = { ok: false, message: String(error.message).slice(0, 240) };
+        }
+      }
+      const ok = Object.values(results).every((result) => result.ok);
+      wordpressCacheControl.record(domain, "purge", ok ? "success" : "failed", Object.keys(results));
+      sendJson(res, 200, { ok, results }, { "Cache-Control": "no-store" });
+      return;
+    }
     if (req.url.startsWith("/api/")) {
       if (req.url.startsWith("/api/auth/")) {
         const handledAuth = await handleAuthApi(req, res);
@@ -4271,7 +4427,7 @@ const server = http.createServer(async (req, res) => {
       req.auth = session;
       const apiPath = new URL(req.url, "http://ui-manager.local").pathname;
       const standbySafeMutation = (req.method === "PUT" && apiPath === "/api/system/role")
-        || (req.method === "POST" && apiPath === "/api/system/deep-verify");
+        || (req.method === "POST" && ["/api/system/deep-verify", "/api/system/ha-control"].includes(apiPath));
       if (!["GET", "HEAD", "OPTIONS"].includes(req.method) && !standbySafeMutation) {
         installationRole.requireMutable();
       }

@@ -22,7 +22,7 @@ function waitForPort(child) {
   });
 }
 
-test("standby HTTP fence permits only ingress metadata and deep verification", async () => {
+test("standby HTTP fence permits only ingress metadata, verification, and bounded HA requests", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "standby-http-"));
   const dataDir = path.join(root, "data");
   const markerDir = path.join(root, "marker");
@@ -60,6 +60,7 @@ test("standby HTTP fence permits only ingress metadata and deep verification", a
     assert.equal((await request("/api/system/role/extra", "PUT", { ingress_mode: "direct_npm" })).status, 423);
     assert.equal((await request("/api/system/role", "PUT", { role: "primary" })).status, 409);
     assert.equal((await request("/api/system/deep-verify", "POST")).status, 202);
+    assert.equal((await request("/api/system/ha-control", "POST", { action: "finalize-standby", confirm: "FINALIZE-STANDBY" })).status, 202);
     assert.equal((await fetch(`http://127.0.0.1:${port}/api/system/promotion-preflight`, { headers })).status, 200);
     for (const [url, method] of [["/api/provision", "POST"], ["/api/site-removal", "POST"], ["/api/backups/restore", "POST"], ["/api/maintenance/run", "POST"], ["/api/cloudflare/automation/apply", "POST"], ["/api/npm/hosts/ensure", "POST"], ["/api/actions/reload_nginx", "POST"], ["/api/billing/enforcement/settings", "PUT"]]) {
       assert.equal((await request(url, method)).status, 423, `${method} ${url} must be fenced`);

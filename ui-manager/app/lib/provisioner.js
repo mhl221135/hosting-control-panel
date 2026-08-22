@@ -301,6 +301,7 @@ async function installWordPress(options) {
   if (options.redis) {
     await runWp(["config", "set", "WP_REDIS_HOST", "hosting-redis", "--type=constant", `--path=${containerPath}`]);
     await runWp(["config", "set", "WP_REDIS_PREFIX", `${domain}:`, "--type=constant", `--path=${containerPath}`]);
+    await runWp(["config", "set", "WP_REDIS_SELECTIVE_FLUSH", "true", "--raw", `--path=${containerPath}`]);
     await runWp(["plugin", "install", "redis-cache", "--activate", `--path=${containerPath}`]);
     await runWp(["redis", "enable", `--path=${containerPath}`]);
   }
@@ -364,12 +365,18 @@ async function setRedis(directory, domain, enabled) {
   if (enabled) {
     await runWp(["config", "set", "WP_REDIS_HOST", "hosting-redis", "--type=constant", `--path=${containerPath}`]);
     await runWp(["config", "set", "WP_REDIS_PREFIX", `${domain}:`, "--type=constant", `--path=${containerPath}`]);
+    await runWp(["config", "set", "WP_REDIS_SELECTIVE_FLUSH", "true", "--raw", `--path=${containerPath}`]);
     await runWp(["plugin", "install", "redis-cache", "--activate", `--path=${containerPath}`]);
     await runWp(["redis", "enable", `--path=${containerPath}`]);
     return;
   }
   await runWp(["redis", "disable", `--path=${containerPath}`]).catch(() => {});
   await runWp(["plugin", "deactivate", "redis-cache", `--path=${containerPath}`]).catch(() => {});
+}
+
+async function setRedisSelectiveFlush(directory) {
+  const containerPath = await normalizeWordPressPermissions(directory);
+  await runWp(["config", "set", "WP_REDIS_SELECTIVE_FLUSH", "true", "--raw", `--path=${containerPath}`]);
 }
 
 async function optimizeImages(directory) {
@@ -439,6 +446,7 @@ module.exports = {
   removeSiteDirectory,
   safeSiteDirectory,
   setRedis,
+  setRedisSelectiveFlush,
   updateWordPressUrl,
   validateDomain,
   wordpressDatabaseConfig,

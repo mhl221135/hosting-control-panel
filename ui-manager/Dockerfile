@@ -15,9 +15,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 COPY app/server.js /app/server.js
 COPY app/lib /app/lib
 COPY app/cli /app/cli
+COPY app/wordpress /app/wordpress
 COPY app/public /app/public
 COPY docker-rpc.js /usr/local/bin/docker
-RUN chmod -R a=rX /app/server.js /app/lib /app/cli /app/public \
+RUN chmod -R a=rX /app/server.js /app/lib /app/cli /app/wordpress /app/public \
     && chmod 0555 /usr/local/bin/docker
 
 ENV PORT=8687

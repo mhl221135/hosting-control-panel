@@ -31,6 +31,8 @@ into dedicated directories.
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
 - Per-site PHP OPcache enablement
+- Panel-managed WordPress MU cache controls with site-scoped credentials and
+  separate FastCGI, OPcache, Redis, Cloudflare, and purge-all actions
 - Validated global OPcache, FastCGI, Redis, MySQL, and PHP performance settings
 - Deterministic first-install accounts for the panel, NPM, and File Browser
 - Global gzip compression and per-site or bulk WebP image generation
@@ -45,6 +47,8 @@ into dedicated directories.
   configuration, plus hourly checksummed logical database recovery points
 - Resumable initial replica reconciliation and non-restoring warm preparation;
   guarded promotion and Cloudflare tunnel cutover remain separately gated
+- Guarded HA operations for on-demand database recovery points, standby
+  refresh, and immediate execution of the existing failover watchdog
 - Backup history and complete-set deletion from the panel
 - Durable ownership-aware website removal jobs with selectable routes, pool,
   files, database, NPM, certificate, Cloudflare DNS, panel state, and backups
@@ -148,6 +152,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- CONFIGURATION.md
 |   |-- DISASTER_RECOVERY_QUALIFICATION.md
 |   |-- HIGH_AVAILABILITY.md
+|   |-- WORDPRESS_CACHE_CONTROL.md
 |   |-- MAIL_FEASIBILITY.md
 |   |-- OPERATIONS.md
 |   |-- SECURITY.md

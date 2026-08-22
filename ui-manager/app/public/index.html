@@ -27,7 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
-            <option value="replication" data-standby-only hidden>Replication</option>
+            <option value="replication">Replication</option>
             <option value="health">Health</option>
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
@@ -45,7 +45,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
-          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication" data-standby-only hidden>Replication</button>
+          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication">Replication</button>
           <button class="nav-item" data-tab-link="health" data-short="HL" title="Health">Health</button>
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
@@ -189,7 +189,7 @@
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="replication">
-          <div class="section-head"><div><h2>Standby replication</h2><p>Received recovery points and non-mutating promotion readiness.</p></div></div>
+          <div class="section-head"><div><h2>High availability</h2><p>Replication, recovery points, failover state, and guarded host operations.</p></div></div>
           <article class="panel">
             <div class="card-head"><div><h3>Warm replication</h3><p class="muted">Live one-way file/config state and the latest hourly database recovery point.</p></div><button id="refreshWarmReplication" class="secondary" type="button">Refresh</button></div>
             <div class="metrics standby-replication-metrics"><article><span>Sync peer</span><strong id="warmPeer">-</strong></article><article><span>Peer identity</span><strong id="peerIdentity">-</strong></article><article><span>Peer role</span><strong id="peerRole">-</strong></article><article><span>Peer latency</span><strong id="peerLatency">-</strong></article><article><span>Websites needed</span><strong id="warmWebsiteNeed">-</strong></article><article><span>Replica-only</span><strong id="warmWebsiteDrift">-</strong></article><article><span>Runtime config</span><strong id="warmRuntime">-</strong></article><article><span>Database sync</span><strong id="warmDatabaseSync">-</strong></article><article><span>Recovery point</span><strong id="warmRecovery">-</strong></article></div>
@@ -201,6 +201,10 @@
             <small id="autoFailoverMessage" class="muted">Status is unavailable.</small>
             <div class="metrics standby-replication-metrics"><article><span>Active hosts</span><strong id="failoverActiveHosts">-</strong></article><article><span>Candidates</span><strong id="failoverCandidateHosts">-</strong></article><article><span>Pending additions</span><strong id="failoverHostAdditions">-</strong></article><article><span>Pending removals</span><strong id="failoverHostRemovals">-</strong></article></div>
             <small id="failoverInventoryMessage" class="muted">Hostname inventory is unavailable.</small>
+          </article>
+          <article class="panel">
+            <div class="card-head"><div><h3>HA operations</h3><p class="muted">Run existing bounded replication and watchdog units on this server.</p></div><div class="button-row"><button id="replicateNow" class="secondary hidden" type="button">Create recovery point</button><button id="finalizeStandby" class="secondary hidden" type="button">Refresh standby</button><button id="runFailoverCheck" class="secondary hidden" type="button">Run failover check</button></div></div>
+            <div id="haControlStatus" class="status-box">No HA control request recorded.</div>
           </article>
           <article id="promotionPreflightCard" class="panel">
             <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Checks do not promote the server or change files, databases, DNS, or public ingress.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
@@ -290,6 +294,15 @@
             <div id="maintenanceSites" class="maintenance-sites"></div>
             <div id="revisionPreview" class="status-box hidden"></div>
             <div class="form-actions"><button id="inventoryWordPress" class="secondary" type="button">Inventory versions</button><button id="previewRevisions" class="secondary" type="button">Preview revision cleanup</button><button id="runMaintenance" type="button">Run selected websites</button></div>
+          </article>
+
+          <article class="panel">
+            <div class="card-head">
+              <div><h3>WordPress cache controls</h3><p class="muted">Install the site-scoped Tools page for FastCGI, OPcache, Redis, and Cloudflare cache clearing.</p></div>
+              <div class="button-row"><button id="installCacheControlAll" class="secondary" type="button">Install or update all</button><button id="rotateCacheControlSelected" type="button">Rotate selected credentials</button></div>
+            </div>
+            <div id="cacheControlStatus" class="status-box">Loading cache-control status.</div>
+            <div id="cacheControlSites" class="rows empty">No WordPress websites configured.</div>
           </article>
 
           <article class="panel">

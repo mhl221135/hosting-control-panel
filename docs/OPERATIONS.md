@@ -17,6 +17,18 @@ and phpMyAdmin intentionally remain stopped. Do not edit the marker to promote
 the server; pairing, verified backup reception, and controlled promotion are
 separate pending phases in `docs/HIGH_AVAILABILITY.md`.
 
+After the replication and failover units exist, install the bounded HA panel
+request processor on each primary and standby:
+
+```bash
+sudo ./scripts/install-ha-panel-control.sh --ui-data-dir /media/ssdmount/websites-v2/app-data/ui-manager
+```
+
+Use the actual machine-local UI data path. The timer accepts only the three
+fixed actions documented in `API.md`; it does not grant the panel a host shell
+or a promotion/fencing bypass. If a selected unit is already active, the panel
+reports that state immediately instead of waiting behind the existing run.
+
 Before enabling billing payments, route a dedicated HTTPS hostname through NPM
 to `hosting-billing:8787`, save that exact origin as the public billing URL, and
 configure the WooCommerce **Order updated** webhook at

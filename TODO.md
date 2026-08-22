@@ -10,39 +10,6 @@ backlog only when their acceptance criteria are satisfied.
 2. Qualify live billing payments, then carefully pilot local enforcement.
 3. Build the isolated mail platform last, after hosting replication is proven.
 
-## WordPress Site Cache Control Plugin
-
-Add a small panel-managed must-use WordPress plugin to every current WordPress
-website and install it automatically during fresh provisioning and WordPress
-imports. Its Tools page should provide separate **FastCGI**, **OPcache**,
-**Redis**, and **Cloudflare** purge actions plus **Purge all**.
-
-- Authenticate panel calls with a rotatable, site-scoped credential. A token
-  copied from one website must never authorize another website or any general
-  panel API. Never place panel, Docker, Redis, or Cloudflare credentials in
-  WordPress.
-- Restrict the panel endpoint to the configured canonical primary website,
-  reject aliases and non-WordPress roots, rate-limit failures and successful
-  requests, and retain a bounded redacted audit history.
-- Purge FastCGI by advancing only that site's cache generation. Flush only the
-  site's Redis namespace (`WP_REDIS_PREFIX` is already domain-scoped). Purge
-  the matching Cloudflare zone through the panel's existing integration.
-- Never use global `opcache_reset()` from a website. Invalidate only cached PHP
-  files beneath the current site's real `ABSPATH`, with bounded traversal and
-  a clear count of invalidated and failed files.
-- Return a per-layer result so one unavailable integration does not disguise
-  successful local purges. Require a WordPress administrator capability and a
-  nonce for every button; do not expose an unauthenticated WordPress REST or
-  AJAX action.
-- Provide an idempotent bulk install/update command for existing sites, a
-  deterministic packaged plugin version, safe rollback/removal instructions,
-  tests for cross-site token rejection and path confinement, and mobile-safe
-  WordPress admin controls.
-
-This is independent of the remote billing-enforcement plugin. Do not grant the
-billing plugin cache or hosting-control authority merely because both are
-installed on one website.
-
 ## 1. Separate Billing And Entitlement Service
 
 Phase 1 is implemented as the isolated `hosting-billing` service. Its
@@ -505,7 +472,7 @@ also complete.
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
-+ card in Health with pass/warning/fail checks) are implemented. The preflight
++ card in Replication with pass/warning/fail checks) are implemented. The preflight
 verifies role, current receiver receipt, app-data and per-site manifests,
 artifact presence/size, freshness, filesystem space, configuration, Docker,
 and ingress. A durable allowlisted deep-verification job streams checksums,
@@ -515,6 +482,13 @@ covered by tests. Fenced local promotion is implemented as a host-level command.
 Panel-driven promotion, pairing, and warm-replication lag reporting remain
 future work; backup receiver recovery-point health is
 already reported in the panel.
+
+The Replication workspace now also queues three bounded machine-local actions:
+create a primary database recovery point, refresh standby preparation, and run
+the existing automatic-failover watchdog immediately. A root systemd processor
+maps each request to one fixed unit. These are operational controls, not role
+transitions: panel-driven promotion, demotion/rebuild, and fencing approval
+remain in the backlog below.
 
 A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
 hostname file, read-only preview, promoted-primary gating, exact machine-local

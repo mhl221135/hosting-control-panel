@@ -45,12 +45,20 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   are never returned. The bounded `failoverInventory` summary validates the
   generated candidate checksum and reports active/candidate counts plus at most
   100 pending additions and removals. It does not authorize or apply cutover.
+  The response also contains `haControl`: the current bounded request/result
+  and only the actions valid for the machine role.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact
   SHA-256 hashes, validates gzip streams, and rejects unsafe tar paths, links,
   and special files. Success writes a mode-`0600` receipt bound to the exact
   `receiver-state.json`; it does not restore data or promote the server.
+- `POST /api/system/ha-control` accepts only `replicate-now` on a primary, or
+  `finalize-standby` and `failover-check` on a standby, with the action's exact
+  typed confirmation. It writes a mode-`0600` request consumed by the host
+  systemd timer. Request data cannot select a command, unit, argument, role,
+  DNS record, or tunnel route. Running the watchdog does not bypass its
+  recovery and fencing gates.
 - On a standby, every other non-read API request returns `423 Locked`. The
   standby job worker executes only `standby.deep-verify` jobs. Disallowed
   queued jobs recovered from local history become cancelled historical records
@@ -63,6 +71,22 @@ Errors use HTTP status codes and this shape:
 ```
 
 Do not expose secrets in public settings responses or error details.
+
+## WordPress Cache Control API
+
+`GET /api/maintenance/status` includes installation/version status for every
+canonical WordPress site. `POST /api/maintenance/cache-control/install`
+idempotently installs or updates selected/all sites and can explicitly rotate
+their site credentials. `DELETE /api/maintenance/cache-control` removes only
+the two managed MU-plugin files after exact-domain confirmation.
+
+`POST /remote/cache/v1/purge` is an internal-network endpoint used by the MU
+plugin. It requires a site-scoped bearer credential, accepts only that
+canonical WordPress domain and `fastcgi`/`cloudflare` layers, is rate limited,
+and returns independent per-layer results. Only the credential hash is stored
+by the panel. WordPress performs its own administrator/nonce checks and local
+OPcache/Redis operations; the endpoint grants no panel-session or Docker API
+authority.
 
 ## Billing API
 

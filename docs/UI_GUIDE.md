@@ -19,7 +19,8 @@ notice area. Do not close the browser during an upload, but long-running server
 jobs continue independently after the request has started.
 
 On a standby, the header and browser title display `STANDBY` and the server identity.
-Navigation is reduced to read-only Sites, Stats, Health, Jobs, and Account
+Navigation is reduced to read-only Sites, Stats, Replication, Health, Jobs,
+Settings, and Account
 views. Site action and job mutation controls are hidden. The server remains the
 authorization boundary and rejects direct mutation requests with HTTP 423.
 The Health view shows the authoritative server identity, an ingress segmented
@@ -29,6 +30,10 @@ job and never starts services, restores data, changes DNS, or promotes the host.
 The recovery metrics distinguish daily backup reception from live replication:
 they show the last receiver completion, oldest selected recovery age, bounded
 set/group counts, and whether deep verification matches the current receipt.
+The Replication workspace also exposes bounded host operations. A primary can
+create a logical database recovery point. A standby can refresh its prepared
+state or run the existing failover watchdog immediately. The latter still
+honors every configured outage, recovery-age, identity, and fencing gate.
 
 ## Sites
 
@@ -67,6 +72,14 @@ job without clearing individual **Images daily** selections.
 FastCGI, Redis, and OPcache are separate layers. FastCGI stores complete
 anonymous HTML responses, Redis stores WordPress objects, and OPcache stores
 compiled PHP bytecode.
+
+The Maintenance workspace includes **WordPress cache controls**. **Install or
+update all** places the managed MU plugin on every configured canonical
+WordPress site; **Rotate selected credentials** invalidates old site tokens.
+WordPress administrators then use **Tools > Hosting cache** for independent
+FastCGI, OPcache, Redis, Cloudflare, or purge-all operations. OPcache traversal
+is confined to that site's real WordPress root and Redis uses selective flush
+with the site's domain prefix.
 
 On phone-sized screens, backup scheduling, image scheduling, cache, backup,
 image, and DNS commands move into one accessible site-action selector. The
@@ -114,7 +127,8 @@ this section can never be selected for a traffic mitigation.
 
 ## Replication
 
-On a standby server, the panel opens this workspace after login. It shows the
+On a standby server, the panel opens this workspace after login; it is also
+available on a primary for recovery-point controls. It shows the
 last received recovery point, estimated recovery age, verified set and website
 counts, deep-verification freshness, ingress preference, and the complete
 non-mutating promotion preflight. Saving the ingress preference does not alter
@@ -128,6 +142,12 @@ drift. Pending hostnames remain visible until the root-level review command
 accepts them; the panel does not silently grant cutover authority. `awaiting fence` means outage
 detection passed but promotion remains blocked until the old primary is
 externally fenced.
+
+The **HA operations** card queues fixed host services through a machine-local
+request processor installed with `scripts/install-ha-panel-control.sh`. It does
+not provide a shell, select arbitrary services, promote directly, or change
+Cloudflare. **Run failover check** simply executes the already configured
+watchdog now.
 
 Mutating operational sections are hidden on a standby and their server APIs
 remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,

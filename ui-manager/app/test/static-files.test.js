@@ -9,6 +9,44 @@ test("resolves versioned public assets by URL pathname", () => {
   assert.equal(resolvePublicFile("/app/public", "/"), "/app/public/index.html");
 });
 
+test("WordPress cache control is site-scoped, authenticated, and available in maintenance", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const plugin = fs.readFileSync(path.resolve(__dirname, "../wordpress/hosting-cache-control.php"), "utf8");
+  assert.match(server, /\/remote\/cache\/v1\/purge/);
+  assert.match(server, /wordpressCacheControl\.authenticate/);
+  assert.match(server, /purgeFastcgiForSite/);
+  assert.match(server, /cloudflareSecurity\.purgeZoneCache/);
+  assert.match(html, /id="installCacheControlAll"/);
+  assert.match(source, /\/api\/maintenance\/cache-control\/install/);
+  assert.match(plugin, /current_user_can\('manage_options'\)/);
+  assert.match(plugin, /check_ajax_referer\('hosting-cache-control'/);
+  assert.doesNotMatch(plugin, /wp_ajax_nopriv/);
+  assert.match(plugin, /realpath\(ABSPATH\)/);
+  assert.doesNotMatch(plugin, /opcache_reset/);
+});
+
+test("HA panel controls queue only bounded machine-local operations", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const processor = fs.readFileSync(path.resolve(__dirname, "../../../scripts/process-ha-panel-control.sh"), "utf8");
+  const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
+  const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  assert.match(server, /api\/system\/ha-control/);
+  assert.match(server, /haControl\.request/);
+  assert.match(html, /id="replicateNow"/);
+  assert.match(html, /id="finalizeStandby"/);
+  assert.match(html, /id="runFailoverCheck"/);
+  assert.match(processor, /primary:replicate-now/);
+  assert.match(processor, /standby:finalize-standby/);
+  assert.match(processor, /standby:failover-check/);
+  assert.match(processor, /\.server_id \/\/ \.serverId/);
+  assert.match(install, /install-ha-panel-control\.sh/);
+  assert.match(upgrade, /install-wordpress-cache-control\.js/);
+  assert.doesNotMatch(processor, /eval|sh -c|bash -c/);
+});
+
 test("rejects public paths that escape the configured root", () => {
   assert.equal(resolvePublicFile("/app/public", "/..%2Fserver.js"), null);
   assert.equal(resolvePublicFile("/app/public", "/%E0%A4%A"), null);
@@ -195,7 +233,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(source, /receiverPercent/);
   assert.match(source, /api\("\/api\/system\/deep-verify"/);
   assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\), suppressDisallowed: true \}\)/);
-  assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);
+  assert.match(server, /\["\/api\/system\/deep-verify", "\/api\/system\/ha-control"\]\.includes\(apiPath\)/);
 });
 
 test("backup restore UI exposes an explicit opt-in billing choice", () => {

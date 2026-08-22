@@ -379,7 +379,11 @@ function switchTab(name) {
   if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
     .catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
-  if (name === "replication") loadPreflight().catch((error) => notice(error.message, "warning"));
+  if (name === "replication") {
+    const standby = state.status?.installation?.role === "standby";
+    $("#promotionPreflightCard").classList.toggle("hidden", !standby);
+    (standby ? loadPreflight() : loadWarmReplication()).catch((error) => notice(error.message, "warning"));
+  }
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
@@ -588,6 +592,7 @@ async function loadWarmReplication() {
   const automatic = data.automaticFailover || {};
   const inventory = data.failoverInventory || {};
   const peer = data.peerHealth || {};
+  const control = data.haControl || {};
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
   $("#warmPeer").textContent = replication.available
     ? replication.peerConnected ? "Expected peer connected"
@@ -636,6 +641,18 @@ async function loadWarmReplication() {
     : pending.length
       ? `${pending.join(" · ")}${inventory.truncated ? " · more changes omitted" : ""}`
       : "The active automatic-failover allowlist matches the prepared website inventory.";
+  const actions = new Set(control.actions || []);
+  $("#replicateNow").classList.toggle("hidden", !actions.has("replicate-now"));
+  $("#finalizeStandby").classList.toggle("hidden", !actions.has("finalize-standby"));
+  $("#runFailoverCheck").classList.toggle("hidden", !actions.has("failover-check"));
+  for (const button of [$("#replicateNow"), $("#finalizeStandby"), $("#runFailoverCheck")]) {
+    button.disabled = Boolean(control.pending);
+  }
+  $("#haControlStatus").textContent = control.pending
+    ? `${String(control.pending.action || "HA action").replaceAll("-", " ")} queued ${new Date(control.pending.requestedAt).toLocaleString()}`
+    : control.result
+      ? `${String(control.result.action || "HA action").replaceAll("-", " ")}: ${control.result.status} · ${control.result.message}`
+      : "No HA control request recorded.";
 }
 
 function renderPreflight(data) {
@@ -806,6 +823,21 @@ function renderWordPressInventory() {
       <div class="wordpress-package-list">${packages.length ? packages.map((item) => `<div><span>${escapeHtml(item.type)} · ${escapeHtml(item.name)} · ${escapeHtml(item.status)}</span><strong>${escapeHtml(item.version || "unknown")}${item.update === "available" && item.updateVersion ? ` → ${escapeHtml(item.updateVersion)}` : ""}</strong></div>`).join("") : '<span class="muted">No plugins or themes reported.</span>'}</div>
     </details>`;
   }).join("") : "Select websites above and run an inventory.";
+}
+
+function renderCacheControl() {
+  const sites = state.maintenance?.cacheControl || [];
+  const installed = sites.filter((site) => site.installed).length;
+  $("#cacheControlStatus").textContent = sites.length
+    ? `${installed} of ${sites.length} WordPress websites have the managed cache Tools page.`
+    : "No WordPress websites are configured.";
+  const container = $("#cacheControlSites");
+  container.classList.toggle("empty", !sites.length);
+  container.innerHTML = sites.length ? sites.map((site) => `
+    <label class="maintenance-result">
+      <span><input type="checkbox" data-cache-control-site value="${escapeHtml(site.domain)}" /> <strong>${escapeHtml(site.domain)}</strong></span>
+      <span class="badge ${site.installed ? "on" : ""}">${site.installed ? `v${escapeHtml(site.version || "unknown")}` : "Not installed"}</span>
+    </label>`).join("") : "No WordPress websites configured.";
 }
 
 function selectedWordPressUpdateInput() {
@@ -995,6 +1027,7 @@ function renderMaintenance() {
     </div>`).join("") : '<div class="muted">No WordPress websites are configured.</div>';
   renderWordPressInventory();
   renderWordPressUpdates();
+  renderCacheControl();
 
   window.clearTimeout(maintenancePollTimer);
   if (status.running) {
@@ -2996,6 +3029,32 @@ $("#inventoryWordPress").addEventListener("click", async (event) => {
   } catch (error) { notice(error.message, "warning"); }
 });
 
+async function installCacheControl(domains, rotate, button) {
+  const result = await withButton(button, rotate ? "Rotating..." : "Installing...", () => api("/api/maintenance/cache-control/install", {
+    method: "POST",
+    body: JSON.stringify({ domains, rotate }),
+  }));
+  state.maintenance.cacheControl = result.cacheControl;
+  renderCacheControl();
+  const failed = result.results.filter((item) => !item.ok);
+  notice(failed.length
+    ? `${result.completed}/${result.total} websites updated; ${failed.length} failed.`
+    : `${result.completed} WordPress cache-control installations updated.`, failed.length ? "warning" : "success");
+}
+
+$("#installCacheControlAll").addEventListener("click", async (event) => {
+  try { await installCacheControl(undefined, false, event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#rotateCacheControlSelected").addEventListener("click", async (event) => {
+  const domains = $$('[data-cache-control-site]:checked').map((input) => input.value);
+  if (!domains.length) return notice("Select at least one WordPress website.", "warning");
+  if (!confirm(`Rotate cache-control credentials for ${domains.length} selected website(s)?`)) return;
+  try { await installCacheControl(domains, true, event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
 $("#wordpressUpdateForm").addEventListener("change", (event) => {
   state.wordpressUpdatePreview = null;
   if (event.target.id === "wordpressUpdateDomain") renderWordPressUpdates();
@@ -3647,6 +3706,29 @@ $("#runDeepVerify").addEventListener("click", async (event) => {
     rememberJob(data.job, "Deep verification queued");
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
+});
+
+async function requestHaControl(action, confirmText, button) {
+  if (!confirm(`Run ${action.replaceAll("-", " ")} on this server now?`)) return;
+  const data = await withButton(button, "Queueing...", () => api("/api/system/ha-control", {
+    method: "POST",
+    body: JSON.stringify({ action, confirm: confirmText }),
+  }));
+  $("#haControlStatus").textContent = `${data.request.action.replaceAll("-", " ")} queued.`;
+  window.setTimeout(() => loadWarmReplication().catch((error) => notice(error.message, "warning")), 16000);
+}
+
+$("#replicateNow").addEventListener("click", async (event) => {
+  try { await requestHaControl("replicate-now", "REPLICATE-NOW", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#finalizeStandby").addEventListener("click", async (event) => {
+  try { await requestHaControl("finalize-standby", "FINALIZE-STANDBY", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#runFailoverCheck").addEventListener("click", async (event) => {
+  try { await requestHaControl("failover-check", "CHECK-FAILOVER", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
 });
 
 $("#standbyIngressForm").addEventListener("submit", async (event) => {
