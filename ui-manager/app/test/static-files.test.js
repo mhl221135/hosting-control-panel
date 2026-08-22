@@ -448,6 +448,7 @@ test("failover hostname qualification keeps blocked Cloudflare zones out of the 
   assert.match(automatic, /blocked-host-qualification/);
   assert.match(automatic, /\.connections\[\$device\]\.connected == true/);
   assert.match(automatic, /AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID/);
+  assert.match(automatic, /\.serverId == \$primary/);
   const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
   assert.match(warmPrepare, /AUTO_FAILOVER_AUTO_QUALIFY_HOSTS/);
   assert.match(warmPrepare, /qualify-failover-hosts\.sh" --apply --skip-if-current/);

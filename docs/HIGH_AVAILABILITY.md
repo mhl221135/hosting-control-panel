@@ -137,7 +137,9 @@ sudo ./scripts/install-automatic-failover.sh \
 This policy makes HP switch the reviewed website routes when OPI5 is powered
 off. It cannot distinguish a powered-off host from a network partition. The
 peer signal is bound to the exact configured primary Syncthing device ID; an
-unrelated connected peer cannot suppress outage detection. The
+unrelated connected peer cannot suppress outage detection. The public health
+response must also return the configured primary server ID; a healthy but
+misrouted panel endpoint is treated as unavailable. The
 watchdog refuses promotion when the prepared database recovery point is more
 than two hours old; adjust the bound explicitly only when the database snapshot
 schedule has a different measured RPO.

@@ -246,7 +246,8 @@ fi
 
 healthy=0
 response="$(curl -fsS --max-time 8 --connect-timeout 4 "$PRIMARY_HEALTH_URL" 2>/dev/null || true)"
-printf '%s' "$response" | jq -e '.ok == true and .role == "primary"' >/dev/null 2>&1 && healthy=1
+printf '%s' "$response" | jq -e --arg primary "$AUTO_FAILOVER_PRIMARY_SERVER_ID" \
+  '.ok == true and .role == "primary" and .serverId == $primary' >/dev/null 2>&1 && healthy=1
 
 peer_connected=0
 connection="$(docker exec hosting-sync sh -c '
