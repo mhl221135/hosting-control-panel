@@ -10,6 +10,7 @@ Options:
   --enable                    Enable outage monitoring
   --mode monitor|activate     Monitor only (default) or activate after fencing
   --primary-server-id ID      Required for activate mode
+  --primary-sync-device-id ID Exact Syncthing device ID of the primary
   --fence-receipt PATH        Root-owned fencing receipt path
   --panel-state-file PATH     Sanitized status file visible to hosting-ui
   --fence-policy POLICY      receipt (default) or unreachable
@@ -25,6 +26,7 @@ hosts_file=""
 enabled=false
 mode=monitor
 primary_server_id=""
+primary_sync_device_id=""
 fence_receipt=/etc/hosting-control/primary-fence-receipt.json
 panel_state_file="$project_dir/../app-data/ui-manager/automatic-failover-state.json"
 fence_policy=receipt
@@ -38,6 +40,7 @@ while [ "$#" -gt 0 ]; do
     --enable) enabled=true ;;
     --mode) shift; mode="${1:-}" ;;
     --primary-server-id) shift; primary_server_id="${1:-}" ;;
+    --primary-sync-device-id) shift; primary_sync_device_id="${1:-}" ;;
     --fence-receipt) shift; fence_receipt="${1:-}" ;;
     --panel-state-file) shift; panel_state_file="${1:-}" ;;
     --fence-policy) shift; fence_policy="${1:-}" ;;
@@ -66,6 +69,10 @@ if [ "$fence_policy" = unreachable ] && [ "$risk_confirmation" != I-ACCEPT-SPLIT
 fi
 if [ "$mode" = activate ]; then
   case "$primary_server_id" in ''|*[!A-Za-z0-9._-]*) usage; exit 2 ;; esac
+  case "$primary_sync_device_id" in
+    ???????-???????-???????-???????-???????-???????-???????-???????) ;;
+    *) printf 'Activate mode requires the exact primary Syncthing device ID.\n' >&2; exit 2 ;;
+  esac
 fi
 [ "$(id -u)" -eq 0 ] || { printf 'Run as root.\n' >&2; exit 1; }
 
@@ -79,6 +86,7 @@ umask 077
   printf "PRIMARY_HEALTH_URL='%s'\n" "$health_url"
   printf "AUTO_FAILOVER_HOSTS_FILE='%s'\n" "$hosts_file"
   printf "AUTO_FAILOVER_PRIMARY_SERVER_ID='%s'\n" "$primary_server_id"
+  printf "AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID='%s'\n" "$primary_sync_device_id"
   printf "AUTO_FAILOVER_FENCE_RECEIPT='%s'\n" "$fence_receipt"
   printf "AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS='900'\n"
   printf "AUTO_FAILOVER_FENCE_POLICY='%s'\n" "$fence_policy"

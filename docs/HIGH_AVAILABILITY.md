@@ -125,6 +125,7 @@ sudo ./scripts/install-automatic-failover.sh \
   --health-url https://PRIMARY-PANEL/health \
   --hosts-file /etc/hosting-control/failover-hosts.txt \
   --mode activate --primary-server-id PRIMARY-SERVER-ID \
+  --primary-sync-device-id PRIMARY-SYNCTHING-DEVICE-ID \
   --fence-policy unreachable --unreachable-grace 300 \
   --max-recovery-age 7200 \
   --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK \
@@ -134,6 +135,8 @@ sudo ./scripts/install-automatic-failover.sh \
 
 This policy makes HP switch the reviewed website routes when OPI5 is powered
 off. It cannot distinguish a powered-off host from a network partition. The
+peer signal is bound to the exact configured primary Syncthing device ID; an
+unrelated connected peer cannot suppress outage detection. The
 watchdog refuses promotion when the prepared database recovery point is more
 than two hours old; adjust the bound explicitly only when the database snapshot
 schedule has a different measured RPO.

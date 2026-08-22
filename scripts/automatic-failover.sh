@@ -168,7 +168,12 @@ connection="$(docker exec hosting-sync sh -c '
   key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
   wget -qO- --header="X-API-Key: $key" http://127.0.0.1:8384/rest/system/connections
 ' 2>/dev/null || true)"
-printf '%s' "$connection" | jq -e '[.connections[]? | select(.connected == true)] | length > 0' >/dev/null 2>&1 \
+case "${AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID:-}" in
+  ???????-???????-???????-???????-???????-???????-???????-???????) ;;
+  *) write_state invalid-config 0; exit 1 ;;
+esac
+printf '%s' "$connection" | jq -e --arg device "$AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID" \
+  '.connections[$device].connected == true' >/dev/null 2>&1 \
   && peer_connected=1
 
 previous="$(jq -r '.failures // 0' "$state" 2>/dev/null || printf 0)"
