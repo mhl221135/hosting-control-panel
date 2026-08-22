@@ -246,6 +246,28 @@ class TunnelCutover {
     for (const record of entry.current || []) await this.api.createDnsRecord(entry.zone.id, recordPayload(record));
   }
 
+  async verifyApplied(plan) {
+    const tunnel = await this.api.tunnelConfig(this.accountId, this.tunnelId);
+    const config = tunnel?.config || tunnel || {};
+    const ingress = Array.isArray(config.ingress) ? config.ingress : [];
+    for (const hostname of plan.hosts) {
+      const matches = ingress.filter((rule) => String(rule?.hostname || "").toLowerCase() === hostname);
+      if (matches.length !== 1 || String(matches[0].service || "") !== this.service) {
+        throw cutoverError(`Cloudflare tunnel verification failed for ${hostname}`, 502);
+      }
+    }
+    for (const entry of plan.records) {
+      const records = (await this.api.dnsRecords(entry.zone.id, entry.hostname)) || [];
+      const ingressRecords = records.filter((record) =>
+        DNS_TYPES.has(String(record.type)) && String(record.name || "").toLowerCase() === entry.hostname);
+      const actual = ingressRecords.length === 1 ? recordPayload(ingressRecords[0]) : null;
+      if (!actual || actual.type !== entry.desired.type || actual.name !== entry.desired.name
+        || actual.content !== entry.desired.content || actual.proxied !== entry.desired.proxied) {
+        throw cutoverError(`Cloudflare DNS verification failed for ${entry.hostname}`, 502);
+      }
+    }
+  }
+
   async apply(values, confirmation) {
     if (confirmation !== "SWITCH-TUNNEL-INGRESS") throw cutoverError("Apply requires SWITCH-TUNNEL-INGRESS confirmation");
     const { promotion } = this.requirePromotedPrimary();
@@ -266,6 +288,7 @@ class TunnelCutover {
     try {
       await this.api.updateTunnelConfig(this.accountId, this.tunnelId, plan.desiredTunnelConfig);
       for (const entry of plan.records) await this.replaceDns(entry, entry.desired);
+      await this.verifyApplied(plan);
       state.status = "active";
       state.completedAt = this.now();
       atomicWriteJson(this.statePath, state, 0o600);

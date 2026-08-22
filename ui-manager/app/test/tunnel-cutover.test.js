@@ -32,6 +32,7 @@ class FakeApi {
     ]);
     this.updatedConfigs = [];
     this.failNextCreate = false;
+    this.corruptNextCreate = false;
   }
 
   async zones() { return [{ id: "zone-1", name: "example.com" }]; }
@@ -57,7 +58,13 @@ class FakeApi {
       throw new Error("simulated DNS failure");
     }
     const records = this.records.get(payload.name) || [];
-    records.push({ id: `new-${records.length}`, ...structuredClone(payload) });
+    const content = this.corruptNextCreate ? "wrong.example.net" : payload.content;
+    this.corruptNextCreate = false;
+    records.push({
+      id: `new-${records.length}`,
+      ...structuredClone(payload),
+      content,
+    });
     this.records.set(payload.name, records);
   }
 }
@@ -188,4 +195,20 @@ test("apply failure immediately restores tunnel and DNS state", async () => {
   assert.equal(api.records.get("example.com")[0].content, "192.0.2.10");
   assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "rolled-back");
   assert.equal(JSON.parse(fs.readFileSync(files.promotionPath)).public_ingress_cutover, false);
+});
+
+test("apply verifies Cloudflare state and rolls back a mismatched DNS write", async () => {
+  const files = fixture();
+  const api = new FakeApi();
+  api.corruptNextCreate = true;
+  await assert.rejects(
+    manager(api, files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS"),
+    /DNS verification failed/,
+  );
+  assert.deepEqual(api.config.ingress, [
+    { hostname: "panel.example.com", service: "http://hosting-ui:8687" },
+    { service: "http_status:404" },
+  ]);
+  assert.equal(api.records.get("example.com")[0].content, "192.0.2.10");
+  assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "rolled-back");
 });

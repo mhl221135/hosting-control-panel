@@ -529,6 +529,8 @@ route qualification, automatic public verification, and pairing remain future
   monitor-only mode on 2026-08-22 while production website services remained
   online; a full unattended 112-host promotion remains intentionally unforced
   until a real primary outage or a scheduled write/failback drill.
+  Cloudflare cutover performs read-after-write verification for every selected
+  tunnel ingress rule and DNS record before recording success.
 
 Successful preparation now generates a sorted, recovery-hash-bound candidate
 inventory from the restored routing map. A separate preview/typed-confirmation

@@ -475,6 +475,9 @@ The token file must be a root-owned, non-symlink regular file with mode
 tunnel-cutover implementations. It does not infer fencing. If the Cloudflare
 step fails, its transaction attempts to restore DNS and tunnel configuration;
 the locally promoted server stays isolated for operator inspection.
+Apply is recorded as active only after a read-after-write check confirms one
+matching tunnel ingress rule and one matching proxied DNS ingress record for
+every selected hostname. A mismatch enters the same immediate rollback path.
 
 Each successful standby preparation derives every website hostname and alias
 from the restored `sites.map` and writes a mode-`0600`, recovery-bound candidate
