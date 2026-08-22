@@ -211,6 +211,8 @@ The standby has:
 - a stable `UI_SETTINGS_KEY` matching the primary so encrypted integration
   settings remain readable;
 - replicated backup sets on storage it can access after primary failure;
+- `HOSTING_SYNC_PEER_DEVICE_ID` set to the primary Syncthing device ID, so an
+  unrelated connected peer cannot satisfy panel replication readiness;
 - no public DNS target and no running writable stack until promotion.
 
 Install a new replica with:

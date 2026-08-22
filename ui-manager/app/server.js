@@ -180,7 +180,9 @@ function installationView(ingressMode = panelMeta.read().ingressMode) {
   };
 }
 const panelMeta = new PanelMetadataStore({ dataDir: DATA_DIR });
-const warmReplicationStatus = new WarmReplicationStatus();
+const warmReplicationStatus = new WarmReplicationStatus({
+  expectedDeviceId: process.env.HOSTING_SYNC_PEER_DEVICE_ID,
+});
 const peerHealthStatus = new PeerHealthStatus({
   url: process.env.HOSTING_PEER_HEALTH_URL,
   expectedServerId: process.env.HOSTING_PEER_SERVER_ID,

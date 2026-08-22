@@ -42,6 +42,7 @@ class WarmReplicationStatus {
     this.execFile = options.execFile || execFileAsync;
     this.now = options.now || Date.now;
     this.recoveryRoot = options.recoveryRoot || "/srv/replication/database";
+    this.expectedDeviceId = String(options.expectedDeviceId || "").trim().toUpperCase();
   }
 
   async dockerExec(args) {
@@ -64,7 +65,9 @@ class WarmReplicationStatus {
         this.api("/rest/system/connections"),
         ...FOLDERS.map((id) => this.api(`/rest/db/status?folder=${id}`)),
       ]);
-      const peers = Object.values(connections.connections || {});
+      const connectionMap = connections.connections || {};
+      const peers = Object.values(connectionMap);
+      const expectedPeer = this.expectedDeviceId ? connectionMap[this.expectedDeviceId] : null;
       const folders = FOLDERS.map((id, index) => folderView(id, rawFolders[index]));
       let recovery = null;
       try {
@@ -79,14 +82,18 @@ class WarmReplicationStatus {
       return {
         available: true,
         checkedAt,
-        peerConnected: peers.some((peer) => peer?.connected === true),
+        peerIdentityConfigured: Boolean(this.expectedDeviceId),
+        peerConnected: this.expectedDeviceId
+          ? expectedPeer?.connected === true
+          : peers.some((peer) => peer?.connected === true),
         folders,
         exact: folders.every((folder) => folder.state === "idle" && folder.needFiles === 0
           && folder.receiveOnlyItems === 0 && folder.errors === 0),
         recovery,
       };
     } catch (error) {
-      return { available: false, checkedAt, peerConnected: false, folders: [], exact: false, recovery: null,
+      return { available: false, checkedAt, peerIdentityConfigured: Boolean(this.expectedDeviceId),
+        peerConnected: false, folders: [], exact: false, recovery: null,
         error: String(error.message || "Replication status unavailable").slice(0, 180) };
     }
   }

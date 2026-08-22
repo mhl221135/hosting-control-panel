@@ -35,6 +35,8 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   the latest hourly database recovery point. When configured, `peerHealth`
   reports the expected peer identity, identity match, role, bounded failover
   state, reachability, and request latency from its public `/health` response.
+  When `HOSTING_SYNC_PEER_DEVICE_ID` is configured, `replication.peerConnected`
+  refers only to that exact Syncthing device; the device ID itself is omitted.
   Peer addresses, API keys, paths,
   hashes, and raw Syncthing responses are never returned. It also includes a
   bounded `automaticFailover` status with availability, state, failure

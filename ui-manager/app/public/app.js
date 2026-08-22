@@ -589,7 +589,10 @@ async function loadWarmReplication() {
   const inventory = data.failoverInventory || {};
   const peer = data.peerHealth || {};
   const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
-  $("#warmPeer").textContent = replication.available ? (replication.peerConnected ? "Connected" : "Disconnected") : "Unavailable";
+  $("#warmPeer").textContent = replication.available
+    ? replication.peerConnected ? "Expected peer connected"
+      : replication.peerIdentityConfigured ? "Expected peer disconnected" : "Disconnected"
+    : "Unavailable";
   $("#peerIdentity").textContent = !peer.configured ? "Not configured"
     : peer.identityMatched ? peer.serverId : peer.reachable ? "Mismatch" : "Unavailable";
   $("#peerRole").textContent = peer.reachable ? peer.role : "-";
