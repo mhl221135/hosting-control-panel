@@ -153,7 +153,7 @@ apply_public_cutover() {
     --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" >/dev/null \
     && "$project_dir/scripts/tunnel-cutover.sh" --apply \
       --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
-      --confirm SWITCH-TUNNEL-INGRESS
+      --confirm SWITCH-TUNNEL-INGRESS >/dev/null
   result=$?
   unset CLOUDFLARE_TUNNEL_API_TOKEN
   return "$result"
@@ -345,7 +345,7 @@ write_state activating "$failures" "$recovery_id" "$unreachable_since"
 if ! "$project_dir/scripts/activate-standby.sh" --preview \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
-  --recovery-id "$recovery_id"; then
+  --recovery-id "$recovery_id" >/dev/null; then
   write_state preview-failed "$failures" "$recovery_id" "$unreachable_since"
   exit 1
 fi
@@ -353,7 +353,7 @@ if ! "$project_dir/scripts/activate-standby.sh" --apply \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
   --recovery-id "$recovery_id" \
-  --confirm ACTIVATE-STANDBY --fence-confirm "$fence_confirmation"; then
+  --confirm ACTIVATE-STANDBY --fence-confirm "$fence_confirmation" >/dev/null; then
   write_state activation-failed "$failures" "$recovery_id" "$unreachable_since"
   exit 1
 fi

@@ -527,6 +527,8 @@ the locally promoted server stays isolated for operator inspection.
 Apply is recorded as active only after a read-after-write check confirms one
 matching tunnel ingress rule and one matching proxied DNS ingress record for
 every selected hostname. A mismatch enters the same immediate rollback path.
+Watchdog-triggered success output is suppressed so systemd journals do not
+receive the full hostname and Cloudflare zone inventory; bounded errors remain.
 
 Each successful standby preparation derives every website hostname and alias
 from the restored `sites.map` and writes a mode-`0600`, recovery-bound candidate
