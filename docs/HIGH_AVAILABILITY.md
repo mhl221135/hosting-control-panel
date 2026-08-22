@@ -162,6 +162,16 @@ promotion, and recovery rather than repeating alerts on every watchdog poll.
 The alert path was qualified on 2026-08-22 with a single failed detector cycle:
 Telegram and SMTP each delivered one unreachable warning and one recovery
 notice, while OPI5's website services remained online and HP stayed standby.
+The complete automatic path was then qualified with a temporary two-host
+allowlist. OPI5's panel-health and exact Syncthing-peer signals were stopped,
+while its nginx and NPM continued serving all unrelated hosts. After six
+failures and the five-minute grace, HP promoted recovery
+`2026-08-22T08-43-19Z`, applied and read-after-write verified the two selected
+Cloudflare routes, reached `promoted-unreachable`, and served the selected
+site through the HP tunnel. The routes were rolled back, OPI5's signals and
+safety timers were restored, and HP returned to fenced standby with no public
+writes. This proves the bounded automatic path, not a full 112-host outage or
+a write/failback workflow.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
@@ -662,6 +672,9 @@ or `CNAME` ingress records to the proxied tunnel target. It preserves the exact
 previous tunnel configuration and DNS payloads in the root-only machine-local
 `tunnel-cutover.json` receipt. If apply fails, it attempts immediate rollback.
 The connector token and management token are never written to that receipt.
+A completed `rolled-back` receipt is archived automatically before a later
+apply. An `active` or `rollback-failed` receipt still blocks replacement and
+requires explicit operator recovery.
 
 A pre-traffic or drill rollback uses:
 

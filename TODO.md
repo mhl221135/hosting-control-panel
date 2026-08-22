@@ -530,8 +530,12 @@ route qualification, automatic public verification, and pairing remain future
   replication services while leaving NPM available for unrelated routes.
   The six-check detector and healthy recovery were qualified live in
   monitor-only mode on 2026-08-22 while production website services remained
-  online; a full unattended 112-host promotion remains intentionally unforced
-  until a real primary outage or a scheduled write/failback drill.
+  online. The same day, the complete automatic path was qualified with a
+  contained two-host allowlist: HP waited for the threshold and grace period,
+  promoted the prepared recovery, switched and verified both Cloudflare
+  routes, served the selected site, and returned to standby after a no-write
+  rollback. A full unattended 112-host promotion remains intentionally
+  unforced until a real primary outage or a scheduled write/failback drill.
   Cloudflare cutover performs read-after-write verification for every selected
   tunnel ingress rule and DNS record before recording success.
   Timer restart recovery reconstructs a missing final promoted state only from
@@ -661,6 +665,15 @@ Panel-based acceptance remains future work.
   after that drill, retain evidence for the implemented thresholded watchdog
   on the reviewed 112-host allowlist. The watchdog is armed only while exact
   synchronization and warm preparation continue to pass.
+- The automatic outage path was qualified on 2026-08-22 with a temporary
+  two-host allowlist. OPI5's panel-health and exact Syncthing-peer signals were
+  stopped while its website-serving nginx/NPM remained online. HP reached
+  `promoted-unreachable` only after six failures and the five-minute grace,
+  served the selected site through its Cloudflare tunnel, then restored the
+  original records and returned to fenced standby with no public writes. A
+  stale completed rollback receipt discovered by the drill is now archived
+  automatically before a later cutover; active and failed rollback receipts
+  still block replacement.
 - For one router/WAN address, promotion changes the router/load-balancer target;
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two
