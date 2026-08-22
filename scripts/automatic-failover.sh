@@ -157,6 +157,25 @@ write_inventory_state
 exec 9>"$lock"
 flock -n 9 || exit 0
 role="$(jq -r '.role // empty' /etc/hosting-control/role.json 2>/dev/null || true)"
+if [ "$role" = primary ]; then
+  promotion=/etc/hosting-control/promotion-state.json
+  cutover=/etc/hosting-control/tunnel-cutover.json
+  if [ -f "$promotion" ] && [ ! -L "$promotion" ] && [ -f "$cutover" ] && [ ! -L "$cutover" ] \
+    && recovery_id="$(jq -er '.recovery_id' "$promotion" 2>/dev/null)" \
+    && jq -e --arg recovery "$recovery_id" '
+      .version == 1 and .status == "local-primary" and .public_ingress_cutover == true
+      and .recovery_id == $recovery
+    ' "$promotion" >/dev/null 2>&1 \
+    && jq -e '.version == 1 and .status == "active"' "$cutover" >/dev/null 2>&1; then
+    fencing_mode="$(jq -r '.fencing_mode // empty' "$promotion")"
+    if [ "$fencing_mode" = PRIMARY-UNREACHABLE-RISK-ACCEPTED ]; then
+      write_state promoted-unreachable 0 "$recovery_id"
+    else
+      write_state promoted 0 "$recovery_id"
+    fi
+  fi
+  exit 0
+fi
 [ "$role" = standby ] || exit 0
 
 healthy=0

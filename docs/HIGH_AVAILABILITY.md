@@ -551,6 +551,10 @@ candidate inventory and that its checksum, the accepted allowlist checksum,
 and both hostname counts match the qualification receipt. An unchanged
 candidate inventory remains qualified across newer database recovery points;
 missing, edited, or changed inventories stop at `blocked-host-qualification`.
+If the watchdog is interrupted after public cutover but before its final state
+write, the next timer run reconstructs `promoted` from the matching durable
+local-promotion and active tunnel-cutover receipts. It never infers promotion
+from the role marker alone.
 Activation preview exits with failure when any selected hostname is blocked,
 even though it prints the full non-mutating plan for operator review.
 

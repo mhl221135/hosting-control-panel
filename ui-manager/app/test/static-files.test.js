@@ -98,6 +98,8 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /primaryServerId == \$primary and \.recoveryId == \$recovery/);
   assert.match(automatic, /activate-standby\.sh" --preview/);
   assert.match(automatic, /write_state activation-failed/);
+  assert.match(automatic, /\.public_ingress_cutover == true/);
+  assert.match(automatic, /write_state promoted-unreachable 0 "\$recovery_id"/);
   assert.match(server, /automaticFailover: readAutomaticFailoverStatus\(DATA_DIR\)/);
   assert.match(server, /failoverInventory: readFailoverInventoryStatus/);
   assert.match(html, /id="autoFailoverStatus"/);
