@@ -27,7 +27,7 @@
           <select id="mobileNavigation" aria-label="Panel section">
             <option value="sites">Sites</option>
             <option value="stats">Stats</option>
-            <option value="replication" data-standby-only hidden>Replication</option>
+            <option value="replication">Replication</option>
             <option value="health">Health</option>
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
@@ -45,7 +45,7 @@
         <nav aria-label="Primary navigation">
           <button class="nav-item active" data-tab-link="sites" data-short="SI" title="Sites">Sites</button>
           <button class="nav-item" data-tab-link="stats" data-short="ST" title="Stats">Stats</button>
-          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication" data-standby-only hidden>Replication</button>
+          <button class="nav-item" data-tab-link="replication" data-short="RP" title="Replication">Replication</button>
           <button class="nav-item" data-tab-link="health" data-short="HL" title="Health">Health</button>
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
@@ -189,7 +189,27 @@
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="replication">
-          <div class="section-head"><div><h2>Standby replication</h2><p>Received recovery points and non-mutating promotion readiness.</p></div></div>
+          <div class="section-head"><div><h2>High availability</h2><p>Replication, recovery points, failover state, and guarded host operations.</p></div></div>
+          <article class="panel">
+            <div class="card-head"><div><h3>Warm replication</h3><p class="muted">Live one-way file/config state and the latest hourly database recovery point.</p></div><button id="refreshWarmReplication" class="secondary" type="button">Refresh</button></div>
+            <div class="metrics standby-replication-metrics"><article><span>Sync peer</span><strong id="warmPeer">-</strong></article><article><span>Peer identity</span><strong id="peerIdentity">-</strong></article><article><span>Peer role</span><strong id="peerRole">-</strong></article><article><span>Peer latency</span><strong id="peerLatency">-</strong></article><article><span>Websites needed</span><strong id="warmWebsiteNeed">-</strong></article><article><span>Replica-only</span><strong id="warmWebsiteDrift">-</strong></article><article><span>Runtime config</span><strong id="warmRuntime">-</strong></article><article><span>Database sync</span><strong id="warmDatabaseSync">-</strong></article><article><span>Recovery point</span><strong id="warmRecovery">-</strong></article></div>
+            <small id="warmReplicationUpdated" class="muted">Not checked.</small>
+          </article>
+          <article class="panel">
+            <div class="card-head"><div><h3>Replication history</h3><p class="muted">Bounded five-minute samples and health transitions from this server.</p></div></div>
+            <div id="replicationHistory" class="health-list empty">No replication samples recorded.</div>
+          </article>
+          <article class="panel">
+            <div class="card-head"><div><h3>Automatic failover</h3><p class="muted">Outage detection and the external-fencing gate. This card cannot promote the server.</p></div></div>
+            <div class="metrics standby-replication-metrics"><article><span>Status</span><strong id="autoFailoverStatus">-</strong></article><article><span>Failures</span><strong id="autoFailoverFailures">-</strong></article><article><span>Policy</span><strong id="autoFailoverPolicy">-</strong></article><article><span>Recovery point</span><strong id="autoFailoverRecovery">-</strong></article><article><span>Last check</span><strong id="autoFailoverChecked">-</strong></article></div>
+            <small id="autoFailoverMessage" class="muted">Status is unavailable.</small>
+            <div class="metrics standby-replication-metrics"><article><span>Active hosts</span><strong id="failoverActiveHosts">-</strong></article><article><span>Candidates</span><strong id="failoverCandidateHosts">-</strong></article><article><span>Pending additions</span><strong id="failoverHostAdditions">-</strong></article><article><span>Pending removals</span><strong id="failoverHostRemovals">-</strong></article></div>
+            <small id="failoverInventoryMessage" class="muted">Hostname inventory is unavailable.</small>
+          </article>
+          <article class="panel">
+            <div class="card-head"><div><h3>HA operations</h3><p class="muted">Preview or run fixed host workflows. Role transitions retain host-side fencing and rollback checks.</p></div><div class="button-row"><button id="replicateNow" class="secondary hidden" type="button">Create recovery point</button><button id="finalizeStandby" class="secondary hidden" type="button">Refresh standby</button><button id="runFailoverCheck" class="secondary hidden" type="button">Run failover check</button><button id="requestWitnessFence" class="secondary hidden" type="button">Request external fence</button><button id="previewPromotion" class="secondary hidden" type="button">Preview promotion</button><button id="promoteStandby" class="danger hidden" type="button">Promote standby</button><button id="previewRebuild" class="secondary hidden" type="button">Preview rebuild</button><button id="rebuildFormerPrimary" class="danger hidden" type="button">Rebuild former primary</button><button id="previewFailback" class="secondary hidden" type="button">Preview failback</button><button id="completeFailback" class="danger hidden" type="button">Complete failback</button></div></div>
+            <div id="haControlStatus" class="status-box">No HA control request recorded.</div>
+          </article>
           <article id="promotionPreflightCard" class="panel">
             <div class="card-head"><div><h3>Promotion readiness preflight</h3><p class="muted">Checks do not promote the server or change files, databases, DNS, or public ingress.</p></div><div class="button-row"><button id="runDeepVerify" class="secondary">Deep verification</button><button id="refreshPreflight" class="secondary">Refresh</button></div></div>
             <form id="standbyIngressForm" class="standby-ingress-form">
@@ -281,6 +301,15 @@
           </article>
 
           <article class="panel">
+            <div class="card-head">
+              <div><h3>WordPress cache controls</h3><p class="muted">Install the site-scoped Tools page for FastCGI, OPcache, Redis, and Cloudflare cache clearing.</p></div>
+              <div class="button-row"><button id="installCacheControlAll" class="secondary" type="button">Install or update all</button><button id="rotateCacheControlSelected" type="button">Rotate selected credentials</button></div>
+            </div>
+            <div id="cacheControlStatus" class="status-box">Loading cache-control status.</div>
+            <div id="cacheControlSites" class="rows empty">No WordPress websites configured.</div>
+          </article>
+
+          <article class="panel">
             <div class="card-head"><div><h3>WordPress version inventory</h3><p id="wordpressInventoryTime" class="muted">No inventory has run.</p></div></div>
             <div id="wordpressInventory" class="rows empty">Select websites above and run an inventory.</div>
           </article>
@@ -349,7 +378,7 @@
             </fieldset>
             <fieldset class="option-group full">
               <legend>Provisioning options</legend>
-              <label class="check"><input name="add_www" type="checkbox" checked /> Add www alias</label>
+              <label class="check"><input name="add_www" type="checkbox" /> Add www alias</label>
               <label class="check" data-provision-wordpress><input name="redis" type="checkbox" /> Enable Redis object cache</label>
               <label class="check" data-provision-generic><input name="create_database" type="checkbox" /> Create MySQL database and user</label>
               <label class="check"><input name="fastcgi_cache" type="checkbox" /> Enable FastCGI page cache</label>

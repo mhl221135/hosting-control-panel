@@ -26,7 +26,7 @@ const APP_DATA_KEYS = new Set(["version", "type", "id", "excluded", "startedAt",
 const ARTIFACT_KEYS = new Set(["size", "sha256"]);
 const RECOVERY_KEYS = new Set([
   "version", "prepared_at", "app_data_id", "site_count", "source_release",
-  "receiver_receipt_sha256", "deep_verification_sha256",
+  "receiver_receipt_sha256", "deep_verification_sha256", "mode", "database_recovery_id",
 ]);
 
 function check(status, reason) {
@@ -163,7 +163,10 @@ function validateStandbyRecovery(value) {
   if (!SET_ID_PATTERN.test(String(value.app_data_id || ""))) return null;
   if (!Number.isInteger(value.site_count) || value.site_count < 0 || value.site_count > 5000) return null;
   if (typeof value.source_release !== "string" || !value.source_release || value.source_release.length > 128 || CONTROL_CHARS.test(value.source_release)) return null;
-  if (!HEX_SHA256.test(String(value.receiver_receipt_sha256 || "")) || !HEX_SHA256.test(String(value.deep_verification_sha256 || ""))) return null;
+  const mode = value.mode || "backup";
+  if (!["backup", "warm-sync"].includes(mode)) return null;
+  if (mode === "backup" && (!HEX_SHA256.test(String(value.receiver_receipt_sha256 || "")) || !HEX_SHA256.test(String(value.deep_verification_sha256 || "")))) return null;
+  if (mode === "warm-sync" && (!SET_ID_PATTERN.test(String(value.database_recovery_id || "")) || value.database_recovery_id !== value.app_data_id)) return null;
   return value;
 }
 
@@ -202,13 +205,17 @@ function resourceProfileChecks(profile = {}) {
   const mysqlConnections = Number(profile.mysqlConnections);
   const redisMb = memoryMb(profile.redisMaxMemory);
   const opcacheMb = iniInteger(profile.phpIniPath, "opcache.memory_consumption");
-  checks.push(check(name === "standby-8gb" ? "pass" : "fail", `Standby resource profile: ${name || "not configured"}`));
+  const profileValid = name === "standby-8gb" || name === "standby-16gb";
+  const mysqlBufferMax = name === "standby-16gb" ? 4096 : 2048;
+  const redisMax = name === "standby-16gb" ? 2048 : 512;
+  const opcacheMax = name === "standby-16gb" ? 8192 : 3072;
+  checks.push(check(profileValid ? "pass" : "fail", `Standby resource profile: ${name || "not configured"}`));
   checks.push(check(Number.isInteger(serverId) && serverId >= 2 && serverId <= 4_294_967_295 ? "pass" : "fail", "Standby MySQL server ID is unique"));
-  checks.push(check(mysqlBufferMb !== null && mysqlBufferMb >= 512 && mysqlBufferMb <= 2048 ? "pass" : "fail", `Standby MySQL buffer: ${mysqlBufferMb ?? "invalid"} MB`));
+  checks.push(check(mysqlBufferMb !== null && mysqlBufferMb >= 512 && mysqlBufferMb <= mysqlBufferMax ? "pass" : "fail", `Standby MySQL buffer: ${mysqlBufferMb ?? "invalid"} MB`));
   checks.push(check(mysqlRedoMb !== null && mysqlRedoMb >= 256 && mysqlRedoMb <= 1024 ? "pass" : "fail", `Standby MySQL redo: ${mysqlRedoMb ?? "invalid"} MB`));
   checks.push(check(Number.isInteger(mysqlConnections) && mysqlConnections >= 25 && mysqlConnections <= 150 ? "pass" : "fail", `Standby MySQL connections: ${Number.isFinite(mysqlConnections) ? mysqlConnections : "invalid"}`));
-  checks.push(check(redisMb !== null && redisMb >= 128 && redisMb <= 512 ? "pass" : "fail", `Standby Redis: ${redisMb ?? "invalid"} MB`));
-  checks.push(check(Number.isInteger(opcacheMb) && opcacheMb >= 512 && opcacheMb <= 3072 ? "pass" : "fail", `Standby OPcache: ${opcacheMb ?? "invalid"} MB`));
+  checks.push(check(redisMb !== null && redisMb >= 128 && redisMb <= redisMax ? "pass" : "fail", `Standby Redis: ${redisMb ?? "invalid"} MB`));
+  checks.push(check(Number.isInteger(opcacheMb) && opcacheMb >= 512 && opcacheMb <= opcacheMax ? "pass" : "fail", `Standby OPcache: ${opcacheMb ?? "invalid"} MB`));
   return { checks, name, mysqlBufferMb, mysqlRedoMb, mysqlConnections, redisMb, opcacheMb, serverId };
 }
 
@@ -351,11 +358,13 @@ async function runPreflight(opts = {}) {
     const recoveryIssues = [];
     if (!recovery) recoveryIssues.push("no valid prepared recovery marker");
     else {
-      if (recovery.app_data_id !== appDataSet) recoveryIssues.push("app-data recovery point changed");
       if (recovery.site_count !== sites.length) recoveryIssues.push("configured website count changed");
-      if (recovery.receiver_receipt_sha256 !== receiptHash) recoveryIssues.push("receiver receipt changed");
-      const deepHash = fileSha256(path.join(backupsRoot, "deep-verify-state.json"));
-      if (!deepHash || recovery.deep_verification_sha256 !== deepHash) recoveryIssues.push("deep-verification result changed");
+      if ((recovery.mode || "backup") === "backup") {
+        if (recovery.app_data_id !== appDataSet) recoveryIssues.push("app-data recovery point changed");
+        if (recovery.receiver_receipt_sha256 !== receiptHash) recoveryIssues.push("receiver receipt changed");
+        const deepHash = fileSha256(path.join(backupsRoot, "deep-verify-state.json"));
+        if (!deepHash || recovery.deep_verification_sha256 !== deepHash) recoveryIssues.push("deep-verification result changed");
+      }
       let currentRelease = "";
       try { currentRelease = fs.readFileSync(path.join(sourcesRoot, ".source-release"), "utf8").trim(); } catch {}
       if (!currentRelease || recovery.source_release !== currentRelease) recoveryIssues.push("source release changed or is unavailable");

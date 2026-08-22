@@ -6,7 +6,7 @@ const CONTAINERS = new Set([
   "hosting-php-fpm",
   "hosting-redis",
 ]);
-const EXEC_CONTAINERS = new Set([...CONTAINERS, "hosting-npm"]);
+const EXEC_CONTAINERS = new Set([...CONTAINERS, "hosting-npm", "hosting-sync"]);
 const INSPECT_CONTAINERS = new Set([
   ...CONTAINERS,
   "hosting-agent",
@@ -15,6 +15,7 @@ const INSPECT_CONTAINERS = new Set([
   "hosting-files",
   "hosting-npm",
   "hosting-phpmyadmin",
+  "hosting-sync",
   "hosting-ui",
 ]);
 const WP_COMMANDS = new Set([
@@ -209,6 +210,20 @@ function validateMysql(command, environment) {
   }
 }
 
+function validateSync(command) {
+  const script = 'key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"; exec wget -qO- --header="X-API-Key: $key" "http://127.0.0.1:8384$1"';
+  const allowed = new Set([
+    "/rest/system/connections",
+    "/rest/db/status?folder=hosting-websites",
+    "/rest/db/status?folder=hosting-runtime-config",
+    "/rest/db/status?folder=hosting-db-recovery",
+  ]);
+  if (command.length !== 5 || command[0] !== "sh" || command[1] !== "-c"
+    || command[2] !== script || command[3] !== "sh" || !allowed.has(command[4])) {
+    deny("Syncthing operation is not allowed");
+  }
+}
+
 function validateRedis(command) {
   if (command.join("\0") === ["redis-cli", "--raw", "INFO"].join("\0")) return;
   if (command[0] === "redis-cli" && command[1] === "CONFIG" && command[2] === "SET") {
@@ -233,6 +248,7 @@ function validateExec(argv) {
   else if (parsed.container === "hosting-db") validateMysql(parsed.command, parsed.environment);
   else if (parsed.container === "hosting-redis") validateRedis(parsed.command);
   else if (parsed.container === "hosting-npm") validateNpm(parsed.command);
+  else if (parsed.container === "hosting-sync") validateSync(parsed.command);
   else deny("Container operation is not allowed");
   return argv;
 }

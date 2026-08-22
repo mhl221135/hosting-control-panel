@@ -122,6 +122,12 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+if [ "$dry_run" -eq 0 ]; then
+  progress_started="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  progress_active=1
+  write_progress running
+fi
+
 # This program is intentionally passed to a local or remote POSIX shell.
 # shellcheck disable=SC2016
 inventory_script='root=$1
@@ -174,10 +180,8 @@ sort -t '	' -k1,1 -k2,2r "$inventory" | awk -F '\t' -v keep=1 -v cutoff="$app_da
 ' > "$selected"
 
 if [ "$dry_run" -eq 0 ]; then
-  progress_started="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   progress_total="$(awk 'NF { count++ } END { print count + 0 }' "$selected")"
   progress_total_bytes="$(awk -F '\t' 'NF { total += $3 } END { printf "%.0f", total + 0 }' "$selected")"
-  progress_active=1
   write_progress running
 fi
 

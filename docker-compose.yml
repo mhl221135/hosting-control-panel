@@ -1,4 +1,33 @@
 services:
+  hosting-sync:
+    image: syncthing/syncthing:2.1.2
+    container_name: hosting-sync
+    restart: unless-stopped
+    user: "33:33"
+    ports:
+      - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/tcp"
+      - "${SYNC_LISTEN_IP:-0.0.0.0}:${SYNC_PORT:-22001}:22000/udp"
+      - "${SYNC_GUI_LISTEN_IP:-127.0.0.1}:${SYNC_GUI_PORT:-8834}:8384/tcp"
+    volumes:
+      - ${SYNC_CONFIG_DIR:-${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}/syncthing}:/var/syncthing/config
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/websites:/var/syncthing/websites
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs:/var/syncthing/runtime-config
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/replication:/var/syncthing/replication
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: ${SYNC_MEMORY_LIMIT:-2g}
+    cpus: ${SYNC_CPU_LIMIT:-1.50}
+    networks:
+      - hosting-net
+    healthcheck:
+      test: ["CMD-SHELL", "key=$$(sed -n 's:.*<apikey>\\(.*\\)</apikey>.*:\\1:p' /var/syncthing/config/config.xml); syncthing cli --gui-address=http://127.0.0.1:8384 --gui-apikey=$$key show system >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   hosting-agent:
     image: hosting-agent:1.1
     build:
@@ -66,7 +95,7 @@ services:
       - hosting-net
 
   hosting-ui:
-    image: hosting-ui:2.41
+    image: hosting-ui:2.42
     build:
       context: ./ui-manager
     container_name: hosting-ui
@@ -84,6 +113,7 @@ services:
       SITES_MAP_PATH: /srv/configs/nginx/conf.d/sites.map
       POOLS_PATH: /srv/configs/php-fpm/pools.conf
       CACHE_MAP_PATH: /srv/configs/nginx/conf.d/cache.map
+      WP_CACHE_CONTROL_STATE_PATH: /srv/configs/wp/wordpress-cache-control.json
       BILLING_ENFORCEMENT_MAP_PATH: /srv/configs/nginx/conf.d/billing-enforcement.map
       WEBSITES_ROOT: /srv/websites
       APP_DATA_ROOT: /srv/app-data
@@ -116,6 +146,10 @@ services:
       UI_SETTINGS_KEY: ${UI_SETTINGS_KEY:-}
       INSTALLATION_ROLE: ${INSTALLATION_ROLE:-standalone}
       SERVER_ID: ${SERVER_ID:-hosting-server}
+      HOSTING_PEER_HEALTH_URL: ${HOSTING_PEER_HEALTH_URL:-}
+      HOSTING_PEER_SERVER_ID: ${HOSTING_PEER_SERVER_ID:-}
+      HOSTING_PEER_API_TOKEN: ${HOSTING_PEER_API_TOKEN:-}
+      HOSTING_SYNC_PEER_DEVICE_ID: ${HOSTING_SYNC_PEER_DEVICE_ID:-}
       INSTALLATION_ROLE_PATH: /run/hosting-machine/role.json
       NPM_API_URL: ${NPM_API_URL:-http://hosting-npm:81/api}
       NPM_IDENTITY: ${NPM_IDENTITY:?Set NPM_IDENTITY in .env}
@@ -136,12 +170,13 @@ services:
       - ${BACKUPS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/backups}:/srv/backups
       - ${EXPORTS_DIR:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/exports}:/srv/exports
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/imports:/srv/imports
+      - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/replication:/srv/replication:ro
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/nginx:/srv/configs/nginx
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php-fpm:/srv/configs/php-fpm
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php:/srv/configs/php
       - ${PHP_GLOBAL_INI_PATH:-${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/php/global.ini}:/srv/configs/php/global.ini
       - ${HOSTING_ROOT:-/media/ssdmount/websites-v2}/app-data/configs/wp:/srv/configs/wp
-      - ${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}:/run/hosting-machine:ro
+      - ${HOSTING_MACHINE_STATE_DIR:-/etc/hosting-control}/role.json:/run/hosting-machine/role.json:ro
     networks:
       - hosting-net
     depends_on:

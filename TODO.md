@@ -10,39 +10,6 @@ backlog only when their acceptance criteria are satisfied.
 2. Qualify live billing payments, then carefully pilot local enforcement.
 3. Build the isolated mail platform last, after hosting replication is proven.
 
-## WordPress Site Cache Control Plugin
-
-Add a small panel-managed must-use WordPress plugin to every current WordPress
-website and install it automatically during fresh provisioning and WordPress
-imports. Its Tools page should provide separate **FastCGI**, **OPcache**,
-**Redis**, and **Cloudflare** purge actions plus **Purge all**.
-
-- Authenticate panel calls with a rotatable, site-scoped credential. A token
-  copied from one website must never authorize another website or any general
-  panel API. Never place panel, Docker, Redis, or Cloudflare credentials in
-  WordPress.
-- Restrict the panel endpoint to the configured canonical primary website,
-  reject aliases and non-WordPress roots, rate-limit failures and successful
-  requests, and retain a bounded redacted audit history.
-- Purge FastCGI by advancing only that site's cache generation. Flush only the
-  site's Redis namespace (`WP_REDIS_PREFIX` is already domain-scoped). Purge
-  the matching Cloudflare zone through the panel's existing integration.
-- Never use global `opcache_reset()` from a website. Invalidate only cached PHP
-  files beneath the current site's real `ABSPATH`, with bounded traversal and
-  a clear count of invalidated and failed files.
-- Return a per-layer result so one unavailable integration does not disguise
-  successful local purges. Require a WordPress administrator capability and a
-  nonce for every button; do not expose an unauthenticated WordPress REST or
-  AJAX action.
-- Provide an idempotent bulk install/update command for existing sites, a
-  deterministic packaged plugin version, safe rollback/removal instructions,
-  tests for cross-site token rejection and path confinement, and mobile-safe
-  WordPress admin controls.
-
-This is independent of the remote billing-enforcement plugin. Do not grant the
-billing plugin cache or hosting-control authority merely because both are
-installed on one website.
-
 ## 1. Separate Billing And Entitlement Service
 
 Phase 1 is implemented as the isolated `hosting-billing` service. Its
@@ -472,51 +439,109 @@ write rejection, mutating-scheduler suppression, and a clearly labeled
 read-only panel mode are implemented. Checksum-verified backup reception,
 guarded backup-based standby preparation, and a systemd success-chain that
 refreshes the fenced prepared standby after deep verification are implemented.
-Pairing, live replication, lag reporting, and panel-driven ingress cutover
-remain future work. A guarded host-level local promotion command is implemented;
+The project-owned Syncthing path now continuously mirrors website files and
+runtime configuration one way, while hourly verified logical database recovery
+points synchronize separately. The standby now pre-imports each new logical
+snapshot into its stopped database volume and refreshes the coordinated warm
+recovery marker every ten minutes, so promotion does not normally import SQL
+during an outage. Resumable finalizers, exact database/runtime reconciliation
+with bounded website-file lag during planned rebuild/failback, a
+reboot-time writable-service fence, warm preparation, and a disabled-by-default
+automatic outage watchdog are implemented. Token-authenticated panel pairing,
+bounded historical lag alerts, and panel-driven promotion/rebuild/failback are
+implemented. A bounded read-only peer health probe with expected server identity is
+implemented in the standby Replication view. A guarded host-level local promotion command is implemented;
 it requires explicit old-primary fencing confirmation and intentionally does
 not alter public ingress.
+
+The watchdog now fails closed in `monitor` mode and cannot fabricate the
+`OLD-PRIMARY-FENCED` assertion. Optional activation requires a fresh root-owned
+fencing receipt bound to the configured primary identity and exact prepared
+recovery point; the receipt is consumed after success. A qualified external
+fencing provider or witness is still required before promotion can be fully
+unattended.
+
+An explicitly risk-accepted `unreachable` emergency policy is implemented for
+the requested home-hosting power-loss case. It waits through a bounded grace
+period after both public health and the Syncthing peer disappear, rechecks the
+prepared recovery and Cloudflare preview, records the degraded fencing mode,
+and can then promote automatically. It is armed on the current HP standby
+after the contained no-write cutover drill. The full write/failback drill is
+also complete.
 
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
-+ card in Health with pass/warning/fail checks) are implemented. The preflight
++ card in Replication with pass/warning/fail checks) are implemented. The preflight
 verifies role, current receiver receipt, app-data and per-site manifests,
 artifact presence/size, freshness, filesystem space, configuration, Docker,
 and ingress. A durable allowlisted deep-verification job streams checksums,
 checks archive integrity and safe entry types, and binds its result to the exact
 receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
 covered by tests. Fenced local promotion is implemented as a host-level command.
-DNS/tunnel cutover, panel-driven promotion, pairing, and optional warm-replication
-lag reporting remain future work; backup receiver recovery-point health is
+External witness-provider deployment and live qualification remain future
+work; backup receiver recovery-point health is
 already reported in the panel.
+
+The Replication workspace queues bounded machine-local recovery, finalizer,
+watchdog, promotion, rebuild, failback, and optional witness-fencing actions. A
+root systemd processor maps each request to one fixed unit or guarded script;
+request payloads cannot choose commands or arguments.
 
 A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
 hostname file, read-only preview, promoted-primary gating, exact machine-local
 DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
 attempts. A guarded operator wrapper now previews and runs local promotion plus
 the allowlisted tunnel cutover without weakening the external-fencing gate. A
-guarded no-write drill reversion command is also implemented. Panel controls,
-route qualification, automatic public verification,
-pairing, and automatic failover remain future work.
+guarded no-write drill reversion command is also implemented. Route
+qualification and automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
+  the HP standby for the reviewed allowlist after local and public tunnel
+  drills. It requires exact Syncthing state, a prepared database recovery point
+  no older than two hours, six failed checks, and a five-minute outage grace.
+  A recovered former primary still requires operator fencing and rebuild; this
+  mode deliberately accepts split-brain risk and is not quorum-based HA.
+  The current primary now has an optional non-reversing peer fence: after an
+  expected replica reports a completed promotion, it stops hosting write and
+  replication services while leaving NPM available for unrelated routes.
+  The six-check detector and healthy recovery were qualified live in
+  monitor-only mode on 2026-08-22 while production website services remained
+  online. The same day, the complete automatic path was qualified with a
+  contained two-host allowlist: HP waited for the threshold and grace period,
+  promoted the prepared recovery, switched and verified both Cloudflare
+  routes, served the selected site, and returned to standby after a no-write
+  rollback. A later operator-controlled 111-host write/failback drill passed;
+  fully unattended all-host promotion remains intentionally unforced because
+  the two-node design has no external quorum witness.
+  Cloudflare cutover performs read-after-write verification for every selected
+  tunnel ingress rule and DNS record before recording success.
+  Timer restart recovery reconstructs a missing final promoted state only from
+  matching durable local-promotion and active tunnel-cutover receipts.
+  If local promotion completed but a transactional Cloudflare attempt rolled
+  back, later watchdog runs now retry only the still-qualified public cutover;
+  they do not reimport databases or rerun local promotion. An active cutover
+  receipt can repair an interrupted promotion-flag write, while an uncertain
+  `rollback-failed` receipt remains blocked for manual recovery.
+  Standby notification delivery now stays active and emits deduplicated
+  Telegram/SMTP events on meaningful watchdog state transitions. Warning and
+  recovery delivery through both channels was qualified live on 2026-08-22.
+
+Successful preparation now generates a sorted, recovery-hash-bound candidate
+inventory from the restored routing map. A separate preview/typed-confirmation
+command promotes reviewed candidates to the active failover allowlist, so new
+sites are discovered automatically without silently gaining DNS cutover
+authority. The standby panel now shows validated active/candidate counts and
+bounded pending additions/removals. Automatic activation now also requires the
+current recovery-bound candidate inventory and active allowlist checksums and
+counts to match the qualification receipt. Unchanged candidates remain valid
+across newer database recovery points. The standby can now automatically
+requalify changed candidates after warm preparation and refresh unchanged
+provider eligibility at most daily; only Cloudflare-ready hosts are accepted.
+Panel-based acceptance remains future work.
 
 ### Roles And Pairing
 
-- Extend the implemented `standalone`, `primary`, and `standby` installation
-  roles into pairing and promotion workflows.
-- Pair servers through a narrow authenticated API using independently rotatable
-  credentials or mutual TLS.
-- Extend the implemented backup-receiver status (source identity, last receive,
-  recovery age, set/group counts, and deep-verification freshness) with pairing
-  health and MySQL/filesystem replication lag once warm replication exists.
-- A standby must suppress provisioning, scheduled maintenance, backups,
-  certificate issuance, DNS writes, and all other mutating control-plane work.
-- Store the effective role and unique server identity in a local durable marker
-  outside every replicated path. Replication must never overwrite a standby
-  role with the primary role.
-- Keep machine-local `.env`, storage paths, backup retention, performance
-  limits, WAN addresses, and role policy separate. Do not synchronize them from
-  the primary.
+- Add panel-based rotation/revocation for the implemented narrow Bearer-token
+  pairing credential; initial rotation remains a machine-local `.env` operation.
 
 ### Role-Aware Panel And API
 
@@ -525,24 +550,11 @@ pairing, and automatic failover remain future work.
   only valid transitions. Changing role must use preview, readiness checks,
   explicit typed confirmation, an audit event, and rollback; it must never be
   implemented as an unrestricted settings dropdown.
-- Add **Promote standby** and **Demote/rebuild as standby** workflows. Promotion
-  must verify a completed recovery point, fence the previous primary, disable
-  incoming replication, apply the standby resource profile, start and validate
-  the writable stack, and only then allow public-ingress cutover.
+- Add a bounded audit-history view for panel-driven promotion, rebuild, and
+  failback results; the current card retains only the latest processor result.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.
-- Hide or visibly disable **Provision**, **Maintenance**, WordPress updates,
-  image optimization, site removal, Cloudflare changes, NPM/certificate
-  changes, cache controls, local backup scheduling, package deployment, import,
-  and every other action that can mutate hosted service state.
-- UI hiding is not an authorization boundary. Every corresponding server API,
-  background scheduler, Telegram command, startup task, and job worker must
-  check the local role and reject or suppress mutating work while the role is
-  `standby`.
-- Keep read-only website inventory, replication status, received-backup
-  verification, database lag, filesystem recovery point, source commit,
-  configuration compatibility, disk capacity, and promotion readiness visible.
 - Keep the implemented standby startup suppression for queued non-verification
   jobs; future pairing must import remote job evidence as non-runnable history.
 
@@ -554,9 +566,12 @@ pairing, and automatic failover remain future work.
 - Do not mirror backup deletions. The replica receives only completed sets into
   staging, verifies manifests/checksums/archive integrity, atomically promotes
   them, and applies its own retention after a newer usable set exists.
-- Add role-specific performance profiles and explicit overrides. An 8 GB
-  standby must not inherit the 16 GB primary's MySQL, Redis, OPcache, PHP-FPM,
-  or cache settings.
+- Extend the installed role-specific performance defaults with panel-managed,
+  previewable overrides. Fresh 8 GB standbys now receive conservative MySQL,
+  Redis, and machine-local OPcache defaults and do not inherit the primary's
+  capacity assumptions. The current 16 GB hp-server uses the implemented
+  `standby-16gb` policy and matches the primary's 2 GiB InnoDB, 1 GiB Redis,
+  and 5 GB OPcache limits while retaining MySQL server ID 2.
 - While in standby mode, run only replication, verification, health, and the
   minimum internal services required for readiness. Redis and FastCGI cache are
   disposable and should remain empty; PHP/public nginx may remain stopped until
@@ -567,16 +582,15 @@ pairing, and automatic failover remain future work.
 
 ### Replication
 
-- Keep the implemented daily receiver recovery age clearly labeled as backup
+- Keep the implemented hourly receiver recovery age clearly labeled as backup
   reception; never describe it as real-time or continuous synchronization.
-- Add optional low-load warm replication: snapshot/staged one-way website-file
-  synchronization at a configurable interval and MySQL GTID replication with
-  measured lag. Keep the daily verified backup sets as an independent recovery
-  layer rather than replacing them with live replication.
-- Use unique MySQL server IDs, GTID replication, encrypted credentials,
-  retention sized for outages, and monitored replica lag.
-- Replicate website files and required non-database application data one way
-  with snapshot/staging semantics.
+- Extend the implemented panel status for the project-owned Syncthing warm
+  path with paired-server identity and historical lag alerts. Current status
+  reports peer connectivity, per-folder backlog/exactness, receive-only drift,
+  and hourly database recovery-point age.
+- The implemented database path intentionally uses hourly logical snapshots,
+  not live MySQL file copying or GTID replication. Reconsider GTID only if the
+  measured hourly recovery-point objective later proves insufficient.
 - Define and test exact replication mechanisms for NPM state/certificates,
   panel state, encryption keys, agent secrets, and active runtime
   configuration. Never copy live databases as ordinary files.
@@ -591,10 +605,31 @@ pairing, and automatic failover remain future work.
 - Check the active host from an independent location, not only from its standby.
 - Require fencing so the old primary cannot serve traffic, write databases, or
   update Cloudflare before promotion.
+- Deploy and qualify an independent external fence provider against the
+  implemented signed, recovery-bound witness client. Until then, receipt-mode
+  automatic activation deliberately pauses in `awaiting-fence`.
 - Begin with operator-confirmed promotion using the documented runbook.
-- After repeated drills, optional automatic promotion may update selected
-  Cloudflare DNS records to the standby WAN IP with anti-flap timing, quorum or
-  witness confirmation, allowlists, and an audit trail.
+- The controlled local outage drill against hp-server is complete: OPI5 was
+  fenced, the synchronized database was restored, representative WordPress,
+  PHP, and static sites were validated internally, HP was reverted, replication
+  resumed, and OPI5/public traffic recovered. The two-host public tunnel drill
+  is also complete: a qualification hostname and its `www` alias were served
+  through HP's tunnel, verified in HP nginx logs, rolled back to their prior records,
+  and HP returned to standby with no public writes. The later 111-host
+  write/failback drill is also complete: a promoted-HP database/file write was
+  restored on OPI5, ingress returned to OPI5, the public sweep had zero
+  failures, and HP demoted to receive-only standby. The automatic outage
+  watchdog still requires exact synchronization; planned failback permits only
+  a small bounded website-file delta while database/runtime state stays exact.
+- The automatic outage path was qualified on 2026-08-22 with a temporary
+  two-host allowlist. OPI5's panel-health and exact Syncthing-peer signals were
+  stopped while its website-serving nginx/NPM remained online. HP reached
+  `promoted-unreachable` only after six failures and the five-minute grace,
+  served the selected site through its Cloudflare tunnel, then restored the
+  original records and returned to fenced standby with no public writes. A
+  stale completed rollback receipt discovered by the drill is now archived
+  automatically before a later cutover; active and failed rollback receipts
+  still block replacement.
 - For one router/WAN address, promotion changes the router/load-balancer target;
   two NPM containers cannot simultaneously own public ports 80/443.
 - Failback rebuilds the old primary from the new primary. Never merge two
@@ -603,15 +638,11 @@ pairing, and automatic failover remain future work.
   authoritative primary. A recovered former primary must remain fenced and
   must not resume its old replication, schedulers, DNS authority, or writable
   services.
-- Add a guarded **Rebuild former primary as standby** workflow that transfers
-  current website files, databases, required application state, and the tested
-  source release from the promoted primary; validates checksums, schema,
-  configuration, and health; then establishes a new one-way replication epoch.
-- Add an optional controlled **Fail back traffic** workflow only after the
-  rebuilt host is fully synchronized. It must stop new writes, wait for the
-  final database/files delta, verify a common recovery point, switch ingress,
-  and demote the previous active host. Never perform bidirectional database
-  merge or start both machines as writable primaries.
+- Keep the qualified **Rebuild former primary as standby** and **Fail back
+  traffic** workflows covered by regression tests. Failback keeps HP serving
+  while OPI5 imports and starts, restores recorded direct ingress, waits through
+  a transition grace, and only then demotes HP. Database/runtime state remains
+  exact; website lag is bounded. Never perform a bidirectional database merge.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
 

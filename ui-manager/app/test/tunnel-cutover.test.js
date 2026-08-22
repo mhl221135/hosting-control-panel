@@ -5,6 +5,7 @@ const path = require("path");
 const test = require("node:test");
 const {
   TunnelCutover,
+  blockedPreviewMessage,
   decodeTunnelToken,
   desiredTunnelConfig,
   normalizeHosts,
@@ -31,6 +32,7 @@ class FakeApi {
     ]);
     this.updatedConfigs = [];
     this.failNextCreate = false;
+    this.corruptNextCreate = false;
   }
 
   async zones() { return [{ id: "zone-1", name: "example.com" }]; }
@@ -56,7 +58,13 @@ class FakeApi {
       throw new Error("simulated DNS failure");
     }
     const records = this.records.get(payload.name) || [];
-    records.push({ id: `new-${records.length}`, ...structuredClone(payload) });
+    const content = this.corruptNextCreate ? "wrong.example.net" : payload.content;
+    this.corruptNextCreate = false;
+    records.push({
+      id: `new-${records.length}`,
+      ...structuredClone(payload),
+      content,
+    });
     this.records.set(payload.name, records);
   }
 }
@@ -107,6 +115,33 @@ test("preview is non-mutating and shows exact DNS replacement", async () => {
   assert.equal(fs.existsSync(files.statePath), false);
 });
 
+test("apex mail and verification records are preserved while subdomain conflicts block", async () => {
+  const files = fixture();
+  const api = new FakeApi();
+  api.records.set("example.com", [
+    { id: "old-a", type: "A", name: "example.com", content: "192.0.2.10", ttl: 1, proxied: true },
+    { id: "mx", type: "MX", name: "example.com", content: "mail.example.com", ttl: 300, priority: 10 },
+    { id: "txt", type: "TXT", name: "example.com", content: "verification", ttl: 300 },
+  ]);
+  api.records.set("www.example.com", [
+    { id: "txt-www", type: "TXT", name: "www.example.com", content: "verification", ttl: 300 },
+  ]);
+  const cutover = manager(api, files);
+  const apex = await cutover.plan(["example.com"]);
+  const subdomain = await cutover.plan(["www.example.com"]);
+  assert.equal(apex.ready, true);
+  assert.equal(apex.records[0].current.length, 1);
+  assert.equal(subdomain.ready, false);
+});
+
+test("blocked preview produces a bounded failure summary", () => {
+  assert.equal(blockedPreviewMessage({ records: [{ status: "ready" }] }), "");
+  assert.equal(
+    blockedPreviewMessage({ records: [{ status: "blocked" }, { status: "ready" }, { status: "blocked" }] }),
+    "Tunnel cutover preview contains 2 blocked hostnames",
+  );
+});
+
 test("apply refuses a standby even with confirmation", async () => {
   const files = fixture("standby");
   await assert.rejects(
@@ -126,6 +161,27 @@ test("apply records rollback state and marks ingress active", async () => {
   assert.equal(JSON.parse(fs.readFileSync(files.promotionPath)).public_ingress_cutover, true);
   assert.equal(fs.statSync(files.statePath).mode & 0o777, 0o600);
   assert.equal(fs.statSync(files.promotionPath).mode & 0o777, 0o644);
+});
+
+test("apply archives a completed rollback receipt before a new cutover", async () => {
+  const files = fixture();
+  fs.writeFileSync(files.statePath, JSON.stringify({ version: 1, status: "rolled-back" }), { mode: 0o600 });
+  const result = await manager(new FakeApi(), files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS");
+  assert.equal(result.status, "active");
+  assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "active");
+  assert.equal(
+    fs.readdirSync(files.directory).some((name) => name.startsWith("tunnel-cutover.json.rolled-back.")),
+    true,
+  );
+});
+
+test("apply still refuses an active cutover receipt", async () => {
+  const files = fixture();
+  fs.writeFileSync(files.statePath, JSON.stringify({ version: 1, status: "active" }), { mode: 0o600 });
+  await assert.rejects(
+    manager(new FakeApi(), files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS"),
+    /cutover state already exists/,
+  );
 });
 
 test("rollback restores the prior tunnel config and DNS record", async () => {
@@ -160,4 +216,20 @@ test("apply failure immediately restores tunnel and DNS state", async () => {
   assert.equal(api.records.get("example.com")[0].content, "192.0.2.10");
   assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "rolled-back");
   assert.equal(JSON.parse(fs.readFileSync(files.promotionPath)).public_ingress_cutover, false);
+});
+
+test("apply verifies Cloudflare state and rolls back a mismatched DNS write", async () => {
+  const files = fixture();
+  const api = new FakeApi();
+  api.corruptNextCreate = true;
+  await assert.rejects(
+    manager(api, files).apply(["example.com"], "SWITCH-TUNNEL-INGRESS"),
+    /DNS verification failed/,
+  );
+  assert.deepEqual(api.config.ingress, [
+    { hostname: "panel.example.com", service: "http://hosting-ui:8687" },
+    { service: "http_status:404" },
+  ]);
+  assert.equal(api.records.get("example.com")[0].content, "192.0.2.10");
+  assert.equal(JSON.parse(fs.readFileSync(files.statePath)).status, "rolled-back");
 });

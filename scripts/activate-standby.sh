@@ -8,11 +8,11 @@ Usage: activate-standby.sh --preview|--apply [options]
 
 Options:
   --root PATH            Standby installation root
-  --hosts-file PATH      One production hostname per line
+  --hosts-file PATH      Reviewed production hostname allowlist
   --api-token-file PATH  Root-readable Cloudflare management token
   --recovery-id ID       Exact prepared recovery identifier
   --confirm TEXT         Required with --apply; must be ACTIVATE-STANDBY
-  --fence-confirm TEXT   Required with --apply; must be OLD-PRIMARY-FENCED
+  --fence-confirm TEXT   OLD-PRIMARY-FENCED or PRIMARY-UNREACHABLE-RISK-ACCEPTED
 
 Preview validates both local promotion and the selected Cloudflare changes.
 Apply promotes the prepared standby first, then switches only the listed hosts.
@@ -67,20 +67,31 @@ set --
 if [ "$mode" = --preview ]; then
   "$project_dir/scripts/promote-standby.sh" --dry-run "$@"
   export CLOUDFLARE_TUNNEL_API_TOKEN
-  "$project_dir/scripts/tunnel-cutover.sh" --preview --hosts-file "$hosts_file"
+  preview_file="$(mktemp)"
+  trap 'rm -f -- "$preview_file"' EXIT HUP INT TERM
+  "$project_dir/scripts/tunnel-cutover.sh" --preview --hosts-file "$hosts_file" > "$preview_file"
+  jq -e '.ready == true and (.hosts | type == "array") and (.records | type == "array")' \
+    "$preview_file" >/dev/null \
+    || { printf 'Tunnel cutover preview returned an invalid result.\n' >&2; exit 1; }
+  printf 'Tunnel cutover preview passed for %s hostnames (%s DNS records).\n' \
+    "$(jq '.hosts | length' "$preview_file")" "$(jq '.records | length' "$preview_file")"
+  rm -f -- "$preview_file"
+  trap - EXIT HUP INT TERM
   printf 'Standby activation preview passed. No local role, service, DNS, or tunnel route changed.\n'
   exit 0
 fi
 
 [ "$confirmation" = ACTIVATE-STANDBY ] \
   || { printf 'Apply requires --confirm ACTIVATE-STANDBY.\n' >&2; exit 2; }
-[ "$fence_confirmation" = OLD-PRIMARY-FENCED ] \
-  || { printf 'Apply requires --fence-confirm OLD-PRIMARY-FENCED.\n' >&2; exit 2; }
+case "$fence_confirmation" in
+  OLD-PRIMARY-FENCED|PRIMARY-UNREACHABLE-RISK-ACCEPTED) ;;
+  *) printf 'Apply requires a supported --fence-confirm value.\n' >&2; exit 2 ;;
+esac
 [ -n "$recovery_id" ] \
   || { printf 'Apply requires the exact --recovery-id shown by preview.\n' >&2; exit 2; }
 
 "$project_dir/scripts/promote-standby.sh" --apply "$@" \
-  --confirm PROMOTE-STANDBY --fence-confirm OLD-PRIMARY-FENCED
+  --confirm PROMOTE-STANDBY --fence-confirm "$fence_confirmation"
 
 export CLOUDFLARE_TUNNEL_API_TOKEN
 if ! "$project_dir/scripts/tunnel-cutover.sh" --apply --hosts-file "$hosts_file" \
@@ -88,6 +99,14 @@ if ! "$project_dir/scripts/tunnel-cutover.sh" --apply --hosts-file "$hosts_file"
   printf 'Local promotion succeeded but public ingress did not. The host remains an isolated primary for inspection.\n' >&2
   printf 'Do not restart the old primary. Correct ingress or use drill reversion only if no public writes occurred.\n' >&2
   exit 1
+fi
+if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-database-replication.timer ]; then
+  if systemctl enable --now hosting-database-replication.timer >/dev/null 2>&1 \
+    && systemctl start hosting-database-replication.service; then
+    systemctl restart hosting-database-replication.timer >/dev/null 2>&1 || true
+  else
+    printf 'Warning: public cutover succeeded, but the initial database replication snapshot failed.\n' >&2
+  fi
 fi
 
 printf 'Standby activation completed for the explicitly selected hostnames.\n'

@@ -17,6 +17,47 @@ and phpMyAdmin intentionally remain stopped. Do not edit the marker to promote
 the server; pairing, verified backup reception, and controlled promotion are
 separate pending phases in `docs/HIGH_AVAILABILITY.md`.
 
+After the replication and failover units exist, install the bounded HA panel
+request processor on each primary and standby:
+
+```bash
+sudo ./scripts/install-ha-panel-control.sh --ui-data-dir /media/ssdmount/websites-v2/app-data/ui-manager
+```
+
+Use the actual machine-local UI data path. The timer accepts only the fixed
+actions documented in `API.md`; it does not grant the panel a host shell
+or a promotion/fencing bypass. If a selected unit is already active, the panel
+reports that state immediately instead of waiting behind the existing run.
+
+The installer also reads the `HA_PEER_*` values from the machine-local `.env`.
+They are required only for rebuild/failback controls and are not exposed to the
+panel container. Promotion continues to use the existing root-owned qualified
+hostname list and Cloudflare token file.
+
+Authenticated pairing requires the same random `HOSTING_PEER_API_TOKEN` on both
+servers, each server's `HOSTING_PEER_HEALTH_URL` ending in `/ha/v1/status`, and
+the opposite `HOSTING_PEER_SERVER_ID`. Recreate `hosting-ui` after changing
+these environment values.
+
+An external fencing provider is optional and disabled by default. Its HTTPS
+response must be HMAC signed, identify the exact primary and prepared recovery,
+state the completed fencing method (`power`, `network`, or `service`), and expire
+within 15 minutes. Configure only a genuinely independent provider:
+
+```sh
+sudo ./scripts/install-external-witness.sh \
+  --url https://witness.example.net/v1/fence \
+  --token-file /etc/hosting-control/witness.token \
+  --signing-key-file /etc/hosting-control/witness-signing.key \
+  --primary-server-id hosting-primary
+```
+
+Both credential files must be root-owned mode `0600`. **Request external
+fence** verifies the signature and writes the ordinary short-lived root-owned
+fencing receipt consumed by promotion. Configuring this client does not make a
+same-LAN service an independent witness and does not itself prove that the
+provider actually fenced the primary.
+
 Before enabling billing payments, route a dedicated HTTPS hostname through NPM
 to `hosting-billing:8787`, save that exact origin as the public billing URL, and
 configure the WooCommerce **Order updated** webhook at
@@ -200,7 +241,18 @@ outage workflow as one guarded operator action. It still requires the exact
 prepared recovery ID, an allowlisted hostname file, a mode-`0600` Cloudflare
 management-token file, and explicit confirmation that the old primary was
 externally fenced. See `docs/HIGH_AVAILABILITY.md` for the complete command and
-rollback boundaries.
+rollback boundaries. Successful previews print bounded counts rather than the
+complete production hostname and Cloudflare-zone inventory.
+
+Successful standby preparation refreshes a recovery-bound candidate hostname
+inventory without changing the active cutover allowlist. Run
+`scripts/review-failover-hosts.sh --preview`, inspect additions/removals, and
+accept it with the exact recovery ID before relying on newly provisioned sites
+during failover. The accepted file is
+`/etc/hosting-control/failover-hosts.txt`.
+Preparation rejects the complete candidate inventory when any mapped website
+root is absent or symlinked; repair backup coverage instead of accepting a
+partial failover list.
 
 ## Unmatched Public Requests
 
@@ -221,6 +273,12 @@ fencing the old primary. The supported baseline is manual recovery from
 replicated, verified backup sets. See
 [HIGH_AVAILABILITY.md](HIGH_AVAILABILITY.md) for state ownership, RPO/RTO
 levels, promotion order, public traffic switching, validation, and failback.
+
+After a real HP promotion, run `scripts/rebuild-former-primary.sh --dry-run`
+on HP before rebuilding OPI5. Apply requires `--confirm
+REBUILD-FORMER-PRIMARY`, creates a final logical recovery point, and leaves HP
+authoritative. Success is recorded in
+`/etc/hosting-control/former-primary-rebuild.json`; it does not switch DNS.
 
 ## Promotion Readiness Preflight
 

@@ -9,6 +9,50 @@ test("resolves versioned public assets by URL pathname", () => {
   assert.equal(resolvePublicFile("/app/public", "/"), "/app/public/index.html");
 });
 
+test("WordPress cache control is site-scoped, authenticated, and available in maintenance", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const plugin = fs.readFileSync(path.resolve(__dirname, "../wordpress/hosting-cache-control.php"), "utf8");
+  assert.match(server, /\/remote\/cache\/v1\/purge/);
+  assert.match(server, /wordpressCacheControl\.authenticate/);
+  assert.match(server, /purgeFastcgiForSite/);
+  assert.match(server, /cloudflareSecurity\.purgeZoneCache/);
+  assert.match(html, /id="installCacheControlAll"/);
+  assert.match(source, /\/api\/maintenance\/cache-control\/install/);
+  assert.match(plugin, /current_user_can\('manage_options'\)/);
+  assert.match(plugin, /check_ajax_referer\('hosting-cache-control'/);
+  assert.doesNotMatch(plugin, /wp_ajax_nopriv/);
+  assert.match(plugin, /realpath\(ABSPATH\)/);
+  assert.doesNotMatch(plugin, /opcache_reset/);
+});
+
+test("HA panel controls queue only bounded machine-local operations", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const processor = fs.readFileSync(path.resolve(__dirname, "../../../scripts/process-ha-panel-control.sh"), "utf8");
+  const install = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install.sh"), "utf8");
+  const upgrade = fs.readFileSync(path.resolve(__dirname, "../../../scripts/upgrade.sh"), "utf8");
+  assert.match(server, /api\/system\/ha-control/);
+  assert.match(server, /haControl\.request/);
+  assert.match(html, /id="replicateNow"/);
+  assert.match(html, /id="finalizeStandby"/);
+  assert.match(html, /id="runFailoverCheck"/);
+  assert.match(html, /id="promoteStandby"/);
+  assert.match(html, /id="completeFailback"/);
+  assert.match(html, /id="requestWitnessFence"/);
+  assert.match(processor, /primary:replicate-now/);
+  assert.match(processor, /standby:finalize-standby/);
+  assert.match(processor, /standby:failover-check/);
+  assert.match(processor, /standby:promotion-preview\|standby:promote-standby/);
+  assert.match(processor, /primary:rebuild-preview\|primary:rebuild-former-primary/);
+  assert.match(processor, /awaiting-unreachable-grace/);
+  assert.match(processor, /\.server_id \/\/ \.serverId/);
+  assert.match(install, /install-ha-panel-control\.sh/);
+  assert.match(upgrade, /install-wordpress-cache-control\.js/);
+  assert.doesNotMatch(processor, /eval|sh -c|bash -c/);
+});
+
 test("rejects public paths that escape the configured root", () => {
   assert.equal(resolvePublicFile("/app/public", "/..%2Fserver.js"), null);
   assert.equal(resolvePublicFile("/app/public", "/%E0%A4%A"), null);
@@ -17,8 +61,121 @@ test("rejects public paths that escape the configured root", () => {
 test("server exposes the bounded liveness endpoint used by standby promotion", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   assert.match(server, /pathname === "\/health"/);
-  assert.match(server, /sendJson\(res, 200, \{ ok: true, role: installationRole\.publicView\(\)\.role \}/);
+  assert.match(server, /serverId: installation\.serverId/);
+  assert.match(server, /failoverStatus: failover\.available \? failover\.status : "unavailable"/);
   assert.match(server, /"Cache-Control": "no-store"/);
+});
+
+test("server exposes a token-authenticated bounded peer endpoint and lag history", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  assert.match(server, /pathname === "\/ha\/v1\/status"/);
+  assert.match(server, /haPeerAuth\.authorized\(req\.headers\.authorization\)/);
+  assert.match(server, /replicationHistory\.sample/);
+  assert.match(compose, /HOSTING_PEER_API_TOKEN/);
+});
+
+test("a recovered former primary self-fences only for a promoted expected peer", () => {
+  const fence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/fence-former-primary.sh"), "utf8");
+  const installer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-former-primary-fence.sh"), "utf8");
+  assert.match(fence, /\.serverId == \$peer/);
+  assert.match(fence, /IN\("promoted", "promoted-unreachable"\)/);
+  assert.match(fence, /docker stop \$containers/);
+  assert.doesNotMatch(fence, /containers="[^"]*hosting-npm/);
+  assert.match(fence, /It never auto-unfences|Former primary fenced/);
+  assert.match(installer, /OnBootSec=15s/);
+  assert.match(installer, /OnUnitActiveSec=30s/);
+});
+
+test("warm standby uses a project-owned one-way Syncthing data path", () => {
+  const compose = fs.readFileSync(path.resolve(__dirname, "../../../docker-compose.yml"), "utf8");
+  const promotion = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
+  const dump = fs.readFileSync(path.resolve(__dirname, "../../../scripts/create-replication-dump.sh"), "utf8");
+  const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
+  const finalizer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/finalize-warm-sync.sh"), "utf8");
+  const databaseStage = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stage-standby-database.sh"), "utf8");
+  const finalizerInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-warm-sync-finalizer.sh"), "utf8");
+  const sourceStamp = fs.readFileSync(path.resolve(__dirname, "../../../scripts/stamp-source-release.sh"), "utf8");
+  const replicationInstall = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-replication-timer.sh"), "utf8");
+  const standbyFence = fs.readFileSync(path.resolve(__dirname, "../../../scripts/enforce-standby-fence.sh"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const syncService = compose.match(/  hosting-sync:[\s\S]*?\n  hosting-agent:/)?.[0] || "";
+  assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
+  assert.match(syncService, /\/var\/syncthing\/websites/);
+  assert.doesNotMatch(syncService, /\/var\/lib\/mysql/);
+  assert.match(promotion, /check-sync-ready\.sh/);
+  assert.match(promotion, /restore-replication-dump\.sh" --apply/);
+  assert.match(promotion, /compose stop hosting-sync/);
+  assert.match(dump, /--all-databases --single-transaction/);
+  assert.match(dump, /lock_dir=\/run\/hosting-control/);
+  assert.match(dump, /database-replication\.lock/);
+  assert.doesNotMatch(dump, /replication\/\.database-dump\.lock/);
+  assert.doesNotMatch(dump, /gsub\([^\n]*\\"/);
+  assert.match(replicationInstall, /OnActiveSec=10m/);
+  assert.match(warmPrepare, /check-sync-ready\.sh/);
+  assert.match(warmPrepare, /restore-replication-dump\.sh" --verify/);
+  assert.match(warmPrepare, /mode:"warm-sync"/);
+  assert.doesNotMatch(warmPrepare, /tar -x/);
+  assert.doesNotMatch(warmPrepare, /docker compose up/);
+  assert.match(finalizer, /for folder in hosting-websites hosting-runtime-config hosting-db-recovery/);
+  assert.match(finalizer, /\/rest\/db\/revert\?folder=\$folder/);
+  assert.doesNotMatch(finalizer, /operations folder-override/);
+  assert.match(finalizer, /source_release="\$\(cat "\$project_dir\/\.source-release"/);
+  assert.match(finalizer, /rest\/db\/scan\?folder=hosting-websites/);
+  assert.match(finalizer, /\.errors > 0/);
+  assert.match(finalizer, /check-sync-ready\.sh/);
+  assert.match(finalizer, /stage-standby-database\.sh/);
+  assert.match(finalizer, /stage-standby-database\.sh"\nwhile ! "\$project_dir\/scripts\/check-sync-ready\.sh"/);
+  assert.match(finalizer, /prepare-warm-standby\.sh" --apply/);
+  assert.match(sourceStamp, /git -C "\$project_dir" rev-parse --verify HEAD/);
+  assert.match(sourceStamp, /mv "\$temporary" "\$project_dir\/\.source-release"/);
+  assert.doesNotMatch(finalizer, /promote-standby/);
+  assert.doesNotMatch(finalizer, /tunnel-cutover/);
+  assert.match(finalizerInstall, /hosting-standby-fence\.service/);
+  assert.match(finalizerInstall, /hosting-warm-sync-finalizer\.timer/);
+  assert.match(databaseStage, /standby-database-prepared\.json/);
+  assert.match(databaseStage, /restore-replication-dump\.sh" --apply/);
+  assert.match(databaseStage, /docker compose stop hosting-db/);
+  assert.doesNotMatch(databaseStage, /hosting-nginx|tunnel-cutover/);
+  assert.match(standbyFence, /\[ "\$role" = standby \]/);
+  assert.match(standbyFence, /docker compose stop/);
+  assert.match(standbyFence, /hosting-db/);
+  assert.doesNotMatch(standbyFence, /docker compose up/);
+  const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
+  assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
+  assert.match(automatic, /AUTO_FAILOVER_MODE:-monitor/);
+  assert.match(automatic, /peer_connected/);
+  assert.match(automatic, /check-sync-ready\.sh/);
+  assert.match(automatic, /valid_fence_receipt/);
+  assert.match(automatic, /awaiting-fence/);
+  assert.match(automatic, /AUTO_FAILOVER_PUBLIC_STATE_FILE/);
+  assert.match(automatic, /AUTO_FAILOVER_FENCE_POLICY:-receipt/);
+  assert.match(automatic, /I-ACCEPT-SPLIT-BRAIN-RISK/);
+  assert.match(automatic, /awaiting-unreachable-grace/);
+  assert.match(automatic, /AUTO_FAILOVER_MAX_RECOVERY_AGE_SECONDS/);
+  assert.match(automatic, /blocked-stale-recovery/);
+  assert.match(automatic, /PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
+  assert.match(automatic, /primaryServerId == \$primary and \.recoveryId == \$recovery/);
+  assert.match(automatic, /activate-standby\.sh" --preview/);
+  assert.match(automatic, /--recovery-id "\$recovery_id" >\/dev\/null/);
+  assert.match(automatic, /--fence-confirm "\$fence_confirmation" >\/dev\/null/);
+  assert.match(automatic, /write_state activation-failed/);
+  assert.match(automatic, /\.public_ingress_cutover == true/);
+  assert.match(automatic, /apply_public_cutover/);
+  assert.match(automatic, /\.public_ingress_cutover == false/);
+  assert.match(automatic, /\.status == "rolled-back"/);
+  assert.match(automatic, /jq '\.public_ingress_cutover = true'/);
+  assert.match(automatic, /start_promoted_replication/);
+  assert.match(automatic, /write_promoted_state "\$recovery_id" 0 "\$unreachable_since"/);
+  assert.match(server, /automaticFailover: readAutomaticFailoverStatus\(DATA_DIR\)/);
+  assert.match(server, /failoverInventory: readFailoverInventoryStatus/);
+  assert.match(html, /id="autoFailoverStatus"/);
+  assert.match(html, /id="peerIdentity"/);
+  assert.match(source, /data\.peerHealth/);
+  assert.match(html, /id="failoverHostAdditions"/);
+  assert.match(source, /automatic\.status === "awaiting-fence"/);
 });
 
 test("standby role is machine-local, read-only, and suppresses writable services", () => {
@@ -30,7 +187,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
   const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
-  assert.match(compose, /HOSTING_MACHINE_STATE_DIR[^\n]*:\/run\/hosting-machine:ro/);
+  assert.match(compose, /HOSTING_MACHINE_STATE_DIR[^\n]*\/role\.json:\/run\/hosting-machine\/role\.json:ro/);
   assert.match(bootstrap, /--role/);
   assert.match(bootstrap, /--server-id/);
   assert.match(install, /Writable and public origin services remain stopped/);
@@ -64,6 +221,8 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(prepare, /SELECT COUNT\(\*\) FROM information_schema\.tables/);
   assert.doesNotMatch(prepare, /mysqlcheck/);
   assert.match(prepare, /compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx/);
+  assert.match(prepare, /generate-failover-hosts\.sh/);
+  assert.match(prepare, /failover-hosts\.candidates\.json/);
   assert.match(prepare, /rmdir "\$stage"[\s\S]+stage=""/);
   assert.doesNotMatch(prepare, /"role": "primary"/);
   assert.match(server, /installationRole\.requireMutable\(\)/);
@@ -80,12 +239,16 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(html, /id="preflightLastReceive"/);
   assert.match(html, /id="preflightReceiverState"/);
   assert.match(html, /id="preflightRecoveryAge"/);
+  assert.match(html, /id="refreshWarmReplication"/);
+  assert.match(html, /id="warmWebsiteNeed"/);
+  assert.match(source, /api\("\/api\/system\/replication-status"/);
+  assert.match(server, /warmReplicationStatus\.read\(\)/);
   assert.match(source, /replication\.estimatedDataLossHours/);
   assert.match(source, /replication\.receiverCompletedSets/);
   assert.match(source, /receiverPercent/);
   assert.match(source, /api\("\/api\/system\/deep-verify"/);
   assert.match(server, /jobManager\.start\(\{ allowlist: new Set\(\["standby\.deep-verify"\]\), suppressDisallowed: true \}\)/);
-  assert.match(server, /apiPath === "\/api\/system\/deep-verify"/);
+  assert.match(server, /\["\/api\/system\/deep-verify", "\/api\/system\/ha-control"\]\.includes\(apiPath\)/);
 });
 
 test("backup restore UI exposes an explicit opt-in billing choice", () => {
@@ -107,6 +270,16 @@ test("provisioning startup loads uploaded WordPress package choices", () => {
   assert.match(source, /state\.wordpressPackages = packages/);
   assert.match(source, /renderWordPressPackages\(\)/);
   assert.doesNotMatch(source, /#saveHosts|#hostsTable/);
+});
+
+test("www aliases are opt-in and NPM follows the selected site's aliases", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(html, /name="add_www" type="checkbox" \/>/);
+  assert.doesNotMatch(html, /name="add_www" type="checkbox" checked/);
+  assert.match(source, /site\?\.aliases\?\.includes\(`www\.\$\{domain\}`\)/);
+  assert.match(source, /add_www: addWww/);
+  assert.doesNotMatch(source, /add_www: true, issue_ssl/);
 });
 
 test("OpenCart imports submit and accept the canonical database archive flag", () => {
@@ -252,20 +425,29 @@ test("runtime mutations use shared guarded validation", () => {
 test("standby promotion remains a fenced host-level operation", () => {
   const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/promote-standby.sh"), "utf8");
   assert.match(script, /--confirm PROMOTE-STANDBY/);
-  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /OLD-PRIMARY-FENCED\|PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(script, /--recovery-id/);
   assert.match(script, /receiverReceiptSha256/);
   assert.match(script, /deep_verification_sha256/);
   assert.match(script, /flock -n 9/);
   assert.match(script, /compose config --quiet/);
+  assert.match(script, /cd "\$project_dir"/);
   assert.match(script, /docker exec hosting-php-fpm php-fpm -t/);
   assert.match(script, /docker exec hosting-nginx nginx -t/);
   assert.match(script, /mysql -uroot -Nse \"SELECT 1\"/);
   assert.doesNotMatch(script, /mysqladmin[^\n]*ping/);
+  assert.match(script, /chmod 755 "\$root\/websites"/);
+  assert.match(script, /chown 0:0 "\$root\/app-data\/nginx-cache"/);
+  assert.match(script, /standby-database-prepared\.json/);
+  assert.match(script, /Using pre-staged database recovery point/);
+  assert.match(script, /A newer database recovery point exists/);
   assert.match(script, /public_ingress_cutover:false/);
+  assert.match(script, /fencing_mode:\$fencing_mode/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /chmod 644 "\$promotion_tmp"/);
   assert.doesNotMatch(script, /cloudflare\.com|api\/zones|dns_records/);
+  assert.doesNotMatch(script, /enable --now hosting-database-replication\.timer/);
+  assert.match(script, /disable --now hosting-warm-sync-finalizer\.timer/);
 });
 
 test("read-only failover drills have a guarded standby reversion", () => {
@@ -281,22 +463,117 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.match(script, /promotion-state\.last-drill\.json/);
   assert.match(script, /tunnel-cutover\.last-drill\.json/);
   assert.match(script, /rm -f "\$cutover_marker"/);
+  assert.match(script, /hosting-ui hosting-cloudflared hosting-sync/);
+  assert.match(script, /hosting-ui hosting-sync/);
   assert.match(script, /systemctl enable --now hosting-backup-receiver\.timer/);
+  assert.match(script, /disable --now hosting-database-replication\.timer/);
+  assert.match(script, /enable --now hosting-warm-sync-finalizer\.timer/);
   assert.doesNotMatch(script, /cloudflare\.com|dns_records|api\/zones/);
 });
 
 test("standby activation composes promotion and allowlisted tunnel cutover", () => {
   const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/activate-standby.sh"), "utf8");
   assert.match(script, /--confirm ACTIVATE-STANDBY/);
-  assert.match(script, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(script, /OLD-PRIMARY-FENCED\|PRIMARY-UNREACHABLE-RISK-ACCEPTED/);
   assert.match(script, /promote-standby\.sh" --dry-run/);
   assert.match(script, /tunnel-cutover\.sh" --preview/);
+  assert.match(script, /--preview --hosts-file "\$hosts_file" > "\$preview_file"/);
+  assert.match(script, /Tunnel cutover preview passed for %s hostnames/);
+  assert.match(script, /\.ready == true/);
   assert.match(script, /promote-standby\.sh" --apply/);
   assert.match(script, /tunnel-cutover\.sh" --apply/);
+  assert.match(script, /enable --now hosting-database-replication\.timer/);
+  assert.match(script, /start hosting-database-replication\.service/);
+  assert.match(script, /restart hosting-database-replication\.timer/);
   assert.match(script, /token_mode" = 600/);
   assert.match(script, /token_owner" = 0/);
   assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
   assert.doesNotMatch(script, /OLD-PRIMARY-FENCED.*=.*true/);
+  const cli = fs.readFileSync(path.resolve(__dirname, "../cli/tunnel-cutover.js"), "utf8");
+  assert.match(cli, /blockedPreviewMessage\(result\)/);
+  assert.match(cli, /if \(blocked\) throw new Error\(blocked\)/);
+});
+
+test("former-primary rebuild reverses synchronization and prepares without changing ingress", () => {
+  const orchestrator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/rebuild-former-primary.sh"), "utf8");
+  const receiver = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-former-primary-rebuild.sh"), "utf8");
+  const sync = fs.readFileSync(path.resolve(__dirname, "../../../scripts/configure-sync.sh"), "utf8");
+  assert.match(orchestrator, /--confirm REBUILD-FORMER-PRIMARY/);
+  assert.match(orchestrator, /create-replication-dump\.sh/);
+  assert.match(orchestrator, /finalize-warm-sync\.sh" --source/);
+  assert.match(orchestrator, /former-primary-rebuild\.json/);
+  assert.doesNotMatch(orchestrator, /tunnel-cutover\.sh|api\.cloudflare|dns_records/);
+  assert.match(receiver, /\.status == "fenced"/);
+  assert.match(receiver, /--confirm REBUILD-AS-STANDBY/);
+  assert.match(receiver, /install-warm-sync-finalizer\.sh" --standby/);
+  assert.match(sync, /folders "\$id" type set "\$mode"/);
+});
+
+test("controlled failback promotes, restores ingress, and demotes in order", () => {
+  const complete = fs.readFileSync(path.resolve(__dirname, "../../../scripts/complete-failback.sh"), "utf8");
+  const accept = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-failback-primary.sh"), "utf8");
+  const demote = fs.readFileSync(path.resolve(__dirname, "../../../scripts/demote-after-failback.sh"), "utf8");
+  const ready = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
+  assert.match(complete, /--confirm COMPLETE-FAILBACK/);
+  assert.match(complete, /create-replication-dump\.sh/);
+  assert.match(complete, /accept-failback-primary\.sh/);
+  assert.match(complete, /--rollback --confirm ROLLBACK-TUNNEL-INGRESS/);
+  assert.match(complete, /--mark-ingress-active/);
+  assert.match(complete, /demote-after-failback\.sh/);
+  assert.ok(complete.indexOf("accept-failback-primary") < complete.indexOf("--rollback --confirm"));
+  assert.ok(complete.indexOf("--rollback --confirm") < complete.indexOf("demote-after-failback"));
+  assert.doesNotMatch(complete, /docker compose stop hosting-ui|docker compose stop hosting-db/);
+  assert.match(complete, /keeping HP online for a 60-second ingress transition grace/);
+  assert.match(complete, /ready_count >= 2/);
+  assert.match(accept, /--fence-confirm OLD-PRIMARY-FENCED/);
+  assert.match(accept, /systemctl stop hosting-former-primary-fence\.timer/);
+  assert.doesNotMatch(accept, /systemctl disable hosting-former-primary-fence\.timer/);
+  assert.match(complete, /systemctl start hosting-former-primary-fence\.timer/);
+  assert.match(accept, /--mode sendonly/);
+  assert.match(demote, /\.status == "rolled-back"/);
+  assert.match(demote, /\.public_ingress_cutover == false/);
+  assert.match(demote, /--mode receiveonly/);
+  assert.match(ready, /--allow-small-website-lag/);
+  assert.match(ready, /needTotalItems <= 100/);
+  assert.match(ready, /needBytes <= 10485760/);
+  assert.match(ready, /folder" = hosting-websites/);
+});
+
+test("standby preparation generates a review-bound failover hostname inventory", () => {
+  const generator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/generate-failover-hosts.sh"), "utf8");
+  const review = fs.readFileSync(path.resolve(__dirname, "../../../scripts/review-failover-hosts.sh"), "utf8");
+  assert.match(generator, /site_root/);
+  assert.match(generator, /LC_ALL=C sort -u/);
+  assert.match(generator, /\/var\\\/www/);
+  assert.match(generator, /Mapped website directories are unavailable/);
+  assert.match(generator, /chmod 600 "\$temporary"/);
+  assert.match(review, /Candidate inventory is stale or invalid/);
+  assert.match(review, /--confirm ACCEPT-FAILOVER-HOSTS/);
+  assert.match(review, /--recovery-id/);
+  assert.match(review, /comm -13/);
+  assert.match(review, /comm -23/);
+  assert.doesNotMatch(review, /cloudflare|dns_records|docker compose/);
+});
+
+test("failover hostname qualification keeps blocked Cloudflare zones out of the active allowlist", () => {
+  const script = fs.readFileSync(path.resolve(__dirname, "../../../scripts/qualify-failover-hosts.sh"), "utf8");
+  const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
+  assert.match(script, /tunnel-cutover\.sh" --preview/);
+  assert.match(script, /select\(\.status == "ready"\)/);
+  assert.match(script, /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
+  assert.match(script, /cmp -s "\$candidates" "\$observed"/);
+  assert.doesNotMatch(script, /tunnel-cutover\.sh" --apply/);
+  assert.match(script, /--skip-if-current/);
+  assert.match(automatic, /valid_host_qualification "\$recovery_id"/);
+  assert.match(automatic, /\.candidateSha256 == \$candidate_sha and \.candidateCount == \$candidate_count/);
+  assert.match(automatic, /\.qualifiedSha256 == \$qualified_sha and \.qualifiedCount == \$qualified_count/);
+  assert.match(automatic, /blocked-host-qualification/);
+  assert.match(automatic, /\.connections\[\$device\]\.connected == true/);
+  assert.match(automatic, /AUTO_FAILOVER_PRIMARY_SYNC_DEVICE_ID/);
+  assert.match(automatic, /\.serverId == \$primary/);
+  const warmPrepare = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-warm-standby.sh"), "utf8");
+  assert.match(warmPrepare, /AUTO_FAILOVER_AUTO_QUALIFY_HOSTS/);
+  assert.match(warmPrepare, /qualify-failover-hosts\.sh" --apply --skip-if-current/);
 });
 
 test("NPM drops unmatched public requests while preserving HTTP-01 ACME", () => {
@@ -335,10 +612,13 @@ test("successful standby reception schedules verification and fenced preparation
   assert.match(verifier, /^OnSuccess=hosting-standby-prepare\.service$/m);
   assert.match(verifier, /^Type=oneshot$/m);
   assert.match(verifier, /^Nice=15$/m);
-  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui node \/app\/cli\/deep-verify\.js \/srv\/backups/);
+  assert.match(verifier, /flock -n \/run\/hosting-backup-receiver\/lock \/usr\/bin\/docker exec hosting-ui \/usr\/bin\/flock -n \/srv\/backups\/\.deep-verify\.lock node \/app\/cli\/deep-verify\.js \/srv\/backups/);
   assert.doesNotMatch(verifier, /Environment|token|password|secret/i);
   assert.match(prepare, /^Type=oneshot$/m);
   assert.match(prepare, /^ExecStart=.*prepare-standby\.sh --apply --confirm PREPARE-STANDBY$/m);
+  const prepareScript = fs.readFileSync(path.resolve(__dirname, "../../../scripts/prepare-standby.sh"), "utf8");
+  assert.match(prepareScript, /Extracting %s\/%s %s/);
+  assert.match(prepareScript, /Restoring the database snapshot/);
   assert.match(prepare, /^TimeoutStartSec=12h$/m);
   assert.match(prepare, /^UMask=0077$/m);
   assert.match(prepare, /^ProtectSystem=strict$/m);

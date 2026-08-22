@@ -12,7 +12,7 @@ Options:
   --apply              Activate the prepared local stack and change the role to primary
   --recovery-id ID     Exact prepared app-data recovery identifier
   --confirm TEXT       Required with --apply; must be PROMOTE-STANDBY
-  --fence-confirm TEXT Required with --apply; must be OLD-PRIMARY-FENCED
+  --fence-confirm TEXT OLD-PRIMARY-FENCED or PRIMARY-UNREACHABLE-RISK-ACCEPTED
 
 This command never changes DNS, Cloudflare routes, NPM hosts, router settings,
 or public tunnel hostname routes.
@@ -44,6 +44,7 @@ done
 [ -f "$env_file" ] || { printf 'Environment file does not exist: %s\n' "$env_file" >&2; exit 1; }
 [ -n "$mode" ] || { printf 'Select --dry-run or --apply.\n' >&2; exit 2; }
 [ "$(id -u)" -eq 0 ] || { printf 'Run this command as root.\n' >&2; exit 1; }
+cd "$project_dir"
 
 env_value() {
   awk -v key="$1" '
@@ -86,28 +87,36 @@ fi
 jq -e '.version == 1 and .role == "standby" and (.server_id | type == "string") and (.server_id | length > 0)' \
   "$role_marker" >/dev/null || { printf 'This machine is not an authoritative standby.\n' >&2; exit 1; }
 jq -e '.version == 1 and (.app_data_id | type == "string") and (.site_count | type == "number") and
-  (.source_release | type == "string") and (.receiver_receipt_sha256 | type == "string") and
-  (.deep_verification_sha256 | type == "string")' "$recovery_marker" >/dev/null \
+  (.source_release | type == "string") and
+  (((.mode // "backup") == "backup" and (.receiver_receipt_sha256 | type == "string") and
+    (.deep_verification_sha256 | type == "string")) or
+   (.mode == "warm-sync" and .database_recovery_id == .app_data_id))' "$recovery_marker" >/dev/null \
   || { printf 'Prepared recovery marker is invalid.\n' >&2; exit 1; }
 
 prepared_id="$(jq -r .app_data_id "$recovery_marker")"
+preparation_mode="$(jq -r '.mode // "backup"' "$recovery_marker")"
 case "$prepared_id" in ????-??-??T??-??-??Z) ;; *) printf 'Prepared recovery identifier is invalid.\n' >&2; exit 1 ;; esac
 [ -z "$recovery_id" ] || [ "$recovery_id" = "$prepared_id" ] \
   || { printf 'Requested recovery identifier does not match prepared recovery %s.\n' "$prepared_id" >&2; exit 1; }
 
-receiver_receipt="$backups/receiver-state.json"
-deep_receipt="$backups/deep-verify-state.json"
-[ -f "$receiver_receipt" ] && [ -f "$deep_receipt" ] \
-  || { printf 'Receiver and deep-verification receipts are required.\n' >&2; exit 1; }
-receiver_sha="$(sha256sum "$receiver_receipt" | awk '{print $1}')"
-deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
-[ "$receiver_sha" = "$(jq -r .receiver_receipt_sha256 "$recovery_marker")" ] \
-  || { printf 'Receiver receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
-[ "$deep_sha" = "$(jq -r .deep_verification_sha256 "$recovery_marker")" ] \
-  || { printf 'Deep-verification receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
-jq -e --arg receiver_sha "$receiver_sha" '.version == 1 and .result == "success" and
-  .receiverReceiptSha256 == $receiver_sha and (.verifiedCount | type == "number") and .verifiedCount > 0' \
-  "$deep_receipt" >/dev/null || { printf 'Deep verification is invalid or stale.\n' >&2; exit 1; }
+zero_sha=0000000000000000000000000000000000000000000000000000000000000000
+receiver_sha="$(jq -r --arg fallback "$zero_sha" '.receiver_receipt_sha256 // $fallback' "$recovery_marker")"
+deep_sha="$(jq -r --arg fallback "$zero_sha" '.deep_verification_sha256 // $fallback' "$recovery_marker")"
+if [ "$preparation_mode" = backup ]; then
+  receiver_receipt="$backups/receiver-state.json"
+  deep_receipt="$backups/deep-verify-state.json"
+  [ -f "$receiver_receipt" ] && [ -f "$deep_receipt" ] \
+    || { printf 'Receiver and deep-verification receipts are required.\n' >&2; exit 1; }
+  receiver_sha="$(sha256sum "$receiver_receipt" | awk '{print $1}')"
+  deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
+  [ "$receiver_sha" = "$(jq -r .receiver_receipt_sha256 "$recovery_marker")" ] \
+    || { printf 'Receiver receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
+  [ "$deep_sha" = "$(jq -r .deep_verification_sha256 "$recovery_marker")" ] \
+    || { printf 'Deep-verification receipt changed after standby preparation. Prepare again.\n' >&2; exit 1; }
+  jq -e --arg receiver_sha "$receiver_sha" '.version == 1 and .result == "success" and
+    .receiverReceiptSha256 == $receiver_sha and (.verifiedCount | type == "number") and .verifiedCount > 0' \
+    "$deep_receipt" >/dev/null || { printf 'Deep verification is invalid or stale.\n' >&2; exit 1; }
+fi
 
 source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
 prepared_release="$(jq -r .source_release "$recovery_marker")"
@@ -126,8 +135,13 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
   || { printf 'Interrupted backup staging exists; promotion refused.\n' >&2; exit 1; }
 
 compose config --quiet
-printf 'Prepared recovery %s (%s sites) is bound to source %s.\n' \
-  "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
+"$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
+replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
+[ "$replicated_db_id" = "$prepared_id" ] \
+  || { printf 'A newer database recovery point exists. Prepare the standby again.\n' >&2; exit 1; }
+printf 'Prepared %s recovery %s (%s sites) is bound to source %s.\n' \
+  "$preparation_mode" "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
+printf 'Latest synchronized database recovery point is %s.\n' "$replicated_db_id"
 
 if [ "$mode" = dry-run ]; then
   printf 'Local promotion dry run passed. Public ingress was not inspected or changed.\n'
@@ -136,12 +150,15 @@ fi
 
 [ "$confirmation" = PROMOTE-STANDBY ] \
   || { printf 'Apply requires --confirm PROMOTE-STANDBY.\n' >&2; exit 2; }
-[ "$fence_confirmation" = OLD-PRIMARY-FENCED ] \
-  || { printf 'Apply requires --fence-confirm OLD-PRIMARY-FENCED.\n' >&2; exit 2; }
+case "$fence_confirmation" in
+  OLD-PRIMARY-FENCED|PRIMARY-UNREACHABLE-RISK-ACCEPTED) ;;
+  *) printf 'Apply requires a supported --fence-confirm value.\n' >&2; exit 2 ;;
+esac
 [ "$recovery_id" = "$prepared_id" ] \
   || { printf 'Apply requires --recovery-id %s.\n' "$prepared_id" >&2; exit 2; }
 
 receiver_timer_was_enabled=0
+finalizer_timer_was_enabled=0
 role_changed=0
 runtime_started=0
 cleanup() {
@@ -158,8 +175,12 @@ cleanup() {
       compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db >/dev/null 2>&1 || true
     fi
     docker restart hosting-ui >/dev/null 2>&1 || true
+    compose up -d hosting-sync >/dev/null 2>&1 || true
     if [ "$receiver_timer_was_enabled" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
       systemctl enable --now hosting-backup-receiver.timer >/dev/null 2>&1 || true
+    fi
+    if [ "$finalizer_timer_was_enabled" -eq 1 ] && command -v systemctl >/dev/null 2>&1; then
+      systemctl enable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
     fi
     printf 'Promotion failed before public cutover; standby role and stopped runtime were restored.\n' >&2
   fi
@@ -169,10 +190,19 @@ trap cleanup EXIT HUP INT TERM
 
 if command -v systemctl >/dev/null 2>&1; then
   systemctl is-enabled hosting-backup-receiver.timer >/dev/null 2>&1 && receiver_timer_was_enabled=1 || true
-  systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service
+  systemctl is-enabled hosting-warm-sync-finalizer.timer >/dev/null 2>&1 && finalizer_timer_was_enabled=1 || true
+  systemctl stop hosting-backup-receiver.timer hosting-backup-receiver.service >/dev/null 2>&1 || true
+  systemctl disable --now hosting-warm-sync-finalizer.timer >/dev/null 2>&1 || true
 fi
 
-compose up -d hosting-db hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
+compose stop hosting-sync >/dev/null 2>&1 || true
+# Standby tools can create these bind-mount roots with mode 0700. Normalize
+# only the roots needed by runtime workers; site file permissions stay intact.
+chmod 755 "$root/websites"
+mkdir -p "$root/app-data/nginx-cache"
+chown 0:0 "$root/app-data/nginx-cache"
+chmod 755 "$root/app-data/nginx-cache"
+compose up -d hosting-db
 runtime_started=1
 
 db_ready=0
@@ -186,6 +216,16 @@ for _ in $(seq 1 60); do
 done
 [ "$db_ready" -eq 1 ] || { printf 'Database did not become ready.\n' >&2; exit 1; }
 docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; mysql -uroot -Nse "SELECT 1"' | grep -qx 1
+prepared_database_marker="$machine_state/standby-database-prepared.json"
+artifact_sha="$(jq -r .sha256 "$root/replication/database/$replicated_db_id/manifest.json")"
+if [ -f "$prepared_database_marker" ] && jq -e --arg id "$replicated_db_id" --arg sha "$artifact_sha" '
+  .version == 1 and .recovery_id == $id and .artifact_sha256 == $sha
+' "$prepared_database_marker" >/dev/null 2>&1; then
+  printf 'Using pre-staged database recovery point %s.\n' "$replicated_db_id"
+else
+  replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
+fi
+compose up -d hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
 docker exec hosting-php-fpm php-fpm -t >/dev/null
 docker exec hosting-nginx nginx -t >/dev/null
 
@@ -210,10 +250,12 @@ done
 promotion_tmp="$promotion_marker.tmp.$$"
 jq -n --arg promoted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$prepared_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
-  --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby \
+  --arg deep_verification_sha256 "$deep_sha" --arg previous_role standby --arg database_recovery_id "$replicated_db_id" \
+  --arg preparation_mode "$preparation_mode" --arg fencing_mode "$fence_confirmation" \
   '{version:1,status:"local-primary",promoted_at:$promoted_at,recovery_id:$recovery_id,
     source_release:$source_release,receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256,previous_role:$previous_role,
+    database_recovery_id:$database_recovery_id,preparation_mode:$preparation_mode,fencing_mode:$fencing_mode,
     public_ingress_cutover:false}' > "$promotion_tmp"
 chmod 644 "$promotion_tmp"
 mv "$promotion_tmp" "$promotion_marker"

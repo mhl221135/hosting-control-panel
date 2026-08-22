@@ -5,6 +5,7 @@ const { atomicWriteJson } = require("./safe-write");
 const HOST = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IDENTIFIER = /^[a-zA-Z0-9-]{16,64}$/;
 const DNS_TYPES = new Set(["A", "AAAA", "CNAME"]);
+const APEX_COMPATIBLE_TYPES = new Set(["MX", "TXT", "CAA"]);
 
 function cutoverError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -70,6 +71,13 @@ function desiredTunnelConfig(current, hosts, service) {
   ];
   if (config.ingress.length > 1000) throw cutoverError("Tunnel configuration would exceed 1000 ingress rules");
   return config;
+}
+
+function blockedPreviewMessage(plan) {
+  const count = Array.isArray(plan?.records)
+    ? plan.records.filter((record) => record?.status !== "ready").length
+    : 0;
+  return count ? `Tunnel cutover preview contains ${count} blocked hostname${count === 1 ? "" : "s"}` : "";
 }
 
 class CloudflareCutoverApi {
@@ -165,6 +173,20 @@ class TunnelCutover {
     return { role, promotion };
   }
 
+  archiveCompletedState() {
+    if (!fs.existsSync(this.statePath)) return;
+    const state = this.readJson(this.statePath);
+    if (state.version !== 1 || state.status !== "rolled-back") {
+      throw cutoverError("A tunnel cutover state already exists; rollback or archive it first", 409);
+    }
+    const suffix = String(this.now()).replace(/[^0-9A-Za-z.-]/g, "-");
+    let archivePath = `${this.statePath}.rolled-back.${suffix}`;
+    for (let index = 1; fs.existsSync(archivePath); index += 1) {
+      archivePath = `${this.statePath}.rolled-back.${suffix}.${index}`;
+    }
+    fs.renameSync(this.statePath, archivePath);
+  }
+
   async plan(values) {
     const hosts = normalizeHosts(values);
     const [zones, tunnel] = await Promise.all([
@@ -183,11 +205,12 @@ class TunnelCutover {
       const current = (await this.api.dnsRecords(zone.id, hostname)) || [];
       const ingress = current.filter((record) => DNS_TYPES.has(String(record.type)) && record.name === hostname);
       const unsupported = current.filter((record) => record.name === hostname && !DNS_TYPES.has(String(record.type)));
+      const blocking = unsupported.filter((record) => hostname !== zone.name || !APEX_COMPATIBLE_TYPES.has(String(record.type)));
       records.push({
         hostname,
         zone,
-        status: unsupported.length ? "blocked" : "ready",
-        reason: unsupported.length ? "Conflicting non-ingress DNS record exists at hostname" : "",
+        status: blocking.length ? "blocked" : "ready",
+        reason: blocking.length ? "Conflicting non-ingress DNS record exists at hostname" : "",
         current: ingress.map((record) => ({ id: String(record.id), ...recordPayload(record) })),
         desired: {
           type: "CNAME",
@@ -237,10 +260,32 @@ class TunnelCutover {
     for (const record of entry.current || []) await this.api.createDnsRecord(entry.zone.id, recordPayload(record));
   }
 
+  async verifyApplied(plan) {
+    const tunnel = await this.api.tunnelConfig(this.accountId, this.tunnelId);
+    const config = tunnel?.config || tunnel || {};
+    const ingress = Array.isArray(config.ingress) ? config.ingress : [];
+    for (const hostname of plan.hosts) {
+      const matches = ingress.filter((rule) => String(rule?.hostname || "").toLowerCase() === hostname);
+      if (matches.length !== 1 || String(matches[0].service || "") !== this.service) {
+        throw cutoverError(`Cloudflare tunnel verification failed for ${hostname}`, 502);
+      }
+    }
+    for (const entry of plan.records) {
+      const records = (await this.api.dnsRecords(entry.zone.id, entry.hostname)) || [];
+      const ingressRecords = records.filter((record) =>
+        DNS_TYPES.has(String(record.type)) && String(record.name || "").toLowerCase() === entry.hostname);
+      const actual = ingressRecords.length === 1 ? recordPayload(ingressRecords[0]) : null;
+      if (!actual || actual.type !== entry.desired.type || actual.name !== entry.desired.name
+        || actual.content !== entry.desired.content || actual.proxied !== entry.desired.proxied) {
+        throw cutoverError(`Cloudflare DNS verification failed for ${entry.hostname}`, 502);
+      }
+    }
+  }
+
   async apply(values, confirmation) {
     if (confirmation !== "SWITCH-TUNNEL-INGRESS") throw cutoverError("Apply requires SWITCH-TUNNEL-INGRESS confirmation");
     const { promotion } = this.requirePromotedPrimary();
-    if (fs.existsSync(this.statePath)) throw cutoverError("A tunnel cutover state already exists; rollback or archive it first", 409);
+    this.archiveCompletedState();
     const plan = await this.plan(values);
     if (!plan.ready) throw cutoverError("Tunnel cutover preview contains blocked hostnames", 409);
     const state = {
@@ -257,6 +302,7 @@ class TunnelCutover {
     try {
       await this.api.updateTunnelConfig(this.accountId, this.tunnelId, plan.desiredTunnelConfig);
       for (const entry of plan.records) await this.replaceDns(entry, entry.desired);
+      await this.verifyApplied(plan);
       state.status = "active";
       state.completedAt = this.now();
       atomicWriteJson(this.statePath, state, 0o600);
@@ -298,6 +344,7 @@ class TunnelCutover {
 module.exports = {
   CloudflareCutoverApi,
   TunnelCutover,
+  blockedPreviewMessage,
   decodeTunnelToken,
   desiredTunnelConfig,
   normalizeHosts,

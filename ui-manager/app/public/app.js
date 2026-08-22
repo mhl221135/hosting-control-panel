@@ -379,7 +379,11 @@ function switchTab(name) {
   if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
     .catch((error) => notice(error.message, "warning"));
   if (name === "stats" && !state.stats) loadStats().catch((error) => notice(error.message, "warning"));
-  if (name === "replication") loadPreflight().catch((error) => notice(error.message, "warning"));
+  if (name === "replication") {
+    const standby = state.status?.installation?.role === "standby";
+    $("#promotionPreflightCard").classList.toggle("hidden", !standby);
+    (standby ? loadPreflight() : loadWarmReplication()).catch((error) => notice(error.message, "warning"));
+  }
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
@@ -571,8 +575,99 @@ async function loadHealth() {
 }
 
 async function loadPreflight() {
-  const data = await api("/api/system/promotion-preflight");
+  const [data] = await Promise.all([
+    api("/api/system/promotion-preflight"),
+    loadWarmReplication(),
+  ]);
   renderPreflight(data);
+}
+
+async function loadWarmReplication() {
+  const data = await api("/api/system/replication-status");
+  const replication = data.replication || {};
+  const folders = new Map((replication.folders || []).map((folder) => [folder.id, folder]));
+  const websites = folders.get("hosting-websites") || {};
+  const runtime = folders.get("hosting-runtime-config") || {};
+  const database = folders.get("hosting-db-recovery") || {};
+  const automatic = data.automaticFailover || {};
+  const inventory = data.failoverInventory || {};
+  const peer = data.peerHealth || {};
+  const control = data.haControl || {};
+  const history = data.history?.entries || [];
+  const exact = (folder) => folder.state === "idle" && !folder.needFiles && !folder.receiveOnlyItems && !folder.errors;
+  $("#warmPeer").textContent = replication.available
+    ? replication.peerConnected ? "Expected peer connected"
+      : replication.peerIdentityConfigured ? "Expected peer disconnected" : "Disconnected"
+    : "Unavailable";
+  $("#peerIdentity").textContent = !peer.configured ? "Not configured"
+    : peer.identityMatched && peer.authenticated ? `${peer.serverId} · authenticated` : peer.identityMatched ? peer.serverId : "Unavailable";
+  $("#peerRole").textContent = peer.reachable ? peer.role : "-";
+  $("#peerLatency").textContent = Number.isFinite(peer.latencyMs) ? `${peer.latencyMs} ms` : "-";
+  $("#warmWebsiteNeed").textContent = replication.available ? `${websites.needFiles || 0} · ${formatBytes(websites.needBytes || 0)}` : "-";
+  $("#warmWebsiteDrift").textContent = replication.available ? String(websites.receiveOnlyItems || 0) : "-";
+  $("#warmRuntime").textContent = replication.available ? (exact(runtime) ? "Exact" : runtime.state || "Pending") : "-";
+  $("#warmDatabaseSync").textContent = replication.available ? (exact(database) ? "Exact" : database.state || "Pending") : "-";
+  $("#warmRecovery").textContent = replication.recovery ? `${replication.recovery.ageMinutes} min ago` : "Unavailable";
+  $("#warmReplicationUpdated").textContent = replication.available
+    ? `Checked ${new Date(replication.checkedAt).toLocaleString()} · ${replication.exact ? "all folders exact" : "synchronization in progress"}`
+    : escapeHtml(replication.error || "Replication status unavailable");
+  $("#replicationHistory").className = history.length ? "health-list" : "health-list empty";
+  $("#replicationHistory").innerHTML = history.length ? history.slice(0, 24).map((entry) => `
+    <div class="health-row">
+      <span class="health-severity ${escapeHtml(entry.status === "critical" ? "failure" : entry.status)}">${escapeHtml(entry.status)}</span>
+      <div><strong>${escapeHtml(entry.reason)}</strong><p>${entry.needFiles} files · ${formatBytes(entry.needBytes)} · recovery ${entry.recoveryAgeMinutes === null ? "unavailable" : `${entry.recoveryAgeMinutes} min`}</p><small>${new Date(entry.at).toLocaleString()}</small></div>
+    </div>`).join("") : "No replication samples recorded.";
+  $("#autoFailoverStatus").textContent = automatic.available ? String(automatic.status || "unknown").replaceAll("-", " ") : "Unavailable";
+  $("#autoFailoverFailures").textContent = automatic.available && automatic.threshold
+    ? `${automatic.failures}/${automatic.threshold}`
+    : "-";
+  $("#autoFailoverPolicy").textContent = automatic.fencePolicy || "-";
+  $("#autoFailoverRecovery").textContent = automatic.recoveryId || "-";
+  $("#autoFailoverChecked").textContent = automatic.checkedAt ? new Date(automatic.checkedAt).toLocaleString() : "-";
+  $("#autoFailoverMessage").textContent = automatic.status === "awaiting-fence"
+    ? "The outage threshold passed. Promotion is blocked until the old primary is externally fenced."
+    : automatic.status === "awaiting-unreachable-grace"
+      ? "OPI5 is unreachable. HP is waiting for the configured emergency grace period before promotion."
+      : automatic.status === "blocked-stale-recovery"
+        ? `Promotion is blocked because the database recovery point is stale (${Math.ceil((automatic.recoveryAgeSeconds || 0) / 60)} minutes old).`
+      : automatic.status === "promoted-unreachable"
+        ? "HP promoted under the unreachable-primary emergency policy. Do not restart the former primary as writable."
+        : automatic.status === "disabled"
+      ? "Automatic outage monitoring is disabled."
+      : automatic.available
+        ? "The watchdog is fail-closed and cannot infer old-primary fencing from connectivity loss."
+        : "No bounded watchdog state has been published yet.";
+  $("#failoverActiveHosts").textContent = inventory.available ? inventory.activeCount : "-";
+  $("#failoverCandidateHosts").textContent = inventory.available ? inventory.candidateCount : "-";
+  $("#failoverHostAdditions").textContent = inventory.available ? inventory.pendingAdditionCount : "-";
+  $("#failoverHostRemovals").textContent = inventory.available ? inventory.pendingRemovalCount : "-";
+  const pending = [...(inventory.additions || []).map((host) => `+ ${host}`),
+    ...(inventory.removals || []).map((host) => `- ${host}`)];
+  $("#failoverInventoryMessage").textContent = !inventory.available
+    ? "Hostname inventory is missing or invalid. Automatic cutover cannot include unreviewed sites."
+    : pending.length
+      ? `${pending.join(" · ")}${inventory.truncated ? " · more changes omitted" : ""}`
+      : "The active automatic-failover allowlist matches the prepared website inventory.";
+  const actions = new Set(control.actions || []);
+  $("#replicateNow").classList.toggle("hidden", !actions.has("replicate-now"));
+  $("#finalizeStandby").classList.toggle("hidden", !actions.has("finalize-standby"));
+  $("#runFailoverCheck").classList.toggle("hidden", !actions.has("failover-check"));
+  $("#requestWitnessFence").classList.toggle("hidden", !actions.has("request-witness-fence"));
+  $("#previewPromotion").classList.toggle("hidden", !actions.has("promotion-preview"));
+  $("#promoteStandby").classList.toggle("hidden", !actions.has("promote-standby"));
+  $("#previewRebuild").classList.toggle("hidden", !actions.has("rebuild-preview"));
+  $("#rebuildFormerPrimary").classList.toggle("hidden", !actions.has("rebuild-former-primary"));
+  $("#previewFailback").classList.toggle("hidden", !actions.has("failback-preview"));
+  $("#completeFailback").classList.toggle("hidden", !actions.has("complete-failback"));
+  for (const button of [$("#replicateNow"), $("#finalizeStandby"), $("#runFailoverCheck"), $("#requestWitnessFence"), $("#previewPromotion"),
+    $("#promoteStandby"), $("#previewRebuild"), $("#rebuildFormerPrimary"), $("#previewFailback"), $("#completeFailback")]) {
+    button.disabled = Boolean(control.pending);
+  }
+  $("#haControlStatus").textContent = control.pending
+    ? `${String(control.pending.action || "HA action").replaceAll("-", " ")} queued ${new Date(control.pending.requestedAt).toLocaleString()}`
+    : control.result
+      ? `${String(control.result.action || "HA action").replaceAll("-", " ")}: ${control.result.status} · ${control.result.message}`
+      : "No HA control request recorded.";
 }
 
 function renderPreflight(data) {
@@ -743,6 +838,21 @@ function renderWordPressInventory() {
       <div class="wordpress-package-list">${packages.length ? packages.map((item) => `<div><span>${escapeHtml(item.type)} · ${escapeHtml(item.name)} · ${escapeHtml(item.status)}</span><strong>${escapeHtml(item.version || "unknown")}${item.update === "available" && item.updateVersion ? ` → ${escapeHtml(item.updateVersion)}` : ""}</strong></div>`).join("") : '<span class="muted">No plugins or themes reported.</span>'}</div>
     </details>`;
   }).join("") : "Select websites above and run an inventory.";
+}
+
+function renderCacheControl() {
+  const sites = state.maintenance?.cacheControl || [];
+  const installed = sites.filter((site) => site.installed).length;
+  $("#cacheControlStatus").textContent = sites.length
+    ? `${installed} of ${sites.length} WordPress websites have the managed cache Tools page.`
+    : "No WordPress websites are configured.";
+  const container = $("#cacheControlSites");
+  container.classList.toggle("empty", !sites.length);
+  container.innerHTML = sites.length ? sites.map((site) => `
+    <label class="maintenance-result">
+      <span><input type="checkbox" data-cache-control-site value="${escapeHtml(site.domain)}" /> <strong>${escapeHtml(site.domain)}</strong></span>
+      <span class="badge ${site.installed ? "on" : ""}">${site.installed ? `v${escapeHtml(site.version || "unknown")}` : "Not installed"}</span>
+    </label>`).join("") : "No WordPress websites configured.";
 }
 
 function selectedWordPressUpdateInput() {
@@ -932,6 +1042,7 @@ function renderMaintenance() {
     </div>`).join("") : '<div class="muted">No WordPress websites are configured.</div>';
   renderWordPressInventory();
   renderWordPressUpdates();
+  renderCacheControl();
 
   window.clearTimeout(maintenancePollTimer);
   if (status.running) {
@@ -2700,9 +2811,11 @@ $("#applyDnsPreset").addEventListener("click", async (event) => {
 async function ensureNpm(issueSsl) {
   const domain = state.selectedDomain;
   if (!domain) return;
+  const site = primarySites().find((entry) => entry.host === domain);
+  const addWww = Boolean(site?.aliases?.includes(`www.${domain}`));
   const result = await api("/api/npm/hosts/ensure", {
     method: "POST",
-    body: JSON.stringify({ domain, add_www: true, issue_ssl: issueSsl }),
+    body: JSON.stringify({ domain, add_www: addWww, issue_ssl: issueSsl }),
   });
   if (issueSsl) {
     rememberJob(result.job, `SSL certificate issuance queued for ${domain}`);
@@ -2929,6 +3042,32 @@ $("#inventoryWordPress").addEventListener("click", async (event) => {
     rememberJob(data.job, "WordPress inventory queued");
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
+});
+
+async function installCacheControl(domains, rotate, button) {
+  const result = await withButton(button, rotate ? "Rotating..." : "Installing...", () => api("/api/maintenance/cache-control/install", {
+    method: "POST",
+    body: JSON.stringify({ domains, rotate }),
+  }));
+  state.maintenance.cacheControl = result.cacheControl;
+  renderCacheControl();
+  const failed = result.results.filter((item) => !item.ok);
+  notice(failed.length
+    ? `${result.completed}/${result.total} websites updated; ${failed.length} failed.`
+    : `${result.completed} WordPress cache-control installations updated.`, failed.length ? "warning" : "success");
+}
+
+$("#installCacheControlAll").addEventListener("click", async (event) => {
+  try { await installCacheControl(undefined, false, event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+
+$("#rotateCacheControlSelected").addEventListener("click", async (event) => {
+  const domains = $$('[data-cache-control-site]:checked').map((input) => input.value);
+  if (!domains.length) return notice("Select at least one WordPress website.", "warning");
+  if (!confirm(`Rotate cache-control credentials for ${domains.length} selected website(s)?`)) return;
+  try { await installCacheControl(domains, true, event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
 });
 
 $("#wordpressUpdateForm").addEventListener("change", (event) => {
@@ -3572,12 +3711,69 @@ $("#refreshPreflight").addEventListener("click", async (event) => {
   await withButton(event.currentTarget, "Checking...", () => loadPreflight());
 });
 
+$("#refreshWarmReplication").addEventListener("click", async (event) => {
+  await withButton(event.currentTarget, "Checking...", () => loadWarmReplication());
+});
+
 $("#runDeepVerify").addEventListener("click", async (event) => {
   try {
     const data = await withButton(event.currentTarget, "Queueing...", () => api("/api/system/deep-verify", { method: "POST" }));
     rememberJob(data.job, "Deep verification queued");
     switchTab("jobs");
   } catch (error) { notice(error.message, "warning"); }
+});
+
+async function requestHaControl(action, confirmText, button, typed = false) {
+  if (typed) {
+    if (prompt(`Type ${confirmText} to run ${action.replaceAll("-", " ")}.`) !== confirmText) return;
+  } else if (!confirm(`Run ${action.replaceAll("-", " ")} on this server now?`)) return;
+  const data = await withButton(button, "Queueing...", () => api("/api/system/ha-control", {
+    method: "POST",
+    body: JSON.stringify({ action, confirm: confirmText }),
+  }));
+  $("#haControlStatus").textContent = `${data.request.action.replaceAll("-", " ")} queued.`;
+  window.setTimeout(() => loadWarmReplication().catch((error) => notice(error.message, "warning")), 16000);
+}
+
+$("#replicateNow").addEventListener("click", async (event) => {
+  try { await requestHaControl("replicate-now", "REPLICATE-NOW", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#finalizeStandby").addEventListener("click", async (event) => {
+  try { await requestHaControl("finalize-standby", "FINALIZE-STANDBY", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#runFailoverCheck").addEventListener("click", async (event) => {
+  try { await requestHaControl("failover-check", "CHECK-FAILOVER", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#requestWitnessFence").addEventListener("click", async (event) => {
+  try { await requestHaControl("request-witness-fence", "REQUEST-WITNESS-FENCE", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewPromotion").addEventListener("click", async (event) => {
+  try { await requestHaControl("promotion-preview", "PREVIEW-PROMOTION", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#promoteStandby").addEventListener("click", async (event) => {
+  try { await requestHaControl("promote-standby", "PROMOTE-STANDBY-RISK-ACCEPTED", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewRebuild").addEventListener("click", async (event) => {
+  try { await requestHaControl("rebuild-preview", "PREVIEW-REBUILD", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#rebuildFormerPrimary").addEventListener("click", async (event) => {
+  try { await requestHaControl("rebuild-former-primary", "REBUILD-FORMER-PRIMARY", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewFailback").addEventListener("click", async (event) => {
+  try { await requestHaControl("failback-preview", "PREVIEW-FAILBACK", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#completeFailback").addEventListener("click", async (event) => {
+  try { await requestHaControl("complete-failback", "COMPLETE-FAILBACK", event.currentTarget, true); }
+  catch (error) { notice(error.message, "warning"); }
 });
 
 $("#standbyIngressForm").addEventListener("submit", async (event) => {

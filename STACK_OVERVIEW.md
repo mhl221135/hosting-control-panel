@@ -28,20 +28,33 @@ database operations required by supported workflows.
 
 Machine-local `standalone`, `primary`, and `standby` roles are supported. A
 standby starts only the agent and read-only panel, rejects normal mutations
-with HTTP 423, and suppresses mutating schedulers. Its sole mutating panel
-exception is the allowlisted deep backup-verification job; ingress metadata can
-also be saved without changing traffic or role.
+with HTTP 423, and suppresses mutating schedulers. Its narrow panel exceptions
+are ingress metadata, the deep backup-verification job, and bounded HA requests
+processed by a root systemd timer. These requests can refresh preparation or
+run the existing failover watchdog. Role-gated requests can also delegate to
+the existing promotion/rebuild/failback scripts, but cannot supply commands or
+arguments and cannot bypass their fencing and rollback checks. Authenticated
+peer status and bounded replication history are exposed by the panel. An
+optional signed external-fencing client consumes receipts from an independent
+provider; the provider itself is not hosted in this two-server stack.
 
-Backup reception, deep verification, fenced restore preparation, and guarded
-local promotion are separate stages. Local promotion requires the exact
+Backup reception remains the disaster-recovery layer. The warm path uses the
+project-owned `hosting-sync` container for continuous one-way website and
+runtime-config synchronization plus hourly checksummed logical database dumps.
+Its resumable finalizer reconciles an initially restored standby to the exact
+primary index and prepares it without restoring archives. Local promotion requires the exact
 prepared recovery ID plus typed old-primary fencing confirmation, validates the
 runtime before changing the machine marker, and records that public ingress has
-not been cut over. Cloudflare/DNS/tunnel switching remains a separate pending
-control-plane workflow.
+not been cut over. Cloudflare tunnel switching remains a separate guarded step;
+the automatic watchdog stays disabled until an outage drill passes. Monitoring
+never asserts fencing; activation requires a fresh root-owned receipt bound to
+the old primary identity and exact prepared recovery point.
 
 ## Services
 
 - `hosting-ui`: authenticated control panel on port 8687
+- `hosting-sync`: project-owned one-way Syncthing service; no management UI is
+  published, and it never synchronizes live MySQL, Redis, or FastCGI data
 - `hosting-agent`: private allowlisted Docker control boundary with no host port
 - `hosting-billing`: isolated renewal inventory and signed entitlement API on port 8787
 - `hosting-nginx`: internal virtual hosts and optional FastCGI cache
@@ -60,6 +73,9 @@ The panel provides:
 - Site and PHP-FPM pool management
 - One-click WordPress provisioning
 - Per-site Redis object cache, OPcache, and FastCGI page-cache controls
+- A panel-managed WordPress MU cache Tools page with hashed site enrollment,
+  bounded local OPcache invalidation, selective Redis flush, and panel-mediated
+  FastCGI/Cloudflare purge
 - Global PHP, OPcache, FastCGI, Redis, and MySQL performance settings
 - Global gzip and on-demand WebP generation with original-image fallback
 - Read-only WordPress inventory and manual backup-protected updates with

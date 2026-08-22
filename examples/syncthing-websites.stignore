@@ -1,0 +1,22 @@
+// Hosting Control managed runtime exclusions.
+(?d)**/wp-content/cache
+(?d)**/wp-content/cache/**
+(?d)**/wp-content/upgrade
+(?d)**/wp-content/upgrade/**
+(?d)**/wp-content/debug.log
+(?d)**/wp-content/uploads/sb-instagram-feed-images
+(?d)**/wp-content/uploads/sb-instagram-feed-images/**
+(?d)**/error_log
+(?d)**/*.log
+(?d)**/system/storage/cache
+(?d)**/system/storage/cache/**
+(?d)**/system/storage/logs
+(?d)**/system/storage/logs/**
+(?d)**/system/storage/session
+(?d)**/system/storage/session/**
+(?d)**/storage/cache
+(?d)**/storage/cache/**
+(?d)**/storage/logs
+(?d)**/storage/logs/**
+(?d)**/storage/session
+(?d)**/storage/session/**

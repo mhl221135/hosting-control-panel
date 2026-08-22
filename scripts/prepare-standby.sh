@@ -82,9 +82,9 @@ fi
 
 start_control_services() {
   if [ "$(env_value HOSTING_TUNNEL_ENABLED)" = true ]; then
-    compose up -d hosting-agent hosting-ui hosting-cloudflared
+    compose up -d hosting-agent hosting-ui hosting-cloudflared hosting-sync
   else
-    compose up -d hosting-agent hosting-ui
+    compose up -d hosting-agent hosting-ui hosting-sync
   fi
 }
 
@@ -171,8 +171,8 @@ cleanup() {
     rm -rf "$root/app-data" "$root/websites"
     [ -z "$previous_app" ] || mv "$previous_app" "$root/app-data"
     [ -z "$previous_websites" ] || mv "$previous_websites" "$root/websites"
-    start_control_services >/dev/null 2>&1 || true
   fi
+  [ "$status" -eq 0 ] || start_control_services >/dev/null 2>&1 || true
   [ -z "$stage" ] || rm -rf "$stage"
   rm -f "$selection"
   exit "$status"
@@ -220,7 +220,7 @@ jq -e --arg receiver_sha "$receiver_sha" '
   || { printf 'Deep verification is missing, invalid, or stale for the current receiver receipt.\n' >&2; exit 1; }
 deep_sha="$(sha256sum "$deep_receipt" | awk '{print $1}')"
 
-unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared)$/ { print }')"
+unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are running: %s\n' "$unexpected" >&2; exit 1; }
 
 available_kb="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
@@ -228,9 +228,14 @@ available_kb="$(df -Pk "$root" | awk 'NR == 2 { print $4 }')"
 
 stage="$root/.standby-prepare.$$"
 mkdir -p "$stage/app-data" "$stage/websites"
+printf 'Extracting application data...\n'
 tar -xzf "$app_set/app-data.tar.gz" -C "$stage/app-data" --no-same-owner
+extracted=0
 while IFS= read -r set_dir; do
   [ -n "$set_dir" ] || continue
+  extracted=$((extracted + 1))
+  site_domain="$(jq -r .domain "$set_dir/manifest.json")"
+  printf 'Extracting %s/%s %s...\n' "$extracted" "$site_count" "$site_domain"
   tar -xzf "$set_dir/website.tar.gz" -C "$stage/websites" --no-same-owner
 done < "$selection"
 mkdir -p "$stage/app-data/mysql" "$stage/app-data/nginx-cache" "$stage/app-data/redis"
@@ -239,15 +244,18 @@ chown -R 33:33 "$stage/app-data" "$stage/websites"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 previous_app="$root/.standby-previous-app-data-$stamp"
 previous_websites="$root/.standby-previous-websites-$stamp"
-compose stop hosting-ui >/dev/null 2>&1 || true
+compose stop hosting-ui hosting-sync >/dev/null 2>&1 || true
 [ ! -e "$root/app-data" ] || mv "$root/app-data" "$previous_app"
 [ ! -e "$root/websites" ] || mv "$root/websites" "$previous_websites"
 mv "$stage/app-data" "$root/app-data"
 mv "$stage/websites" "$root/websites"
+mkdir -p "$root/websites/.stfolder" "$root/app-data/configs/.stfolder"
+chown 33:33 "$root/websites/.stfolder" "$root/app-data/configs/.stfolder"
 swapped=1
 
 compose up -d hosting-db
 database_started=1
+printf 'Waiting for the restored database service...\n'
 ready=0
 for _ in $(seq 1 60); do
   if docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT 1"' 2>/dev/null \
@@ -258,11 +266,13 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$ready" -eq 1 ] || { printf 'Replica database did not become ready.\n' >&2; exit 1; }
+printf 'Restoring the database snapshot...\n'
 gzip -dc "$app_set/databases.sql.gz" \
   | docker exec -i hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot'
 restored_tables="$(docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema NOT IN (0x696e666f726d6174696f6e5f736368656d61,0x706572666f726d616e63655f736368656d61,0x737973)"')"
 case "$restored_tables" in ''|*[!0-9]*) printf 'Restored database inventory is invalid.\n' >&2; exit 1 ;; esac
 [ "$restored_tables" -gt 0 ] || { printf 'Restored database inventory is empty.\n' >&2; exit 1; }
+printf 'Restored database inventory contains %s tables.\n' "$restored_tables"
 compose stop hosting-db
 database_started=0
 
@@ -271,14 +281,26 @@ database_started=0
 # controlled promotion would start.
 compose create hosting-db hosting-redis hosting-php-fpm hosting-nginx >/dev/null
 
+source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
+candidate_stage="$stage/failover-hosts.candidates.txt"
+candidate_metadata_stage="$stage/failover-hosts.candidates.json"
+"$project_dir/scripts/generate-failover-hosts.sh" \
+  --sites-map "$root/app-data/configs/nginx/conf.d/sites.map" \
+  --websites-root "$root/websites" \
+  --output "$candidate_stage"
+candidate_count="$(wc -l < "$candidate_stage" | tr -d ' ')"
+candidate_sha="$(sha256sum "$candidate_stage" | awk '{print $1}')"
+jq -n --arg generated_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg recovery_id "$app_id" \
+  --arg source_release "$source_release" --arg sha256 "$candidate_sha" --argjson count "$candidate_count" \
+  '{version:1,generated_at:$generated_at,recovery_id:$recovery_id,source_release:$source_release,
+    sha256:$sha256,count:$count}' > "$candidate_metadata_stage"
+chmod 600 "$candidate_metadata_stage"
+
 rm -rf "$previous_app" "$previous_websites"
 previous_app=""
 previous_websites=""
 swapped=0
-rmdir "$stage"
-stage=""
 
-source_release="$(cat "$project_dir/.source-release" 2>/dev/null || printf unknown)"
 temporary="$machine_state/standby-recovery.json.tmp.$$"
 jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app_id" \
   --arg source_release "$source_release" --arg receiver_receipt_sha256 "$receiver_sha" \
@@ -287,7 +309,11 @@ jq -n --arg prepared_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg app_data_id "$app
     source_release:$source_release, receiver_receipt_sha256:$receiver_receipt_sha256,
     deep_verification_sha256:$deep_verification_sha256}' > "$temporary"
 chmod 644 "$temporary"
+mv "$candidate_stage" "$machine_state/failover-hosts.candidates.txt"
+mv "$candidate_metadata_stage" "$machine_state/failover-hosts.candidates.json"
 mv "$temporary" "$machine_state/standby-recovery.json"
+rmdir "$stage"
+stage=""
 
 start_control_services
 printf 'Standby prepared at app-data recovery point %s. Role and public traffic were not changed.\n' "$app_id"

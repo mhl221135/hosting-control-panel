@@ -31,6 +31,8 @@ into dedicated directories.
 - Per-site Redis object-cache enablement
 - Per-site FastCGI page cache with versioned purge
 - Per-site PHP OPcache enablement
+- Panel-managed WordPress MU cache controls with site-scoped credentials and
+  separate FastCGI, OPcache, Redis, Cloudflare, and purge-all actions
 - Validated global OPcache, FastCGI, Redis, MySQL, and PHP performance settings
 - Deterministic first-install accounts for the panel, NPM, and File Browser
 - Global gzip compression and per-site or bulk WebP image generation
@@ -41,6 +43,15 @@ into dedicated directories.
 - Versioned artifact sizes and SHA-256 verification before site restore
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
+- Project-owned one-way warm-replica sync for website files and runtime
+  configuration, plus hourly checksummed logical database recovery points
+- Resumable initial replica reconciliation and non-restoring warm preparation;
+  guarded promotion and Cloudflare tunnel cutover remain separately gated
+- Guarded HA operations for on-demand database recovery points, standby
+  refresh, immediate failover checks, authenticated peer status, bounded lag
+  history/alerts, and typed promotion/rebuild/failback workflows
+- Optional signed external-witness fencing client; disabled until an
+  independent provider and root-owned credentials are configured
 - Backup history and complete-set deletion from the panel
 - Durable ownership-aware website removal jobs with selectable routes, pool,
   files, database, NPM, certificate, Cloudflare DNS, panel state, and backups
@@ -99,6 +110,10 @@ hosting-agent (Docker network only)
   +--> Docker socket
   +--> fixed runtime inspection, validation, reload, WP-CLI, and database operations
 
+hosting-sync
+  +--> one-way website and runtime-config synchronization
+  +--> hourly logical database recovery points (never live MySQL files)
+
 Billing administrator
   |
   v
@@ -140,6 +155,7 @@ mount host paths, pull images, or call the raw Docker API.
 |   |-- CONFIGURATION.md
 |   |-- DISASTER_RECOVERY_QUALIFICATION.md
 |   |-- HIGH_AVAILABILITY.md
+|   |-- WORDPRESS_CACHE_CONTROL.md
 |   |-- MAIL_FEASIBILITY.md
 |   |-- OPERATIONS.md
 |   |-- SECURITY.md
@@ -912,6 +928,9 @@ not invoked or modified by this panel.
 - `scripts/promote-standby.sh`: explicitly fenced local runtime activation and atomic role transition; never changes public ingress
 - `scripts/tunnel-cutover.sh`: preview, apply, or roll back an explicit Cloudflare Tunnel hostname/DNS cutover after local promotion
 - `scripts/revert-standby-drill.sh`: return a no-write, rolled-back failover drill to a fenced standby; never use after public writes
+- `scripts/automatic-failover.sh`: disabled-by-default outage watchdog with monitor, fence-receipt, and explicitly accepted unreachable-primary activation modes; activation rejects stale database recovery points
+- `scripts/qualify-failover-hosts.sh`: preview and accept only Cloudflare-ready candidates into the local automatic-failover allowlist without changing public ingress
+- `scripts/record-primary-fence.sh`: create a short-lived, recovery-bound fencing receipt after the old primary is actually fenced
 
 Successful reception records a bounded source identity and the exact retained
 set manifests in `receiver-state.json`. The standby Health view provides a

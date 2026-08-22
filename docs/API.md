@@ -29,12 +29,37 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   counts, app-data recovery identifier, oldest selected recovery-point age,
   and whether deep verification is current, stale, or missing. It contains no
   backup paths, site domains, credentials, or raw manifests.
+- `GET /api/system/replication-status` returns a bounded read-only warm-sync
+  snapshot: peer connectivity, backlog and exactness for the three
+  project-owned Syncthing folders, receive-only drift, and the age and size of
+  the latest hourly database recovery point. When configured, `peerHealth`
+  reports the expected peer identity, identity match, role, bounded failover
+  state, reachability, and request latency from its authenticated
+  `/ha/v1/status` response.
+  When `HOSTING_SYNC_PEER_DEVICE_ID` is configured, `replication.peerConnected`
+  refers only to that exact Syncthing device; the device ID itself is omitted.
+  Peer addresses, API keys, paths,
+  hashes, and raw Syncthing responses are never returned. It also includes a
+  bounded `automaticFailover` status with availability, state, failure
+  count/threshold, check time, and optional recovery ID. The health URL,
+  hostname allowlist, primary identity, Cloudflare token, and fencing receipt
+  are never returned. The bounded `failoverInventory` summary validates the
+  generated candidate checksum and reports active/candidate counts plus at most
+  100 pending additions and removals. It does not authorize or apply cutover.
+  The response also contains `haControl`: the current bounded request/result
+  and only the actions valid for the machine role.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact
   SHA-256 hashes, validates gzip streams, and rejects unsafe tar paths, links,
   and special files. Success writes a mode-`0600` receipt bound to the exact
   `receiver-state.json`; it does not restore data or promote the server.
+- `POST /api/system/ha-control` accepts only role-appropriate fixed actions with
+  the action's exact typed confirmation. It writes a mode-`0600` request
+  consumed by the host systemd timer. Request data cannot select a command,
+  unit, argument, role, DNS record, or tunnel route. Standby promotion and
+  promoted-primary rebuild/failback delegate to the existing guarded scripts;
+  their recovery, fencing, validation, and rollback gates remain authoritative.
 - On a standby, every other non-read API request returns `423 Locked`. The
   standby job worker executes only `standby.deep-verify` jobs. Disallowed
   queued jobs recovered from local history become cancelled historical records
@@ -47,6 +72,22 @@ Errors use HTTP status codes and this shape:
 ```
 
 Do not expose secrets in public settings responses or error details.
+
+## WordPress Cache Control API
+
+`GET /api/maintenance/status` includes installation/version status for every
+canonical WordPress site. `POST /api/maintenance/cache-control/install`
+idempotently installs or updates selected/all sites and can explicitly rotate
+their site credentials. `DELETE /api/maintenance/cache-control` removes only
+the two managed MU-plugin files after exact-domain confirmation.
+
+`POST /remote/cache/v1/purge` is an internal-network endpoint used by the MU
+plugin. It requires a site-scoped bearer credential, accepts only that
+canonical WordPress domain and `fastcgi`/`cloudflare` layers, is rate limited,
+and returns independent per-layer results. Only the credential hash is stored
+by the panel. WordPress performs its own administrator/nonce checks and local
+OPcache/Redis operations; the endpoint grants no panel-session or Docker API
+authority.
 
 ## Billing API
 
@@ -642,3 +683,22 @@ unless every restoration step succeeds.
 4. Use a specific HTTP status and a non-secret error response.
 5. Add a Node test and a browser workflow check when the UI changes.
 6. Update this route index when public behavior changes.
+
+### Authenticated HA Pairing
+
+`GET /ha/v1/status` is the narrow server-to-server pairing endpoint. It requires
+`Authorization: Bearer <HOSTING_PEER_API_TOKEN>` and returns only the bounded
+server identity, role, failover state, recovery identifier, and replication
+summary. The normal public `/health` endpoint remains a liveness signal for the
+existing outage watchdog; it is not considered authenticated pairing.
+
+`GET /api/system/replication-status` includes a bounded local history (288
+five-minute samples, 96 returned by default). Health transitions enqueue the
+existing Telegram/SMTP notifications without storing peer credentials.
+
+`POST /api/system/ha-control` accepts only fixed role-appropriate actions. In
+addition to recovery/finalizer checks, standby actions can preview or apply the
+existing guarded activation workflow and request an independently signed
+fencing receipt. A receipt-backed promoted primary can preview/run former-primary
+rebuild and controlled failback. Typed confirmations are mandatory for every
+mutating role workflow; arbitrary commands or arguments are never accepted.

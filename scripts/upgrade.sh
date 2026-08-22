@@ -185,4 +185,10 @@ else
   sh "$project_dir/scripts/migrate-webp-cache.sh"
 fi
 
+sh "$project_dir/scripts/stamp-source-release.sh"
+sh "$project_dir/scripts/install-ha-panel-control.sh" --ui-data-dir "$ui_data_dir"
+if [ "$installation_role" != "standby" ]; then
+  compose exec -T hosting-ui node /app/cli/install-wordpress-cache-control.js \
+    || echo "Warning: some WordPress cache-control installations need attention." >&2
+fi
 echo "Upgrade complete. Persistent data, websites, backups, and active configuration were not replaced."

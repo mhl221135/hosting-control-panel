@@ -9,7 +9,7 @@ Type=oneshot
 Nice=15
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /usr/bin/docker exec hosting-ui node /app/cli/deep-verify.js /srv/backups
+ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /usr/bin/docker exec hosting-ui /usr/bin/flock -n /srv/backups/.deep-verify.lock node /app/cli/deep-verify.js /srv/backups
 
 NoNewPrivileges=yes
 PrivateTmp=yes

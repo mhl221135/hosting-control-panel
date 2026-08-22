@@ -5,7 +5,32 @@ const path = require("node:path");
 const test = require("node:test");
 const {
   appendContainerChecks, runPreflight, readSiteManifest, validateDeepVerifyProgress, validateReceiverProgress,
+  resourceProfileChecks, validateStandbyRecovery,
 } = require("../lib/promotion-preflight");
+
+test("accepts a bounded 16 GB standby resource profile", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "profile-16gb-"));
+  try {
+    const phpIniPath = path.join(dir, "php.ini");
+    fs.writeFileSync(phpIniPath, "opcache.memory_consumption = 5000\n");
+    const result = resourceProfileChecks({
+      name: "standby-16gb", mysqlServerId: "2", mysqlBuffer: "2G",
+      mysqlRedo: "1G", mysqlConnections: "150", redisMaxMemory: "1024mb", phpIniPath,
+    });
+    assert.equal(result.checks.every((item) => item.status === "pass"), true);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("accepts bounded warm-sync preparation markers without backup receipt hashes", () => {
+  const marker = {
+    version: 1, mode: "warm-sync", prepared_at: "2026-08-13T12:00:00Z",
+    app_data_id: "2026-08-13T11-57-11Z", database_recovery_id: "2026-08-13T11-57-11Z",
+    site_count: 50, source_release: "abcdef1",
+  };
+  assert.deepEqual(validateStandbyRecovery(marker), marker);
+  assert.equal(validateStandbyRecovery({ ...marker, database_recovery_id: "2026-08-13T11-00-00Z" }), null);
+  assert.equal(validateStandbyRecovery({ ...marker, token: "secret" }), null);
+});
 
 function makeBackup(root, domain, hasDb = true, ageHours = 1) {
   const now = new Date(Date.now() - ageHours * 3_600_000);
