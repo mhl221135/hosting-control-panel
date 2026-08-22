@@ -148,6 +148,9 @@ The notification delivery worker remains active on a fenced standby while
 mutating schedulers and Telegram commands stay disabled. It sends transition-
 only Telegram/SMTP alerts for outage detection, blocked activation, activation,
 promotion, and recovery rather than repeating alerts on every watchdog poll.
+The alert path was qualified on 2026-08-22 with a single failed detector cycle:
+Telegram and SMTP each delivered one unreachable warning and one recovery
+notice, while OPI5's website services remained online and HP stayed standby.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
