@@ -336,7 +336,9 @@ class BackupManager {
         payload: { scheduleDate: localDate },
       });
       const finished = await this.jobManager.wait(job.id);
-      if (finished.status === "succeeded") this.updateSettings({ lastScheduledDate: localDate });
+      if (["succeeded", "partially_succeeded"].includes(finished.status)) {
+        this.updateSettings({ lastScheduledDate: localDate });
+      }
       return finished;
     }
     const result = await this.runScheduledWork();

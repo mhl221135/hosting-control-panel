@@ -257,6 +257,35 @@ test("failed daily run remains eligible for a later retry", async () => {
   }
 });
 
+test("partially successful daily job is not re-enqueued every 15 minutes", async () => {
+  const fixture = managerFixture();
+  try {
+    let created = 0;
+    fixture.manager.jobManager = {
+      create() {
+        created += 1;
+        return { id: "partial-daily-job" };
+      },
+      async wait() {
+        return { id: "partial-daily-job", status: "partially_succeeded" };
+      },
+    };
+    fixture.manager.updateSettings({
+      scheduleTime: "00:00",
+      lastScheduledDate: "",
+    });
+
+    const now = new Date("2026-07-20T12:00:00");
+    const result = await fixture.manager.runScheduled(now);
+    assert.equal(result.status, "partially_succeeded");
+    assert.equal(fixture.manager.readSettings().lastScheduledDate, "2026-07-20");
+    assert.equal(await fixture.manager.runScheduled(new Date("2026-07-20T12:30:00")), null);
+    assert.equal(created, 1);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("scheduled retry skips complete same-day sites but creates app-data last", async () => {
   const fixture = managerFixture();
   try {
