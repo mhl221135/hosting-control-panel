@@ -212,8 +212,8 @@ if [ -d "$dst/.incoming" ] && [ "$(ls -A "$dst/.incoming")" ]; then
   exit 1
 fi
 
-# Test: retention=2 keeps a prior local generation while the receipt attests
-# only the newest selected generation.
+# Test: default retention=2 keeps a prior local generation while the receipt
+# attests only the newest selected generation.
 cat > "$src/example.com/2026-08-09T00-00-00Z/manifest.json" <<EOF
 {
   "version": 2,
@@ -229,7 +229,7 @@ cat > "$src/example.com/2026-08-09T00-00-00Z/manifest.json" <<EOF
   }
 }
 EOF
-"$script" --source "$src" --destination "$dst" --source-server-id "OPI5" --retention 2 >/dev/null
+"$script" --source "$src" --destination "$dst" --source-server-id "OPI5" >/dev/null
 receipt_sets_retention=$(jq '.sets | length' "$dst/receiver-state.json")
 retained_directories=$(find "$dst/example.com" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' | wc -l | tr -d ' ')
 if [ "$receipt_sets_retention" -ne 1 ] || [ "$retained_directories" -ne 2 ]; then

@@ -8,7 +8,7 @@ Usage: receive-backups.sh --source PATH|USER@HOST:/PATH --destination PATH [opti
 
 Options:
   --source-server-id ID Identifier of the source server (required; 1-64 alphanumeric/hyphen/underscore/dot chars)
-  --retention N     Verified sets retained per website/app-data group (default: 3)
+  --retention N     Verified sets retained per website/app-data group (default: 2)
   --reserve-gb N    Free space that must remain after each transfer (default: 20)
   --ssh-option OPT  Additional ssh/rsync ssh option; may be repeated
   --dry-run         Inventory and capacity checks only
@@ -17,7 +17,7 @@ EOF
 
 source_spec=""
 destination=""
-retention=3
+retention=2
 reserve_gb=20
 dry_run=0
 ssh_options=""

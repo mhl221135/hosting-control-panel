@@ -560,9 +560,9 @@ Panel-based acceptance remains future work.
 
 ### Independent Retention And Resource Profiles
 
-- Configure backup retention per destination. Current requested policy is seven
-  completed sets on the primary and two daily received, checksum-verified sets
-  on the replica at `/ssdmount/websites-v2/backups`.
+- Configure backup retention per destination. The primary panel retains seven
+  completed sets by default. The receiver independently retains two daily,
+  checksum-verified sets by default at its configured backup destination.
 - Do not mirror backup deletions. The replica receives only completed sets into
   staging, verifies manifests/checksums/archive integrity, atomically promotes
   them, and applies its own retention after a newer usable set exists.

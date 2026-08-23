@@ -286,7 +286,7 @@ The initial checksum-verified receiver is available as:
 ```bash
 sudo ./scripts/receive-backups.sh \
   --source backup-reader@primary:/media/seagate/websites-backups-v2 \
-  --destination /ssdmount/websites-v2/backups \
+  --destination /path/to/standby-backups \
   --source-server-id primary-1 \
   --retention 2 --reserve-gb 20 --dry-run
 ```

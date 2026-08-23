@@ -9,7 +9,7 @@ Type=oneshot
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /media/ssdmount/websites-v2/sources/scripts/receive-backups.sh --source backup-reader@primary.internal:/srv/hosting-backups --destination /ssdmount/websites-v2/backups --retention 2 --reserve-gb 20 --source-server-id primary-1 --ssh-option -i --ssh-option /etc/hosting-control/ssh/backup-pull-ed25519 --ssh-option -o --ssh-option IdentitiesOnly=yes --ssh-option -o --ssh-option UserKnownHostsFile=/etc/hosting-control/ssh/known_hosts --ssh-option -o --ssh-option StrictHostKeyChecking=yes
+ExecStart=/usr/bin/flock -n /run/hosting-backup-receiver/lock /opt/hosting-control/scripts/receive-backups.sh --source backup-reader@primary.internal:/srv/hosting-backups --destination /srv/hosting-backups --retention 2 --reserve-gb 20 --source-server-id primary-1 --ssh-option -i --ssh-option /etc/hosting-control/ssh/backup-pull-ed25519 --ssh-option -o --ssh-option IdentitiesOnly=yes --ssh-option -o --ssh-option UserKnownHostsFile=/etc/hosting-control/ssh/known_hosts --ssh-option -o --ssh-option StrictHostKeyChecking=yes
 
 NoNewPrivileges=yes
 PrivateTmp=yes
