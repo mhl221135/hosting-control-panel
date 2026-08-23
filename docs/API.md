@@ -46,8 +46,9 @@ on port 8687. `ui-manager/app/server.js` is the authoritative route definition.
   are never returned. The bounded `failoverInventory` summary validates the
   generated candidate checksum and reports active/candidate counts plus at most
   100 pending additions and removals. It does not authorize or apply cutover.
-  The response also contains `haControl`: the current bounded request/result
-  and only the actions valid for the machine role.
+  The response also contains `haControl`: the current bounded request/result,
+  up to 50 bounded recent processor results, and only the actions valid for the
+  machine role.
 - `POST /api/system/deep-verify` is the only standby job mutation. It queues a
   cancellable, deduplicated verification of every set in the current receiver
   receipt. The worker checks the receipt/manifest binding, streams artifact

@@ -61,5 +61,18 @@ test("returns bounded processor results without reading arbitrary fields", () =>
     assert.deepEqual(value.control.view("primary", "one").result, {
       id: "id", action: "replicate-now", status: "succeeded", message: "done", completedAt: "now",
     });
+    fs.writeFileSync(value.control.historyPath, JSON.stringify({
+      version: 1,
+      history: Array.from({ length: 55 }, (_, index) => ({
+        id: `id-${index}`, action: "replicate-now", status: index ? "succeeded" : "unknown",
+        message: `result-${index}`, completedAt: "now", secret: "hidden",
+      })),
+    }));
+    const history = value.control.view("primary", "one").history;
+    assert.equal(history.length, 50);
+    assert.deepEqual(history[0], {
+      id: "id-0", action: "replicate-now", status: "failed", message: "result-0", completedAt: "now",
+    });
+    assert.equal(Object.hasOwn(history[0], "secret"), false);
   } finally { fs.rmSync(value.dataDir, { recursive: true, force: true }); }
 });

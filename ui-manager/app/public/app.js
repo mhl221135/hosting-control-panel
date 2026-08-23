@@ -668,6 +668,13 @@ async function loadWarmReplication() {
     : control.result
       ? `${String(control.result.action || "HA action").replaceAll("-", " ")}: ${control.result.status} · ${control.result.message}`
       : "No HA control request recorded.";
+  const controlHistory = control.history || [];
+  $("#haControlHistory").className = controlHistory.length ? "health-list" : "health-list empty";
+  $("#haControlHistory").innerHTML = controlHistory.length ? controlHistory.slice(0, 12).map((entry) => `
+    <div class="health-row">
+      <span class="health-severity ${entry.status === "succeeded" ? "healthy" : "failure"}">${escapeHtml(entry.status)}</span>
+      <div><strong>${escapeHtml(String(entry.action || "HA action").replaceAll("-", " "))}</strong><p>${escapeHtml(entry.message || "No result details")}</p><small>${entry.completedAt ? new Date(entry.completedAt).toLocaleString() : "Unknown time"}</small></div>
+    </div>`).join("") : "No HA operation history recorded.";
 }
 
 function renderPreflight(data) {

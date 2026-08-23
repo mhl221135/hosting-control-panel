@@ -151,6 +151,8 @@ rebuild/failback controls only on a receipt-backed promoted primary. Mutating
 role controls require typing the displayed confirmation and delegate to the
 existing rollback-aware host scripts. **Request external fence** remains
 fail-closed until a signed independent witness is configured on that machine.
+The same card retains the 50 most recent bounded processor results and displays
+the newest 12, so a later operation does not erase the prior result.
 
 Mutating operational sections are hidden on a standby and their server APIs
 remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,

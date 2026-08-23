@@ -8,6 +8,7 @@ config=/etc/hosting-control/ha-panel-control.env
 
 request="$HA_PANEL_DATA_DIR/ha-control-request.json"
 result="$HA_PANEL_DATA_DIR/ha-control-result.json"
+history="$HA_PANEL_DATA_DIR/ha-control-history.json"
 processing="$HA_PANEL_DATA_DIR/ha-control-request.processing.json"
 role_file=/etc/hosting-control/role.json
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
@@ -25,6 +26,14 @@ finish() {
     '{version:1,id:$id,action:$action,status:$status,message:$message,completedAt:$completedAt}' > "$temporary"
   chmod 0644 "$temporary"
   mv "$temporary" "$result"
+  history_tmp="$history.tmp.$$"
+  if [ -f "$history" ] && jq -e '.version == 1 and (.history | type == "array")' "$history" >/dev/null 2>&1; then
+    jq --slurpfile entry "$result" '{version:1,history:($entry + .history)[:50]}' "$history" > "$history_tmp"
+  else
+    jq --slurpfile entry "$result" '{version:1,history:$entry}' > "$history_tmp"
+  fi
+  chmod 0644 "$history_tmp"
+  mv "$history_tmp" "$history"
   rm -f "$processing"
 }
 

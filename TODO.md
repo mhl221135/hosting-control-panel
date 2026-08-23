@@ -550,8 +550,6 @@ Panel-based acceptance remains future work.
   only valid transitions. Changing role must use preview, readiness checks,
   explicit typed confirmation, an audit event, and rollback; it must never be
   implemented as an unrestricted settings dropdown.
-- Add a bounded audit-history view for panel-driven promotion, rebuild, and
-  failback results; the current card retains only the latest processor result.
 - In `standby` mode, replace the normal operational navigation with
   **Overview**, **Replication**, **Received backups**, **Health**,
   **Promotion**, **Settings**, **Account**, and bounded read-only logs.

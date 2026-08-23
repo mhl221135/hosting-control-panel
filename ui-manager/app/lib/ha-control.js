@@ -23,18 +23,34 @@ function readJson(filePath) {
   } catch { return null; }
 }
 
+function publicResult(result) {
+  if (!result || typeof result !== "object" || Array.isArray(result)) return null;
+  return {
+    id: String(result.id || "").slice(0, 80),
+    action: String(result.action || "").slice(0, 40),
+    status: ["succeeded", "failed", "rejected"].includes(result.status) ? result.status : "failed",
+    message: String(result.message || "").slice(0, 240),
+    completedAt: String(result.completedAt || "").slice(0, 40),
+  };
+}
+
 class HaControl {
   constructor(options = {}) {
     this.dataDir = options.dataDir;
     this.requestPath = path.join(this.dataDir, "ha-control-request.json");
     this.processingPath = path.join(this.dataDir, "ha-control-request.processing.json");
     this.resultPath = path.join(this.dataDir, "ha-control-result.json");
+    this.historyPath = path.join(this.dataDir, "ha-control-history.json");
     this.now = options.now || (() => Date.now());
   }
 
   view(role, serverId, promotion = null) {
     const request = readJson(this.processingPath) || readJson(this.requestPath);
     const result = readJson(this.resultPath);
+    const storedHistory = readJson(this.historyPath);
+    const history = Array.isArray(storedHistory?.history)
+      ? storedHistory.history.slice(0, 50).map(publicResult).filter(Boolean)
+      : [];
     return {
       available: true,
       pending: request ? {
@@ -42,13 +58,8 @@ class HaControl {
         action: String(request.action || "").slice(0, 40),
         requestedAt: String(request.requestedAt || "").slice(0, 40),
       } : null,
-      result: result ? {
-        id: String(result.id || "").slice(0, 80),
-        action: String(result.action || "").slice(0, 40),
-        status: ["succeeded", "failed", "rejected"].includes(result.status) ? result.status : "failed",
-        message: String(result.message || "").slice(0, 240),
-        completedAt: String(result.completedAt || "").slice(0, 40),
-      } : null,
+      result: publicResult(result),
+      history,
       actions: Object.entries(ACTIONS)
         .filter(([, definition]) => definition.role === role
           || (definition.role === "promoted-primary" && role === "primary"
