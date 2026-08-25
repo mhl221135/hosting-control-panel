@@ -22,12 +22,12 @@ EOF
 
 cat > /etc/systemd/system/hosting-database-replication.timer <<'EOF'
 [Unit]
-Description=Create hourly hosting database recovery points
+Description=Create hosting database recovery points every 30 minutes
 
 [Timer]
 OnActiveSec=10m
-OnUnitActiveSec=1h
-RandomizedDelaySec=5m
+OnUnitActiveSec=30m
+RandomizedDelaySec=2m
 Persistent=true
 Unit=hosting-database-replication.service
 
@@ -39,7 +39,7 @@ systemctl daemon-reload
 role="$(jq -r '.role // empty' /etc/hosting-control/role.json 2>/dev/null || true)"
 if [ "$role" = primary ]; then
   systemctl enable --now hosting-database-replication.timer
-  printf 'Installed and enabled hourly database replication timer.\n'
+  printf 'Installed and enabled 30-minute database replication timer.\n'
 else
   systemctl disable --now hosting-database-replication.timer >/dev/null 2>&1 || true
   printf 'Installed database replication timer disabled for standby role.\n'

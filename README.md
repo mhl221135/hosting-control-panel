@@ -112,7 +112,7 @@ hosting-agent (Docker network only)
 
 hosting-sync
   +--> one-way website and runtime-config synchronization
-  +--> hourly logical database recovery points (never live MySQL files)
+  +--> 30-minute logical database recovery points (never live MySQL files)
 
 Billing administrator
   |

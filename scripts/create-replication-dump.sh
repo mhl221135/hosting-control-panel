@@ -58,4 +58,4 @@ trap - EXIT HUP INT TERM
 find "$destination" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -print \
   | sed 's#^.*/##' | sort -r | sed -n '4,$p' \
   | while IFS= read -r old; do rm -rf -- "$destination/$old"; done
-printf 'Created hourly database recovery point %s (%s bytes).\n' "$id" "$size"
+printf 'Created database recovery point %s (%s bytes).\n' "$id" "$size"

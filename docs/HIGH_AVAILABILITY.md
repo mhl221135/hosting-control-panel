@@ -4,7 +4,7 @@
 
 This document defines a conservative primary/standby design for Websites V2.
 The current release implements machine-local roles, a locked-down standby,
-continuous one-way website/runtime-config synchronization, and hourly logical
+continuous one-way website/runtime-config synchronization, and 30-minute logical
 database recovery points. Promotion is guarded and automatic outage detection
 is available as a disabled-by-default watchdog; verified daily backups remain
 the disaster-recovery layer. The watchdog never treats connectivity loss as
@@ -42,7 +42,7 @@ bandwidth, and completed recovery drills.
 
 `hosting-sync` is a project-owned Syncthing container, separate from any
 host-level Syncthing service. OPI5 shares `websites`, generated nginx/PHP
-runtime configuration, and hourly logical database recovery points as
+runtime configuration, and 30-minute logical database recovery points as
 `sendonly`; hp-server receives them as `receiveonly`. Global discovery and
 relays keep the connection usable behind CGNAT, while an optional direct peer
 address accelerates transfers on the same LAN.
@@ -61,7 +61,7 @@ used, configure a GUI username and password before publishing port 8834. HTTP
 is supported when explicitly selected, but credentials must not be reused.
 
 Live MariaDB files are never synchronized. The primary creates an atomic
-compressed `mysqldump` hourly and retains three points under
+compressed `mysqldump` every 30 minutes and retains three points under
 `HOSTING_ROOT/replication/database`. Promotion requires all three Syncthing
 folders to be idle, verifies the newest dump, and imports it before nginx, PHP,
 or NPM starts. Daily backup reception remains independent.
@@ -500,7 +500,7 @@ Authenticated role, session, and status responses expose only the bounded
 display fields from this marker. After local promotion the panel keeps a
 persistent warning visible while `public_ingress_cutover` is false, so a
 locally writable server is not mistaken for an already active public origin.
-The hourly database-dump timer remains disabled during isolated local
+The database-dump timer remains disabled during isolated local
 promotion and read-only drills. It is enabled only after the reviewed public
 tunnel cutover succeeds; drill reversion disables it again.
 The standby finalizer timer is disabled for every promotion and restored only
@@ -599,7 +599,7 @@ sudo ./scripts/prepare-warm-standby.sh --dry-run
 sudo ./scripts/prepare-warm-standby.sh --apply --confirm PREPARE-WARM-STANDBY
 ```
 
-This verifies the latest hourly logical database recovery point and writes the
+This verifies the latest 30-minute logical database recovery point and writes the
 promotion/failover inventory markers without changing files, databases,
 services, role, DNS, or tunnel routes. `prepare-standby.sh` remains the slower
 archive-based disaster-recovery workflow.
@@ -626,7 +626,7 @@ Reconciliation covers website files, runtime configuration, and database
 recovery snapshots, including changes published while standby replication was
 intentionally stopped for a drill.
 On the standby, a ten-minute timer repeats this bounded finalization. When a
-new hourly database snapshot arrives, it starts only MariaDB, imports that
+new database snapshot arrives, it starts only MariaDB, imports that
 snapshot into the private standby volume, records its checksum-bound recovery
 ID, and stops MariaDB again. Unchanged snapshots are skipped. Promotion uses
 the exact pre-staged volume recorded by the readiness marker. A newer snapshot

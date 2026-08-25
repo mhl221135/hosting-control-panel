@@ -440,7 +440,7 @@ read-only panel mode are implemented. Checksum-verified backup reception,
 guarded backup-based standby preparation, and a systemd success-chain that
 refreshes the fenced prepared standby after deep verification are implemented.
 The project-owned Syncthing path now continuously mirrors website files and
-runtime configuration one way, while hourly verified logical database recovery
+runtime configuration one way, while 30-minute verified logical database recovery
 points synchronize separately. The standby now pre-imports each new logical
 snapshot into its stopped database volume and refreshes the coordinated warm
 recovery marker every ten minutes, so promotion does not normally import SQL
@@ -581,15 +581,15 @@ Panel-based acceptance remains future work.
 
 ### Replication
 
-- Keep the implemented hourly receiver recovery age clearly labeled as backup
+- Keep the implemented 30-minute receiver recovery age clearly labeled as backup
   reception; never describe it as real-time or continuous synchronization.
 - Extend the implemented panel status for the project-owned Syncthing warm
   path with paired-server identity and historical lag alerts. Current status
   reports peer connectivity, per-folder backlog/exactness, receive-only drift,
-  and hourly database recovery-point age.
-- The implemented database path intentionally uses hourly logical snapshots,
+  and 30-minute database recovery-point age.
+- The implemented database path intentionally uses 30-minute logical snapshots,
   not live MySQL file copying or GTID replication. Reconsider GTID only if the
-  measured hourly recovery-point objective later proves insufficient.
+  measured 30-minute recovery-point objective later proves insufficient.
 - Define and test exact replication mechanisms for NPM state/certificates,
   panel state, encryption keys, agent secrets, and active runtime
   configuration. Never copy live databases as ordinary files.
