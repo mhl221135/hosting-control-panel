@@ -116,7 +116,8 @@ still requires a separately qualified external fencing provider or witness.
 For a small installation that explicitly prioritizes availability over strict
 split-brain prevention, an emergency `unreachable` policy is also available.
 It requires both the primary health endpoint and Syncthing peer to remain down,
-the local prepared state with only bounded website-file lag, a minimum
+the local prepared state with only bounded website-file lag and replica-only
+drift, a minimum
 one-minute grace period, and the Cloudflare preview to pass before promotion. Configure it only after the
 controlled write/failback drill:
 

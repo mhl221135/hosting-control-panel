@@ -21,7 +21,7 @@ for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
     printf '%s' "$status" | jq -e '
       (.state == "idle" or .state == "scanning" or .state == "syncing")
       and .errors == 0
-      and (.receiveOnlyTotalItems // 0) == 0
+      and (.receiveOnlyTotalItems // 0) <= 100
       and .needTotalItems <= 100
       and .needBytes <= 10485760
     ' >/dev/null || {
