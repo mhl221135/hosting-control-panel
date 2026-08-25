@@ -116,8 +116,8 @@ still requires a separately qualified external fencing provider or witness.
 For a small installation that explicitly prioritizes availability over strict
 split-brain prevention, an emergency `unreachable` policy is also available.
 It requires both the primary health endpoint and Syncthing peer to remain down,
-the local synchronized state to pass, a minimum three-minute grace period, and
-the Cloudflare preview to pass before promotion. Configure it only after the
+the local prepared state with only bounded website-file lag, a minimum
+one-minute grace period, and the Cloudflare preview to pass before promotion. Configure it only after the
 controlled write/failback drill:
 
 ```bash
@@ -126,8 +126,8 @@ sudo ./scripts/install-automatic-failover.sh \
   --hosts-file /etc/hosting-control/failover-hosts.txt \
   --mode activate --primary-server-id PRIMARY-SERVER-ID \
   --primary-sync-device-id PRIMARY-SYNCTHING-DEVICE-ID \
-  --auto-qualify-hosts \
-  --fence-policy unreachable --unreachable-grace 300 \
+  --auto-qualify-hosts --failures 3 \
+  --fence-policy unreachable --unreachable-grace 60 \
   --max-recovery-age 7200 \
   --risk-confirm I-ACCEPT-SPLIT-BRAIN-RISK \
   --panel-state-file UI_DATA_DIR/automatic-failover-state.json \
@@ -628,8 +628,9 @@ On the standby, a ten-minute timer repeats this bounded finalization. When a
 new hourly database snapshot arrives, it starts only MariaDB, imports that
 snapshot into the private standby volume, records its checksum-bound recovery
 ID, and stops MariaDB again. Unchanged snapshots are skipped. Promotion uses
-the pre-staged volume and refuses a newer, not-yet-prepared snapshot, avoiding
-a full SQL import during the outage.
+the exact pre-staged volume recorded by the readiness marker. A newer snapshot
+that has transferred but has not finished staging does not delay startup and
+is not imported after public writes begin.
 After a database import, the finalizer waits for all folders to become exact
 again before recording preparation, covering changes that arrived during import.
 The standby installer also enables `hosting-standby-fence.service`. After each

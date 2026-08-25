@@ -115,6 +115,25 @@ test("preview is non-mutating and shows exact DNS replacement", async () => {
   assert.equal(fs.existsSync(files.statePath), false);
 });
 
+test("preview bounds concurrent Cloudflare DNS reads", async () => {
+  const files = fixture();
+  const api = new FakeApi();
+  let active = 0;
+  let maximum = 0;
+  api.dnsRecords = async () => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    active -= 1;
+    return [];
+  };
+  const hosts = Array.from({ length: 20 }, (_, index) => `site-${index}.example.com`);
+  const plan = await manager(api, files).plan(hosts);
+  assert.equal(plan.ready, true);
+  assert.ok(maximum > 1);
+  assert.ok(maximum <= 8);
+});
+
 test("apex mail and verification records are preserved while subdomain conflicts block", async () => {
   const files = fixture();
   const api = new FakeApi();

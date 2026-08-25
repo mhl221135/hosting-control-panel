@@ -6,6 +6,21 @@ const HOST = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](
 const IDENTIFIER = /^[a-zA-Z0-9-]{16,64}$/;
 const DNS_TYPES = new Set(["A", "AAAA", "CNAME"]);
 const APEX_COMPATIBLE_TYPES = new Set(["MX", "TXT", "CAA"]);
+const DNS_CONCURRENCY = 8;
+
+async function mapLimit(values, limit, task) {
+  const results = new Array(values.length);
+  let next = 0;
+  async function worker() {
+    while (next < values.length) {
+      const index = next;
+      next += 1;
+      results[index] = await task(values[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, worker));
+  return results;
+}
 
 function cutoverError(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -195,18 +210,16 @@ class TunnelCutover {
     ]);
     const config = tunnel?.config || tunnel || {};
     const desiredConfig = desiredTunnelConfig(config, hosts, this.service);
-    const records = [];
-    for (const hostname of hosts) {
+    const records = await mapLimit(hosts, DNS_CONCURRENCY, async (hostname) => {
       const zone = zoneForHost(zones, hostname);
       if (!zone) {
-        records.push({ hostname, status: "blocked", reason: "No active Cloudflare zone" });
-        continue;
+        return { hostname, status: "blocked", reason: "No active Cloudflare zone" };
       }
       const current = (await this.api.dnsRecords(zone.id, hostname)) || [];
       const ingress = current.filter((record) => DNS_TYPES.has(String(record.type)) && record.name === hostname);
       const unsupported = current.filter((record) => record.name === hostname && !DNS_TYPES.has(String(record.type)));
       const blocking = unsupported.filter((record) => hostname !== zone.name || !APEX_COMPATIBLE_TYPES.has(String(record.type)));
-      records.push({
+      return {
         hostname,
         zone,
         status: blocking.length ? "blocked" : "ready",
@@ -220,8 +233,8 @@ class TunnelCutover {
           proxied: true,
           comment: "Managed by Hosting Control standby cutover",
         },
-      });
-    }
+      };
+    });
     return {
       hosts,
       service: this.service,
@@ -270,7 +283,7 @@ class TunnelCutover {
         throw cutoverError(`Cloudflare tunnel verification failed for ${hostname}`, 502);
       }
     }
-    for (const entry of plan.records) {
+    await mapLimit(plan.records, DNS_CONCURRENCY, async (entry) => {
       const records = (await this.api.dnsRecords(entry.zone.id, entry.hostname)) || [];
       const ingressRecords = records.filter((record) =>
         DNS_TYPES.has(String(record.type)) && String(record.name || "").toLowerCase() === entry.hostname);
@@ -279,7 +292,7 @@ class TunnelCutover {
         || actual.content !== entry.desired.content || actual.proxied !== entry.desired.proxied) {
         throw cutoverError(`Cloudflare DNS verification failed for ${entry.hostname}`, 502);
       }
-    }
+    });
   }
 
   async apply(values, confirmation) {
@@ -301,7 +314,7 @@ class TunnelCutover {
     atomicWriteJson(this.statePath, state, 0o600);
     try {
       await this.api.updateTunnelConfig(this.accountId, this.tunnelId, plan.desiredTunnelConfig);
-      for (const entry of plan.records) await this.replaceDns(entry, entry.desired);
+      await mapLimit(plan.records, DNS_CONCURRENCY, (entry) => this.replaceDns(entry, entry.desired));
       await this.verifyApplied(plan);
       state.status = "active";
       state.completedAt = this.now();
@@ -312,7 +325,11 @@ class TunnelCutover {
       let rollbackError = null;
       try {
         await this.api.updateTunnelConfig(this.accountId, this.tunnelId, state.previousTunnelConfig);
-        for (const entry of state.dns) await this.restoreDns(entry);
+        const failures = [];
+        await mapLimit(state.dns, DNS_CONCURRENCY, async (entry) => {
+          try { await this.restoreDns(entry); } catch (failure) { failures.push(failure); }
+        });
+        if (failures.length) throw failures[0];
       } catch (rollbackFailure) {
         rollbackError = rollbackFailure;
       }
@@ -332,7 +349,11 @@ class TunnelCutover {
       throw cutoverError("No active tunnel cutover can be rolled back", 409);
     }
     await this.api.updateTunnelConfig(this.accountId, this.tunnelId, state.previousTunnelConfig);
-    for (const entry of state.dns || []) await this.restoreDns(entry);
+    const failures = [];
+    await mapLimit(state.dns || [], DNS_CONCURRENCY, async (entry) => {
+      try { await this.restoreDns(entry); } catch (failure) { failures.push(failure); }
+    });
+    if (failures.length) throw failures[0];
     state.status = "rolled-back";
     state.rolledBackAt = this.now();
     atomicWriteJson(this.statePath, state, 0o600);

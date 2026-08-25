@@ -278,7 +278,7 @@ fi
 write_state "$status" "$failures" "" "$unreachable_since"
 
 [ "$failures" -ge "$AUTO_FAILOVER_FAILURES" ] || exit 0
-if ! "$project_dir/scripts/check-sync-ready.sh"; then
+if ! "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag; then
   write_state blocked-sync "$failures" "" "$unreachable_since"
   exit 1
 fi
@@ -328,13 +328,13 @@ if [ "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" = receipt ]; then
 else
   [ "${AUTO_FAILOVER_UNREACHABLE_RISK_ACCEPTED:-}" = I-ACCEPT-SPLIT-BRAIN-RISK ] \
     || { write_state invalid-config "$failures" "$recovery_id" "$unreachable_since"; exit 1; }
-  case "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" in ''|*[!0-9]*) exit 1 ;; esac
-  [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" -ge 180 ] \
-    && [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" -le 3600 ] || exit 1
+  case "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-60}" in ''|*[!0-9]*) exit 1 ;; esac
+  [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-60}" -ge 60 ] \
+    && [ "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-60}" -le 3600 ] || exit 1
   unreachable_epoch="$(date -u -d "$unreachable_since" +%s 2>/dev/null || printf 0)"
   now_epoch="$(date -u +%s)"
   if [ "$unreachable_epoch" -le 0 ] \
-    || [ $((now_epoch - unreachable_epoch)) -lt "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-300}" ]; then
+    || [ $((now_epoch - unreachable_epoch)) -lt "${AUTO_FAILOVER_UNREACHABLE_GRACE_SECONDS:-60}" ]; then
     write_state awaiting-unreachable-grace "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
     exit 0
   fi

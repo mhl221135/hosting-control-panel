@@ -12,10 +12,11 @@ Options:
   --primary-server-id ID      Required for activate mode
   --primary-sync-device-id ID Exact Syncthing device ID of the primary
   --auto-qualify-hosts         Refresh Cloudflare-ready hosts after preparation
+  --failures N                 Failed 30-second checks before action (3-30; default: 3)
   --fence-receipt PATH        Root-owned fencing receipt path
   --panel-state-file PATH     Sanitized status file visible to hosting-ui
   --fence-policy POLICY      receipt (default) or unreachable
-  --unreachable-grace SEC    180-3600 seconds (default: 300)
+  --unreachable-grace SEC    60-3600 seconds (default: 60)
   --max-recovery-age SEC     1800-86400 seconds (default: 7200)
   --risk-confirm TEXT        Required for unreachable policy
 EOF
@@ -29,10 +30,11 @@ mode=monitor
 primary_server_id=""
 primary_sync_device_id=""
 auto_qualify_hosts=false
+failures=3
 fence_receipt=/etc/hosting-control/primary-fence-receipt.json
 panel_state_file="$project_dir/../app-data/ui-manager/automatic-failover-state.json"
 fence_policy=receipt
-unreachable_grace=300
+unreachable_grace=60
 max_recovery_age=7200
 risk_confirmation=""
 while [ "$#" -gt 0 ]; do
@@ -44,6 +46,7 @@ while [ "$#" -gt 0 ]; do
     --primary-server-id) shift; primary_server_id="${1:-}" ;;
     --primary-sync-device-id) shift; primary_sync_device_id="${1:-}" ;;
     --auto-qualify-hosts) auto_qualify_hosts=true ;;
+    --failures) shift; failures="${1:-}" ;;
     --fence-receipt) shift; fence_receipt="${1:-}" ;;
     --panel-state-file) shift; panel_state_file="${1:-}" ;;
     --fence-policy) shift; fence_policy="${1:-}" ;;
@@ -62,8 +65,10 @@ case "$mode" in monitor|activate) ;; *) usage; exit 2 ;; esac
 case "$fence_receipt" in /*) ;; *) usage; exit 2 ;; esac
 case "$panel_state_file" in /*) ;; *) usage; exit 2 ;; esac
 case "$fence_policy" in receipt|unreachable) ;; *) usage; exit 2 ;; esac
+case "$failures" in ''|*[!0-9]*) usage; exit 2 ;; esac
+[ "$failures" -ge 3 ] && [ "$failures" -le 30 ] || { usage; exit 2; }
 case "$unreachable_grace" in ''|*[!0-9]*) usage; exit 2 ;; esac
-[ "$unreachable_grace" -ge 180 ] && [ "$unreachable_grace" -le 3600 ] || { usage; exit 2; }
+[ "$unreachable_grace" -ge 60 ] && [ "$unreachable_grace" -le 3600 ] || { usage; exit 2; }
 case "$max_recovery_age" in ''|*[!0-9]*) usage; exit 2 ;; esac
 [ "$max_recovery_age" -ge 1800 ] && [ "$max_recovery_age" -le 86400 ] || { usage; exit 2; }
 if [ "$fence_policy" = unreachable ] && [ "$risk_confirmation" != I-ACCEPT-SPLIT-BRAIN-RISK ]; then
@@ -85,7 +90,7 @@ umask 077
 {
   printf "AUTO_FAILOVER_ENABLED='%s'\n" "$enabled"
   printf "AUTO_FAILOVER_MODE='%s'\n" "$mode"
-  printf "AUTO_FAILOVER_FAILURES='6'\n"
+  printf "AUTO_FAILOVER_FAILURES='%s'\n" "$failures"
   printf "PRIMARY_HEALTH_URL='%s'\n" "$health_url"
   printf "AUTO_FAILOVER_HOSTS_FILE='%s'\n" "$hosts_file"
   printf "AUTO_FAILOVER_PRIMARY_SERVER_ID='%s'\n" "$primary_server_id"

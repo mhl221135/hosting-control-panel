@@ -496,8 +496,9 @@ the allowlisted tunnel cutover without weakening the external-fencing gate. A
 guarded no-write drill reversion command is also implemented. Route
 qualification and automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
   the HP standby for the reviewed allowlist after local and public tunnel
-  drills. It requires exact Syncthing state, a prepared database recovery point
-  no older than two hours, six failed checks, and a five-minute outage grace.
+  drills. It permits only the existing bounded small website-file lag, requires
+  a prepared database recovery point no older than two hours, and uses three
+  failed checks with a one-minute outage grace.
   A recovered former primary still requires operator fencing and rebuild; this
   mode deliberately accepts split-brain risk and is not quorum-based HA.
   The current primary now has an optional non-reversing peer fence: after an

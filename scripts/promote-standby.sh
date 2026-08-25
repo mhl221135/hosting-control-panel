@@ -136,9 +136,7 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
 
 compose config --quiet
 "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
-replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
-[ "$replicated_db_id" = "$prepared_id" ] \
-  || { printf 'A newer database recovery point exists. Prepare the standby again.\n' >&2; exit 1; }
+replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root" --recovery-id "$prepared_id")"
 printf 'Prepared %s recovery %s (%s sites) is bound to source %s.\n' \
   "$preparation_mode" "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
 printf 'Latest synchronized database recovery point is %s.\n' "$replicated_db_id"
@@ -223,7 +221,7 @@ if [ -f "$prepared_database_marker" ] && jq -e --arg id "$replicated_db_id" --ar
 ' "$prepared_database_marker" >/dev/null 2>&1; then
   printf 'Using pre-staged database recovery point %s.\n' "$replicated_db_id"
 else
-  replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
+  replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root" --recovery-id "$prepared_id")"
 fi
 compose up -d hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
 docker exec hosting-php-fpm php-fpm -t >/dev/null

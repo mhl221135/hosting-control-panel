@@ -3,17 +3,19 @@
 set -euo pipefail
 
 usage() {
-  printf 'Usage: restore-replication-dump.sh --verify|--apply [--root PATH]\n' >&2
+  printf 'Usage: restore-replication-dump.sh --verify|--apply [--root PATH] [--recovery-id ID]\n' >&2
 }
 
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
 env_file="$project_dir/.env"
 mode=""
 root=""
+recovery_id=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --verify|--apply) mode="$1" ;;
     --root) shift; root="${1:-}" ;;
+    --recovery-id) shift; recovery_id="${1:-}" ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
   esac
@@ -32,8 +34,12 @@ env_value() {
 root="${root:-$(env_value HOSTING_ROOT)}"
 root="${root:-/media/ssdmount/websites-v2}"
 database_root="$root/replication/database"
-latest="$(find "$database_root" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -print 2>/dev/null \
-  | sed 's#^.*/##' | sort -r | sed -n '1p')"
+case "$recovery_id" in "") ;; ????-??-??T??-??-??Z) ;; *) printf 'Recovery ID is invalid.\n' >&2; exit 2 ;; esac
+latest="$recovery_id"
+if [ -z "$latest" ]; then
+  latest="$(find "$database_root" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -print 2>/dev/null \
+    | sed 's#^.*/##' | sort -r | sed -n '1p')"
+fi
 [ -n "$latest" ] || { printf 'No synchronized database recovery point exists.\n' >&2; exit 1; }
 set_dir="$database_root/$latest"
 manifest="$set_dir/manifest.json"

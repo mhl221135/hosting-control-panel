@@ -107,6 +107,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.doesNotMatch(syncService, /\/var\/lib\/mysql/);
   assert.match(promotion, /check-sync-ready\.sh/);
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
+  assert.match(promotion, /--recovery-id "\$prepared_id"/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
   assert.match(dump, /lock_dir=\/run\/hosting-control/);
@@ -148,6 +149,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /AUTO_FAILOVER_MODE:-monitor/);
   assert.match(automatic, /peer_connected/);
   assert.match(automatic, /check-sync-ready\.sh/);
+  assert.match(automatic, /check-sync-ready\.sh" --allow-small-website-lag/);
   assert.match(automatic, /valid_fence_receipt/);
   assert.match(automatic, /awaiting-fence/);
   assert.match(automatic, /AUTO_FAILOVER_PUBLIC_STATE_FILE/);
@@ -440,7 +442,7 @@ test("standby promotion remains a fenced host-level operation", () => {
   assert.match(script, /chown 0:0 "\$root\/app-data\/nginx-cache"/);
   assert.match(script, /standby-database-prepared\.json/);
   assert.match(script, /Using pre-staged database recovery point/);
-  assert.match(script, /A newer database recovery point exists/);
+  assert.doesNotMatch(script, /A newer database recovery point exists/);
   assert.match(script, /public_ingress_cutover:false/);
   assert.match(script, /fencing_mode:\$fencing_mode/);
   assert.match(script, /chmod 644 "\$temporary"/);
