@@ -566,6 +566,7 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
 test("automatic failback waits for a stable fenced preferred primary and reuses guarded workflows", () => {
   const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failback.sh"), "utf8");
   const installer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-automatic-failback.sh"), "utf8");
+  const recoveryWaiter = fs.readFileSync(path.resolve(__dirname, "../../../scripts/wait-for-recovery-sync.sh"), "utf8");
   assert.match(automatic, /flock -n 9/);
   assert.match(automatic, /hosting-ha-panel-control\.lock/);
   assert.match(automatic, /flock -n 8/);
@@ -584,6 +585,11 @@ test("automatic failback waits for a stable fenced preferred primary and reuses 
   assert.match(installer, /AUTO_FAILBACK_ENABLED/);
   assert.match(installer, /cloudflare-tunnel-api\.token/);
   assert.match(installer, /peer_host="\$\{peer_host#root@\}"/);
+  assert.match(automatic, /final_recovery=/);
+  assert.match(recoveryWaiter, /rest\/db\/scan\?folder=hosting-db-recovery/);
+  assert.match(recoveryWaiter, /sha256sum "\$manifest"/);
+  assert.match(recoveryWaiter, /remote_sha/);
+  assert.match(recoveryWaiter, /--ignore-website-state/);
 });
 
 test("standby preparation generates a review-bound failover hostname inventory", () => {

@@ -842,6 +842,17 @@ small upload tail cannot create downtime. This is availability-first and can
 still lose writes made after the final dump; GTID/binlog replication is needed
 for substantially lower RPO.
 
+The full automatic cycle was production-drilled on 2026-08-25. HP promoted
+after the configured three checks and 60-second grace, OPI5 self-fenced, HP
+remained public throughout both logical database imports, direct ingress
+returned only after OPI5 runtime validation, and HP demoted with MySQL
+`read_only=1` and `super_read_only=1`. The first pass exposed a recovery-index
+race: folder status could be exact before Syncthing indexed a newly-created
+snapshot. Rebuild and failback now request an explicit database-folder scan and
+wait for the exact recovery manifest SHA-256 on the peer. The drill also
+corrected both LAN peer addresses to the published project port `22001`, keeping
+dynamic relay discovery as a fallback when the servers move to separate ISPs.
+
 The full 111-host write/failback drill completed on 2026-08-22. A database and
 filesystem write made on promoted HP was present after OPI5 restoration, all
 111 managed hostnames returned non-5xx responses after failback, OPI5 resumed

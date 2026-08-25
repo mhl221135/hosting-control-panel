@@ -117,5 +117,10 @@ if ! "$project_dir/scripts/complete-failback.sh" --apply "${peer_args[@]}" \
   write_state failed "$successes" "$candidate_since" "$recovery_id" complete-failback
   exit 1
 fi
-write_state completed "$successes" "$candidate_since" "$recovery_id" traffic-restored
+final_recovery="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "root@$AUTO_FAILBACK_PEER_HOST" \
+  'jq -r '\''select(.status == "local-primary" and .public_ingress_cutover == true) | .recovery_id // empty'\'' \
+    /etc/hosting-control/promotion-state.json' 2>/dev/null || true)"
+[[ "$final_recovery" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$ ]] \
+  || final_recovery="$recovery_id"
+write_state completed "$successes" "$candidate_since" "$final_recovery" traffic-restored
 printf 'Automatic failback completed; the recovered preferred primary is active.\n'
