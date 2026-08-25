@@ -54,10 +54,15 @@ wait_for_idle() {
   while :; do
     status="$(sync_status)"
     if printf '%s' "$status" | jq -e --argjson allow_drift "$allow_drift" --argjson allow_small "$allow_small" '
-      .errors == 0 and ($allow_drift or ((.receiveOnlyTotalItems // 0) == 0)) and
+      (if $allow_small then
+        .errors <= .needTotalItems and .errors <= 20000
+      else
+        .errors == 0
+      end) and
+      ($allow_drift or ((.receiveOnlyTotalItems // 0) == 0)) and
       (if $allow_small then
         (.state == "idle" or .state == "scanning" or .state == "syncing") and
-        .needTotalItems <= 100 and .needBytes <= 10485760
+        .needFiles <= 20000 and .needTotalItems <= 25000 and .needBytes <= 268435456
       else
         .state == "idle" and .needTotalItems == 0
       end)

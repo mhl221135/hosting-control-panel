@@ -67,7 +67,7 @@ folders to be idle, verifies the newest dump, and imports it before nginx, PHP,
 or NPM starts. Daily backup reception remains independent.
 
 The optional automatic watchdog checks the public primary health endpoint
-every 30 seconds. After six consecutive failures and a disconnected Syncthing
+every 30 seconds. After three consecutive failures and a disconnected Syncthing
 peer, it verifies that all received folders are complete and that a prepared
 recovery point exists. `monitor` mode stops there. `activate` mode additionally
 requires a fresh root-owned fencing receipt bound to the configured primary
@@ -117,9 +117,16 @@ For a small installation that explicitly prioritizes availability over strict
 split-brain prevention, an emergency `unreachable` policy is also available.
 It requires both the primary health endpoint and Syncthing peer to remain down,
 the local prepared state with only bounded website-file lag and replica-only
-drift, a minimum
-one-minute grace period, and the Cloudflare preview to pass before promotion. Configure it only after the
-controlled write/failback drill:
+drift, a minimum one-minute grace period, and the Cloudflare preview to pass
+before promotion. Configure it only after the controlled write/failback drill.
+
+The availability-oriented website bound permits up to 20,000 pending files,
+25,000 total pending entries, and 256 MiB while Syncthing is idle, scanning,
+or syncing. During source disconnection, pull errors are accepted only when
+their count does not exceed the bounded pending-entry count. Database recovery
+and generated runtime configuration must remain exact. This starts
+already-present sites without waiting for a directory scan or a small transfer
+tail to finish.
 
 ```bash
 sudo ./scripts/install-automatic-failover.sh \

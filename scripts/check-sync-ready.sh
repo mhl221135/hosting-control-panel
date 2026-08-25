@@ -20,10 +20,12 @@ for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
   if [ "$mode" = bounded ] && [ "$folder" = hosting-websites ]; then
     printf '%s' "$status" | jq -e '
       (.state == "idle" or .state == "scanning" or .state == "syncing")
-      and .errors == 0
+      and .errors <= .needTotalItems
+      and .errors <= 20000
       and (.receiveOnlyTotalItems // 0) <= 100
-      and .needTotalItems <= 100
-      and .needBytes <= 10485760
+      and .needFiles <= 20000
+      and .needTotalItems <= 25000
+      and .needBytes <= 268435456
     ' >/dev/null || {
       printf 'Syncthing folder %s exceeds the allowed website lag.\n' "$folder" >&2
       exit 1

@@ -152,6 +152,10 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /check-sync-ready\.sh" --allow-small-website-lag/);
   const syncReady = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
   assert.match(syncReady, /receiveOnlyTotalItems \/\/ 0\) <= 100/);
+  assert.match(syncReady, /needFiles <= 20000/);
+  assert.match(syncReady, /needTotalItems <= 25000/);
+  assert.match(syncReady, /errors <= \.needTotalItems/);
+  assert.match(syncReady, /errors <= 20000/);
   assert.match(syncReady, /contains\("\.sync-conflict-"\)/);
   assert.match(automatic, /valid_fence_receipt/);
   assert.match(automatic, /awaiting-fence/);
@@ -539,8 +543,9 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(demote, /\.public_ingress_cutover == false/);
   assert.match(demote, /--mode receiveonly/);
   assert.match(ready, /--allow-small-website-lag/);
-  assert.match(ready, /needTotalItems <= 100/);
-  assert.match(ready, /needBytes <= 10485760/);
+  assert.match(ready, /needFiles <= 20000/);
+  assert.match(ready, /needTotalItems <= 25000/);
+  assert.match(ready, /needBytes <= 268435456/);
   assert.match(ready, /folder" = hosting-websites/);
 });
 
