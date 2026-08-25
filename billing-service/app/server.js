@@ -378,6 +378,7 @@ async function api(req, res) {
     const freeMonths = integer(body.free_months, 0, 60, 6);
     const grantFreePeriod = body.grant_free_period === true;
     const trialAnchor = body.trial_anchor ? isoDate(body.trial_anchor) : "";
+    const hostingPaidThrough = body.hosting_paid_through ? isoDate(body.hosting_paid_through) : "";
     const service = normalizeService({
       primary_domain: primaryDomain,
       aliases: body.aliases,
@@ -386,7 +387,7 @@ async function api(req, res) {
       contact_phone: body.contact_phone,
       location: "local",
       provider: "hosting-control-panel",
-      hosting_paid_through: grantFreePeriod ? addMonths(trialAnchor, freeMonths) : "",
+      hosting_paid_through: grantFreePeriod ? addMonths(trialAnchor, freeMonths) : hostingPaidThrough,
       domain_paid_through: body.domain_paid_through,
       renewal_months: body.renewal_months,
       domain_renewal_months: body.domain_renewal_months,

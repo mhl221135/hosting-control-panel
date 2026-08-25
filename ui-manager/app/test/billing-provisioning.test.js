@@ -33,6 +33,7 @@ test("persists validated billing defaults and converts per-site prices to minor 
     const registration = settings.registration({
       register_billing: true,
       billing_grant_free_period: false,
+      billing_hosting_paid_through: "2027-06-30",
       billing_hosting_price: "82.75",
       billing_domain_price: "19.99",
       billing_customer_name: "Example Client",
@@ -40,6 +41,7 @@ test("persists validated billing defaults and converts per-site prices to minor 
     });
     assert.equal(registration.enabled, true);
     assert.equal(registration.grantFreePeriod, false);
+    assert.equal(registration.hostingPaidThrough, "2027-06-30");
     assert.equal(registration.hostingPriceMinor, 8275);
     assert.equal(registration.domainPriceMinor, 1999);
     assert.equal(registration.contactEmail, "owner@example.com");
@@ -119,6 +121,7 @@ test("builds the same bounded registration for initial and retry attempts", () =
     customerName: "Example Client",
     contactEmail: "",
     grantFreePeriod: true,
+    hostingPaidThrough: "",
     freeMonths: 6,
     renewalMonths: 12,
     hostingPriceMinor: 8000,
@@ -132,6 +135,7 @@ test("builds the same bounded registration for initial and retry attempts", () =
   assert.deepEqual(payload.aliases, ["www.example.com"]);
   assert.equal(payload.contact_email, "owner@example.com");
   assert.equal(payload.hosting_price_minor, 8000);
+  assert.equal(payload.hosting_paid_through, "");
   assert.equal(payload.domain_paid_through, "2027-01-31");
   assert.equal(payload.trial_anchor, "2026-07-29");
 });
@@ -168,6 +172,7 @@ test("retries restore billing from its validated registration snapshot", async (
     customerName: "",
     contactEmail: "",
     grantFreePeriod: false,
+    hostingPaidThrough: "2027-03-31",
     freeMonths: 6,
     renewalMonths: 12,
     hostingPriceMinor: 8000,
@@ -202,6 +207,7 @@ test("retries restore billing from its validated registration snapshot", async (
   assert.equal(call.key, source.id);
   assert.deepEqual(call.payload.aliases, ["www.example.com"]);
   assert.equal(call.payload.hosting_price_minor, 8000);
+  assert.equal(call.payload.hosting_paid_through, "2027-03-31");
   assert.equal(call.payload.grant_free_period, false);
 });
 

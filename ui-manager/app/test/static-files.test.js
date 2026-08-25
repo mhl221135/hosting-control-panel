@@ -9,6 +9,20 @@ test("resolves versioned public assets by URL pathname", () => {
   assert.equal(resolvePublicFile("/app/public", "/"), "/app/public/index.html");
 });
 
+test("existing hosted websites can be registered with billing from desktop and mobile site actions", () => {
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  assert.match(server, /POST.*\/api\/billing\/sites\/register/);
+  assert.match(server, /existing-site-.*createHash\("sha256"\)/);
+  assert.match(html, /data-tab-panel="billing"/);
+  assert.match(html, /id="existingSiteBillingForm"/);
+  assert.match(source, /data-billing-site/);
+  assert.match(source, /<option value="billing">Add to billing<\/option>/);
+  assert.match(source, /\/api\/billing\/sites\/register/);
+  assert.match(source, /result\.created/);
+});
+
 test("WordPress cache control is site-scoped, authenticated, and available in maintenance", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");

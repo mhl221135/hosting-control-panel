@@ -2625,6 +2625,55 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
     return true;
   }
 
+  if (req.method === "POST" && requestUrl.pathname === "/api/billing/sites/register") {
+    const body = guardSettingsBody(await readJsonBody(req), {
+      allowed: new Set([
+        "domain", "customer_name", "contact_email", "hosting_paid_through",
+        "renewal_months", "hosting_price", "currency", "grace_days",
+        "include_domain", "domain_paid_through", "domain_renewal_months", "domain_price",
+      ]),
+      stringKeys: [
+        "domain", "customer_name", "contact_email", "hosting_paid_through",
+        "hosting_price", "currency", "domain_paid_through", "domain_price",
+      ],
+      label: "existing-site billing registration",
+    });
+    const domain = validateDomain(body.domain);
+    const mapParsed = parseSitesMap(fs.readFileSync(SITES_MAP_PATH, "utf8"));
+    const poolsParsed = parsePools(fs.readFileSync(POOLS_PATH, "utf8"));
+    const site = getSitesWithPools(mapParsed, poolsParsed)
+      .find((item) => item.host === domain && !item.isWwwAlias);
+    if (!site) {
+      sendJson(res, 404, { ok: false, message: "Site is not configured on this server" });
+      return true;
+    }
+    const includeDomain = body.include_domain === true;
+    const registration = billingProvisioningSettings.registration({
+      register_billing: true,
+      billing_grant_free_period: false,
+      billing_customer_name: body.customer_name,
+      billing_contact_email: body.contact_email,
+      billing_hosting_paid_through: body.hosting_paid_through,
+      billing_renewal_months: body.renewal_months,
+      billing_hosting_price: body.hosting_price,
+      billing_currency: body.currency,
+      billing_grace_days: body.grace_days,
+      billing_domain_paid_through: includeDomain ? body.domain_paid_through : "",
+      billing_domain_renewal_months: includeDomain ? body.domain_renewal_months : undefined,
+      billing_domain_price: includeDomain ? body.domain_price : 0,
+    });
+    const result = await billingProvisioningClient.register(
+      registrationPayload(domain, { aliases: site.aliases || [] }, registration),
+      `existing-site-${crypto.createHash("sha256").update(domain).digest("hex").slice(0, 32)}`,
+    );
+    sendJson(res, result.created ? 201 : 200, {
+      ok: true,
+      created: result.created,
+      service: result.service,
+    });
+    return true;
+  }
+
   if (req.method === "PUT" && requestUrl.pathname === "/api/billing/provisioning-settings") {
     const body = guardSettingsBody(await readJsonBody(req), { allowed: new Set(["enabled", "free_months", "renewal_months", "hosting_price", "domain_renewal_months", "currency", "grace_days", "timezone"]), stringKeys: ["currency", "timezone"], label: "billing provisioning settings" });
     sendJson(res, 200, {

@@ -622,6 +622,10 @@ WordPress, MySQL, or Cloudflare credentials.
 The Account screenshot is intentionally omitted from the public repository so
 browser-autofilled credentials cannot be captured accidentally.
 
+## Add An Existing Website To Billing
+
+Use **Add to billing** on a website row, or open **Billing** from the panel navigation. The form takes the hosting paid-through date, renewal period, price, currency, and grace period. Enable **Track domain renewal too** only when domain renewal should be billed separately. Existing billing records are reused and remain editable in the dedicated Billing service.
+
 ## Related documentation
 
 - [Configuration](CONFIGURATION.md)

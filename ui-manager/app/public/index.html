@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hosting Control</title>
-    <link rel="stylesheet" href="/styles.css?v=20260802-1" />
+    <link rel="stylesheet" href="/styles.css?v=20260825-1" />
   </head>
   <body>
     <main id="loginView" class="login-view">
@@ -32,6 +32,7 @@
             <option value="jobs">Jobs</option>
             <option value="maintenance">Maintenance</option>
             <option value="provision">Provision</option>
+            <option value="billing">Billing</option>
             <option value="integrations">DNS &amp; SSL</option>
             <option value="security">Security</option>
             <option value="backups">Backups</option>
@@ -50,6 +51,7 @@
           <button class="nav-item" data-tab-link="jobs" data-short="JB" title="Jobs">Jobs</button>
           <button class="nav-item" data-tab-link="maintenance" data-short="MT" title="Maintenance">Maintenance</button>
           <button class="nav-item" data-tab-link="provision" data-short="PR" title="Provision">Provision</button>
+          <button class="nav-item" data-tab-link="billing" data-short="BI" title="Billing">Billing</button>
           <button class="nav-item" data-tab-link="integrations" data-short="DN" title="DNS and SSL">DNS &amp; SSL</button>
           <button class="nav-item" data-tab-link="security" data-short="SE" title="Security">Security</button>
           <button class="nav-item" data-tab-link="backups" data-short="BK" title="Backups">Backups</button>
@@ -97,6 +99,33 @@
             </div>
           </div>
           <div id="sitesList" class="site-list"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-tab-panel="billing">
+          <div class="section-head">
+            <div><h2>Add website to billing</h2><p>Create or reuse a billing record for a website already hosted on this server.</p></div>
+          </div>
+          <form id="existingSiteBillingForm" class="panel form-grid">
+            <label class="full">Website
+              <select name="domain" id="existingBillingDomain" required></select>
+            </label>
+            <label>Customer name<input name="customer_name" autocomplete="name" /></label>
+            <label>Billing contact email<input name="contact_email" type="email" autocomplete="email" /></label>
+            <div class="group-title full"><h3>Hosting renewal</h3></div>
+            <label>Paid through<input name="hosting_paid_through" type="date" /></label>
+            <label>Renewal period (months)<input name="renewal_months" type="number" min="1" max="120" required /></label>
+            <label>Renewal price<input name="hosting_price" type="number" min="0" max="100000000" step="0.01" required /></label>
+            <label>Currency<input name="currency" maxlength="3" required /></label>
+            <label>Grace period (days)<input name="grace_days" type="number" min="0" max="365" required /></label>
+            <label class="check inline full"><input name="include_domain" type="checkbox" /> Track domain renewal too</label>
+            <div class="billing-domain-fields full form-grid hidden" id="existingBillingDomainFields">
+              <label>Domain paid through<input name="domain_paid_through" type="date" /></label>
+              <label>Domain renewal period (months)<input name="domain_renewal_months" type="number" min="1" max="120" /></label>
+              <label>Domain renewal price<input name="domain_price" type="number" min="0" max="100000000" step="0.01" /></label>
+            </div>
+            <div class="form-actions full"><button type="submit">Add to billing</button></div>
+            <div id="existingBillingResult" class="status-box compact-status full">Select a website and enter its renewal details.</div>
+          </form>
         </section>
 
         <section class="tab-panel hidden" data-tab-panel="stats">
@@ -1093,6 +1122,6 @@
         </section>
       </div>
     </div>
-    <script src="/app.js?v=20260806-1"></script>
+    <script src="/app.js?v=20260825-1"></script>
   </body>
 </html>

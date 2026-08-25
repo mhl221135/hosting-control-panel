@@ -703,3 +703,6 @@ existing guarded activation workflow and request an independently signed
 fencing receipt. A receipt-backed promoted primary can preview/run former-primary
 rebuild and controlled failback. Typed confirmations are mandatory for every
 mutating role workflow; arbitrary commands or arguments are never accepted.
+## Existing-site billing registration
+
+`POST /api/billing/sites/register` is an authenticated, CSRF-protected hosting-panel endpoint. It accepts one configured primary website plus hosting renewal details and optional domain-renewal details. The panel derives aliases from its runtime configuration and calls the narrow billing service API with a stable idempotency key. Repeated registration reuses the existing billing service rather than creating a duplicate.

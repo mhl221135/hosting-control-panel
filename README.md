@@ -467,6 +467,8 @@ docker exec hosting-ui node /app/cli/configure-panel-upload.js ui.example.com
 
 Provisioning:
 
+- Existing hosted websites can be added idempotently to the separate billing inventory from the site action menu or the panel's **Billing** workspace, with hosting renewal details and optional domain-renewal tracking.
+
 1. Creates the document root and PHP-FPM pool.
 2. Adds domain routing to `sites.map`.
 3. Validates and reloads nginx/PHP-FPM.

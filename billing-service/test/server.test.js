@@ -60,6 +60,7 @@ test("serves the authenticated inventory, recovery, and signed internal API work
       customer_name: "Provisioned client",
       contact_email: "owner@provisioned.example.com",
       grant_free_period: true,
+      hosting_paid_through: "2099-01-01",
       trial_anchor: "2099-07-31",
       free_months: 6,
       renewal_months: 12,

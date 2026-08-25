@@ -373,7 +373,7 @@ function switchTab(name) {
   $$("[data-tab-panel]").forEach((panel) => panel.classList.toggle("hidden", panel.dataset.tabPanel !== name));
   $$("[data-tab-link]").forEach((button) => button.classList.toggle("active", button.dataset.tabLink === name));
   $("#mobileNavigation").value = name;
-  const titles = { sites: "Sites", stats: "Stats", replication: "Replication", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
+  const titles = { sites: "Sites", stats: "Stats", replication: "Replication", health: "Health", jobs: "Jobs", maintenance: "Maintenance", provision: "Provision", billing: "Billing", integrations: "DNS & SSL", security: "Security", backups: "Backups", transfers: "Transfers", removal: "Delete website", runtime: "Runtime", settings: "Settings", account: "Account" };
   $("#pageTitle").textContent = titles[name] || "Hosting Control";
   if (name === "integrations") refreshIntegrationView();
   if (name === "security") Promise.all([loadSecurity(), loadCloudflareAutomation()])
@@ -387,6 +387,7 @@ function switchTab(name) {
   if (name === "health") loadHealth().catch((error) => notice(error.message, "warning"));
   if (name === "jobs") loadJobs().catch((error) => notice(error.message, "warning"));
   if (name === "maintenance") loadMaintenance().catch((error) => notice(error.message, "warning"));
+  if (name === "billing") loadExistingSiteBilling().catch((error) => notice(error.message, "warning"));
   if (name === "backups") loadBackupView().catch((error) => notice(error.message, "warning"));
   if (name === "transfers") loadTransfers().catch((error) => notice(error.message, "warning"));
   if (name === "removal") loadRemovalPlan().catch((error) => notice(error.message, "warning"));
@@ -726,6 +727,49 @@ async function loadSiteStats(domain, force = false) {
   renderSiteStats();
 }
 
+function syncExistingBillingDomainFields() {
+  const form = $("#existingSiteBillingForm");
+  const enabled = form.elements.include_domain.checked;
+  $("#existingBillingDomainFields").classList.toggle("hidden", !enabled);
+  for (const name of ["domain_paid_through", "domain_renewal_months", "domain_price"]) {
+    form.elements[name].disabled = !enabled;
+  }
+  form.elements.domain_renewal_months.required = enabled;
+  form.elements.domain_price.required = enabled;
+}
+
+async function loadExistingSiteBilling(domain = "") {
+  if (!state.billingProvisioning) {
+    state.billingProvisioning = await api("/api/billing/provisioning-settings");
+  }
+  const form = $("#existingSiteBillingForm");
+  const sites = primarySites();
+  const selected = domain || form.elements.domain.value || sites[0]?.host || "";
+  form.elements.domain.innerHTML = sites.map((site) =>
+    `<option value="${escapeHtml(site.host)}">${escapeHtml(site.host)}</option>`).join("");
+  if (sites.some((site) => site.host === selected)) form.elements.domain.value = selected;
+  const settings = state.billingProvisioning.settings;
+  if (!form.dataset.initialized) {
+    form.elements.renewal_months.value = settings.renewalMonths;
+    form.elements.hosting_price.value = (Number(settings.hostingPriceMinor) / 100).toFixed(2);
+    form.elements.currency.value = settings.currency;
+    form.elements.grace_days.value = settings.graceDays;
+    form.elements.domain_renewal_months.value = settings.domainRenewalMonths;
+    form.elements.domain_price.value = "0.00";
+    form.dataset.initialized = "1";
+  }
+  syncExistingBillingDomainFields();
+  $("#existingBillingResult").textContent = state.billingProvisioning.configured
+    ? "Enter renewal details. Repeated submission reuses the existing billing record."
+    : "Billing connection is not configured in Settings.";
+}
+
+async function openExistingSiteBilling(domain) {
+  switchTab("billing");
+  await loadExistingSiteBilling(domain);
+  $("#existingSiteBillingForm").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 function renderSites() {
   const query = $("#siteSearch").value.trim().toLowerCase();
   const sites = primarySites().filter((site) =>
@@ -773,6 +817,7 @@ function renderSites() {
             ${wordpress ? `<option value="redis">${site.state?.redis ? "Disable" : "Enable"} Redis</option>` : ""}
             ${php ? `<option value="opcache">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</option>` : ""}
             ${php ? '<option value="purge">Purge cache</option>' : ""}
+            <option value="billing">Add to billing</option>
             <option value="manage">Manage DNS &amp; SSL</option>
           </select>
         </label>
@@ -784,6 +829,7 @@ function renderSites() {
         ${wordpress ? `<button class="secondary" data-toggle-redis="${escapeHtml(site.host)}">${site.state?.redis ? "Disable" : "Enable"} Redis</button>` : ""}
         ${php ? `<button class="secondary" data-toggle-opcache="${escapeHtml(site.host)}">${site.state?.opcache !== false ? "Disable" : "Enable"} OPcache</button>` : ""}
         ${php ? `<button class="secondary" data-purge-cache="${escapeHtml(site.host)}">Purge cache</button>` : ""}
+        <button class="secondary" data-billing-site="${escapeHtml(site.host)}">Add to billing</button>
         <button class="site-action-primary" data-manage-site="${escapeHtml(site.host)}">DNS &amp; SSL</button>
       </div>
     </article>`;
@@ -2537,6 +2583,10 @@ $("#optimizeAllImages").addEventListener("click", async () => {
   }
 });
 async function runSiteAction(domain, action) {
+  if (action === "billing") {
+    await openExistingSiteBilling(domain);
+    return;
+  }
   if (action === "manage") {
     state.selectedDomain = domain;
     switchTab("integrations");
@@ -2601,13 +2651,33 @@ $("#sitesList").addEventListener("click", async (event) => {
   const optimize = event.target.closest("[data-optimize-images]");
   const backupSchedule = event.target.closest("[data-toggle-backup]");
   const imageSchedule = event.target.closest("[data-toggle-image-optimization]");
-  const button = manage || fastcgi || redis || opcache || purge || backup || optimize || backupSchedule || imageSchedule;
+  const billing = event.target.closest("[data-billing-site]");
+  const button = manage || fastcgi || redis || opcache || purge || backup || optimize || backupSchedule || imageSchedule || billing;
   if (!button) return;
-  const action = manage ? "manage" : fastcgi ? "fastcgi" : redis ? "redis" : opcache ? "opcache" : purge ? "purge" : backup ? "backup" : optimize ? "optimize" : backupSchedule ? "backup-schedule" : "image-schedule";
-  const domain = manage?.dataset.manageSite || fastcgi?.dataset.toggleFastcgi || redis?.dataset.toggleRedis || opcache?.dataset.toggleOpcache || purge?.dataset.purgeCache || backup?.dataset.backupSite || optimize?.dataset.optimizeImages || backupSchedule?.dataset.toggleBackup || imageSchedule.dataset.toggleImageOptimization;
+  const action = billing ? "billing" : manage ? "manage" : fastcgi ? "fastcgi" : redis ? "redis" : opcache ? "opcache" : purge ? "purge" : backup ? "backup" : optimize ? "optimize" : backupSchedule ? "backup-schedule" : "image-schedule";
+  const domain = billing?.dataset.billingSite || manage?.dataset.manageSite || fastcgi?.dataset.toggleFastcgi || redis?.dataset.toggleRedis || opcache?.dataset.toggleOpcache || purge?.dataset.purgeCache || backup?.dataset.backupSite || optimize?.dataset.optimizeImages || backupSchedule?.dataset.toggleBackup || imageSchedule.dataset.toggleImageOptimization;
   const pending = action === "backup" ? "Backing up..." : action === "optimize" ? "Optimizing..." : "Working...";
   try { await withButton(button, pending, () => runSiteAction(domain, action)); }
   catch (error) { notice(error.message, "warning"); }
+});
+
+$("#existingSiteBillingForm").elements.include_domain.addEventListener("change", syncExistingBillingDomainFields);
+$("#existingSiteBillingForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const body = formObject(event.currentTarget);
+  try {
+    const result = await withButton(event.submitter, "Adding...", () => api("/api/billing/sites/register", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }));
+    $("#existingBillingResult").textContent = result.created
+      ? `${body.domain} was added to billing.`
+      : `${body.domain} already has a billing record. Open the Billing service to edit it.`;
+    notice(result.created ? `${body.domain} added to billing.` : `${body.domain} already exists in billing.`);
+  } catch (error) {
+    $("#existingBillingResult").textContent = error.details || error.message;
+    notice(error.message, "warning");
+  }
 });
 
 $("#integrationDomain").addEventListener("change", async (event) => {
