@@ -520,6 +520,7 @@ test("former-primary rebuild reverses synchronization and prepares without chang
   const sync = fs.readFileSync(path.resolve(__dirname, "../../../scripts/configure-sync.sh"), "utf8");
   assert.match(orchestrator, /--confirm REBUILD-FORMER-PRIMARY/);
   assert.match(orchestrator, /create-replication-dump\.sh/);
+  assert.match(orchestrator, /wait-for-recovery-sync\.sh/);
   assert.match(orchestrator, /finalize-warm-sync\.sh" --source/);
   assert.match(orchestrator, /former-primary-rebuild\.json/);
   assert.doesNotMatch(orchestrator, /tunnel-cutover\.sh|api\.cloudflare|dns_records/);
@@ -536,6 +537,7 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   const ready = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
   assert.match(complete, /--confirm COMPLETE-FAILBACK/);
   assert.match(complete, /create-replication-dump\.sh/);
+  assert.match(complete, /wait-for-recovery-sync\.sh/);
   assert.match(complete, /accept-failback-primary\.sh/);
   assert.match(complete, /--rollback --confirm ROLLBACK-TUNNEL-INGRESS/);
   assert.match(complete, /--mark-ingress-active/);
@@ -544,7 +546,7 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.ok(complete.indexOf("--rollback --confirm") < complete.indexOf("demote-after-failback"));
   assert.doesNotMatch(complete, /docker compose stop hosting-ui|docker compose stop hosting-db/);
   assert.match(complete, /keeping HP online for a 60-second ingress transition grace/);
-  assert.match(complete, /ready_count >= 2/);
+  assert.match(complete, /wait-for-recovery-sync\.sh/);
   assert.match(accept, /--fence-confirm OLD-PRIMARY-FENCED/);
   assert.match(accept, /systemctl stop hosting-former-primary-fence\.timer/);
   assert.doesNotMatch(accept, /systemctl disable hosting-former-primary-fence\.timer/);
