@@ -152,6 +152,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(automatic, /check-sync-ready\.sh" --allow-small-website-lag/);
   const syncReady = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
   assert.match(syncReady, /receiveOnlyTotalItems \/\/ 0\) <= 100/);
+  assert.match(syncReady, /contains\("\.sync-conflict-"\)/);
   assert.match(automatic, /valid_fence_receipt/);
   assert.match(automatic, /awaiting-fence/);
   assert.match(automatic, /AUTO_FAILOVER_PUBLIC_STATE_FILE/);
