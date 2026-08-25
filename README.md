@@ -52,6 +52,8 @@ into dedicated directories.
 - Guarded HA operations for on-demand database recovery points, standby
   refresh, immediate failover checks, authenticated peer status, bounded lag
   history/alerts, and typed promotion/rebuild/failback workflows
+- Optional automatic preferred-primary failback after a stable, recovery-bound
+  former-primary fence; it reuses the guarded rebuild and ingress rollback path
 - Optional signed external-witness fencing client; disabled until an
   independent provider and root-owned credentials are configured
 - Backup history and complete-set deletion from the panel

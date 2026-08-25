@@ -822,6 +822,26 @@ continuous service over zero-RPO failback. The former-primary fence timer is
 paused before OPI5 changes role, restored if promotion fails, and re-armed only
 after HP has demoted to standby.
 
+For the preferred-primary topology, HP can run an automatic failback timer:
+
+```bash
+sudo ./scripts/install-automatic-failback.sh \
+  --enable --stable-checks 3 --grace 60 --retry 900
+```
+
+The timer acts only when HP is a promoted primary with active tunnel ingress.
+It requires OPI5 to be reachable over the configured root SSH path and to hold
+a `fenced` receipt bound to HP's exact promotion recovery. After three stable
+checks and at least 60 seconds it runs the existing guarded rebuild and
+controlled failback workflows. HP remains public while OPI5 receives changed
+website files, imports the final logical database recovery, starts, and passes
+runtime validation. Direct ingress is restored only after that validation; HP
+then remains online for the transition grace and demotes to read-only standby.
+Website synchronization remains advisory so a continuously changing cache or
+small upload tail cannot create downtime. This is availability-first and can
+still lose writes made after the final dump; GTID/binlog replication is needed
+for substantially lower RPO.
+
 The full 111-host write/failback drill completed on 2026-08-22. A database and
 filesystem write made on promoted HP was present after OPI5 restoration, all
 111 managed hostnames returned non-5xx responses after failback, OPI5 resumed

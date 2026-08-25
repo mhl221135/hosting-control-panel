@@ -561,6 +561,29 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(ready, /folder" = hosting-websites/);
 });
 
+test("automatic failback waits for a stable fenced preferred primary and reuses guarded workflows", () => {
+  const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failback.sh"), "utf8");
+  const installer = fs.readFileSync(path.resolve(__dirname, "../../../scripts/install-automatic-failback.sh"), "utf8");
+  assert.match(automatic, /flock -n 9/);
+  assert.match(automatic, /hosting-ha-panel-control\.lock/);
+  assert.match(automatic, /flock -n 8/);
+  assert.match(automatic, /\.previous_role == "standby"/);
+  assert.match(automatic, /\.public_ingress_cutover == true/);
+  assert.match(automatic, /\.fence\.status == "fenced"/);
+  assert.match(automatic, /\.fence\.peerServerId == \$local/);
+  assert.match(automatic, /AUTO_FAILBACK_STABLE_CHECKS/);
+  assert.match(automatic, /AUTO_FAILBACK_GRACE_SECONDS/);
+  assert.match(automatic, /rebuild-former-primary\.sh" --apply/);
+  assert.match(automatic, /complete-failback\.sh" --apply/);
+  assert.ok(automatic.indexOf("rebuild-former-primary.sh") < automatic.indexOf("complete-failback.sh"));
+  assert.doesNotMatch(automatic, /tunnel-cutover\.sh|docker compose|api\.cloudflare/);
+  assert.match(installer, /OnUnitActiveSec=30s/);
+  assert.match(installer, /TimeoutStartSec=2h/);
+  assert.match(installer, /AUTO_FAILBACK_ENABLED/);
+  assert.match(installer, /cloudflare-tunnel-api\.token/);
+  assert.match(installer, /peer_host="\$\{peer_host#root@\}"/);
+});
+
 test("standby preparation generates a review-bound failover hostname inventory", () => {
   const generator = fs.readFileSync(path.resolve(__dirname, "../../../scripts/generate-failover-hosts.sh"), "utf8");
   const review = fs.readFileSync(path.resolve(__dirname, "../../../scripts/review-failover-hosts.sh"), "utf8");

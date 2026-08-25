@@ -469,6 +469,14 @@ and can then promote automatically. It is armed on the current HP standby
 after the contained no-write cutover drill. The full write/failback drill is
 also complete.
 
+Automatic preferred-primary failback is implemented as a disabled-by-default
+host timer. On a promoted HP primary it waits for a stable, recovery-bound OPI5
+fence, then reuses the guarded former-primary rebuild and controlled failback
+workflows. HP keeps serving until OPI5 has imported the fresh logical recovery,
+started, and passed validation; only then is ingress restored and HP demoted.
+GTID/binlog replication remains the future path for reducing the logical-dump
+RPO and eliminating repeated full imports.
+
 A machine-local authoritative role marker, ingress-only metadata store,
 `PUT /api/system/role` and `GET /api/system/role` endpoints, and a
 non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
