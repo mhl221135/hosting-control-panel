@@ -33,19 +33,25 @@ marker="$machine_state/standby-database-prepared.json"
 if [ -f "$marker" ] && jq -e --arg id "$recovery_id" --arg sha "$artifact_sha" '
   .version == 1 and .recovery_id == $id and .artifact_sha256 == $sha
 ' "$marker" >/dev/null 2>&1; then
+  "$project_dir/scripts/start-warm-standby-runtime.sh"
   printf 'Standby database recovery point %s is already staged.\n' "$recovery_id"
   exit 0
 fi
 
 unexpected="$(docker ps --format '{{.Names}}' | awk '
-  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }
+  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-db|hosting-redis|hosting-php-fpm|hosting-nginx)$/ { print }
 ')"
 [ -z "$unexpected" ] \
   || { printf 'Writable hosting containers are running; database staging refused: %s\n' "$unexpected" >&2; exit 1; }
 
 cd "$project_dir"
+docker compose stop hosting-nginx hosting-php-fpm >/dev/null 2>&1 || true
 docker compose up -d hosting-db
-cleanup() { docker compose stop hosting-db >/dev/null 2>&1 || true; }
+cleanup() {
+  docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -e \
+    "SET PERSIST read_only=ON; SET PERSIST super_read_only=ON"' >/dev/null 2>&1 || true
+  docker compose stop hosting-nginx hosting-php-fpm >/dev/null 2>&1 || true
+}
 trap cleanup EXIT HUP INT TERM
 ready=0
 for _ in $(seq 1 60); do
@@ -57,10 +63,13 @@ for _ in $(seq 1 60); do
   sleep 2
 done
 [ "$ready" -eq 1 ] || { printf 'Standby database did not become ready for staging.\n' >&2; exit 1; }
+docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -e \
+  "SET GLOBAL super_read_only=OFF; SET GLOBAL read_only=OFF"'
 restored_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root")"
 [ "$restored_id" = "$recovery_id" ] || { printf 'Database recovery point changed during staging.\n' >&2; exit 1; }
 docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -Nse "SELECT 1"' | grep -qx 1
-docker compose stop hosting-db >/dev/null
+docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -e \
+  "SET PERSIST read_only=ON; SET PERSIST super_read_only=ON"'
 trap - EXIT HUP INT TERM
 
 temporary="$marker.tmp.$$"
@@ -70,4 +79,5 @@ jq -n --arg recovery_id "$recovery_id" --arg artifact_sha256 "$artifact_sha" \
   > "$temporary"
 chmod 600 "$temporary"
 mv "$temporary" "$marker"
-printf 'Standby database recovery point %s was staged and stopped.\n' "$recovery_id"
+"$project_dir/scripts/start-warm-standby-runtime.sh"
+printf 'Standby database recovery point %s was staged; warm read-only runtime remains ready.\n' "$recovery_id"

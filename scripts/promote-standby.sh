@@ -135,7 +135,7 @@ flock -n 9 || { printf 'Backup reception is active; promotion refused.\n' >&2; e
   || { printf 'Interrupted backup staging exists; promotion refused.\n' >&2; exit 1; }
 
 compose config --quiet
-"$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
+"$project_dir/scripts/check-sync-ready.sh" --ignore-website-state >/dev/null
 replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root" --recovery-id "$prepared_id")"
 printf 'Prepared %s recovery %s (%s sites) is bound to source %s.\n' \
   "$preparation_mode" "$prepared_id" "$(jq -r .site_count "$recovery_marker")" "$source_release"
@@ -170,7 +170,10 @@ cleanup() {
       mv "$previous" "$role_marker"
     fi
     if [ "$runtime_started" -eq 1 ]; then
-      compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db >/dev/null 2>&1 || true
+      compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing >/dev/null 2>&1 || true
+      "$project_dir/scripts/start-warm-standby-runtime.sh" >/dev/null 2>&1 \
+        || compose stop hosting-nginx hosting-php-fpm hosting-redis hosting-db >/dev/null 2>&1 \
+        || true
     fi
     docker restart hosting-ui >/dev/null 2>&1 || true
     compose up -d hosting-sync >/dev/null 2>&1 || true
@@ -221,8 +224,12 @@ if [ -f "$prepared_database_marker" ] && jq -e --arg id "$replicated_db_id" --ar
 ' "$prepared_database_marker" >/dev/null 2>&1; then
   printf 'Using pre-staged database recovery point %s.\n' "$replicated_db_id"
 else
+  docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -e \
+    "SET GLOBAL super_read_only=OFF; SET GLOBAL read_only=OFF"'
   replicated_db_id="$("$project_dir/scripts/restore-replication-dump.sh" --apply --root "$root" --recovery-id "$prepared_id")"
 fi
+docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysql -uroot -e \
+  "SET PERSIST super_read_only=OFF; SET PERSIST read_only=OFF"'
 compose up -d hosting-redis hosting-php-fpm hosting-nginx hosting-billing hosting-files hosting-phpmyadmin hosting-npm
 docker exec hosting-php-fpm php-fpm -t >/dev/null
 docker exec hosting-nginx nginx -t >/dev/null

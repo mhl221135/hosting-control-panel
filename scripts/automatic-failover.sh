@@ -278,7 +278,7 @@ fi
 write_state "$status" "$failures" "" "$unreachable_since"
 
 [ "$failures" -ge "$AUTO_FAILOVER_FAILURES" ] || exit 0
-if ! "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag; then
+if ! "$project_dir/scripts/check-sync-ready.sh" --ignore-website-state; then
   write_state blocked-sync "$failures" "" "$unreachable_since"
   exit 1
 fi

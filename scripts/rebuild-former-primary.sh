@@ -77,8 +77,8 @@ recovery_id="$(find "$project_dir/../replication/database" -mindepth 1 -maxdepth
 
 ready_count=0
 for _ in $(seq 1 90); do
-  if "$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null 2>&1 \
-    && ssh -o BatchMode=yes "root@$peer_host" "$peer_root/sources/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null 2>&1; then
+  if "$project_dir/scripts/check-sync-ready.sh" --ignore-website-state >/dev/null 2>&1 \
+    && ssh -o BatchMode=yes "root@$peer_host" "$peer_root/sources/scripts/check-sync-ready.sh" --ignore-website-state >/dev/null 2>&1; then
     ready_count=$((ready_count + 1))
     [ "$ready_count" -ge 2 ] && break
   else
@@ -86,10 +86,10 @@ for _ in $(seq 1 90); do
   fi
   sleep 10
 done
-"$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
-ssh -o BatchMode=yes "root@$peer_host" "$peer_root/sources/scripts/check-sync-ready.sh" --allow-small-website-lag >/dev/null
+"$project_dir/scripts/check-sync-ready.sh" --ignore-website-state >/dev/null
+ssh -o BatchMode=yes "root@$peer_host" "$peer_root/sources/scripts/check-sync-ready.sh" --ignore-website-state >/dev/null
 
-"$project_dir/scripts/finalize-warm-sync.sh" --source --allow-small-website-lag
+"$project_dir/scripts/finalize-warm-sync.sh" --source --ignore-website-state
 ssh -o BatchMode=yes "root@$peer_host" systemctl restart hosting-warm-sync-finalizer.service
 for _ in $(seq 1 180); do
   active="$(ssh -o BatchMode=yes "root@$peer_host" systemctl is-active hosting-warm-sync-finalizer.service 2>/dev/null || true)"

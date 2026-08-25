@@ -116,17 +116,12 @@ still requires a separately qualified external fencing provider or witness.
 For a small installation that explicitly prioritizes availability over strict
 split-brain prevention, an emergency `unreachable` policy is also available.
 It requires both the primary health endpoint and Syncthing peer to remain down,
-the local prepared state with only bounded website-file lag and replica-only
-drift, a minimum one-minute grace period, and the Cloudflare preview to pass
-before promotion. Configure it only after the controlled write/failback drill.
-
-The availability-oriented website bound permits up to 20,000 pending files,
-25,000 total pending entries, and 256 MiB while Syncthing is idle, scanning,
-or syncing. During source disconnection, pull errors are accepted only when
-their count does not exceed the bounded pending-entry count. Database recovery
-and generated runtime configuration must remain exact. This starts
-already-present sites without waiting for a directory scan or a small transfer
-tail to finish.
+an exact prepared database recovery point, exact generated runtime
+configuration, a minimum one-minute grace period, and the Cloudflare preview to
+pass before promotion. Website-folder state is advisory and never gates outage
+promotion; already-present sites start while Syncthing finishes changed files
+in the background. Configure this policy only after the controlled
+write/failback drill.
 
 ```bash
 sudo ./scripts/install-automatic-failover.sh \
@@ -598,8 +593,8 @@ The exact restore commands depend on installation paths and must be rehearsed
 on non-production storage. The safe order is:
 
 For the normal warm-replica path, do not restore daily website archives over
-the synchronized tree. After all Syncthing folders report exact zero backlog
-and zero receive-only drift, prepare the synchronized state with:
+the synchronized tree. Preparation requires exact runtime configuration and an
+exact database recovery point, but does not wait for the website folder:
 
 ```bash
 sudo ./scripts/prepare-warm-standby.sh --dry-run
@@ -619,9 +614,10 @@ sudo ./scripts/install-warm-sync-finalizer.sh --source   # primary only
 sudo ./scripts/install-warm-sync-finalizer.sh --standby  # standby only
 ```
 
-The source publishes a release-bound completion marker only after its index is
-idle and error-free. The standby then reverts stale receive-only drift to that
-authoritative index, waits for exact zero backlog, and runs warm preparation.
+The source publishes a release-bound completion marker. The standby reverts
+receive-only drift for runtime configuration and database recovery, then runs
+warm preparation. It never reverts or waits for the website folder in the
+automatic path; Syncthing continues transferring site files independently.
 Successful install and upgrade runs atomically stamp `.source-release` from the
 checked-out Git commit. Reviewed patched deployments can set
 `HOSTING_SOURCE_RELEASE` explicitly before invoking the stamping helper.
@@ -629,22 +625,20 @@ While waiting, it rereads the release marker each cycle so a source update does
 not leave a long-running standby finalizer pinned to an obsolete release.
 The revert uses Syncthing's receive-only `/rest/db/revert` operation; it does
 not override the primary's global folder state.
-Reconciliation covers website files, runtime configuration, and database
-recovery snapshots, including changes published while standby replication was
-intentionally stopped for a drill.
-On the standby, a ten-minute timer repeats this bounded finalization. When a
-new database snapshot arrives, it starts only MariaDB, imports that
-snapshot into the private standby volume, records its checksum-bound recovery
-ID, and stops MariaDB again. Unchanged snapshots are skipped. Promotion uses
+Reconciliation gates on runtime configuration and database recovery snapshots.
+On the standby, a ten-minute timer repeats this finalization. When a new
+database snapshot arrives, it pauses PHP/nginx, imports the snapshot into the
+private MySQL volume, records its checksum-bound recovery ID, restores persistent
+read-only mode, and starts the warm PHP/nginx/Redis runtime. Unchanged snapshots
+are skipped. Promotion uses
 the exact pre-staged volume recorded by the readiness marker. A newer snapshot
 that has transferred but has not finished staging does not delay startup and
 is not imported after public writes begin.
-After a database import, the finalizer waits for all folders to become exact
-again before recording preparation, covering changes that arrived during import.
 The standby installer also enables `hosting-standby-fence.service`. After each
-Docker/host reboot it stops database, PHP, nginx, NPM, billing, file-manager,
-and phpMyAdmin services whenever the machine-local role is still `standby`;
-sync, agent, panel, and cloudflared remain available.
+Docker/host reboot it keeps MySQL persistently read-only and starts MySQL,
+PHP-FPM, nginx, and Redis as a warm private runtime. NPM, billing, file manager,
+and phpMyAdmin remain stopped; sync, agent, panel, and cloudflared remain
+available. The warm runtime has no active public website routes until promotion.
 
 1. Install or check out the recorded source commit on the standby.
 2. Keep the Compose stack stopped.
@@ -813,8 +807,8 @@ durably fenced former primary. Its dry run verifies promotion/cutover state,
 the remote fence, mutual SSH, and fixed Syncthing identities. Apply reverses
 all three managed Syncthing folders and creates a live transactional final
 logical database recovery point while HP continues serving. Database recovery
-and runtime configuration must be exact; website-file lag may remain only
-within the documented bounded-tail policy. The former
+and runtime configuration must be exact; website-file state is advisory and
+continues converging in the background. The former
 primary stages the exact database recovery and the rebuild records a bounded
 receipt without changing public ingress.
 

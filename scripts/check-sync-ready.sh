@@ -6,13 +6,17 @@ mode=exact
 case "${1:-}" in
   "") ;;
   --allow-small-website-lag) mode=bounded ;;
-  *) printf 'Usage: %s [--allow-small-website-lag]\n' "$0" >&2; exit 2 ;;
+  --ignore-website-state) mode=runtime ;;
+  *) printf 'Usage: %s [--allow-small-website-lag|--ignore-website-state]\n' "$0" >&2; exit 2 ;;
 esac
 
 docker inspect hosting-sync >/dev/null 2>&1 \
   || { printf 'hosting-sync is unavailable.\n' >&2; exit 1; }
 
 for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
+  if [ "$mode" = runtime ] && [ "$folder" = hosting-websites ]; then
+    continue
+  fi
   status="$(docker exec hosting-sync sh -c '
     key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
     exec wget -qO- --header="X-API-Key: $key" "http://127.0.0.1:8384/rest/db/status?folder=$1"
@@ -57,7 +61,9 @@ for folder in hosting-websites hosting-runtime-config hosting-db-recovery; do
     || { printf 'Syncthing folder %s is not fully synchronized.\n' "$folder" >&2; exit 1; }
 done
 
-if [ "$mode" = bounded ]; then
+if [ "$mode" = runtime ]; then
+  printf 'Database recovery and runtime config are exact; website state is advisory.\n'
+elif [ "$mode" = bounded ]; then
   printf 'Database and runtime config are exact; website lag is within the safe bound.\n'
 else
   printf 'All hosting Syncthing folders are synchronized.\n'

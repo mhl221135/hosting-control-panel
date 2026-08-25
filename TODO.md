@@ -442,11 +442,11 @@ refreshes the fenced prepared standby after deep verification are implemented.
 The project-owned Syncthing path now continuously mirrors website files and
 runtime configuration one way, while 30-minute verified logical database recovery
 points synchronize separately. The standby now pre-imports each new logical
-snapshot into its stopped database volume and refreshes the coordinated warm
-recovery marker every ten minutes, so promotion does not normally import SQL
+snapshot, enforces persistent MySQL read-only mode, and keeps its private
+MySQL/PHP-FPM/nginx/Redis runtime warm. Promotion does not normally import SQL
 during an outage. Resumable finalizers, exact database/runtime reconciliation
-with bounded website-file lag during planned rebuild/failback, a
-reboot-time writable-service fence, warm preparation, and a disabled-by-default
+with advisory background website synchronization, a reboot-time public-mutator
+fence, warm preparation, and a disabled-by-default
 automatic outage watchdog are implemented. Token-authenticated panel pairing,
 bounded historical lag alerts, and panel-driven promotion/rebuild/failback are
 implemented. A bounded read-only peer health probe with expected server identity is
@@ -618,8 +618,8 @@ Panel-based acceptance remains future work.
   write/failback drill is also complete: a promoted-HP database/file write was
   restored on OPI5, ingress returned to OPI5, the public sweep had zero
   failures, and HP demoted to receive-only standby. The automatic outage
-  watchdog still requires exact synchronization; planned failback permits only
-  a small bounded website-file delta while database/runtime state stays exact.
+  watchdog requires exact database/runtime state but does not gate on website
+  folder progress; planned failback uses the same availability-first rule.
 - The automatic outage path was qualified on 2026-08-22 with a temporary
   two-host allowlist. OPI5's panel-health and exact Syncthing-peer signals were
   stopped while its website-serving nginx/NPM remained online. HP reached
@@ -641,7 +641,8 @@ Panel-based acceptance remains future work.
   traffic** workflows covered by regression tests. Failback keeps HP serving
   while OPI5 imports and starts, restores recorded direct ingress, waits through
   a transition grace, and only then demotes HP. Database/runtime state remains
-  exact; website lag is bounded. Never perform a bidirectional database merge.
+  exact; website files continue synchronizing in the background. Never perform
+  a bidirectional database merge.
 
 ### Direct NPM And Cloudflare Tunnel Ingress
 

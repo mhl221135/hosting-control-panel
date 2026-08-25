@@ -22,12 +22,6 @@ role="$(jq -r '.role // empty' "$machine_state/role.json" 2>/dev/null || true)"
 
 cd "$project_dir"
 docker compose stop \
-  hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx \
-  hosting-php-fpm hosting-redis hosting-db >/dev/null
-
-unexpected="$(docker ps --format '{{.Names}}' | awk '
-  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }
-')"
-[ -z "$unexpected" ] \
-  || { printf 'Writable hosting containers remain on standby: %s\n' "$unexpected" >&2; exit 1; }
-printf 'Standby boot fence verified; writable hosting services are stopped.\n'
+  hosting-npm hosting-phpmyadmin hosting-files hosting-billing >/dev/null
+"$project_dir/scripts/start-warm-standby-runtime.sh"
+printf 'Standby boot fence verified; warm runtime is read-only and public mutators are stopped.\n'

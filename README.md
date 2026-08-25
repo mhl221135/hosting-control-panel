@@ -44,7 +44,9 @@ into dedicated directories.
 - Encrypted S3-compatible off-site replication with verification and restore tests
 - Daily application-data archive and consistent all-databases dump
 - Project-owned one-way warm-replica sync for website files and runtime
-  configuration, plus hourly checksummed logical database recovery points
+  configuration, plus 30-minute checksummed logical database recovery points
+- Warm standby MySQL/PHP-FPM/nginx/Redis runtime with persistent database
+  read-only enforcement; website-folder progress never gates outage promotion
 - Resumable initial replica reconciliation and non-restoring warm preparation;
   guarded promotion and Cloudflare tunnel cutover remain separately gated
 - Guarded HA operations for on-demand database recovery points, standby

@@ -42,7 +42,7 @@ sites_map="$root/app-data/configs/nginx/conf.d/sites.map"
 jq -e '.version == 1 and .role == "standby" and (.server_id | type == "string")' "$role_marker" >/dev/null \
   || { printf 'This command is restricted to the machine-local standby.\n' >&2; exit 1; }
 [ -f "$sites_map" ] || { printf 'Synchronized sites.map is missing.\n' >&2; exit 1; }
-"$project_dir/scripts/check-sync-ready.sh" --allow-small-website-lag
+"$project_dir/scripts/check-sync-ready.sh" --ignore-website-state
 database_recovery_id="$("$project_dir/scripts/restore-replication-dump.sh" --verify --root "$root")"
 
 source_release="$(cat "$project_dir/.source-release" 2>/dev/null || true)"
