@@ -71,9 +71,6 @@ remote_args=(--apply --peer-id "$local_peer_id" --confirm REBUILD-AS-STANDBY)
 [[ -z "$local_address" ]] || remote_args+=(--peer-address "$local_address")
 ssh -o BatchMode=yes -o ConnectTimeout=10 "root@$peer_host" "$remote_script" "${remote_args[@]}"
 
-docker compose stop hosting-nginx hosting-php-fpm hosting-billing >/dev/null
-resume_writes() { docker compose up -d hosting-php-fpm hosting-nginx hosting-billing >/dev/null 2>&1 || true; }
-trap resume_writes EXIT HUP INT TERM
 "$project_dir/scripts/create-replication-dump.sh"
 recovery_id="$(find "$project_dir/../replication/database" -mindepth 1 -maxdepth 1 -type d -name '????-??-??T??-??-??Z' -printf '%f\n' | sort | tail -1)"
 [ -n "$recovery_id" ] || { printf 'Final database recovery point was not created.\n' >&2; exit 1; }
@@ -109,6 +106,4 @@ jq -n --arg peer "$peer_host" --arg recovery_id "$recovery_id" --arg completed_a
   '{version:1,status:"prepared-standby",peer:$peer,recoveryId:$recovery_id,completedAt:$completed_at}' > "$receipt.tmp.$$"
 chmod 600 "$receipt.tmp.$$"
 mv "$receipt.tmp.$$" "$receipt"
-trap - EXIT HUP INT TERM
-resume_writes
 printf 'Former primary is rebuilt and verified as standby at recovery %s. HP remains the active primary.\n' "$recovery_id"

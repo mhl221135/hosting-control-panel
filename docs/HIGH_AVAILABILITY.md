@@ -811,10 +811,10 @@ The guarded rebuild half is implemented by `scripts/rebuild-former-primary.sh`
 on the promoted primary and `scripts/accept-former-primary-rebuild.sh` on the
 durably fenced former primary. Its dry run verifies promotion/cutover state,
 the remote fence, mutual SSH, and fixed Syncthing identities. Apply reverses
-all three managed Syncthing folders and creates a
-final logical database recovery point. Database recovery and runtime
-configuration must be exact; website-file lag may remain only when it is
-error-free, conflict-free, and no more than 100 items or 10 MiB. The former
+all three managed Syncthing folders and creates a live transactional final
+logical database recovery point while HP continues serving. Database recovery
+and runtime configuration must be exact; website-file lag may remain only
+within the documented bounded-tail policy. The former
 primary stages the exact database recovery and the rebuild records a bounded
 receipt without changing public ingress.
 
