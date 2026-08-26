@@ -35,7 +35,7 @@ test("installs idempotently and stores only a token hash in panel state", () => 
   try {
     const first = value.manager.install(value.site);
     const token = installedToken(value);
-    assert.equal(first.version, "1.0.0");
+    assert.equal(first.version, "1.1.0");
     assert.equal(token.length, 43);
     const stored = fs.readFileSync(value.manager.statePath, "utf8");
     assert.doesNotMatch(stored, new RegExp(token));
@@ -44,9 +44,23 @@ test("installs idempotently and stores only a token hash in panel state", () => 
     assert.equal(second.rotated, false);
     assert.equal(installedToken(value), token);
     assert.deepEqual(value.manager.status([value.site]).map(({ domain, installed, version }) => ({ domain, installed, version })), [
-      { domain: "example.com", installed: true, version: "1.0.0" },
+      { domain: "example.com", installed: true, version: "1.1.0" },
     ]);
   } finally { fs.rmSync(value.root, { recursive: true, force: true }); }
+});
+
+test("packaged plugin exposes secured toolbar actions and replaces the Redis toolbar item", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "../wordpress/hosting-cache-control.php"), "utf8");
+  assert.match(source, /WP_REDIS_DISABLE_ADMINBAR/);
+  assert.match(source, /add_action\('admin_bar_menu', 'hosting_cache_control_admin_bar', 999\)/);
+  for (const layer of ["fastcgi", "opcache", "redis", "cloudflare", "all"]) {
+    assert.match(source, new RegExp(`'${layer}'`));
+  }
+  assert.match(source, /wp_create_nonce\('hosting-cache-control'\)/);
+  assert.match(source, /action:'hosting_cache_control_purge'/);
+  assert.match(source, /add_action\('wp_head', 'hosting_cache_control_toolbar_assets', 100\)/);
+  assert.match(source, /add_action\('admin_head', 'hosting_cache_control_toolbar_assets', 100\)/);
+  assert.doesNotMatch(source, /wp_ajax_nopriv_hosting_cache_control_purge/);
 });
 
 test("rotates credentials and rejects old, wrong-site, and rate-limited requests", () => {
