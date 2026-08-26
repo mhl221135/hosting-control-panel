@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { atomicWriteFile, atomicWriteJson } = require("./safe-write");
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const PLUGIN_FILE = "hosting-cache-control.php";
 const CONFIG_FILE = "hosting-cache-control-config.php";
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;

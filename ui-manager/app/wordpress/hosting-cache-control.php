@@ -2,12 +2,15 @@
 /**
  * Plugin Name: Hosting Cache Control
  * Description: Site-scoped cache controls managed by Hosting Control.
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 if (!defined('ABSPATH')) exit;
 $hosting_cache_config = __DIR__ . '/hosting-cache-control-config.php';
 if (is_readable($hosting_cache_config)) require_once $hosting_cache_config;
+
+// This menu replaces the Redis Object Cache plugin's narrower toolbar menu.
+if (!defined('WP_REDIS_DISABLE_ADMINBAR')) define('WP_REDIS_DISABLE_ADMINBAR', true);
 
 function hosting_cache_control_local_opcache() {
     if (!function_exists('opcache_invalidate')) return array('ok' => true, 'message' => 'OPcache is unavailable', 'files' => 0);
@@ -76,6 +79,100 @@ function hosting_cache_control_ajax() {
     wp_send_json_success(array('ok' => $ok, 'results' => $results));
 }
 add_action('wp_ajax_hosting_cache_control_purge', 'hosting_cache_control_ajax');
+
+function hosting_cache_control_admin_bar($wp_admin_bar) {
+    if (!is_user_logged_in() || !current_user_can('manage_options')) return;
+    $wp_admin_bar->remove_node('redis-cache');
+    $wp_admin_bar->add_node(array(
+        'id' => 'hosting-cache-control',
+        'title' => '<span class="ab-icon dashicons dashicons-performance" aria-hidden="true"></span><span class="ab-label">Cache</span>',
+        'href' => admin_url('tools.php?page=hosting-cache-control'),
+        'meta' => array('title' => 'Hosting cache control'),
+    ));
+    foreach (array(
+        'fastcgi' => 'FastCGI',
+        'opcache' => 'OPcache',
+        'redis' => 'Redis',
+        'cloudflare' => 'Cloudflare',
+        'all' => 'Purge all',
+    ) as $layer => $label) {
+        $wp_admin_bar->add_node(array(
+            'parent' => 'hosting-cache-control',
+            'id' => 'hosting-cache-control-' . $layer,
+            'title' => $label,
+            'href' => '#hosting-cache-control-' . $layer,
+            'meta' => array('class' => 'hosting-cache-control-action hosting-cache-control-layer-' . $layer),
+        ));
+    }
+}
+add_action('admin_bar_menu', 'hosting_cache_control_admin_bar', 999);
+
+function hosting_cache_control_toolbar_assets() {
+    if (!is_admin_bar_showing() || !current_user_can('manage_options')) return;
+    $nonce = wp_create_nonce('hosting-cache-control');
+    $endpoint = admin_url('admin-ajax.php');
+    ?>
+    <style>
+      #wpadminbar #wp-admin-bar-hosting-cache-control > .ab-item .ab-icon:before { content: "\f311"; top: 2px; }
+      #wpadminbar #wp-admin-bar-hosting-cache-control-all > .ab-item { font-weight: 600; }
+      #hosting-cache-control-toast { position: fixed; z-index: 1000000; top: 46px; right: 16px; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 4px; background: #1d2327; color: #fff; box-shadow: 0 3px 12px rgba(0,0,0,.25); font: 13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+      #hosting-cache-control-toast[data-status="error"] { background: #b32d2e; }
+      @media screen and (max-width: 782px) {
+        #wpadminbar #wp-admin-bar-hosting-cache-control { display: block; }
+        #wpadminbar #wp-admin-bar-hosting-cache-control > .ab-item { width: 46px; padding: 0; text-align: center; }
+        #wpadminbar #wp-admin-bar-hosting-cache-control > .ab-item .ab-icon { float: none; margin: 0; width: 46px; }
+        #wpadminbar #wp-admin-bar-hosting-cache-control > .ab-item .ab-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+        #hosting-cache-control-toast { top: 62px; }
+      }
+    </style>
+    <script>
+    (() => {
+      if (window.hostingCacheControlToolbarLoaded) return;
+      window.hostingCacheControlToolbarLoaded = true;
+      const endpoint = <?php echo wp_json_encode($endpoint); ?>;
+      const nonce = <?php echo wp_json_encode($nonce); ?>;
+      const labels = {fastcgi:'FastCGI',opcache:'OPcache',redis:'Redis',cloudflare:'Cloudflare',all:'Purge all'};
+      const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+      const notify = (message, error = false) => {
+        let toast = document.getElementById('hosting-cache-control-toast');
+        if (!toast) { toast = document.createElement('div'); toast.id = 'hosting-cache-control-toast'; toast.setAttribute('role', 'status'); document.body.appendChild(toast); }
+        toast.dataset.status = error ? 'error' : 'success';
+        toast.innerHTML = message;
+        clearTimeout(toast._removeTimer);
+        toast._removeTimer = setTimeout(() => toast.remove(), 6000);
+      };
+      document.addEventListener('click', async (event) => {
+        const link = event.target.closest('#wpadminbar [id^="wp-admin-bar-hosting-cache-control-"] > .ab-item');
+        if (!link) return;
+        const layer = link.parentElement.id.replace('wp-admin-bar-hosting-cache-control-', '');
+        if (!Object.prototype.hasOwnProperty.call(labels, layer)) return;
+        event.preventDefault();
+        if (link.dataset.busy === '1') return;
+        link.dataset.busy = '1';
+        const original = link.textContent;
+        link.textContent = 'Clearing...';
+        const body = new URLSearchParams({action:'hosting_cache_control_purge', nonce, layer});
+        try {
+          const response = await fetch(endpoint, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body});
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data?.data?.message || 'Cache request failed');
+          const results = data.data?.results || {};
+          const failures = Object.entries(results).filter(([, result]) => !result.ok);
+          const details = Object.entries(results).map(([name, result]) => `<div><strong>${escapeHtml(name)}</strong>: ${result.ok ? 'Complete' : 'Failed'}${result.message ? ` - ${escapeHtml(result.message)}` : ''}</div>`).join('');
+          notify(details || `${labels[layer]} cache cleared.`, failures.length > 0);
+        } catch (error) {
+          notify(escapeHtml(error.message || 'Cache request failed'), true);
+        } finally {
+          link.textContent = original;
+          delete link.dataset.busy;
+        }
+      });
+    })();
+    </script>
+    <?php
+}
+add_action('wp_head', 'hosting_cache_control_toolbar_assets', 100);
+add_action('admin_head', 'hosting_cache_control_toolbar_assets', 100);
 
 function hosting_cache_control_page() {
     add_management_page('Hosting cache', 'Hosting cache', 'manage_options', 'hosting-cache-control', 'hosting_cache_control_render');

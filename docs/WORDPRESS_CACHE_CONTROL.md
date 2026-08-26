@@ -5,6 +5,13 @@ Hosting Control packages a versioned must-use plugin at
 provisioning, browser imports, and portable imports install it automatically.
 Existing sites are updated from **Maintenance > WordPress cache controls**.
 
+Administrators also receive a native **Cache** menu in the WordPress toolbar
+on wp-admin and the public website. Its FastCGI, OPcache, Redis, Cloudflare,
+and Purge all actions use the same capability check, nonce, and site-scoped
+AJAX handler as the Tools page. The MU plugin disables Redis Object Cache's
+separate toolbar item to avoid two controls for the same object cache; the
+Redis plugin and object-cache drop-in remain enabled.
+
 ## Security Boundary
 
 Each canonical WordPress site receives a random 256-bit credential in
