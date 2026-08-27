@@ -38,12 +38,16 @@ test("HA panel controls queue only bounded machine-local operations", () => {
   assert.match(html, /id="replicateNow"/);
   assert.match(html, /id="finalizeStandby"/);
   assert.match(html, /id="runFailoverCheck"/);
+  assert.match(html, /id="previewFailoverHosts"/);
+  assert.match(html, /id="acceptFailoverHosts"/);
   assert.match(html, /id="promoteStandby"/);
   assert.match(html, /id="completeFailback"/);
   assert.match(html, /id="requestWitnessFence"/);
   assert.match(processor, /primary:replicate-now/);
   assert.match(processor, /standby:finalize-standby/);
   assert.match(processor, /standby:failover-check/);
+  assert.match(processor, /standby:failover-hosts-preview\|standby:accept-failover-hosts/);
+  assert.match(processor, /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
   assert.match(processor, /standby:promotion-preview\|standby:promote-standby/);
   assert.match(processor, /primary:rebuild-preview\|primary:rebuild-former-primary/);
   assert.match(processor, /awaiting-unreachable-grace/);

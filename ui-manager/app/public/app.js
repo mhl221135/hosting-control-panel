@@ -652,6 +652,8 @@ async function loadWarmReplication() {
   $("#replicateNow").classList.toggle("hidden", !actions.has("replicate-now"));
   $("#finalizeStandby").classList.toggle("hidden", !actions.has("finalize-standby"));
   $("#runFailoverCheck").classList.toggle("hidden", !actions.has("failover-check"));
+  $("#previewFailoverHosts").classList.toggle("hidden", !actions.has("failover-hosts-preview"));
+  $("#acceptFailoverHosts").classList.toggle("hidden", !actions.has("accept-failover-hosts"));
   $("#requestWitnessFence").classList.toggle("hidden", !actions.has("request-witness-fence"));
   $("#previewPromotion").classList.toggle("hidden", !actions.has("promotion-preview"));
   $("#promoteStandby").classList.toggle("hidden", !actions.has("promote-standby"));
@@ -3745,6 +3747,14 @@ $("#finalizeStandby").addEventListener("click", async (event) => {
 });
 $("#runFailoverCheck").addEventListener("click", async (event) => {
   try { await requestHaControl("failover-check", "CHECK-FAILOVER", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#previewFailoverHosts").addEventListener("click", async (event) => {
+  try { await requestHaControl("failover-hosts-preview", "PREVIEW-FAILOVER-HOSTS", event.currentTarget); }
+  catch (error) { notice(error.message, "warning"); }
+});
+$("#acceptFailoverHosts").addEventListener("click", async (event) => {
+  try { await requestHaControl("accept-failover-hosts", "ACCEPT-QUALIFIED-FAILOVER-HOSTS", event.currentTarget, true); }
   catch (error) { notice(error.message, "warning"); }
 });
 $("#requestWitnessFence").addEventListener("click", async (event) => {

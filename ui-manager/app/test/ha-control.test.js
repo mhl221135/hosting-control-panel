@@ -15,7 +15,8 @@ test("exposes only role-appropriate HA actions", () => {
   try {
     assert.deepEqual(value.control.view("primary", "one").actions, ["replicate-now"]);
     assert.deepEqual(value.control.view("standby", "two").actions, [
-      "finalize-standby", "failover-check", "promotion-preview", "promote-standby", "request-witness-fence",
+      "finalize-standby", "failover-check", "failover-hosts-preview", "accept-failover-hosts",
+      "promotion-preview", "promote-standby", "request-witness-fence",
     ]);
     assert.deepEqual(value.control.view("standalone", "three").actions, []);
   } finally { fs.rmSync(value.dataDir, { recursive: true, force: true }); }
@@ -25,7 +26,8 @@ test("exposes role transitions only for standby or a receipt-backed promoted pri
   const value = fixture();
   try {
     assert.deepEqual(value.control.view("standby", "two").actions, [
-      "finalize-standby", "failover-check", "promotion-preview", "promote-standby", "request-witness-fence",
+      "finalize-standby", "failover-check", "failover-hosts-preview", "accept-failover-hosts",
+      "promotion-preview", "promote-standby", "request-witness-fence",
     ]);
     assert.deepEqual(value.control.view("primary", "one").actions, ["replicate-now"]);
     const promotion = { status: "local-primary", publicIngressCutover: true };
@@ -42,6 +44,7 @@ test("requires exact confirmation and machine role", () => {
   try {
     assert.throws(() => value.control.request({ action: "replicate-now", confirm: "REPLICATE-NOW" }, "standby", "two"), /not available/);
     assert.throws(() => value.control.request({ action: "failover-check", confirm: "wrong" }, "standby", "two"), /CHECK-FAILOVER/);
+    assert.throws(() => value.control.request({ action: "accept-failover-hosts", confirm: "wrong" }, "standby", "two"), /ACCEPT-QUALIFIED-FAILOVER-HOSTS/);
     const request = value.control.request({ action: "failover-check", confirm: "CHECK-FAILOVER" }, "standby", "two", "operator@example.test");
     assert.equal(request.action, "failover-check");
     assert.equal(request.serverId, "two");

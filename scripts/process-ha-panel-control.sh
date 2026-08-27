@@ -48,6 +48,18 @@ case "$role:$action" in
   primary:replicate-now) unit=hosting-database-replication.service ;;
   standby:finalize-standby) unit=hosting-warm-sync-finalizer.service ;;
   standby:failover-check) unit=hosting-automatic-failover.service ;;
+  standby:failover-hosts-preview|standby:accept-failover-hosts)
+    recovery_id=$(jq -r '.app_data_id // empty' /etc/hosting-control/standby-recovery.json 2>/dev/null || true)
+    case "$recovery_id" in ????-??-??T??-??-??Z) ;; *) finish failed "Prepared recovery point is unavailable"; exit 0 ;; esac
+    if [ "$action" = failover-hosts-preview ]; then
+      if "$project_dir/scripts/qualify-failover-hosts.sh" --preview >/dev/null 2>&1; then
+        finish succeeded "Cloudflare failover-host preview passed for $recovery_id"
+      else finish failed "Failover-host preview failed; inspect the host journal"; fi
+    elif "$project_dir/scripts/qualify-failover-hosts.sh" --apply --recovery-id "$recovery_id" \
+      --confirm ACCEPT-QUALIFIED-FAILOVER-HOSTS >/dev/null 2>&1; then
+      finish succeeded "Cloudflare-qualified failover hosts accepted for $recovery_id"
+    else finish failed "Failover-host acceptance failed; inspect the host journal"; fi
+    exit 0 ;;
   standby:request-witness-fence)
     recovery_id=$(jq -r '.database_recovery_id // .app_data_id // empty' /etc/hosting-control/standby-recovery.json 2>/dev/null || true)
     case "$recovery_id" in ????-??-??T??-??-??Z) ;; *) finish failed "Prepared recovery point is unavailable"; exit 0 ;; esac

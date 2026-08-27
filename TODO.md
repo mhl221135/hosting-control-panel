@@ -1,844 +1,155 @@
 # Project Backlog
 
-This file is the detailed plan for work that is not implemented. Completed
-features are documented in `README.md` and `docs/`; they are removed from this
-backlog only when their acceptance criteria are satisfied.
+Only genuinely unimplemented work belongs here. Completed behavior is documented
+in `README.md`, `STACK_OVERVIEW.md`, and `docs/`.
 
 ## Delivery Order
 
-1. Establish a safe standby role, backup reception, and controlled promotion.
-2. Qualify live billing payments, then carefully pilot local enforcement.
-3. Build the isolated mail platform last, after hosting replication is proven.
-
-## 1. Separate Billing And Entitlement Service
-
-Phase 1 is implemented as the isolated `hosting-billing` service. Its
-read-only renewal inventory, legacy/canonical CSV round trips, audit history,
-independent authentication, signed internal API, health endpoint, migrations,
-verified backups, restore tests, and responsive UI are documented in
-`docs/BILLING.md`. Remaining payment qualification and enforcement work must
-preserve that service boundary.
-
-Phase 2 code also implements encrypted WooCommerce settings, opaque expiring
-payment links, one-active-link protection, signed topic-restricted webhooks,
-amount/currency validation, idempotent delivery processing, and manual-review
-handling. Billing remains unable to enforce directly; the independently gated
-hosting-side reconciler is described below. Live payment qualification against
-the dedicated hidden renewal product is still required before client use.
-
-Renewal reminders are implemented with a disabled-by-default daily scheduler,
-due-state preview, manual run, durable idempotent outbox, failure retry, and a
-narrow bearer-authenticated adapter to the existing Telegram/SMTP delivery
-queue. Billing has no access to notification credentials or panel data.
-
-The hosting panel now has a disabled-by-default entitlement consumer and local
-nginx map reconciler. It verifies HMAC, freshness, unique domain ownership, and
-opaque renewal URLs; compares billing with local primary websites; and fails
-open unless the global switch, explicit pilot allowlist, `payment_page` policy,
-fresh `suspended` state, and local ownership all agree. The switch defaults off
-and the allowlist defaults empty. Production use remains blocked on the
-dedicated test-service pilot.
-
-### Data Model
-
-- Stable service ID with one primary domain and optional aliases. Domains are
-  mutable attributes, not database keys.
-- Customer/contact details.
-- Hosting location/provider: local stack, remote shared hosting, or
-  notification-only.
-- Add free-trial origin and explicit trial metadata. The implemented inventory
-  already stores separate hosting/domain dates, periods, and prices plus
-  currency, grace policy, enforcement mode, creation timestamps, and an
-  archived flag.
-- WooCommerce order/payment identifiers.
-- State calculated from dates: active, reminder, grace, suspended, exempt.
-- Manual override, notes, and audit history.
-- Immutable entitlement/payment events plus current materialized state. Store
-  monetary values as integer minor units with explicit currency and timezone.
-
-CSV import/export is required for migration and operator editing, but the
-billing database becomes the source of truth. Google Sheets synchronization can
-remain a later optional adapter.
-
-### WooCommerce Integration
-
-- Use one hidden virtual **Hosting renewal** product, not one variation per
-  domain and duration.
-- Create orders/payment links with custom metadata: service ID, domain, period,
-  amount, currency, and resulting renewal date.
-- Receive signed WooCommerce webhooks, verify HMAC signatures, process
-  idempotently, reject expired/replayed deliveries, and retain bounded
-  payment/audit references.
-- Restore service immediately after a verified successful payment when policy
-  permits.
-
-### Enforcement
-
-- For locally hosted sites, enforce reminder/grace/suspended state at
-  `hosting-nginx` so WordPress, generic PHP, and static sites behave consistently.
-- Preserve a signed payment URL, manual exemption, and immediate rollback of
-  the suspension rule.
-- Remote sites require provider adapters, a WordPress plugin, or
-  notification-only mode. Local nginx cannot suspend externally hosted sites.
-- Never delete website data because payment expired.
-- Billing never writes nginx files or calls Docker directly. It publishes
-  signed entitlement state; a narrow hosting-side reconciler owns local
-  enforcement and rollback.
-- Use last-known-good entitlement state and fail open during billing-service
-  outages. Suspension requires fresh verified state and an operator-configured
-  grace policy.
-
-### Remaining Hosting-Side Enforcement Work
-
-- Remote/shared-hosting records remain notification-only until a separately
-  reviewed provider adapter exists.
-
-### Remote WordPress Enforcement Plugin
-
-Phase A1 (backend foundation) is implemented. It adds the enrollment schema and
-secure enrollment/exchange/revocation backend for remote WordPress services:
-only hashes of one-time enrollment codes and per-installation credentials are
-stored, the exchange is atomic and single-use, and bounded redacted audit
-events and CSV exclusion are enforced.
-
-Phase A2 (signing and entitlement delivery) is implemented. It adds Ed25519
-entitlement signing with deterministic canonicalization, encrypted signing-key
-storage, key lifecycle management (initialize/rotate/retire), authenticated
-remote entitlement delivery (`POST /remote/v1/entitlement`), public key
-distribution (`GET /remote/v1/keys`), installation authentication, throttled
-heartbeat, opaque renewal references, transactional race guards, and
-administrator key status/preview APIs. A fail-open WordPress consumer, Billing
-enrollment workspace, encrypted plugin credential storage, signed cron/manual
-polling, Site Health visibility, and deterministic ZIP builds are implemented.
-Frontend suspension, cache purge, signed update distribution, and production
-qualification remain future work below.
-
-- Extend the separately versioned WordPress plugin for websites hosted outside
-  OPI5. Prefer a normal managed plugin with a minimal MU-plugin loader so the
-  enforcement bootstrap remains active across ordinary plugin deactivation and
-  updates. Document that a hosting administrator with filesystem access can
-  always remove it; this is billing presentation, not tamper-proof DRM.
-- Do not authorize a remote site merely because its current domain matches a
-  billing record. Domain ownership can change, staging copies can reuse a
-  database, and cloned WordPress installations can retain old options.
-- Extend the Billing UI enrollment workflow (select a remote WordPress service,
-  generate a code, view installation health, revoke credentials, approve a
-  canonical-domain change), entering the generated code in the plugin settings
-  while authenticated as a WordPress administrator. The backend code
-  generation, one-time exchange, code status, installation health, and
-  revocation are implemented; canonical-domain change approval is pending.
-- Harden the WordPress plugin that stores the credential in an encrypted,
-  protected option and never includes it in URLs, logs, support bundles,
-  telemetry, or portable billing CSV exports.
-- Use a narrow remote API that returns only the service state, freshness,
-  renewal-page URL, display-safe price/period details, and key-rotation
-  metadata. It must not expose client contact details, internal notes,
-  WooCommerce order keys, other services, or billing administration.
-- Sign entitlement responses with an asymmetric key so distributing the plugin
-  verification key does not distribute a server signing secret. Support
-  overlapping public keys during controlled rotation.
-- Extend the implemented bounded HTTPS WP-Cron/manual polling after relevant
-  WordPress admin/page requests. Use WP-Cron or Action Scheduler as a
-  convenience, but do not assume low-traffic sites execute WP-Cron reliably.
-  Show the last
-  successful verification and next retry in Site Health.
-- Fail open when entitlement is missing, expired, has an invalid signature,
-  uses an unsupported contract version, changes to an unapproved domain, or
-  cannot be refreshed within the configured freshness window. Retain bounded
-  diagnostics for the operator without exposing credentials.
-- When a fresh signed entitlement is `suspended` and remote enforcement is
-  enabled for that service, intercept public frontend requests early and render
-  a small local suspension page containing the central protected renewal link.
-  Keep WordPress administrator login, authenticated administration, WP-Cron,
-  Site Health, the enrollment endpoint, and required payment-status polling
-  available so the site can be repaired and restored.
-- Do not modify the active theme, page content, menus, database URLs, or
-  customer files. Suspension state belongs only to the plugin's protected
-  options and can be rolled back immediately.
-- On transition into or out of suspension, purge known WordPress page caches
-  and request a narrowly scoped Cloudflare cache purge where configured.
-  Document that upstream shared-host caches outside WordPress control can delay
-  enforcement or restoration and must be qualified per provider.
-- After a verified payment, the next successful signed poll must restore the
-  public site automatically. Provide an authenticated **Check billing now**
-  action for immediate recovery when WP-Cron is delayed.
-- Extend Billing heartbeat visibility with plugin/PHP compatibility details:
-  installation ID, approved canonical domain, plugin version, WordPress/PHP
-  compatibility, last successful check, current applied state, and bounded
-  error. Do not collect
-  visitor analytics, content, user lists, or unrelated site data.
-- Support credential revoke/re-enroll, domain-change approval, staging-copy
-  detection, and uninstall cleanup. A cloned installation must fail open and
-  request re-enrollment rather than sharing enforcement identity.
-- Publish signed plugin packages with checksums and a controlled update
-  channel. Automatic updates remain opt-in until rollback and compatibility are
-  tested against supported WordPress/PHP versions.
-- Non-WordPress remote websites remain notification-only until separate,
-  least-privilege adapters are designed. Do not reuse WordPress credentials for
-  arbitrary PHP, OpenCart, cPanel, or shared-hosting control.
-
-### Provisioning Billing Defaults
-
-- Add `payment_page` as a provisioning enforcement default only after global
-  enforcement and the pilot allowlist pass qualification. Implemented
-  registrations deliberately use `none`.
-
-### Remaining Delivery Phases
-
-The read-only `scripts/qualify-billing-pilot.sh` gate is implemented. It
-validates one exact local pilot across billing policy, signed snapshot
-freshness, allowlisting, nginx mapping, renewal presentation, matching payment
-amount, renewal-page security headers, and WooCommerce checkout without
-exposing protected URLs. A suspended state qualification has been exercised
-against one operator-selected local service. This is not evidence of
-completed-payment restoration or the remaining state/outage drills below.
-`docs/BILLING_PILOT_RUNBOOK.md` defines their safety boundary, ordered
-pass/fail checks, and private evidence checklist.
-
-1. Qualify payment links and webhooks with the real hidden WooCommerce test
-   product: checkout, processing/completed, duplicate delivery, expiration,
-   mismatched amount/currency, refund, chargeback, and provider outage.
-2. Qualify the disabled-by-default reconciler and immediate post-payment
-   refresh through billing outage, WooCommerce outage, callback retry, polling
-   fallback, panel restart, nginx rollback, notification-delivery, and
-   freshness-watchdog drills.
-3. Pilot only the dedicated test website. Exercise active, reminder, grace,
-   suspended, payment, automatic restore, manual exemption, and disable-all
-   workflows before adding any production domain to the allowlist.
-4. Build the remote WordPress plugin and enrollment API after local enforcement
-   passes. Pilot one disposable remote WordPress site through enrollment,
-   cloning, stale-state, suspension, payment, cache purge, restoration,
-   credential revoke, and plugin rollback tests.
-5. Review audit logs, notification behavior, load, and rollback evidence.
-   Enable selected production services individually; never bulk-enable the
-   imported inventory during the pilot.
-
-### Acceptance Criteria
-
-- Provider outage or stale state cannot suspend an otherwise active service.
-- Duplicate/replayed payment events cannot extend service twice.
-- Payment URLs contain no customer PII or reusable credential.
-- Enforcement can be disabled globally and reverted immediately without
-  deleting website data.
-- No imported or existing website is blocked merely because the feature was
-  deployed. Global enforcement and the pilot allowlist both default to empty.
-- A verified payment restores an allowed local website without manual nginx,
-  NPM, database, or filesystem edits.
-- Hosting-only, domain-only, and combined payments update exactly their selected
-  paid-through dates.
-- New successful provisions create exactly one billing record with the
-  configured defaults; retries remain idempotent.
-- Inventory edits are validated, concurrency-safe, audited, backed up, and
-  represented in canonical CSV export.
-- A remote WordPress site cannot enroll or suspend itself based only on a
-  matching domain, and a cloned database cannot reuse another installation's
-  enforcement identity.
-- Invalid, stale, revoked, unavailable, or incompatible remote entitlement
-  state fails open; a fresh verified payment restores the remote frontend
-  without theme or content changes.
-
-## 2. Separate Mail Platform
-
-### Objective
-
-Add production mailbox hosting as a separately owned module with dedicated
-containers, storage, network, API, upgrades, migration, and backup lifecycle.
-It may live in the same repository and deployment, but it must not be coupled
-to the hosting database or implemented directly inside `hosting-ui`.
-
-### Service Boundary
-
-- Run a dedicated Stalwart mail server for SMTP receiving, authenticated
-  submission, IMAP/JMAP mailboxes, domains, aliases, quotas, filtering, and
-  account management.
-- Run Roundcube as the initial webmail client with its own configuration
-  database. Roundcube preferences are separate from mailbox contents.
-- Add `mail-control`, an authenticated internal API responsible for domain and
-  account provisioning, Cloudflare and Amazon SES reconciliation, migration,
-  exports, backups, restores, progress, and audit records.
-- Use a separate worker for long-running migration and backup jobs when the
-  shared job service cannot safely execute them directly.
-- Keep mail containers on a dedicated `mail-net`. Give only `hosting-ui` and
-  `mail-control` access to a narrowly scoped internal API network.
-- Do not give the mail control service arbitrary Docker, shell, filesystem, or
-  hosting-database access.
-
-Initial logical services are `mail-stalwart`, `mail-webmail`,
-`mail-webmail-db`, `mail-control`, and, if required, `mail-worker`. Pin tested
-multi-architecture image versions rather than using `latest`.
-
-### Mail Flow And Public Ports
-
-- Treat inbound TCP 25 reachability, static WAN addressing, PTR/rDNS control,
-  SES production access/quota, and an abuse-response process as hard go/no-go
-  gates before building or migrating production mail.
-- Receive Internet SMTP directly on TCP 25 at Stalwart.
-- Offer authenticated submission on TCP 587 with STARTTLS; optionally support
-  TCP 465 after testing.
-- Offer IMAPS on TCP 993. Do not expose plaintext IMAP/POP by default.
-- Relay outbound mail from Stalwart through the region-specific Amazon SES SMTP
-  endpoint in `us-east-1`.
-- Publish webmail through the existing reverse proxy. Keep mail administration
-  behind Cloudflare Access, a trusted network, or both.
-- Do not route SMTP or IMAP through the HTTP reverse proxy.
-- Confirm ISP reachability, host firewall rules, static WAN addressing, TLS,
-  DNS resolution, and abuse controls before accepting production mail.
-
-### Domain Provisioning
-
-Treat mail-domain onboarding and mailbox creation as different operations.
-Adding another mailbox must not recreate domain-wide DNS or SES resources.
-
-For **Add mail domain**:
-
-- Preview and idempotently reconcile the Stalwart domain, Cloudflare DNS, SES
-  identity, DKIM, custom MAIL FROM, configuration set, and health checks.
-- Create a DNS-only `mail` A/AAAA record and MX record.
-- Merge SPF safely so a domain never receives multiple SPF records.
-- Create SES Easy DKIM CNAME records and custom MAIL FROM MX/TXT records.
-- Create a conservative DMARC record and support later policy tightening based
-  on observed reports.
-- Create appropriate `webmail`, `autoconfig`, and `autodiscover` records or
-  endpoints without overwriting unrelated records.
-- Mark every managed record/resource with exact ownership metadata where the
-  provider supports it, show a dry-run diff, and require confirmation before
-  changing existing external state.
-- Test inbound SMTP, authenticated outbound delivery, IMAP TLS, SPF, DKIM,
-  DMARC, reverse DNS expectations, and webmail before reporting success.
-
-For **Add mailbox**:
-
-- Create an account with quota, aliases, forwarding rules, status, and optional
-  catch-all behavior.
-- Generate a one-time password or accept an operator-provided password without
-  writing it to jobs, logs, exports, or audit records.
-- Return tested client settings and webmail URL.
-- Support suspend, resume, password reset, quota change, aliases, forwarding,
-  and safe deletion with explicit data-retention choices.
-
-### Amazon SES Integration
-
-- Use SES only as the outbound relay; Stalwart remains responsible for incoming
-  mail and mailbox storage.
-- Verify each sending domain in `us-east-1`, configure Easy DKIM and custom MAIL
-  FROM, and ensure the SES account has production access before client rollout.
-- Use a configuration set plus bounce, complaint, rejection, and delivery
-  events for domain/account health and operator notifications.
-- Store region-specific SES SMTP credentials as secrets. Never expose AWS root
-  credentials or broad administrator credentials to runtime containers.
-- Define a dedicated least-privilege AWS identity for control-plane operations;
-  evaluate temporary credentials such as IAM Roles Anywhere before storing a
-  long-lived AWS API key on the host.
-- Rate-limit sending per account/domain and expose queue, rejection, bounce,
-  complaint, and SES quota health in the panel.
-- Define the SES event receiver and durable transport explicitly (for example
-  SNS to SQS consumed by `mail-control`) with signature verification,
-  deduplication, replay handling, and bounded retention.
-- Add inbound spam and malware controls, outbound anomaly limits, automatic
-  account containment, TLS/certificate rotation, and privacy-aware log
-  retention before the pilot.
-
-### Migration, Import, And Export
-
-- Inventory source domains, accounts, aliases, forwarders, catch-alls, quotas,
-  status, and approximate mailbox sizes before migration.
-- Accept a password-free JSON/CSV manifest. Never include source or destination
-  mailbox passwords in a portable export.
-- Support IMAP pre-sync, validation, MX cutover, and final delta sync so large
-  mailboxes do not require one long outage.
-- Use Stalwart/Vandelay-compatible account archives for portable export and
-  restore where practical; handle contacts, calendars, and Sieve filters as
-  separate capabilities rather than assuming IMAP includes them.
-- Generate new passwords when the source provider cannot export reusable
-  password hashes.
-- Show durable per-domain and per-account progress, retries, skipped items,
-  byte/message counts, and bounded errors through the shared job system.
-- Preserve rollback instructions and the old provider configuration until the
-  migration and delivery verification window has passed.
-
-### Backup And Restore
-
-- Back up Stalwart metadata, message/blob storage, configuration, signing keys,
-  Roundcube configuration/database, and password-free recovery manifests.
-- Take a consistent embedded-database snapshot using a controlled quiesce or a
-  documented backend-specific backup mechanism; never copy a live data store
-  and assume it is consistent without validation.
-- Support manual and scheduled backups, configurable destination and retention,
-  checksums, encryption, bounded local retention, and an encrypted off-host
-  copy independent of the server and attached backup disk.
-- Keep migration exports as an additional portability mechanism, not the only
-  routine disaster-recovery backup.
-- Restore into an isolated test deployment on a schedule and record mailbox,
-  message-count, attachment, authentication, and send/receive verification.
-- Allow account-level export/restore and whole-platform disaster recovery with
-  documented RPO, RTO, key recovery, and DNS rollback procedures.
-
-### Panel Integration
-
-- Add a dedicated **Mail** workspace for domains, mailboxes, aliases,
-  forwarding, quotas, migrations, backups, delivery health, DNS/SES status, and
-  audit history.
-- `hosting-ui` calls only the authenticated `mail-control` API; it does not call
-  Stalwart, Cloudflare, or SES directly for mail operations.
-- Initially keep website provisioning and mail provisioning independent. After
-  the mail platform completes a production burn-in, add an optional
-  **Configure email domain** step that invokes the same idempotent mail API.
-- A mail failure must not roll back an otherwise successful website unless the
-  operator explicitly selected an atomic combined workflow.
-
-### Rollout
-
-The read-only two-phase host/AWS feasibility preflight is implemented in
-`scripts/mail-feasibility.sh` and documented in `docs/MAIL_FEASIBILITY.md`.
-It intentionally does not claim inbound reachability, static IP ownership, PTR
-control, abuse readiness, or production qualification without independent
-evidence.
-
-The current target-host preflight has no hard failures: supported architecture,
-storage, local port availability, outbound SES connectivity, and clock
-synchronization pass. Static-address ownership, the final mail hostname/PTR,
-independent inbound reachability, abuse procedures, and authenticated SES
-account gates remain unresolved and therefore stay in this backlog.
-
-1. Resolve every preflight failure and warning. Measure account count, total
-   mailbox storage, growth, aliases, and source migration capabilities; confirm
-   public port 25/587/993 reachability from an independent Internet host.
-2. Build the isolated containers, secrets, API contract, DNS preview, backup,
-   and restore workflow without migrating client mail.
-3. Provision a dedicated test domain and internal mailboxes.
-4. Test delivery, spam handling, TLS, SES events, rate limits, migration,
-   backup, full restore, DNS rollback, and host restart behavior.
-5. Run a limited pilot for several weeks and monitor queues, bounces,
-   complaints, disk growth, resource usage, and backup restoration.
-6. Integrate the stable API into the hosting panel and optional website
-   provisioning step.
-7. Migrate client domains in small batches with pre-sync, cutover, validation,
-   final sync, and documented rollback.
-
-### Acceptance Criteria
-
-- Compromise or failure of webmail cannot grant control over the hosting stack,
-  Cloudflare account, AWS account, or Docker host.
-- Domain and mailbox operations are idempotent, previewable, auditable, and
-  recoverable after panel or worker restart.
-- A test message passes inbound and outbound TLS, SPF, DKIM, and DMARC checks;
-  SES bounces and complaints reach the panel and notification system.
-- A representative source mailbox migrates without missing folders/messages,
-  and a final delta sync completes after DNS cutover.
-- A full mail platform and an individual account can be restored from encrypted
-  backups into an isolated environment using documented procedures.
-- No credentials, private keys, mailbox contents, customer addresses, or
-  production domains appear in Git, screenshots, logs, job summaries, or
-  portable manifests.
-
-## 3. Warm Standby And Controlled Failover
-
-The manual architecture and failover runbook are documented in
-`docs/HIGH_AVAILABILITY.md`. Machine-local installation roles, standby API
-write rejection, mutating-scheduler suppression, and a clearly labeled
-read-only panel mode are implemented. Checksum-verified backup reception,
-guarded backup-based standby preparation, and a systemd success-chain that
-refreshes the fenced prepared standby after deep verification are implemented.
-The project-owned Syncthing path now continuously mirrors website files and
-runtime configuration one way, while hourly verified logical database recovery
-points synchronize separately. The standby now pre-imports each new logical
-snapshot into its stopped database volume and refreshes the coordinated warm
-recovery marker every ten minutes, so promotion does not normally import SQL
-during an outage. Resumable finalizers, exact database/runtime reconciliation
-with bounded website-file lag during planned rebuild/failback, a
-reboot-time writable-service fence, warm preparation, and a disabled-by-default
-automatic outage watchdog are implemented. Token-authenticated panel pairing,
-bounded historical lag alerts, and panel-driven promotion/rebuild/failback are
-implemented. A bounded read-only peer health probe with expected server identity is
-implemented in the standby Replication view. A guarded host-level local promotion command is implemented;
-it requires explicit old-primary fencing confirmation and intentionally does
-not alter public ingress.
-
-The watchdog now fails closed in `monitor` mode and cannot fabricate the
-`OLD-PRIMARY-FENCED` assertion. Optional activation requires a fresh root-owned
-fencing receipt bound to the configured primary identity and exact prepared
-recovery point; the receipt is consumed after success. A qualified external
-fencing provider or witness is still required before promotion can be fully
-unattended.
-
-An explicitly risk-accepted `unreachable` emergency policy is implemented for
-the requested home-hosting power-loss case. It waits through a bounded grace
-period after both public health and the Syncthing peer disappear, rechecks the
-prepared recovery and Cloudflare preview, records the degraded fencing mode,
-and can then promote automatically. It is armed on the current HP standby
-after the contained no-write cutover drill. The full write/failback drill is
-also complete.
-
-A machine-local authoritative role marker, ingress-only metadata store,
-`PUT /api/system/role` and `GET /api/system/role` endpoints, and a
-non-mutating promotion readiness preflight (`GET /api/system/promotion-preflight`
-+ card in Replication with pass/warning/fail checks) are implemented. The preflight
-verifies role, current receiver receipt, app-data and per-site manifests,
-artifact presence/size, freshness, filesystem space, configuration, Docker,
-and ingress. A durable allowlisted deep-verification job streams checksums,
-checks archive integrity and safe entry types, and binds its result to the exact
-receiver receipt. Standby HTTP mutation fencing and worker allowlisting are
-covered by tests. Fenced local promotion is implemented as a host-level command.
-External witness-provider deployment and live qualification remain future
-work; backup receiver recovery-point health is
-already reported in the panel.
-
-The Replication workspace queues bounded machine-local recovery, finalizer,
-watchdog, promotion, rebuild, failback, and optional witness-fencing actions. A
-root systemd processor maps each request to one fixed unit or guarded script;
-request payloads cannot choose commands or arguments.
-
-A minimal guarded host-level tunnel cutover CLI is implemented with an explicit
-hostname file, read-only preview, promoted-primary gating, exact machine-local
-DNS/tunnel rollback state, typed confirmations, and fail-closed restoration
-attempts. A guarded operator wrapper now previews and runs local promotion plus
-the allowlisted tunnel cutover without weakening the external-fencing gate. A
-guarded no-write drill reversion command is also implemented. Route
-qualification and automatic public verification are implemented. The emergency unreachable-primary policy is now explicitly armed on
-  the HP standby for the reviewed allowlist after local and public tunnel
-  drills. It requires exact Syncthing state, a prepared database recovery point
-  no older than two hours, six failed checks, and a five-minute outage grace.
-  A recovered former primary still requires operator fencing and rebuild; this
-  mode deliberately accepts split-brain risk and is not quorum-based HA.
-  The current primary now has an optional non-reversing peer fence: after an
-  expected replica reports a completed promotion, it stops hosting write and
-  replication services while leaving NPM available for unrelated routes.
-  The six-check detector and healthy recovery were qualified live in
-  monitor-only mode on 2026-08-22 while production website services remained
-  online. The same day, the complete automatic path was qualified with a
-  contained two-host allowlist: HP waited for the threshold and grace period,
-  promoted the prepared recovery, switched and verified both Cloudflare
-  routes, served the selected site, and returned to standby after a no-write
-  rollback. A later operator-controlled 111-host write/failback drill passed;
-  fully unattended all-host promotion remains intentionally unforced because
-  the two-node design has no external quorum witness.
-  Cloudflare cutover performs read-after-write verification for every selected
-  tunnel ingress rule and DNS record before recording success.
-  Timer restart recovery reconstructs a missing final promoted state only from
-  matching durable local-promotion and active tunnel-cutover receipts.
-  If local promotion completed but a transactional Cloudflare attempt rolled
-  back, later watchdog runs now retry only the still-qualified public cutover;
-  they do not reimport databases or rerun local promotion. An active cutover
-  receipt can repair an interrupted promotion-flag write, while an uncertain
-  `rollback-failed` receipt remains blocked for manual recovery.
-  Standby notification delivery now stays active and emits deduplicated
-  Telegram/SMTP events on meaningful watchdog state transitions. Warning and
-  recovery delivery through both channels was qualified live on 2026-08-22.
-
-Successful preparation now generates a sorted, recovery-hash-bound candidate
-inventory from the restored routing map. A separate preview/typed-confirmation
-command promotes reviewed candidates to the active failover allowlist, so new
-sites are discovered automatically without silently gaining DNS cutover
-authority. The standby panel now shows validated active/candidate counts and
-bounded pending additions/removals. Automatic activation now also requires the
-current recovery-bound candidate inventory and active allowlist checksums and
-counts to match the qualification receipt. Unchanged candidates remain valid
-across newer database recovery points. The standby can now automatically
-requalify changed candidates after warm preparation and refresh unchanged
-provider eligibility at most daily; only Cloudflare-ready hosts are accepted.
-Panel-based acceptance remains future work.
-
-### Roles And Pairing
-
-- Add panel-based rotation/revocation for the implemented narrow Bearer-token
-  pairing credential; initial rotation remains a machine-local `.env` operation.
-
-### Role-Aware Panel And API
-
-- Add a **Server role** control in Settings on both machines. It must show the
-  durable machine-local role (`standalone`, `primary`, or `standby`) and expose
-  only valid transitions. Changing role must use preview, readiness checks,
-  explicit typed confirmation, an audit event, and rollback; it must never be
-  implemented as an unrestricted settings dropdown.
-- Add a bounded audit-history view for panel-driven promotion, rebuild, and
-  failback results; the current card retains only the latest processor result.
-- In `standby` mode, replace the normal operational navigation with
-  **Overview**, **Replication**, **Received backups**, **Health**,
-  **Promotion**, **Settings**, **Account**, and bounded read-only logs.
-- Keep the implemented standby startup suppression for queued non-verification
-  jobs; future pairing must import remote job evidence as non-runnable history.
-
-### Independent Retention And Resource Profiles
-
-- Configure backup retention per destination. Current requested policy is seven
-  completed sets on the primary and two daily received, checksum-verified sets
-  on the replica at `/ssdmount/websites-v2/backups`.
-- Do not mirror backup deletions. The replica receives only completed sets into
-  staging, verifies manifests/checksums/archive integrity, atomically promotes
-  them, and applies its own retention after a newer usable set exists.
-- Extend the installed role-specific performance defaults with panel-managed,
-  previewable overrides. Fresh 8 GB standbys now receive conservative MySQL,
-  Redis, and machine-local OPcache defaults and do not inherit the primary's
-  capacity assumptions. The current 16 GB hp-server uses the implemented
-  `standby-16gb` policy and matches the primary's 2 GiB InnoDB, 1 GiB Redis,
-  and 5 GB OPcache limits while retaining MySQL server ID 2.
-- While in standby mode, run only replication, verification, health, and the
-  minimum internal services required for readiness. Redis and FastCGI cache are
-  disposable and should remain empty; PHP/public nginx may remain stopped until
-  promotion.
-- Provide a tested `standby-8gb` promotion profile with conservative initial
-  limits, then allow operator tuning after measured load. Promotion must
-  validate available memory and disk before starting the full stack.
-
-### Replication
-
-- Keep the implemented hourly receiver recovery age clearly labeled as backup
-  reception; never describe it as real-time or continuous synchronization.
-- Extend the implemented panel status for the project-owned Syncthing warm
-  path with paired-server identity and historical lag alerts. Current status
-  reports peer connectivity, per-folder backlog/exactness, receive-only drift,
-  and hourly database recovery-point age.
-- The implemented database path intentionally uses hourly logical snapshots,
-  not live MySQL file copying or GTID replication. Reconsider GTID only if the
-  measured hourly recovery-point objective later proves insufficient.
-- Define and test exact replication mechanisms for NPM state/certificates,
-  panel state, encryption keys, agent secrets, and active runtime
-  configuration. Never copy live databases as ordinary files.
-- Do not replicate active/running job state as runnable work. The standby
-  records interrupted work and requires reconciliation after promotion.
-- Do not replicate Redis or FastCGI cache as authoritative state.
-- Keep source releases pinned to the same tested commit and verify compatible
-  schema/config migrations before promotion.
-
-### Health And Promotion
-
-- Check the active host from an independent location, not only from its standby.
-- Require fencing so the old primary cannot serve traffic, write databases, or
-  update Cloudflare before promotion.
-- Deploy and qualify an independent external fence provider against the
-  implemented signed, recovery-bound witness client. Until then, receipt-mode
-  automatic activation deliberately pauses in `awaiting-fence`.
-- Begin with operator-confirmed promotion using the documented runbook.
-- The controlled local outage drill against hp-server is complete: OPI5 was
-  fenced, the synchronized database was restored, representative WordPress,
-  PHP, and static sites were validated internally, HP was reverted, replication
-  resumed, and OPI5/public traffic recovered. The two-host public tunnel drill
-  is also complete: a qualification hostname and its `www` alias were served
-  through HP's tunnel, verified in HP nginx logs, rolled back to their prior records,
-  and HP returned to standby with no public writes. The later 111-host
-  write/failback drill is also complete: a promoted-HP database/file write was
-  restored on OPI5, ingress returned to OPI5, the public sweep had zero
-  failures, and HP demoted to receive-only standby. The automatic outage
-  watchdog still requires exact synchronization; planned failback permits only
-  a small bounded website-file delta while database/runtime state stays exact.
-- The automatic outage path was qualified on 2026-08-22 with a temporary
-  two-host allowlist. OPI5's panel-health and exact Syncthing-peer signals were
-  stopped while its website-serving nginx/NPM remained online. HP reached
-  `promoted-unreachable` only after six failures and the five-minute grace,
-  served the selected site through its Cloudflare tunnel, then restored the
-  original records and returned to fenced standby with no public writes. A
-  stale completed rollback receipt discovered by the drill is now archived
-  automatically before a later cutover; active and failed rollback receipts
-  still block replacement.
-- For one router/WAN address, promotion changes the router/load-balancer target;
-  two NPM containers cannot simultaneously own public ports 80/443.
-- Failback rebuilds the old primary from the new primary. Never merge two
-  independently writable histories.
-- Once a standby is promoted and accepts writes, mark it as the sole
-  authoritative primary. A recovered former primary must remain fenced and
-  must not resume its old replication, schedulers, DNS authority, or writable
-  services.
-- Keep the qualified **Rebuild former primary as standby** and **Fail back
-  traffic** workflows covered by regression tests. Failback keeps HP serving
-  while OPI5 imports and starts, restores recorded direct ingress, waits through
-  a transition grace, and only then demotes HP. Database/runtime state remains
-  exact; website lag is bounded. Never perform a bidirectional database merge.
-
-### Direct NPM And Cloudflare Tunnel Ingress
-
-Implemented foundation: the optional pinned `hosting-cloudflared` container is
-available with no host ports or Docker socket, a read-only filesystem, dropped
-capabilities, bounded CPU/RAM, a non-replicated file credential, and internal
-`hosting-net` service routing. The remaining work below is control-plane
-automation, health/status UX, website-route ownership, cutover, and rollback.
-
-- Support an explicit public-ingress mode per server:
-  - `direct_npm`: Cloudflare/DNS origin records target the public WAN address
-    and traffic enters NPM on ports 80/443;
-  - `cloudflare_tunnel`: outbound `cloudflared` connects to Cloudflare and
-    published website hostnames route directly to `hosting-nginx:80` on the
-    internal Docker network.
-- Allow a primary or promoted replica behind CGNAT/gray IP to use tunnel mode
-  without exposing inbound 80/443. The host still requires reliable outbound
-  HTTPS/QUIC connectivity to Cloudflare.
-- The dedicated tunnel container now has a bounded local readiness healthcheck,
-  and standby preflight requires the connector to be healthy. Keep the token
-  private and add account-level connector/route reconciliation to the future
-  Ingress settings workflow without exposing credential material.
-- Treat NPM and Tunnel as alternative website ingress transports, not a proxy
-  chain. Tunnel website routes should forward to `hosting-nginx:80`; they must
-  not loop through public NPM. NPM may remain available internally for
-  administration and direct-mode rollback.
-- Add **Ingress** settings showing current mode, tunnel/account identity,
-  connector health, connected replicas, routed hostnames, DNS state, and the
-  last successful reconciliation. Use a separate least-privilege Cloudflare
-  token for tunnel and DNS management.
-- Add an authenticated **Public ingress mode** selector on both primary and
-  standby panels with `direct_npm` and `cloudflare_tunnel` choices. Saving the
-  preference alone must not alter live DNS; provide separate **Preview
-  cutover**, **Apply cutover**, and **Rollback cutover** actions with typed
-  confirmation and bounded audit history.
-- On a standby, allow ingress configuration and qualification while keeping
-  production website routes inactive. Activate selected routes only as the
-  final stage of a successful promotion, after the old primary is fenced and
-  the restored websites/databases pass local health checks.
-- Add per-site eligibility and selection. Tunnel automation is available only
-  for zones controlled by the configured Cloudflare account. External DNS
-  providers and unsupported zones require a documented manual adapter and must
-  not be silently changed.
-- Before switching a hostname to tunnel mode:
-  1. verify the local website and canonical aliases;
-  2. verify `hosting-cloudflared` is connected and healthy;
-  3. create or idempotently update the Cloudflare Tunnel public-hostname route;
-  4. test the route through a non-public qualification hostname;
-  5. preview the exact DNS replacement and ownership;
-  6. save the previous DNS type/content/proxy/TTL as a rollback record;
-  7. replace only confirmed managed `A`, `AAAA`, or `CNAME` records with the
-     proxied tunnel target;
-  8. validate public HTTP, HTTPS, redirects, WordPress admin, uploads,
-     WebSockets where used, and restored client IP handling.
-- Do not request or attach an NPM/Let's Encrypt origin certificate for a
-  tunnel-only website. Cloudflare terminates public TLS; the internal tunnel
-  transport remains private. Direct mode retains the existing NPM certificate
-  workflow.
-- Preserve the original `Host`, external HTTPS scheme, and real visitor
-  address. Qualify `CF-Connecting-IP` restoration and trusted-proxy boundaries
-  so WordPress URLs, logs, rate limits, billing enforcement, and security rules
-  behave the same in both ingress modes.
-- Provide **Preview switch**, **Switch selected hosts**, **Verify**, and
-  **Rollback** actions. Operations must be idempotent, durable, auditable, and
-  resumable after browser or panel restart.
-- Never bulk-replace unrelated DNS records. Record ownership for routes and DNS
-  changes, reject ambiguous pre-existing records, preserve MX/TXT/CAA and other
-  non-ingress records, and require explicit confirmation before taking over a
-  hostname managed by another tunnel.
-- During promotion, select the target ingress mode after local service
-  validation:
-  - public-IP replica: use reviewed direct NPM origin changes;
-  - gray-IP replica: require a healthy tunnel and switch selected hostnames to
-    their tunnel routes.
-- Keep the former primary fenced even when traffic moves through a tunnel.
-  Remove or disable its connector/routes and revoke obsolete tunnel or DNS
-  authority so two servers cannot both act as the active origin.
-- Support a later controlled switch from tunnel back to direct NPM. Restore the
-  reviewed WAN-origin records, verify NPM TLS and public traffic, then remove
-  obsolete tunnel hostname routes. Never destroy the rollback record before
-  successful verification.
-
-### Disconnect And Permanent Promotion
-
-- Provide two explicit workflows:
-  - **Planned detach and promote** while both servers are reachable;
-  - **Emergency promote** when the primary is permanently unavailable.
-- Planned promotion must stop or fence new writes on the primary, wait for
-  MySQL GTID and filesystem replication to reach a recorded common recovery
-  point, verify local app data/NPM state, stop replication, and only then make
-  the standby writable.
-- Emergency promotion must not depend on an API response from the failed
-  primary. It uses the newest locally verified database/files/app-data recovery
-  point, displays the measured data-loss window, and requires the operator to
-  confirm that the old primary has been fenced through power, networking,
-  router, DNS, or credential revocation.
-- Before promotion, run a blocking preflight covering:
-  - local role/server identity and promotion lock;
-  - source commit and schema/config compatibility;
-  - MySQL integrity, GTID position, lag, and read-only state;
-  - filesystem sync completion and absence of partial transfers;
-  - NPM database/certificate consistency;
-  - required encryption keys and machine-local secrets;
-  - available memory, disk, ports, and the selected performance profile;
-  - nginx/PHP configuration validation;
-  - Cloudflare/router cutover authority and rollback instructions.
-- Promotion must be a durable, checkpointed job with an exact typed
-  confirmation. It atomically changes the local role, disables incoming
-  replication, makes MySQL writable, starts the selected services, validates
-  local Host-header traffic, then enables schedulers and external integrations
-  only at their designated checkpoints.
-- A promoted replica becomes an independent `primary`. It must remove the old
-  pairing, rotate/revoke replication credentials, allocate a new replication
-  epoch, stop accepting pushes from the former primary, and never automatically
-  reconnect or demote itself.
-- Public traffic cutover remains an explicit step after local validation.
-  Support reviewed Cloudflare origin changes and documented router/load-balancer
-  changes, with the previous values retained for rollback.
-- Provide **Abort before writable**, **Rollback before traffic cutover**, and
-  **Complete promotion** states. After public writes begin, rollback means
-  rebuilding another standby from the new primary; it must never reactivate the
-  stale former primary.
-- After promotion, show outstanding reconciliation: interrupted jobs, backup
-  destination ownership, scheduled-task activation, notification identity,
-  NPM/certificate checks, Cloudflare records, and the requirement to establish
-  a new standby.
-
-### Acceptance Criteria
-
-- Define numeric per-state RPO/RTO targets before implementation. Planned
-  promotion and failback must meet them without
-  split-brain.
-- WordPress writes, NPM state/certificates, panel integrations, files, and
-  scheduled work are correct after promotion.
-- DNS rollback and emergency manual recovery remain possible if automation
-  fails.
-- Standby mode cannot provision, maintain, update, delete, back up, issue
-  certificates, modify DNS, or execute equivalent mutations through hidden
-  APIs, schedulers, jobs, or Telegram commands.
-- A replica can be permanently promoted with the old primary completely
-  unreachable, provided the operator confirms external fencing and accepts the
-  displayed recovery point.
-- After promotion, no process can resume old incoming replication or overwrite
-  the new primary with stale data.
-- A gray-IP promoted replica can serve selected Cloudflare-managed websites
-  through a healthy outbound tunnel without public host ports, and each DNS or
-  tunnel-route change has an exact tested rollback to its prior ingress mode.
-- Direct NPM and tunnel ingress preserve canonical hosts, HTTPS detection,
-  uploads, supported WebSockets, and verified real-client IP behavior without
-  exposing tunnel credentials or trusting arbitrary proxy headers.
-
-Before live replication, complete a documented restore of the current stack
-onto an isolated replacement host using local plus encrypted off-site backups.
-Verify recovery keys, websites, databases, NPM hosts/certificates, panel state,
-and an operator login. Replication is not a substitute for versioned backups
-because deletion, corruption, or compromise can replicate too.
-
-The bounded local qualification in `scripts/qualify-local-recovery.sh` now
-validates and extracts the latest app-data archive and restores one
-representative website database into a resource-limited, no-network temporary
-MySQL container. This is useful continuous evidence, but it does not satisfy
-the replacement-host requirement above; the full coordinated restore,
-application checks, NPM/certificate validation, operator login, RPO/RTO, and
-DNS rollback drill remain outstanding.
-
-## Cross-Cutting Delivery Rules
-
-- Every long panel operation returns a durable job ID, survives browser
-  disconnects, uses conflict classes, and supports cancellation only at
-  coherent safety checkpoints.
-- Separate billing and mail services own their durable queues and data. The
-  hosting panel observes them through authenticated APIs rather than receiving
-  their database, filesystem, Docker, or shell privileges.
-- Keep standalone recovery scripts, but panel-triggered equivalents must use the
-  same managers and compatible result records.
-- Remove legacy per-manager status files only after every workspace reads shared
-  job state and useful history has an explicit migration.
-- Schema and state migrations are versioned, idempotent, reversible where
-  practical, and preceded by a verified backup for destructive changes.
-- Notifications continue to support independent external SMTP and Telegram.
-  The future local mail platform is not a dependency of control-plane alerts.
-- Do not send archives through Telegram or place credentials, private keys,
-  customer data, production domains, or live screenshots in Git, jobs, logs, or
-  portable manifests.
-- New containers use pinned tested multi-architecture versions, least privilege,
-  no unnecessary host ports, bounded resource usage, health checks, security
-  documentation, and restore-tested persistent state.
+1. Finish high-availability safety and recovery qualification.
+2. Qualify billing payments and enforcement on disposable pilot sites.
+3. Finish remote WordPress billing enforcement.
+4. Build the isolated mail platform last.
+
+## 1. High Availability
+
+The current two-host system already provides one-way Syncthing website/runtime
+replication, 30-minute logical database recovery points, a warm HP runtime,
+automatic emergency promotion through Cloudflare Tunnel, former-primary
+fencing, controlled automatic failback, bounded panel operations, deep backup
+verification, and panel review/acceptance of Cloudflare-qualified failover
+hosts.
+
+### Independent Fencing Witness
+
+- Deploy a genuinely independent third-location witness. It must not run on
+  OPI5, HP, the same LAN, or the same power/ISP failure domain.
+- Give it only the authority required to prove or perform old-primary fencing.
+- Return the already implemented signed, recovery-bound, expiring receipt.
+- Test unavailable witness, invalid signature, replay, stale recovery point,
+  primary still reachable, successful fence, and witness recovery.
+- Keep the explicitly risk-accepted `unreachable` policy available as a
+  documented home-hosting fallback, not as quorum-based HA.
+
+### Role And Pairing Controls
+
+- Add panel-driven pairing-token rotation/revocation with overlap and rollback.
+- Add guarded role transitions only where the host scripts can enforce them.
+  Every transition requires preview, readiness checks, typed confirmation,
+  audit history, and rollback; a settings dropdown must never directly change
+  the machine role.
+- Further simplify standby navigation to read-only recovery, replication,
+  health, settings, and account surfaces.
+
+### Recovery Qualification
+
+- Perform a full replacement-host restore drill from local plus encrypted
+  off-site backups, including websites, databases, panel state, NPM state and
+  certificates, operator login, DNS rollback, measured RPO, and measured RTO.
+- Run a final unattended OPI5 outage -> HP promotion -> OPI5 rebuild/failback
+  drill after the external witness is deployed. HP must continue serving until
+  OPI5 is restored and publicly healthy.
+- Define numeric RPO/RTO targets. Keep logical snapshots unless the measured
+  database-loss window justifies GTID/binlog replication.
+
+### HA Acceptance Criteria
+
+- New websites appear as candidates and require provider qualification plus
+  explicit panel acceptance before automatic public cutover.
+- A standby cannot provision, delete, update, issue certificates, modify DNS,
+  run maintenance, or execute equivalent hidden mutations.
+- Only one writable primary exists after promotion or failback.
+- Failed or interrupted DNS/tunnel cutover has an exact durable rollback.
+- Restored websites, databases, NPM state, panel state, and scheduled work pass
+  the documented public and internal checks.
+
+## 2. Billing Payment Qualification
+
+The separate billing service, editable inventory, provisioning registration,
+signed entitlements, renewal pages, WooCommerce settings/webhooks, reminder
+outbox, local nginx enforcement, and fail-open hosting reconciler are
+implemented. Production enforcement remains disabled until the following work
+passes.
+
+- Configure one hidden virtual WooCommerce **Hosting renewal** product.
+- Qualify checkout, processing/completed payment, duplicate webhook, replay,
+  expired link, amount/currency mismatch, refund, chargeback, and WooCommerce
+  outage behavior.
+- Exercise one disposable local site through active, reminder, grace,
+  suspended, successful payment, automatic restoration, manual exemption,
+  billing outage, panel restart, and global disable-all.
+- Verify that imported and existing sites remain unenforced unless both the
+  global switch and exact pilot allowlist enable them.
+- Review bounded audit records, Telegram/SMTP alerts, renewal-page presentation,
+  and rollback evidence before enabling any production site individually.
+
+### Billing Acceptance Criteria
+
+- Missing, stale, malformed, or unavailable billing state fails open.
+- Duplicate or replayed payment events cannot extend service twice.
+- A verified payment restores an allowlisted site without manual nginx, NPM,
+  database, or filesystem changes.
+- Payment URLs expose no customer PII or reusable credential.
+- Billing never receives Docker, shell, hosting-database, or nginx write access.
+
+## 3. Remote WordPress Billing Plugin
+
+Enrollment, one-time credential exchange, encrypted credential storage,
+Ed25519 entitlement signing, public-key rotation, authenticated polling,
+heartbeat storage, Site Health diagnostics, deterministic ZIP builds, and the
+Billing enrollment workspace are implemented.
+
+- Add fail-open frontend suspension for a fresh signed `suspended` entitlement
+  while preserving administrator login, wp-admin, WP-Cron, Site Health, and
+  billing refresh.
+- Add **Check billing now** and automatically restore after the next verified
+  paid entitlement.
+- Purge known WordPress page caches and request narrowly scoped Cloudflare
+  invalidation when entering or leaving suspension.
+- Add canonical-domain change approval, staging-clone detection, revoke and
+  re-enroll flows, and uninstall cleanup.
+- Show bounded plugin/PHP/WordPress compatibility and last-applied state in the
+  Billing UI without collecting site content, visitor data, or user lists.
+- Publish signed packages with checksums and a controlled, opt-in update
+  channel; test rollback on supported WordPress/PHP versions.
+- Pilot one disposable externally hosted WordPress site through enrollment,
+  cloning, stale state, suspension, payment, cache purge, restoration,
+  credential revocation, and plugin rollback.
+- Keep non-WordPress remote sites notification-only until separate
+  least-privilege provider adapters exist.
+
+## 4. Separate Mail Platform (Last)
+
+Do not begin production mailbox migration until HA and billing pilots pass.
+
+- Build a separate Stalwart stack for SMTP submission/receipt and IMAP/JMAP,
+  Roundcube for webmail, and a narrow `mail-control` API. Keep mail data,
+  databases, networks, credentials, jobs, backups, and restore lifecycle
+  isolated from hosting.
+- Confirm independent inbound TCP 25, submission 587, IMAPS 993, static WAN
+  address, PTR/rDNS authority, abuse procedures, and Amazon SES production
+  access in `us-east-1` before client onboarding.
+- Add idempotent domain provisioning for Stalwart, Cloudflare MX/SPF/DKIM/DMARC,
+  SES identity/Easy DKIM/custom MAIL FROM, health checks, and rollback.
+- Add mailbox, alias, forwarding, quota, suspend/resume, password reset, and
+  safe deletion operations without logging passwords.
+- Implement password-free account manifests, IMAP pre-sync/final-delta
+  migration, progress/retry state, account export, and whole-platform export.
+- Add encrypted local/off-site backups and isolated restore drills covering
+  metadata, message blobs, signing keys, Roundcube state, authentication, and
+  send/receive verification.
+- Integrate a dedicated **Mail** workspace into `hosting-ui` only through the
+  authenticated `mail-control` API. Website provisioning and mail provisioning
+  remain independent until the mail pilot completes.
 
 ## Cross-Cutting Rules
 
 - Keep MySQL and Redis unexposed from the host.
-- Preserve per-site ownership and capability checks.
-- Make external operations idempotent, previewable, and auditable.
-- Require backups before destructive data or application updates.
-- Never log or commit credentials, tokens, private keys, dumps, certificates,
-  customer data, or production website names.
-- Keep changes modular and usable on ARM64 and AMD64.
-- Update tests, README, API, architecture, operations, UI guide, screenshots,
-  installer/upgrade behavior, and both GitHub repositories with each feature.
+- Preserve per-site ownership, authentication, CSRF, and capability checks.
+- Make external mutations idempotent, previewable, auditable, and reversible.
+- Use durable jobs for long operations and coherent cancellation checkpoints.
+- Pin tested ARM64/AMD64 container versions with health checks and bounded
+  resources.
+- Never commit credentials, tokens, private keys, dumps, certificates,
+  customer data, production-domain inventories, logs, or unredacted screenshots.
+- Update tests, documentation, installer/upgrade behavior, production hosts,
+  and both GitHub repositories with each completed feature.

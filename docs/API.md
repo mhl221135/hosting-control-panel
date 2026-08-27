@@ -698,7 +698,8 @@ existing Telegram/SMTP notifications without storing peer credentials.
 
 `POST /api/system/ha-control` accepts only fixed role-appropriate actions. In
 addition to recovery/finalizer checks, standby actions can preview or apply the
-existing guarded activation workflow and request an independently signed
+Cloudflare-qualified failover hostname allowlist, preview or apply the existing
+guarded activation workflow, and request an independently signed
 fencing receipt. A receipt-backed promoted primary can preview/run former-primary
 rebuild and controlled failback. Typed confirmations are mandatory for every
 mutating role workflow; arbitrary commands or arguments are never accepted.

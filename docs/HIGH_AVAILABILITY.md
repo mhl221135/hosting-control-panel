@@ -567,6 +567,10 @@ sudo ./scripts/qualify-failover-hosts.sh --apply \
 Both commands use Cloudflare's preview path only. Apply atomically replaces the
 local automatic-failover allowlist with the ready subset and records a bounded
 qualification receipt; it does not change DNS or tunnel routes.
+The standby panel exposes these same guarded operations as **Preview host
+changes** and **Accept qualified hosts**. Acceptance requires typing
+`ACCEPT-QUALIFIED-FAILOVER-HOSTS`; the browser cannot supply file paths,
+commands, or provider mutations.
 The automatic watchdog verifies that the current prepared recovery owns the
 candidate inventory and that its checksum, the accepted allowlist checksum,
 and both hostname counts match the qualification receipt. An unchanged
