@@ -7,6 +7,8 @@ const ACTIONS = Object.freeze({
   "replicate-now": { role: "primary", confirm: "REPLICATE-NOW" },
   "finalize-standby": { role: "standby", confirm: "FINALIZE-STANDBY" },
   "failover-check": { role: "standby", confirm: "CHECK-FAILOVER" },
+  "failover-hosts-preview": { role: "standby", confirm: "PREVIEW-FAILOVER-HOSTS" },
+  "accept-failover-hosts": { role: "standby", confirm: "ACCEPT-QUALIFIED-FAILOVER-HOSTS" },
   "promotion-preview": { role: "standby", confirm: "PREVIEW-PROMOTION" },
   "promote-standby": { role: "standby", confirm: "PROMOTE-STANDBY-RISK-ACCEPTED" },
   "request-witness-fence": { role: "standby", confirm: "REQUEST-WITNESS-FENCE" },

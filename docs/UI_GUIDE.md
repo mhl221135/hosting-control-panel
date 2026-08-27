@@ -139,7 +139,11 @@ latency; an unrelated healthy endpoint is displayed as an identity mismatch.
 The **Automatic failover** card shows watchdog state, consecutive failures,
 the bound recovery point, the last check, and candidate-versus-active hostname
 drift. Pending hostnames remain visible until the root-level review command
-accepts them; the panel does not silently grant cutover authority. `awaiting fence` means outage
+accepts them; the panel does not silently grant cutover authority. On standby,
+**Preview host changes** runs the Cloudflare readiness preview and **Accept
+qualified hosts** requires typed confirmation before replacing only the local
+automatic-failover allowlist. Neither action changes DNS or tunnel routes.
+`awaiting fence` means outage
 detection passed but promotion remains blocked until the old primary is
 externally fenced.
 
