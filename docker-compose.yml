@@ -302,6 +302,7 @@ services:
       --server-id=${MYSQL_SERVER_ID:-1}
       --log-bin=mysql-bin
       --binlog-format=row
+      --binlog-expire-logs-seconds=${MYSQL_BINLOG_EXPIRE_LOGS_SECONDS:-86400}
       --innodb_buffer_pool_size=${MYSQL_INNODB_BUFFER_POOL_SIZE:-2G}
       --innodb_redo_log_capacity=${MYSQL_INNODB_REDO_LOG_CAPACITY:-1G}
       --innodb_flush_log_at_trx_commit=2

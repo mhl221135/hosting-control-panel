@@ -236,6 +236,7 @@ test("standby role is machine-local, read-only, and suppresses writable services
   assert.match(compose, /PHP_GLOBAL_INI_PATH/);
   assert.match(compose, /PHP_GLOBAL_INI_PATH[^\n]*:\/srv\/configs\/php\/global\.ini/);
   assert.match(compose, /MYSQL_SERVER_ID/);
+  assert.match(compose, /MYSQL_BINLOG_EXPIRE_LOGS_SECONDS:-86400/);
   assert.match(compose, /MYSQL_INNODB_BUFFER_POOL_SIZE/);
   assert.match(compose, /REDIS_MAXMEMORY/);
   assert.match(compose, /STANDBY_PROFILE_NAME/);

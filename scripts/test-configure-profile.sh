@@ -16,6 +16,7 @@ assert_contains() {
 
 assert_contains "STANDBY_PROFILE_NAME='standby-8gb'"
 assert_contains "MYSQL_SERVER_ID=2"
+assert_contains "MYSQL_BINLOG_EXPIRE_LOGS_SECONDS=86400"
 assert_contains "MYSQL_INNODB_BUFFER_POOL_SIZE='1G'"
 assert_contains "MYSQL_INNODB_REDO_LOG_CAPACITY='512M'"
 assert_contains "MYSQL_MAX_CONNECTIONS=100"
