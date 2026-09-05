@@ -27,5 +27,5 @@ temporary=/etc/hosting-control/external-witness.env.tmp.$$
   printf "WITNESS_PRIMARY_SERVER_ID='%s'\n" "$primary_id"
 } > "$temporary"
 mv "$temporary" /etc/hosting-control/external-witness.env
-chmod 0755 "$(dirname "$0")/request-witness-fence.js"
+chmod 0755 "$(dirname "$0")/request-witness-fence.sh"
 printf 'External witness client configured; no fencing request was sent.\n'

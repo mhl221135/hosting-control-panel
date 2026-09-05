@@ -6,6 +6,7 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status,
   headers: { "content-type": "application/json", "cache-control": "no-store" },
 });
+const iso = (value) => new Date(value).toISOString().replace(/\.\d{3}Z$/, "Z");
 
 async function body(request) {
   if ((request.headers.get("content-type") || "").split(";", 1)[0] !== "application/json") throw new Error("invalid-body");
@@ -38,7 +39,7 @@ export class WitnessState {
       const ttl = boundedSeconds(this.env.LEASE_TTL_SECONDS, 90, 60, 300);
       const next = {
         version: 1, primaryServerId: input.primaryServerId,
-        leaseExpiresAt: new Date(now + ttl * 1000).toISOString(), fenced: false,
+        leaseExpiresAt: iso(now + ttl * 1000), fenced: false,
       };
       await this.state.storage.put("state", next);
       return json({ version: 1, status: "leased", primaryServerId: input.primaryServerId,
@@ -61,7 +62,7 @@ export class WitnessState {
       const receipt = {
         version: 1, status: "fenced", primaryServerId: input.primaryServerId,
         recoveryId: input.recoveryId, method: "service",
-        fencedAt: new Date(now).toISOString(), expiresAt: new Date(now + ttl * 1000).toISOString(),
+        fencedAt: iso(now), expiresAt: iso(now + ttl * 1000),
         nonce: crypto.randomUUID().replaceAll("-", ""),
       };
       receipt.signature = await hmacHex(this.env.SIGNING_KEY, canonicalReceipt(receipt));
@@ -93,6 +94,6 @@ export default {
     if (request.method !== "POST" || !auth) return json({ error: "Not found" }, 404);
     if (!await tokenMatches(request, auth)) return json({ error: "Unauthorized" }, 401);
     const id = env.WITNESS_STATE.idFromName("hosting-primary");
-    return env.WITNESS_STATE.get(id).fetch(new Request(`https://state/${route.slice(3)}`, request));
+    return env.WITNESS_STATE.get(id).fetch(new Request(`https://state${route.slice(3)}`, request));
   },
 };

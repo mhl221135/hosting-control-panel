@@ -4,7 +4,7 @@ state=/etc/hosting-control/witness-primary-state.json
 role=/etc/hosting-control/role.json
 [ "$(jq -r '.role // empty' "$role" 2>/dev/null || true)" = primary ] || exit 0
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
-if node "$project_dir/scripts/witness-primary-lease.js"; then exit 0; fi
+if "$project_dir/scripts/witness-primary-lease.sh"; then exit 0; fi
 [ -f "$state" ] && [ ! -L "$state" ] || exit 1
 expires="$(jq -r '.leaseExpiresAt // empty' "$state")"
 expires_epoch="$(date -u -d "$expires" +%s 2>/dev/null || printf 0)"

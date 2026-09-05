@@ -321,7 +321,7 @@ if [ "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" = receipt ]; then
     && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
   if ! valid_fence_receipt "$recovery_id"; then
     if [ -f /etc/hosting-control/external-witness.env ]; then
-      "$project_dir/scripts/request-witness-fence.js" "$recovery_id" >/dev/null 2>&1 || true
+      "$project_dir/scripts/request-witness-fence.sh" "$recovery_id" >/dev/null 2>&1 || true
     fi
   fi
   if ! valid_fence_receipt "$recovery_id"; then
