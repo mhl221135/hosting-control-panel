@@ -31,5 +31,6 @@ backup_websites.sh
 
 # Local caches
 node_modules/
+.wrangler/
 coverage/
 wordpress-plugin/dist/

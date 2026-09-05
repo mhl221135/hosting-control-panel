@@ -58,6 +58,34 @@ fencing receipt consumed by promotion. Configuring this client does not make a
 same-LAN service an independent witness and does not itself prove that the
 provider actually fenced the primary.
 
+The reference independent provider is `witness-worker/`. It serializes lease
+and fence decisions in one SQLite-backed Cloudflare Durable Object. Configure
+the Worker secrets `PRIMARY_TOKEN`, `STANDBY_TOKEN`, `ADMIN_TOKEN`, and
+`SIGNING_KEY`; never put their values in Git or the stack `.env`. After the
+Worker is deployed, install lease renewal on OPI5:
+
+```sh
+sudo ./scripts/install-witness-primary-lease.sh \
+  --url https://WITNESS-WORKER/v1/lease \
+  --token-file /etc/hosting-control/witness-primary.token
+```
+
+Configure HP's receipt client above with `/v1/fence`, the standby token, and
+the same HMAC signing key. OPI5 renews a 90-second lease every 20 seconds. If
+it cannot renew before expiry, it stops writable/public hosting services while
+leaving NPM available for unrelated routes. HP cannot obtain a receipt while
+the primary lease remains active.
+
+After controlled rebuild/failback, reset the witness before returning OPI5 to
+service. Keep the administrator token off both hosting machines:
+
+```sh
+curl --fail-with-body -X POST https://WITNESS-WORKER/v1/reset \
+  -H "Authorization: Bearer $WITNESS_ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"version":1,"primaryServerId":"PRIMARY_ID","confirm":"RESET-FENCING-WITNESS"}'
+```
+
 Before enabling billing payments, route a dedicated HTTPS hostname through NPM
 to `hosting-billing:8787`, save that exact origin as the public billing URL, and
 configure the WooCommerce **Order updated** webhook at

@@ -320,6 +320,11 @@ if [ "${AUTO_FAILOVER_FENCE_POLICY:-receipt}" = receipt ]; then
   [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -ge 60 ] \
     && [ "${AUTO_FAILOVER_FENCE_MAX_AGE_SECONDS:-900}" -le 3600 ] || exit 1
   if ! valid_fence_receipt "$recovery_id"; then
+    if [ -f /etc/hosting-control/external-witness.env ]; then
+      "$project_dir/scripts/request-witness-fence.js" "$recovery_id" >/dev/null 2>&1 || true
+    fi
+  fi
+  if ! valid_fence_receipt "$recovery_id"; then
     write_state awaiting-fence "$failures" "$recovery_id" "$unreachable_since" "$recovery_age"
     printf 'Automatic failover is waiting for a fresh fencing receipt for %s.\n' \
       "$AUTO_FAILOVER_PRIMARY_SERVER_ID" >&2

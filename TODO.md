@@ -21,12 +21,13 @@ hosts.
 
 ### Independent Fencing Witness
 
-- Deploy a genuinely independent third-location witness. It must not run on
-  OPI5, HP, the same LAN, or the same power/ISP failure domain.
-- Give it only the authority required to prove or perform old-primary fencing.
-- Return the already implemented signed, recovery-bound, expiring receipt.
+- Deploy the implemented Cloudflare Worker Durable Object witness outside
+  OPI5/HP and configure its three secrets. Install lease renewal on OPI5 and
+  the existing signed-receipt client on HP.
 - Test unavailable witness, invalid signature, replay, stale recovery point,
   primary still reachable, successful fence, and witness recovery.
+- Run the production witness reset/lease/expiry/receipt drill, then switch HP
+  from the explicitly risk-accepted `unreachable` policy to `receipt`.
 - Keep the explicitly risk-accepted `unreachable` policy available as a
   documented home-hosting fallback, not as quorum-based HA.
 

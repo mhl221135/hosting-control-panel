@@ -561,6 +561,11 @@ WebP sidecars and defer while another storage operation is active.
 
 ## Operations
 
+An optional independent fencing witness is provided in `witness-worker/`.
+It uses a Cloudflare Durable Object lease to withhold a signed promotion
+receipt while the current primary still owns a valid lease. Deployment and
+secret-handling steps are in `docs/OPERATIONS.md`.
+
 Validate configuration:
 
 ```bash
