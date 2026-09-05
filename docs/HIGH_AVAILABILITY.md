@@ -176,6 +176,20 @@ writes. This proved the bounded automatic path. The later operator-controlled
 111-host write/failback drill is recorded in the Failback section; fully
 unattended all-host promotion remains intentionally unqualified without an
 external quorum witness.
+
+### Independent Lease Witness
+
+`witness-worker/` implements the independent fencing gate as a Cloudflare
+Worker plus one SQLite-backed Durable Object. OPI5 renews a short lease while
+it is the writable primary. The Durable Object refuses HP's `/v1/fence`
+request until that lease expires, then returns the existing HMAC-signed,
+recovery-bound receipt exactly once. The fenced primary cannot renew until a
+separately authenticated operator reset follows controlled rebuild/failback.
+
+This protects the normal network-partition path only when the OPI5 watchdog is
+installed and healthy: loss of witness connectivity makes OPI5 self-fence at
+lease expiry. The risk-accepted `unreachable` mode remains available but does
+not offer the same split-brain protection.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
