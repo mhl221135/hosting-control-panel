@@ -157,6 +157,11 @@ existing rollback-aware host scripts. **Request external fence** remains
 fail-closed until a signed independent witness is configured on that machine.
 The same card retains the 50 most recent bounded processor results and displays
 the newest 12, so a later operation does not erase the prior result.
+Replication history records each sampled state immediately. Notifications for
+warnings require two consecutive warning samples, while critical failures are
+sent immediately. A recovery notification is sent only for an incident that
+previously produced an alert, preventing transient single-file synchronization
+from creating warning/recovered notification pairs.
 
 Mutating operational sections are hidden on a standby and their server APIs
 remain independently locked. Read-only Sites, Stats, Health, Jobs, Settings,

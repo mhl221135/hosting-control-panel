@@ -35,3 +35,43 @@ test("persists bounded samples and alerts only on transitions", () => {
   assert.doesNotMatch(fs.readFileSync(history.path, "utf8"), /token|password|secret/i);
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
+
+test("does not alert for a transient single-sample warning", () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "replication-history-"));
+  let now = Date.parse("2026-08-22T12:00:00Z");
+  const alerts = [];
+  const history = new ReplicationHistory({
+    dataDir, minimumIntervalMs: 60_000, now: () => now,
+    notificationManager: { enqueueEvent: (event) => alerts.push(event) },
+  });
+  history.sample(healthyReplication, healthyPeer);
+  now += 120_000;
+  history.sample({ ...healthyReplication, exact: false, folders: [{ needFiles: 1 }] }, healthyPeer);
+  now += 120_000;
+  history.sample(healthyReplication, healthyPeer);
+  assert.equal(alerts.length, 0);
+  assert.equal(history.view().current.alertOpen, false);
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});
+
+test("alerts for a sustained warning and sends one recovery", () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "replication-history-"));
+  let now = Date.parse("2026-08-22T12:00:00Z");
+  const alerts = [];
+  const history = new ReplicationHistory({
+    dataDir, minimumIntervalMs: 60_000, now: () => now,
+    notificationManager: { enqueueEvent: (event) => alerts.push(event) },
+  });
+  const warning = { ...healthyReplication, exact: false, folders: [{ needFiles: 1 }] };
+  history.sample(healthyReplication, healthyPeer);
+  now += 120_000;
+  history.sample(warning, healthyPeer);
+  now += 120_000;
+  history.sample(warning, healthyPeer);
+  now += 120_000;
+  history.sample(healthyReplication, healthyPeer);
+  now += 120_000;
+  history.sample(healthyReplication, healthyPeer);
+  assert.deepEqual(alerts.map((event) => event.label), ["Replication health changed", "Replication recovered"]);
+  fs.rmSync(dataDir, { recursive: true, force: true });
+});

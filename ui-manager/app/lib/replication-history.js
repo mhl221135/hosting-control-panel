@@ -56,11 +56,25 @@ class ReplicationHistory {
       needBytes: folders.reduce((sum, folder) => sum + boundedNumber(folder.needBytes, 100_000_000_000), 0),
       errors: folders.reduce((sum, folder) => sum + boundedNumber(folder.errors, 1_000_000), 0),
       recoveryAgeMinutes: replication?.recovery ? boundedNumber(replication.recovery.ageMinutes, 1_000_000) : null,
+      alertOpen: false,
     };
+    let shouldAlert = false;
+    if (entry.status === "critical") {
+      entry.alertOpen = true;
+      shouldAlert = latest?.status !== "critical";
+    } else if (entry.status === "warning") {
+      if (latest?.status === "warning") {
+        entry.alertOpen = true;
+        shouldAlert = latest.alertOpen !== true;
+      } else if (latest?.alertOpen === true) {
+        entry.alertOpen = true;
+      }
+    } else if (entry.status === "healthy") {
+      shouldAlert = latest?.alertOpen === true;
+    }
     this.entries.push(entry);
     this.entries = this.entries.slice(-this.limit);
     atomicWriteJson(this.path, { version: 1, entries: this.entries }, 0o600);
-    const shouldAlert = latest ? latest.status !== entry.status : ["warning", "critical"].includes(entry.status);
     if (shouldAlert && entry.status !== "unconfigured") {
       const recovered = entry.status === "healthy";
       this.notificationManager?.enqueueEvent({
