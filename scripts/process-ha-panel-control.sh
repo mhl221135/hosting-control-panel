@@ -73,7 +73,7 @@ case "$role:$action" in
     recovery_id=$(jq -r '.database_recovery_id // .app_data_id // empty' /etc/hosting-control/standby-recovery.json 2>/dev/null || true)
     case "$recovery_id" in ????-??-??T??-??-??Z) ;; *) finish failed "Prepared recovery point is unavailable"; exit 0 ;; esac
     [ -f /etc/hosting-control/external-witness.env ] || { finish failed "External witness is not configured"; exit 0; }
-    if node "$project_dir/scripts/request-witness-fence.js" "$recovery_id" >/dev/null 2>&1; then
+    if "$project_dir/scripts/request-witness-fence.sh" "$recovery_id" >/dev/null 2>&1; then
       finish succeeded "External witness fenced the primary for $recovery_id"
     else finish failed "External witness request failed; promotion remains blocked"; fi
     exit 0 ;;

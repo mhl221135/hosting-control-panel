@@ -16,8 +16,8 @@ temporary=/etc/hosting-control/witness-primary.env.tmp.$$
 printf "WITNESS_LEASE_URL='%s'\nWITNESS_PRIMARY_TOKEN_FILE='%s'\n" "$url" "$token_file" > "$temporary"
 mv "$temporary" /etc/hosting-control/witness-primary.env
 project_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
-chmod 0755 "$project_dir/scripts/witness-primary-lease.js" "$project_dir/scripts/witness-primary-watchdog.sh"
-node "$project_dir/scripts/witness-primary-lease.js" \
+chmod 0755 "$project_dir/scripts/witness-primary-lease.sh" "$project_dir/scripts/witness-primary-watchdog.sh"
+"$project_dir/scripts/witness-primary-lease.sh" \
   || { printf 'Initial witness lease failed; watchdog was not installed.\n' >&2; exit 1; }
 cat > /etc/systemd/system/hosting-witness-primary.service <<EOF
 [Unit]

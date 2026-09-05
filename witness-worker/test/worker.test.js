@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import cryptoModule from "node:crypto";
 import test from "node:test";
-import { WitnessState } from "../src/worker.js";
+import worker, { WitnessState } from "../src/worker.js";
 import { canonicalReceipt, hmacHex } from "../src/protocol.js";
 
 globalThis.crypto ||= cryptoModule.webcrypto;
@@ -26,7 +26,9 @@ test("active lease blocks fencing and an expired lease yields one signed receipt
   const identity = { version: 1, primaryServerId: "hosting-server" };
   const leased = await object.fetch(post("/lease", identity));
   assert.equal(leased.status, 200);
-  assert.equal((await leased.json()).status, "leased");
+  const leaseBody = await leased.json();
+  assert.equal(leaseBody.status, "leased");
+  assert.match(leaseBody.leaseExpiresAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 
   const recovery = { ...identity, recoveryId: "2026-09-06T10-20-30Z" };
   assert.equal((await object.fetch(post("/fence", recovery))).status, 409);
@@ -50,4 +52,22 @@ test("primary identity cannot change through lease or fence calls", async () => 
   const other = { version: 1, primaryServerId: "other-server" };
   assert.equal((await object.fetch(post("/lease", other))).status, 409);
   assert.equal((await object.fetch(post("/fence", { ...other, recoveryId: "2026-09-06T10-20-30Z" }))).status, 409);
+});
+
+test("public API forwards the exact internal lease path", async () => {
+  let forwardedPath = null;
+  const env = {
+    PRIMARY_TOKEN: "p".repeat(32),
+    WITNESS_STATE: {
+      idFromName: () => "id",
+      get: () => ({ fetch: async (request) => {
+        forwardedPath = new URL(request.url).pathname;
+        return new Response("{}", { status: 200 });
+      } }),
+    },
+  };
+  const request = post("/v1/lease", { version: 1, primaryServerId: "hosting-server" });
+  request.headers.set("authorization", `Bearer ${env.PRIMARY_TOKEN}`);
+  assert.equal((await worker.fetch(request, env)).status, 200);
+  assert.equal(forwardedPath, "/lease");
 });
