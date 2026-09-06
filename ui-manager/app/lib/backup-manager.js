@@ -336,13 +336,13 @@ class BackupManager {
         payload: { scheduleDate: localDate },
       });
       const finished = await this.jobManager.wait(job.id);
-      if (["succeeded", "partially_succeeded"].includes(finished.status)) {
+      if (["succeeded", "partially_succeeded", "failed"].includes(finished.status)) {
         this.updateSettings({ lastScheduledDate: localDate });
       }
       return finished;
     }
     const result = await this.runScheduledWork();
-    if (result.ok) this.updateSettings({ lastScheduledDate: localDate });
+    this.updateSettings({ lastScheduledDate: localDate });
     return result;
   }
 

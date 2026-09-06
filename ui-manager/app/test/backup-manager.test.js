@@ -237,7 +237,7 @@ test("backs up enabled sites or all primary sites sequentially", async () => {
   }
 });
 
-test("failed daily run remains eligible for a later retry", async () => {
+test("failed daily run is not automatically repeated every 15 minutes", async () => {
   const fixture = managerFixture();
   try {
     fixture.manager.updateSettings({
@@ -251,7 +251,33 @@ test("failed daily run remains eligible for a later retry", async () => {
     };
     const result = await fixture.manager.runScheduled(new Date("2026-07-20T12:00:00"));
     assert.equal(result.ok, false);
-    assert.equal(fixture.manager.readSettings().lastScheduledDate, "");
+    assert.equal(fixture.manager.readSettings().lastScheduledDate, "2026-07-20");
+    assert.equal(await fixture.manager.runScheduled(new Date("2026-07-20T12:30:00")), null);
+  } finally {
+    fs.rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("failed queued daily job is not automatically repeated every 15 minutes", async () => {
+  const fixture = managerFixture();
+  try {
+    let created = 0;
+    fixture.manager.jobManager = {
+      create() {
+        created += 1;
+        return { id: "failed-daily-job" };
+      },
+      async wait() {
+        return { id: "failed-daily-job", status: "failed" };
+      },
+    };
+    fixture.manager.updateSettings({ scheduleTime: "00:00", lastScheduledDate: "" });
+
+    const result = await fixture.manager.runScheduled(new Date("2026-07-20T12:00:00"));
+    assert.equal(result.status, "failed");
+    assert.equal(fixture.manager.readSettings().lastScheduledDate, "2026-07-20");
+    assert.equal(await fixture.manager.runScheduled(new Date("2026-07-20T12:30:00")), null);
+    assert.equal(created, 1);
   } finally {
     fs.rmSync(fixture.root, { recursive: true, force: true });
   }

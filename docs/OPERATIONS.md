@@ -341,11 +341,11 @@ Do not treat file existence as proof of a backup. Periodically verify:
 The app-data set similarly requires `app-data.tar.gz`, `databases.sql.gz`, and
 its manifest.
 
-Daily backup retries are resumable by local calendar date. A complete version-2
-site set from that date is reused after a panel interruption instead of
-creating another multi-gigabyte archive. Application data is never skipped by
-this optimization: it is created last on every retry so its logical database
-snapshot is not older than the selected website files.
+The scheduler makes one automatic backup attempt per local calendar date. A
+failed or partially successful run is retained in Jobs but is not repeated
+every 15 minutes; correct the reported cause and use a manual backup action when
+an immediate retry is required. This avoids repeated alerts and sustained disk
+load when storage or source permissions are unavailable.
 
 App-data backup prepares NPM's Let's Encrypt tree through an exact allowlisted
 control-agent command and fails closed when any included file is unreadable.
