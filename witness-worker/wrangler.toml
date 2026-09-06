@@ -13,4 +13,3 @@ new_sqlite_classes = ["WitnessState"]
 [vars]
 LEASE_TTL_SECONDS = "90"
 RECEIPT_TTL_SECONDS = "600"
-
