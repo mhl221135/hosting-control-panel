@@ -190,6 +190,17 @@ This protects the normal network-partition path only when the OPI5 watchdog is
 installed and healthy: loss of witness connectivity makes OPI5 self-fence at
 lease expiry. The risk-accepted `unreachable` mode remains available but does
 not offer the same split-brain protection.
+
+The production witness drill on 2026-09-06 used 115 qualified hostnames. The
+last staged database recovery point was 8 minutes 58 seconds old when witness
+connectivity was removed, which is the measured worst-case RPO for that run.
+The 90-second lease expired at 23:29:42Z; OPI5 self-fenced 18 seconds later.
+HP reached signed-receipt promotion at 23:32:24Z. Measured RTO was 3 minutes
+58 seconds from fault injection, or 2 minutes 24 seconds from OPI5 self-fence.
+Three representative public sites returned HTTP 200 on HP. Controlled rebuild
+and failback then imported recovery `2026-09-06T00-31-37Z`, kept HP serving
+through the ingress transition, restored OPI5's lease, and returned HP to a
+warm read-only standby.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
