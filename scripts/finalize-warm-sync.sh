@@ -50,6 +50,20 @@ request_rescan() {
   ' >/dev/null
 }
 
+wait_for_sync_api() {
+  for _ in $(seq 1 30); do
+    if docker exec hosting-sync sh -c '
+      key="$(sed -n "s:.*<apikey>\\(.*\\)</apikey>.*:\\1:p" /var/syncthing/config/config.xml)"
+      exec wget -qO- --header="X-API-Key: $key" http://127.0.0.1:8384/rest/system/status
+    ' >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  printf 'Syncthing API did not become ready within 60 seconds.\n' >&2
+  return 1
+}
+
 wait_for_idle() {
   allow_drift="$1"
   [ "$sync_policy" != runtime ] || return 0
@@ -97,6 +111,7 @@ if [ "$mode" = --source ]; then
 fi
 
 [ "$role" = standby ] || { printf 'Standby finalization requires the standby role.\n' >&2; exit 1; }
+wait_for_sync_api
 if [ "$sync_policy" != runtime ]; then
   while :; do
     source_release="$(cat "$project_dir/.source-release" 2>/dev/null || true)"

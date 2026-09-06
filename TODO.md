@@ -19,16 +19,6 @@ fencing, controlled automatic failback, bounded panel operations, deep backup
 verification, and panel review/acceptance of Cloudflare-qualified failover
 hosts.
 
-### Independent Fencing Witness
-
-- Run the production witness lease-expiry/receipt/failover/recovery drill.
-  Unit and live non-disruptive qualification already cover invalid signature,
-  replay, stale recovery points, active-primary denial, lease renewal, and HP's
-  `receipt` policy; the remaining drill must measure successful self-fence and
-  public promotion before controlled rebuild/failback.
-- Keep the explicitly risk-accepted `unreachable` policy available as a
-  documented home-hosting fallback, not as quorum-based HA.
-
 ### Role And Pairing Controls
 
 - Add panel-driven pairing-token rotation/revocation with overlap and rollback.
