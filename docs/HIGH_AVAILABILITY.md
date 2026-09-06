@@ -859,6 +859,8 @@ sudo ./scripts/install-automatic-failback.sh \
 ```
 
 The timer acts only when HP is a promoted primary with active tunnel ingress.
+Successful standby activation re-enables an installed timer automatically, so
+a timer disabled during earlier maintenance does not silently prevent failback.
 It requires OPI5 to be reachable over the configured root SSH path and to hold
 a `fenced` receipt bound to HP's exact promotion recovery. After three stable
 checks and at least 60 seconds it runs the existing guarded rebuild and

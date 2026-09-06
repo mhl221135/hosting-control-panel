@@ -108,5 +108,10 @@ if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-data
     printf 'Warning: public cutover succeeded, but the initial database replication snapshot failed.\n' >&2
   fi
 fi
+if command -v systemctl >/dev/null 2>&1 && [ -f /etc/systemd/system/hosting-automatic-failback.timer ]; then
+  if ! systemctl enable --now hosting-automatic-failback.timer >/dev/null 2>&1; then
+    printf 'Warning: public cutover succeeded, but automatic failback could not be enabled.\n' >&2
+  fi
+fi
 
 printf 'Standby activation completed for the explicitly selected hostnames.\n'

@@ -524,6 +524,7 @@ test("standby activation composes promotion and allowlisted tunnel cutover", () 
   assert.match(script, /enable --now hosting-database-replication\.timer/);
   assert.match(script, /start hosting-database-replication\.service/);
   assert.match(script, /restart hosting-database-replication\.timer/);
+  assert.match(script, /enable --now hosting-automatic-failback\.timer/);
   assert.match(script, /token_mode" = 600/);
   assert.match(script, /token_owner" = 0/);
   assert.match(script, /promote-standby\.sh" --apply[\s\S]+export CLOUDFLARE_TUNNEL_API_TOKEN/);
