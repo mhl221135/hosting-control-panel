@@ -129,6 +129,8 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(promotion, /--recovery-id "\$prepared_id"/);
   assert.match(promotion, /compose stop hosting-sync/);
   assert.match(dump, /--all-databases --single-transaction/);
+  assert.match(dump, /Error 1412:/);
+  assert.match(dump, /--all-databases --lock-all-tables/);
   assert.match(dump, /lock_dir=\/run\/hosting-control/);
   assert.match(dump, /database-replication\.lock/);
   assert.doesNotMatch(dump, /replication\/\.database-dump\.lock/);

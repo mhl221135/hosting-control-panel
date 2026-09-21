@@ -39,10 +39,23 @@ cd "$project_dir"
 docker compose ps --status running hosting-db | grep -q hosting-db \
   || { printf 'hosting-db is not running.\n' >&2; exit 1; }
 
-docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysqldump \
+dump_error="$partial/mysqldump.err"
+if ! docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysqldump \
   --all-databases --single-transaction --quick --routines --events --triggers \
   --hex-blob --set-gtid-purged=OFF --default-character-set=utf8mb4 -uroot' \
-  | gzip -1 > "$partial/all-databases.sql.gz"
+  2>"$dump_error" | gzip -1 > "$partial/all-databases.sql.gz"; then
+  if ! grep -q 'Error 1412:' "$dump_error"; then
+    cat "$dump_error" >&2
+    exit 1
+  fi
+  printf 'Database schema changed during snapshot; retrying with a brief global read lock.\n' >&2
+  rm -f "$partial/all-databases.sql.gz"
+  docker exec hosting-db sh -c 'export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"; exec mysqldump \
+    --all-databases --lock-all-tables --quick --routines --events --triggers \
+    --hex-blob --set-gtid-purged=OFF --default-character-set=utf8mb4 -uroot' \
+    | gzip -1 > "$partial/all-databases.sql.gz"
+fi
+rm -f "$dump_error"
 gzip -t "$partial/all-databases.sql.gz"
 size="$(stat -c %s "$partial/all-databases.sql.gz")"
 sha="$(sha256sum "$partial/all-databases.sql.gz" | awk '{print $1}')"
