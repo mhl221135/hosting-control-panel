@@ -39,7 +39,7 @@ if [ -f "$marker" ] && jq -e --arg id "$recovery_id" --arg sha "$artifact_sha" '
 fi
 
 unexpected="$(docker ps --format '{{.Names}}' | awk '
-  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-db|hosting-redis|hosting-php-fpm|hosting-nginx)$/ { print }
+  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-db|hosting-redis|hosting-php-fpm|hosting-nginx|hosting-npm)$/ { print }
 ')"
 [ -z "$unexpected" ] \
   || { printf 'Writable hosting containers are running; database staging refused: %s\n' "$unexpected" >&2; exit 1; }

@@ -167,6 +167,7 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(databaseStage, /restore-replication-dump\.sh" --apply/);
   assert.match(databaseStage, /SET PERSIST read_only=ON/);
   assert.match(databaseStage, /start-warm-standby-runtime\.sh/);
+  assert.match(databaseStage, /hosting-nginx\|hosting-npm/);
   assert.doesNotMatch(databaseStage, /tunnel-cutover/);
   assert.match(standbyFence, /\[ "\$role" = standby \]/);
   assert.match(standbyFence, /docker compose stop/);
