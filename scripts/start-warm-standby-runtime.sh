@@ -21,8 +21,8 @@ role="$(jq -r '.role // empty' "$machine_state/role.json" 2>/dev/null || true)"
 [ "$role" = standby ] || { printf 'Warm runtime is restricted to the standby role.\n' >&2; exit 1; }
 
 cd "$project_dir"
-docker compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing >/dev/null
-docker compose up -d hosting-db >/dev/null
+docker compose stop hosting-phpmyadmin hosting-files hosting-billing >/dev/null
+docker compose up -d hosting-db hosting-npm >/dev/null
 
 ready=0
 for _ in $(seq 1 60); do
@@ -43,7 +43,7 @@ docker exec hosting-php-fpm php-fpm -t >/dev/null
 docker exec hosting-nginx nginx -t >/dev/null
 
 unexpected="$(docker ps --format '{{.Names}}' | awk '
-  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-db|hosting-redis|hosting-php-fpm|hosting-nginx)$/ { print }
+  /^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-db|hosting-redis|hosting-php-fpm|hosting-nginx|hosting-npm)$/ { print }
 ')"
 [ -z "$unexpected" ] \
   || { printf 'Unexpected writable hosting containers remain on standby: %s\n' "$unexpected" >&2; exit 1; }

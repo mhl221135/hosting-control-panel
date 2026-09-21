@@ -113,8 +113,8 @@ if command -v systemctl >/dev/null 2>&1; then
   systemctl disable --now hosting-database-replication.timer >/dev/null 2>&1 || true
 fi
 
-compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db
-unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync)$/ { print }')"
+compose stop hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db
+unexpected="$(docker ps --format '{{.Names}}' | awk '/^hosting-/ && $0 !~ /^(hosting-agent|hosting-ui|hosting-cloudflared|hosting-sync|hosting-npm)$/ { print }')"
 [ -z "$unexpected" ] || { printf 'Writable hosting containers are still running: %s\n' "$unexpected" >&2; exit 1; }
 
 temporary="$machine_state/role.json.drill.$$"
@@ -122,6 +122,7 @@ server_id="$(jq -r .server_id "$role_marker")"
 jq -n --arg server_id "$server_id" '{version:1,role:"standby",server_id:$server_id}' > "$temporary"
 chmod 644 "$temporary"
 mv "$temporary" "$role_marker"
+"$project_dir/scripts/start-warm-standby-runtime.sh"
 
 archive="$machine_state/promotion-state.last-drill.json"
 jq --arg reverted_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

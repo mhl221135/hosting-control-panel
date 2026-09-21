@@ -124,6 +124,11 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(syncService, /syncthing\/syncthing:2\.1\.2/);
   assert.match(syncService, /\/var\/syncthing\/websites/);
   assert.doesNotMatch(syncService, /\/var\/lib\/mysql/);
+  const configureSync = fs.readFileSync(path.resolve(__dirname, "../../../scripts/configure-sync.sh"), "utf8");
+  assert.match(configureSync, /\[ "\$mode" = sendonly \]/);
+  assert.match(configureSync, /for folder in hosting-runtime-config hosting-db-recovery/);
+  assert.doesNotMatch(configureSync, /for folder in hosting-websites hosting-runtime-config hosting-db-recovery/);
+  assert.match(configureSync, /rest\/db\/override\?folder=\$1/);
   assert.match(promotion, /check-sync-ready\.sh/);
   assert.match(promotion, /restore-replication-dump\.sh" --apply/);
   assert.match(promotion, /--recovery-id "\$prepared_id"/);
@@ -168,9 +173,9 @@ test("warm standby uses a project-owned one-way Syncthing data path", () => {
   assert.match(standbyFence, /start-warm-standby-runtime\.sh/);
   assert.match(warmRuntime, /SET PERSIST read_only=ON/);
   assert.match(warmRuntime, /SET PERSIST super_read_only=ON/);
-  assert.match(warmRuntime, /docker compose up -d hosting-db/);
+  assert.match(warmRuntime, /docker compose up -d hosting-db hosting-npm/);
   assert.match(warmRuntime, /docker compose up -d hosting-redis hosting-php-fpm hosting-nginx/);
-  assert.doesNotMatch(warmRuntime, /compose up -d hosting-npm/);
+  assert.doesNotMatch(standbyFence, /docker compose stop[\s\\]*hosting-npm/);
   const automatic = fs.readFileSync(path.resolve(__dirname, "../../../scripts/automatic-failover.sh"), "utf8");
   assert.match(automatic, /AUTO_FAILOVER_FAILURES/);
   assert.match(automatic, /AUTO_FAILOVER_MODE:-monitor/);
@@ -498,7 +503,7 @@ test("read-only failover drills have a guarded standby reversion", () => {
   assert.match(script, /public_ingress_cutover == false/);
   assert.match(script, /\.status == "rolled-back"/);
   assert.match(script, /flock -n 9/);
-  assert.match(script, /compose stop hosting-npm/);
+  assert.doesNotMatch(script, /compose stop hosting-npm/);
   assert.match(script, /role:"standby"/);
   assert.match(script, /chmod 644 "\$temporary"/);
   assert.match(script, /promotion-state\.last-drill\.json/);

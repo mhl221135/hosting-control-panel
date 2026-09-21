@@ -125,4 +125,17 @@ configure_folder hosting-runtime-config "Hosting runtime config" /var/syncthing/
 configure_folder hosting-db-recovery "Hosting database recovery" /var/syncthing/replication
 
 sync_cli operations restart >/dev/null
+if [ "$mode" = sendonly ]; then
+  for _ in $(seq 1 60); do
+    sync_cli show system >/dev/null 2>&1 && break
+    sleep 2
+  done
+  for folder in hosting-runtime-config hosting-db-recovery; do
+    docker exec hosting-sync sh -c '
+      key="$(sed -n "s:.*<apikey>\(.*\)</apikey>.*:\1:p" /var/syncthing/config/config.xml)"
+      exec wget -qO- --post-data="" --header="X-API-Key: $key" \
+        "http://127.0.0.1:8384/rest/db/override?folder=$1"
+    ' sh "$folder" >/dev/null
+  done
+fi
 printf 'Configured hosting-sync as %s. Device ID: %s\n' "$mode" "$device_id"

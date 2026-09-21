@@ -170,7 +170,7 @@ cleanup() {
       mv "$previous" "$role_marker"
     fi
     if [ "$runtime_started" -eq 1 ]; then
-      compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing >/dev/null 2>&1 || true
+      compose stop hosting-phpmyadmin hosting-files hosting-billing >/dev/null 2>&1 || true
       "$project_dir/scripts/start-warm-standby-runtime.sh" >/dev/null 2>&1 \
         || compose stop hosting-nginx hosting-php-fpm hosting-redis hosting-db >/dev/null 2>&1 \
         || true

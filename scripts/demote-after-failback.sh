@@ -25,7 +25,7 @@ jq -e '.version == 1 and .status == "local-primary" and .public_ingress_cutover 
 jq -e '.version == 1 and .status == "rolled-back"' "$state/tunnel-cutover.json" >/dev/null
 cd "$project_dir"
 systemctl disable --now hosting-database-replication.timer hosting-automatic-failover.timer >/dev/null 2>&1 || true
-docker compose stop hosting-npm hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db hosting-ui >/dev/null
+docker compose stop hosting-phpmyadmin hosting-files hosting-billing hosting-nginx hosting-php-fpm hosting-redis hosting-db hosting-ui >/dev/null
 
 server_id="$(jq -r .server_id "$state/role.json")"
 jq -n --arg server_id "$server_id" '{version:1,role:"standby",server_id:$server_id}' > "$state/role.json.tmp.$$"
@@ -37,6 +37,7 @@ done
 sync_args=(--peer-id "$peer_id" --peer-name authoritative-primary --mode receiveonly)
 [[ -z "$peer_address" ]] || sync_args+=(--peer-address "$peer_address")
 "$project_dir/scripts/configure-sync.sh" "${sync_args[@]}"
+"$project_dir/scripts/start-warm-standby-runtime.sh" >/dev/null
 docker compose up -d hosting-agent hosting-ui hosting-cloudflared hosting-sync >/dev/null
 "$project_dir/scripts/install-warm-sync-finalizer.sh" --standby >/dev/null
 systemctl enable --now hosting-automatic-failover.timer >/dev/null 2>&1 || true

@@ -22,6 +22,6 @@ role="$(jq -r '.role // empty' "$machine_state/role.json" 2>/dev/null || true)"
 
 cd "$project_dir"
 docker compose stop \
-  hosting-npm hosting-phpmyadmin hosting-files hosting-billing >/dev/null
+  hosting-phpmyadmin hosting-files hosting-billing >/dev/null
 "$project_dir/scripts/start-warm-standby-runtime.sh"
 printf 'Standby boot fence verified; warm runtime is read-only and public mutators are stopped.\n'
