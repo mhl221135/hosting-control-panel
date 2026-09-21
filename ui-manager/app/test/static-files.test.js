@@ -638,6 +638,8 @@ test("failover hostname qualification keeps blocked Cloudflare zones out of the 
   assert.doesNotMatch(script, /tunnel-cutover\.sh" --apply/);
   assert.match(script, /--skip-if-current/);
   assert.match(automatic, /valid_host_qualification "\$recovery_id"/);
+  assert.match(automatic, /qualify-failover-hosts\.sh" --apply/);
+  assert.match(automatic, /write_state host-qualification-failed/);
   assert.match(automatic, /\.candidateSha256 == \$candidate_sha and \.candidateCount == \$candidate_count/);
   assert.match(automatic, /\.qualifiedSha256 == \$qualified_sha and \.qualifiedCount == \$qualified_count/);
   assert.match(automatic, /blocked-host-qualification/);

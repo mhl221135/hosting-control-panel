@@ -604,6 +604,11 @@ candidate inventory and that its checksum, the accepted allowlist checksum,
 and both hostname counts match the qualification receipt. An unchanged
 candidate inventory remains qualified across newer database recovery points;
 missing, edited, or changed inventories stop at `blocked-host-qualification`.
+After the outage threshold and fencing checks pass, the watchdog refreshes the
+Cloudflare qualification once before promotion. Zones removed since the last
+warm-sync run are excluded from that failover instead of blocking every ready
+hostname. A provider authentication or qualification failure still stops
+promotion with `host-qualification-failed`.
 If the watchdog is interrupted after public cutover but before its final state
 write, the next timer run reconstructs `promoted` from the matching durable
 local-promotion and active tunnel-cutover receipts. It never infers promotion

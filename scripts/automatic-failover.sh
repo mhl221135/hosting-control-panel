@@ -347,6 +347,12 @@ else
 fi
 
 write_state activating "$failures" "$recovery_id" "$unreachable_since"
+if ! "$project_dir/scripts/qualify-failover-hosts.sh" --apply \
+  --recovery-id "$recovery_id" \
+  --confirm ACCEPT-QUALIFIED-FAILOVER-HOSTS >/dev/null; then
+  write_state host-qualification-failed "$failures" "$recovery_id" "$unreachable_since"
+  exit 1
+fi
 if ! "$project_dir/scripts/activate-standby.sh" --preview \
   --hosts-file "$AUTO_FAILOVER_HOSTS_FILE" \
   --api-token-file /etc/hosting-control/cloudflare-tunnel-api.token \
