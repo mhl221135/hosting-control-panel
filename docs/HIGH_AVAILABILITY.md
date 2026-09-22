@@ -187,7 +187,11 @@ Worker plus one SQLite-backed Durable Object. OPI5 renews a short lease while
 it is the writable primary. The Durable Object refuses HP's `/v1/fence`
 request until that lease expires, then returns the existing HMAC-signed,
 recovery-bound receipt exactly once. The fenced primary cannot renew until a
-separately authenticated operator reset follows controlled rebuild/failback.
+separately authenticated reset follows controlled rebuild/failback. Manual
+recovery uses the operator-held administrator token. Unattended failback uses a
+root-only copy on the active failover host and performs the reset only after the
+former primary has imported the final database recovery and passed runtime
+validation.
 
 This protects the normal network-partition path only when the OPI5 watchdog is
 installed and healthy: loss of witness connectivity makes OPI5 self-fence at
@@ -848,8 +852,9 @@ receipt without changing public ingress.
 
 Traffic failback is implemented separately by `scripts/complete-failback.sh`.
 HP remains online while a live logical database snapshot transfers and OPI5
-pre-imports it. OPI5 starts and validates its runtime before Cloudflare restores
-the recorded direct records. HP remains online for a 60-second ingress grace,
+pre-imports it. OPI5 starts and validates its runtime, the independent witness
+is reset, and a fresh OPI5 lease is verified before Cloudflare restores the
+recorded direct records. HP remains online for a 60-second ingress grace,
 then demotes to receive-only standby. This availability-first overlap can lose
 writes made on HP after the final logical snapshot; it deliberately favors
 continuous service over zero-RPO failback. The former-primary fence timer is
@@ -859,6 +864,9 @@ after HP has demoted to standby.
 For the preferred-primary topology, HP can run an automatic failback timer:
 
 ```bash
+sudo ./scripts/install-witness-failback-reset.sh \
+  --url https://WITNESS-WORKER/v1/reset \
+  --token-file /etc/hosting-control/witness-admin.token
 sudo ./scripts/install-automatic-failback.sh \
   --enable --stable-checks 3 --grace 60 --retry 900
 ```
@@ -871,8 +879,10 @@ a `fenced` receipt bound to HP's exact promotion recovery. After three stable
 checks and at least 60 seconds it runs the existing guarded rebuild and
 controlled failback workflows. HP remains public while OPI5 receives changed
 website files, imports the final logical database recovery, starts, and passes
-runtime validation. Direct ingress is restored only after that validation; HP
-then remains online for the transition grace and demotes to read-only standby.
+runtime validation. Direct ingress is restored only after that validation and
+successful witness lease renewal; HP then remains online for the transition
+grace and demotes to read-only standby. A missing or malformed primary lease
+state is treated as unsafe and triggers self-fencing when renewal fails.
 Website synchronization remains advisory so a continuously changing cache or
 small upload tail cannot create downtime. This is availability-first and can
 still lose writes made after the final dump; GTID/binlog replication is needed

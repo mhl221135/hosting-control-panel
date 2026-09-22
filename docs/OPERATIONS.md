@@ -77,7 +77,8 @@ leaving NPM available for unrelated routes. HP cannot obtain a receipt while
 the primary lease remains active.
 
 After controlled rebuild/failback, reset the witness before returning OPI5 to
-service. Keep the administrator token off both hosting machines:
+service. For manual recovery, keep the administrator token on the operator
+workstation:
 
 ```sh
 curl --fail-with-body -X POST https://WITNESS-WORKER/v1/reset \
@@ -85,6 +86,21 @@ curl --fail-with-body -X POST https://WITNESS-WORKER/v1/reset \
   -H 'Content-Type: application/json' \
   --data '{"version":1,"primaryServerId":"PRIMARY_ID","confirm":"RESET-FENCING-WITNESS"}'
 ```
+
+For unattended failback, install a dedicated copy of the administrator token
+on the active failover host as a root-owned mode-600 file, then configure the
+bounded reset client. The failback transaction resets the witness, obtains and
+verifies a fresh OPI5 lease, and only then changes public ingress:
+
+```sh
+sudo ./scripts/install-witness-failback-reset.sh \
+  --url https://WITNESS-WORKER/v1/reset \
+  --token-file /etc/hosting-control/witness-admin.token
+```
+
+If reset or lease verification fails, failback stops before Cloudflare ingress
+is returned to OPI5. A missing or malformed local lease state now causes the
+primary watchdog to fail closed and self-fence.
 
 Before enabling billing payments, route a dedicated HTTPS hostname through NPM
 to `hosting-billing:8787`, save that exact origin as the public billing URL, and

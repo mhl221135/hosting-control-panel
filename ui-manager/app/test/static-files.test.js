@@ -562,6 +562,8 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   const complete = fs.readFileSync(path.resolve(__dirname, "../../../scripts/complete-failback.sh"), "utf8");
   const accept = fs.readFileSync(path.resolve(__dirname, "../../../scripts/accept-failback-primary.sh"), "utf8");
   const demote = fs.readFileSync(path.resolve(__dirname, "../../../scripts/demote-after-failback.sh"), "utf8");
+  const witnessReset = fs.readFileSync(path.resolve(__dirname, "../../../scripts/reset-witness-after-failback.sh"), "utf8");
+  const witnessWatchdog = fs.readFileSync(path.resolve(__dirname, "../../../scripts/witness-primary-watchdog.sh"), "utf8");
   const ready = fs.readFileSync(path.resolve(__dirname, "../../../scripts/check-sync-ready.sh"), "utf8");
   assert.match(complete, /--confirm COMPLETE-FAILBACK/);
   assert.match(complete, /create-replication-dump\.sh/);
@@ -569,6 +571,9 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(complete, /accept-failback-primary\.sh/);
   assert.match(complete, /--rollback --confirm ROLLBACK-TUNNEL-INGRESS/);
   assert.match(complete, /--mark-ingress-active/);
+  assert.match(complete, /reset-witness-after-failback\.sh/);
+  assert.match(complete, /witness-primary-lease\.sh/);
+  assert.ok(complete.indexOf("reset-witness-after-failback.sh") < complete.indexOf("--rollback --confirm"));
   assert.match(complete, /demote-after-failback\.sh/);
   assert.ok(complete.indexOf("accept-failback-primary") < complete.indexOf("--rollback --confirm"));
   assert.ok(complete.indexOf("--rollback --confirm") < complete.indexOf("demote-after-failback"));
@@ -589,6 +594,10 @@ test("controlled failback promotes, restores ingress, and demotes in order", () 
   assert.match(ready, /needTotalItems <= 25000/);
   assert.match(ready, /needBytes <= 268435456/);
   assert.match(ready, /folder" = hosting-websites/);
+  assert.match(witnessReset, /RESET-FENCING-WITNESS/);
+  assert.match(witnessReset, /--proto '=https'/);
+  assert.match(witnessWatchdog, /expires:-unknown/);
+  assert.doesNotMatch(witnessWatchdog, /leaseExpiresAt \/\/ empty' "\$state"/);
 });
 
 test("automatic failback waits for a stable fenced preferred primary and reuses guarded workflows", () => {
