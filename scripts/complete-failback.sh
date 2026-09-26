@@ -65,18 +65,17 @@ remote_args=(--apply --recovery-id "$recovery_id" --peer-id "$local_peer_id" --c
 [[ -z "$local_address" ]] || remote_args+=(--peer-address "$local_address")
 ssh -o BatchMode=yes "root@$peer_host" "$remote_accept" "${remote_args[@]}"
 
-peer_server_id="$(ssh -o BatchMode=yes "root@$peer_host" \
-  "jq -er 'select(.role == \"primary\") | .server_id | select(type == \"string\" and length > 0)' /etc/hosting-control/role.json" \
-  2>/dev/null || true)"
+peer_server_id="$(ssh -o BatchMode=yes "root@$peer_host" cat /etc/hosting-control/role.json 2>/dev/null \
+  | jq -er 'select(.role == "primary") | .server_id | select(type == "string" and length > 0)' 2>/dev/null || true)"
 [[ "$peer_server_id" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { printf 'Recovered primary server identity is invalid.\n' >&2; exit 1; }
 "$project_dir/scripts/reset-witness-after-failback.sh" "$peer_server_id"
 ssh -o BatchMode=yes "root@$peer_host" "$remote_lease"
 ssh -o BatchMode=yes "root@$peer_host" systemctl enable --now hosting-witness-primary.timer >/dev/null
 ssh -o BatchMode=yes "root@$peer_host" systemctl start hosting-witness-primary.service
-ssh -o BatchMode=yes "root@$peer_host" jq -e \
-  --arg server "$peer_server_id" \
-  '.version == 1 and .status == "leased" and .primaryServerId == $server and (.leaseExpiresAt | fromdateiso8601) > now' \
-  /etc/hosting-control/witness-primary-state.json >/dev/null
+ssh -o BatchMode=yes "root@$peer_host" cat /etc/hosting-control/witness-primary-state.json \
+  | jq -e --arg server "$peer_server_id" \
+    '.version == 1 and .status == "leased" and .primaryServerId == $server and (.leaseExpiresAt | fromdateiso8601) > now' \
+    >/dev/null
 printf 'Recovered primary holds a fresh independent-witness lease.\n'
 
 CLOUDFLARE_TUNNEL_API_TOKEN="$(cat "$token_file")"; export CLOUDFLARE_TUNNEL_API_TOKEN
