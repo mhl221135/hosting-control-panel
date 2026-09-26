@@ -79,8 +79,22 @@ ssh -o BatchMode=yes "root@$peer_host" cat /etc/hosting-control/witness-primary-
 printf 'Recovered primary holds a fresh independent-witness lease.\n'
 
 CLOUDFLARE_TUNNEL_API_TOKEN="$(cat "$token_file")"; export CLOUDFLARE_TUNNEL_API_TOKEN
-"$project_dir/scripts/tunnel-cutover.sh" --rollback --confirm ROLLBACK-TUNNEL-INGRESS >/dev/null
+rollback_ok=0
+for attempt in 1 2 3; do
+  if "$project_dir/scripts/tunnel-cutover.sh" --rollback --confirm ROLLBACK-TUNNEL-INGRESS >/dev/null; then
+    rollback_ok=1
+    break
+  fi
+  if (( attempt < 3 )); then
+    printf 'Cloudflare rollback attempt %s failed; retrying in 10 seconds.\n' "$attempt" >&2
+    sleep 10
+  fi
+done
 unset CLOUDFLARE_TUNNEL_API_TOKEN
+if (( rollback_ok != 1 )); then
+  printf 'Cloudflare rollback failed after 3 attempts; HP remains primary.\n' >&2
+  exit 1
+fi
 ssh -o BatchMode=yes "root@$peer_host" "$remote_accept" --mark-ingress-active \
   --recovery-id "$recovery_id" --peer-id "$local_peer_id" --confirm MARK-INGRESS-ACTIVE
 printf 'OPI5 is active; keeping HP online for a 60-second ingress transition grace.\n'

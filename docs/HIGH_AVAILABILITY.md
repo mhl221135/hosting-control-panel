@@ -224,9 +224,28 @@ run was completed with an additional verified HP database recovery from 08:20:27
 OPI5 regained its witness lease and public ingress returned at 08:29:09Z. HP was
 then demoted to receive-only standby. Public site checks and both HA timers passed.
 HP continued accepting writes until ingress moved, so writes made after the final
-dump may not be present on OPI5; that interval was 8 minutes 42 seconds. The
-corrected automatic failback path still needs another unattended production drill.
-promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
+dump may not be present on OPI5; that interval was 8 minutes 42 seconds.
+The corrected identity and lease checks were exercised in the repeat drill below.
+
+A repeat production drill on 2026-09-26 began at 08:44:06Z. OPI5 self-fenced
+at 08:45:49Z. An already-running standby database import held the receiver
+lock, so HP could not promote until that import finished at 08:52:54Z. HP
+completed public Cloudflare cutover around 08:54:08Z: failover RTO was about
+10 minutes 2 seconds from fault injection, or 8 minutes 19 seconds from the
+fence. The 08:32:18Z staged recovery was about 21 minutes 50 seconds old at
+cutover; this is a potential recovery gap, not measured lost writes. This
+receiver-lock delay remains an availability limitation for a future fix.
+
+Automatic failback then rebuilt OPI5 from HP, imported the final 09:02:04Z
+recovery, and passed the corrected remote identity and independent-witness
+lease checks. The first Cloudflare rollback request timed out after 30 seconds,
+so the automatic run stopped while HP remained public. An operator retried the
+rollback successfully at 09:10:42Z, marked OPI5 ingress active, and demoted HP
+to read-only standby after the transition grace. The final dump preceded
+ingress return by 8 minutes 38 seconds, so writes on HP during that window may
+not be present on OPI5. The rollback step now makes up to three bounded
+attempts, but this retry has not undergone another production outage drill.
+The promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
 
