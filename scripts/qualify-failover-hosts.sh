@@ -88,6 +88,15 @@ if [ "$mode" = --apply ] && [ "$skip_if_current" -eq 1 ] \
         .version == 1 and .candidateSha256 == $candidate_sha and .candidateCount == $candidate_count
         and .qualifiedSha256 == $output_sha and .qualifiedCount == $output_count
       ' "$receipt" >/dev/null 2>&1; then
+    if ! jq -e --arg id "$prepared_id" '.recoveryId == $id' "$receipt" >/dev/null 2>&1; then
+      receipt_tmp="$receipt.tmp.$$"
+      if ! jq --arg id "$prepared_id" '.recoveryId = $id' "$receipt" > "$receipt_tmp" \
+        || ! chmod 600 "$receipt_tmp" || ! mv "$receipt_tmp" "$receipt"; then
+        rm -f "$receipt_tmp"
+        printf 'Could not bind host qualification to the prepared recovery.\n' >&2
+        exit 1
+      fi
+    fi
     printf 'Failover hostname qualification is current; provider preview skipped.\n'
     exit 0
   fi
