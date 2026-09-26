@@ -66,8 +66,8 @@ remote_args=(--apply --recovery-id "$recovery_id" --peer-id "$local_peer_id" --c
 ssh -o BatchMode=yes "root@$peer_host" "$remote_accept" "${remote_args[@]}"
 
 peer_server_id="$(ssh -o BatchMode=yes "root@$peer_host" \
-  jq -er 'select(.role == "primary") | .server_id | select(type == "string" and length > 0)' \
-  /etc/hosting-control/role.json 2>/dev/null || true)"
+  "jq -er 'select(.role == \"primary\") | .server_id | select(type == \"string\" and length > 0)' /etc/hosting-control/role.json" \
+  2>/dev/null || true)"
 [[ "$peer_server_id" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { printf 'Recovered primary server identity is invalid.\n' >&2; exit 1; }
 "$project_dir/scripts/reset-witness-after-failback.sh" "$peer_server_id"
 ssh -o BatchMode=yes "root@$peer_host" "$remote_lease"
