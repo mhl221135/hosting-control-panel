@@ -245,6 +245,31 @@ to read-only standby after the transition grace. The final dump preceded
 ingress return by 8 minutes 38 seconds, so writes on HP during that window may
 not be present on OPI5. The rollback step now makes up to three bounded
 attempts, but this retry has not undergone another production outage drill.
+
+A third production drill on 2026-09-26 started witness fault injection at
+20:49:29Z. OPI5 self-fenced at 20:51:07Z. HP promoted without manual action,
+became writable, and completed Cloudflare cutover at 20:53:45Z; a public site
+returned HTTP 200. Measured failover RTO was 4 minutes 16 seconds from fault
+injection, or 2 minutes 38 seconds from self-fence. The staged 20:12:58Z
+database recovery was 40 minutes 47 seconds old at cutover; this is potential
+RPO, not a measured count of lost writes.
+
+Automatic failback then rebuilt OPI5 from HP, imported the final 21:02:40Z
+recovery, renewed OPI5's witness lease, and completed Cloudflare rollback at
+21:09:02Z without a manual retry. HP demoted itself to standby; the failback
+job reported `completed` at 21:12:15Z. OPI5 finished as writable primary and
+HP as read-only standby. The last dump preceded ingress return by 6 minutes
+22 seconds, so writes made on HP in that interval may be absent on OPI5.
+The bounded Cloudflare retry was installed but was not exercised by this run.
+
+The HP standby database refresh immediately after demotion temporarily cleared
+its MySQL read-only flags while web/PHP runtime was stopped. An operator
+mistook that in-progress import for an unfenced standby and set read-only early,
+interrupting the first refresh attempt. The automatic retry finished at
+21:19:52Z with a current 21:10:51Z recovery and both read-only flags set.
+Check import service state before interpreting a transient read-only value.
+Failover during an active standby import still waits on the receiver lock, as
+the preceding drill demonstrated; this cycle does not remove that limitation.
 The promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
