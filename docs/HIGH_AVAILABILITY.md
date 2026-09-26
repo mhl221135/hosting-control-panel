@@ -208,6 +208,24 @@ Three representative public sites returned HTTP 200 on HP. Controlled rebuild
 and failback then imported recovery `2026-09-06T00-31-37Z`, kept HP serving
 through the ingress transition, restored OPI5's lease, and returned HP to a
 warm read-only standby.
+
+The 2026-09-26 production drill began at 07:55:21Z. OPI5 self-fenced at
+07:57:02Z; HP completed witness-backed promotion and public tunnel cutover at
+07:59:47Z. Measured failover RTO was 4 minutes 26 seconds from fault injection,
+or 2 minutes 45 seconds from self-fence. HP qualified 120 of 125 candidate
+hostnames; five were excluded by Cloudflare DNS/zone checks. Its staged database
+recovery was from 07:25:53Z, 33 minutes 54 seconds before cutover. This is a
+potential recovery gap, not a measured count of lost writes.
+
+Automatic failback rebuilt OPI5 and imported fresh recoveries, but stopped after
+local promotion because `complete-failback.sh` lost a `jq` filter's quoting over
+SSH. The remote identity and lease checks now parse JSON locally. The interrupted
+run was completed with an additional verified HP database recovery from 08:20:27Z;
+OPI5 regained its witness lease and public ingress returned at 08:29:09Z. HP was
+then demoted to receive-only standby. Public site checks and both HA timers passed.
+HP continued accepting writes until ingress moved, so writes made after the final
+dump may not be present on OPI5; that interval was 8 minutes 42 seconds. The
+corrected automatic failback path still needs another unattended production drill.
 promotion receipt therefore records `PRIMARY-UNREACHABLE-RISK-ACCEPTED`, not
 `OLD-PRIMARY-FENCED`. Once HP has promoted, do not let a recovered OPI5 resume
 as writable; rebuild and fail back from HP's authoritative data.
