@@ -123,6 +123,15 @@ class AutomaticFailoverNotificationMonitor {
       targets: current.recoveryId ? [current.recoveryId] : [],
       message,
       finishedAt: current.checkedAt,
+      details: {
+        failures: current.failures,
+        threshold: current.threshold,
+        recoveryId: current.recoveryId || "",
+        recoveryAgeSeconds: current.recoveryAgeSeconds ?? "",
+        fencePolicy: current.fencePolicy || "",
+        unreachableSince: current.unreachableSince || "",
+        checkedAt: current.checkedAt,
+      },
       respectSeverityFilter: false,
     });
   }

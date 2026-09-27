@@ -585,6 +585,13 @@ Tests use the last saved credentials. Save changed values before sending a test.
 Provider errors are bounded and do not expose tokens or passwords in the Jobs
 workspace.
 
+Telegram failure and warning alerts include a bounded text-file diagnostic
+attachment. Its caption shows the job ID or HA check count and recovery point;
+the file includes safe job step results or HA state fields. The file is generated
+from panel records, not a raw host journal or container log. Credential-shaped
+values are redacted, and sensitive job payloads are excluded. Success and test
+notifications remain short text messages.
+
 Existing installations inherit global severities for both channels. Disabling
 inheritance affects only that channel. Health recovery notifications continue
 to bypass job-success filters so service recovery is not hidden.

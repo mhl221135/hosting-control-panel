@@ -23,6 +23,38 @@ function safeProviderError(error, settings) {
   return message;
 }
 
+const DIAGNOSTIC_FIELDS = new Set([
+  "ok", "status", "step", "phase", "target", "site", "domain", "name",
+  "message", "error", "reason", "summary", "code", "backupId", "result",
+]);
+
+function safeDiagnosticText(value, settings, maximum = 2000) {
+  let text = String(value ?? "").slice(0, maximum * 2);
+  for (const secret of [settings.telegramBotToken, settings.smtpPassword].filter(Boolean)) {
+    text = text.split(secret).join("[redacted]");
+  }
+  return text
+    .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, "[redacted private key]")
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/(["'](?:[a-z_]*token|[a-z_]*secret|password|passwd|dbpass|api[_-]?key|authorization|cookie)["']\s*:\s*)["'][^"']+["']/gi, "$1\"[redacted]\"")
+    .replace(/\b([a-z_]*token|[a-z_]*secret|password|passwd|dbpass|api[_-]?key|authorization|cookie)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(/(https?:\/\/)[^/@\s]+@/gi, "$1[redacted]@")
+    .replace(/([?&](?:[a-z_]*token|[a-z_]*secret|key|password|code)=)[^&#\s]+/gi, "$1[redacted]")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "")
+    .slice(0, maximum);
+}
+
+function diagnosticResult(value, settings) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return safeDiagnosticText(value, settings, 500);
+  }
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => DIAGNOSTIC_FIELDS.has(key))
+    .slice(0, 15)
+    .map(([key, item]) => [key, typeof item === "boolean" || typeof item === "number"
+      ? item : safeDiagnosticText(item, settings, 500)]));
+}
+
 class NotificationManager {
   constructor(options) {
     this.dataDir = options.dataDir;
@@ -128,6 +160,13 @@ class NotificationManager {
       event: {
         label: bounded(job.label, 160),
         status: job.status,
+        jobType: bounded(job.type, 80),
+        jobId: job.id,
+        trigger: bounded(job.trigger, 30),
+        attempt: Number(job.attempt || 1),
+        completed: Number(job.completed || 0),
+        total: Number(job.total || 0),
+        startedAt: job.startedAt,
         operator: bounded(job.operator, 160),
         targets: (job.targets || []).slice(0, 10).map((target) => bounded(target, 160)),
         message: bounded(job.message, 500),
@@ -173,6 +212,12 @@ class NotificationManager {
         message: bounded(input.message, 500),
         error: bounded(input.error, 500),
         finishedAt: input.finishedAt || timestamp,
+        details: input.details && typeof input.details === "object" && !Array.isArray(input.details)
+          ? Object.fromEntries(Object.entries(input.details).filter(([key, value]) =>
+            ["failures", "threshold", "recoveryId", "recoveryAgeSeconds", "fencePolicy", "unreachableSince", "checkedAt"].includes(key)
+            && (typeof value === "string" || typeof value === "number")).slice(0, 7)
+            .map(([key, value]) => [key, String(value).slice(0, 160)]))
+          : {},
       },
     };
     this.deliveries.push(delivery);
@@ -206,6 +251,12 @@ class NotificationManager {
       `Status: ${event.status}`,
     ];
     if (event.targets?.length) lines.push(`Site: ${event.targets.join(", ")}`);
+    if (event.jobId) lines.push(`Job: ${event.jobType} (${event.jobId})`);
+    if (event.details?.failures !== undefined && event.details?.threshold !== undefined) {
+      lines.push(`Checks: ${event.details.failures}/${event.details.threshold}`);
+    }
+    if (event.details?.recoveryId) lines.push(`Recovery: ${event.details.recoveryId}`);
+    if (event.details?.recoveryAgeSeconds) lines.push(`Recovery age: ${event.details.recoveryAgeSeconds}s`);
     if (event.message) lines.push(`Result: ${event.message}`);
     if (event.error) lines.push(`Error: ${event.error}`);
     lines.push(`Time: ${event.finishedAt || this.now().toISOString()}`);
@@ -213,14 +264,59 @@ class NotificationManager {
     return lines.join("\n").slice(0, 3500);
   }
 
-  async sendTelegram(settings, message) {
+  diagnosticLog(delivery, settings) {
+    const event = delivery.event;
+    const lines = [
+      "Hosting diagnostic log (bounded, redacted; not a raw system journal)",
+      `Delivery ID: ${delivery.id}`,
+      `Event: ${delivery.eventType} / ${delivery.eventId}`,
+      `Severity: ${delivery.severity}`,
+      `Server: ${settings.serverName}`,
+      `Status: ${event.status}`,
+      `Label: ${event.label}`,
+      `Started: ${event.startedAt || "unknown"}`,
+      `Finished: ${event.finishedAt || "unknown"}`,
+      `Targets: ${(event.targets || []).join(", ") || "none"}`,
+      `Result: ${event.message || "none"}`,
+      `Error: ${event.error || "none"}`,
+    ];
+    if (event.jobId) lines.push(
+      `Job ID: ${event.jobId}`,
+      `Job type: ${event.jobType}`,
+      `Trigger: ${event.trigger || "unknown"}`,
+      `Attempt: ${event.attempt || 1}`,
+      `Progress: ${event.completed || 0}/${event.total || 0}`,
+    );
+    for (const [key, value] of Object.entries(event.details || {})) lines.push(`${key}: ${value}`);
+    const job = event.jobId ? this.jobManager?.publicJob(this.jobManager.get(event.jobId)) : null;
+    if (job?.results?.length) {
+      lines.push(`Step results: ${Math.min(job.results.length, 40)} of ${job.results.length}`);
+      for (const [index, result] of job.results.slice(0, 40).entries()) {
+        lines.push(`${index + 1}. ${JSON.stringify(diagnosticResult(result, settings))}`);
+      }
+    }
+    return safeDiagnosticText(lines.join("\n"), settings, 24_000);
+  }
+
+  async sendTelegram(settings, message, diagnostic = null) {
     for (const chatId of settings.telegramChatIds) {
-      const response = await this.fetch(`https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
-        signal: AbortSignal.timeout(15_000),
-      });
+      let response;
+      if (diagnostic) {
+        const form = new FormData();
+        form.append("chat_id", chatId);
+        form.append("caption", message.slice(0, 1000));
+        form.append("document", new Blob([diagnostic], { type: "text/plain" }), "hosting-diagnostic.txt");
+        response = await this.fetch(`https://api.telegram.org/bot${settings.telegramBotToken}/sendDocument`, {
+          method: "POST", body: form, signal: AbortSignal.timeout(20_000),
+        });
+      } else {
+        response = await this.fetch(`https://api.telegram.org/bot${settings.telegramBotToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: message, disable_web_page_preview: true }),
+          signal: AbortSignal.timeout(15_000),
+        });
+      }
       if (!response.ok) throw new Error(`Telegram rejected the message with HTTP ${response.status}`);
     }
   }
@@ -258,7 +354,7 @@ class NotificationManager {
       error: "",
       finishedAt: this.now().toISOString(),
     };
-    const message = this.formatMessage(event, settings, true);
+    const message = safeDiagnosticText(this.formatMessage(event, settings, true), settings, 3500);
     if (channel === "telegram") {
       if (!settings.telegramBotToken || !settings.telegramChatIds.length) throw new Error("Telegram token and chat ID are required");
       await this.sendTelegram(settings, message);
@@ -286,13 +382,17 @@ class NotificationManager {
 
   async deliver(delivery) {
     const settings = this.settings.resolved();
-    const message = this.formatMessage({ ...delivery.event, severity: delivery.severity }, settings);
+    const message = safeDiagnosticText(
+      this.formatMessage({ ...delivery.event, severity: delivery.severity }, settings), settings, 3500,
+    );
     for (const [channel, result] of Object.entries(delivery.channels)) {
       if (result.status === "sent") continue;
       result.attempts += 1;
       result.lastAttemptAt = this.now().toISOString();
       try {
-        if (channel === "telegram") await this.sendTelegram(settings, message);
+        if (channel === "telegram") await this.sendTelegram(settings, message,
+          ["failure", "warning", "critical"].includes(delivery.severity)
+            ? this.diagnosticLog(delivery, settings) : null);
         else if (channel === "smtp") await this.sendSmtp(settings, message);
         result.status = "sent";
         result.error = "";
