@@ -1,4 +1,4 @@
-FROM php:8.4-fpm
+FROM php:8.4.27-fpm
 
 RUN rm -f /usr/local/etc/php-fpm.d/www.conf \
     && rm -f /usr/local/etc/php-fpm.d/www.conf.default
