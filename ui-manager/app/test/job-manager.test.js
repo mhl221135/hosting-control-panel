@@ -190,7 +190,7 @@ test("redacts command-line database and WordPress passwords from failed jobs", a
   const context = fixture();
   try {
     context.manager.register("site.provision", async () => {
-      throw new Error("Command failed --dbpass=db-secret --admin_password=wp-secret IDENTIFIED BY 'sql-secret'");
+      throw new Error("Command failed --dbpass=db-secret --admin_password=wp-secret --user_pass=second-secret IDENTIFIED BY 'sql-secret'");
     });
     context.manager.start();
     const queued = context.manager.create({ type: "site.provision", payload: {} });
@@ -198,6 +198,7 @@ test("redacts command-line database and WordPress passwords from failed jobs", a
     assert.equal(job.status, "failed");
     assert.equal(job.error.includes("db-secret"), false);
     assert.equal(job.error.includes("wp-secret"), false);
+    assert.equal(job.error.includes("second-secret"), false);
     assert.equal(job.error.includes("sql-secret"), false);
   } finally {
     fs.rmSync(context.root, { recursive: true, force: true });

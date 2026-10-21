@@ -4,12 +4,18 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { JobManager } = require("../lib/job-manager");
-const { jobInput, jobResult, safeProvisionPayload } = require("../lib/provisioning-job");
+const {
+  jobInput, jobResult, safeProvisionPayload, validateSecondAdministrator,
+} = require("../lib/provisioning-job");
 
 test("provisioning jobs never persist submitted administrator passwords", () => {
   const request = safeProvisionPayload({
     domain: "example.com",
     admin_password: "do-not-persist",
+    add_second_admin: true,
+    second_admin_user: "editor2",
+    second_admin_email: "editor2@example.com",
+    second_admin_password: "second-do-not-persist",
     import_database_dump: false,
     plugin_packages: ["plugin-id"],
     apply_security_preset: true,
@@ -22,6 +28,9 @@ test("provisioning jobs never persist submitted administrator passwords", () => 
   });
   assert.deepEqual(request, {
     domain: "example.com",
+    add_second_admin: true,
+    second_admin_user: "editor2",
+    second_admin_email: "editor2@example.com",
     import_database_archive: false,
     plugin_packages: ["plugin-id"],
     apply_security_preset: true,
@@ -43,6 +52,21 @@ test("provisioning jobs never persist submitted administrator passwords", () => 
     assert.doesNotThrow(() => manager.create(input));
   } finally {
     fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("second WordPress administrator must have valid, distinct credentials", () => {
+  const primary = { primaryEmail: "owner@example.com", primaryUser: "owner" };
+  assert.deepEqual(validateSecondAdministrator({
+    ...primary, email: " Second@Example.com ", user: " second.admin ",
+  }), { email: "second@example.com", user: "second.admin" });
+  for (const secondary of [
+    { email: "bad", user: "second" },
+    { email: "other@example.com", user: "x" },
+    { email: "OWNER@example.com", user: "second" },
+    { email: "other@example.com", user: "OWNER" },
+  ]) {
+    assert.throws(() => validateSecondAdministrator({ ...primary, ...secondary }), { statusCode: 400 });
   }
 });
 

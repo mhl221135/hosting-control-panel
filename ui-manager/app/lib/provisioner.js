@@ -277,6 +277,13 @@ async function installWordPress(options) {
     `--admin_email=${options.adminEmail}`,
     "--skip-email",
   ]);
+  if (options.secondAdmin) {
+    await runWp([
+      "user", "create", options.secondAdmin.user, options.secondAdmin.email,
+      "--role=administrator", `--user_pass=${options.secondAdmin.password}`,
+      `--path=${containerPath}`,
+    ]);
+  }
   await runWp(["rewrite", "structure", "/%postname%/", `--path=${containerPath}`, "--hard"]);
 
   const bundledPlugins = outputNames(await runWp(["plugin", "list", "--field=name", `--path=${containerPath}`]));

@@ -9,6 +9,21 @@ test("resolves versioned public assets by URL pathname", () => {
   assert.equal(resolvePublicFile("/app/public", "/"), "/app/public/index.html");
 });
 
+test("fresh WordPress provisioning offers an optional second administrator", () => {
+  const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");
+  const source = fs.readFileSync(path.resolve(__dirname, "../public/app.js"), "utf8");
+  const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
+  const provisioner = fs.readFileSync(path.resolve(__dirname, "../lib/provisioner.js"), "utf8");
+  assert.match(html, /name="add_second_admin"/);
+  assert.match(html, /name="second_admin_user"/);
+  assert.match(html, /name="second_admin_email"/);
+  assert.match(html, /name="second_admin_password"/);
+  assert.match(source, /syncProvisionSecondAdmin/);
+  assert.match(source, /credentials\.wordpress\.secondAdmin/);
+  assert.match(server, /secondAdminPassword: String\(submitted\.second_admin_password/);
+  assert.match(provisioner, /"--role=administrator"/);
+});
+
 test("WordPress cache control is site-scoped, authenticated, and available in maintenance", () => {
   const server = fs.readFileSync(path.resolve(__dirname, "../server.js"), "utf8");
   const html = fs.readFileSync(path.resolve(__dirname, "../public/index.html"), "utf8");

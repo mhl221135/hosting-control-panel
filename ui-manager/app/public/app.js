@@ -125,6 +125,19 @@ function syncProvisionSecurityOptions() {
   }
 }
 
+function syncProvisionSecondAdmin() {
+  const form = $("#provisionForm");
+  const enabled = form.elements.site_type.value === "wordpress"
+    && form.elements.source_mode.value === "fresh"
+    && form.elements.add_second_admin.checked;
+  $("#provisionSecondAdminFields").classList.toggle("hidden", !enabled);
+  for (const name of ["second_admin_user", "second_admin_email", "second_admin_password"]) {
+    form.elements[name].disabled = !enabled;
+  }
+  form.elements.second_admin_user.required = enabled;
+  form.elements.second_admin_email.required = enabled;
+}
+
 function syncNotificationSeverityControls(form = $("#notificationSettingsForm")) {
   for (const channel of ["telegram", "smtp"]) {
     const inherit = form.elements[`${channel}UseGlobalSeverity`].checked;
@@ -158,6 +171,8 @@ function syncProvisionSourceMode() {
     form.elements[name].disabled = importing || !wordpress;
   }
   form.elements.admin_password.disabled = importing || !wordpress;
+  form.elements.add_second_admin.disabled = importing || !wordpress;
+  syncProvisionSecondAdmin();
   form.elements.title.disabled = importing || !wordpress;
   form.elements.enable_comments.disabled = importing || !wordpress;
   form.elements.keep_default_plugins.disabled = importing || !wordpress;
@@ -2382,7 +2397,10 @@ $("#jobsList").addEventListener("click", async (event) => {
       const credentials = result.credentials;
       const application = credentials.wordpress?.preserved ? "Existing WordPress users were preserved." : credentials.wordpress ? `WordPress user: ${escapeHtml(credentials.wordpress.adminUser || "")}
 WordPress password: ${escapeHtml(credentials.wordpress?.adminPassword || "")}
-WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}` : credentials.siteType === "opencart"
+WordPress email: ${escapeHtml(credentials.wordpress?.adminEmail || "")}${credentials.wordpress?.secondAdmin ? `
+Second WordPress user: ${escapeHtml(credentials.wordpress.secondAdmin.user || "")}
+Second WordPress password: ${escapeHtml(credentials.wordpress.secondAdmin.password || "")}
+Second WordPress email: ${escapeHtml(credentials.wordpress.secondAdmin.email || "")}` : ""}` : credentials.siteType === "opencart"
         ? "These credentials were written to the detected OpenCart storefront and admin configuration files."
         : "Update the application database configuration manually using these one-time credentials.";
       $("#provisionResult").innerHTML = `<h3>${escapeHtml(credentials.domain)} credentials</h3><p>These credentials have now been removed from the panel. Store them securely.</p><pre>Database: ${escapeHtml(credentials.database.name)}
@@ -2511,6 +2529,7 @@ $("#provisionForm").elements.apply_security_preset.addEventListener("change", sy
 $$('#provisionForm input[name="source_mode"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $$('#provisionForm input[name="site_type"]').forEach((input) => input.addEventListener("change", syncProvisionSourceMode));
 $("#provisionForm").elements.create_database.addEventListener("change", syncProvisionSourceMode);
+$("#provisionForm").elements.add_second_admin.addEventListener("change", syncProvisionSecondAdmin);
 $("#provisionForm").elements.register_billing.addEventListener("change", syncProvisionBillingOptions);
 $("#provisionForm").elements.billing_grant_free_period.addEventListener("change", (event) => {
   event.currentTarget.dataset.touched = "1";

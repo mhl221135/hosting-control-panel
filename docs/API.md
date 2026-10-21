@@ -458,6 +458,7 @@ not retryable after failure; refresh the preview and submit a new operation.
 | `POST /api/provision` | validate and queue a website provisioning job |
 | `POST /api/provision/import-upload` | stream one staged website archive or database dump |
 | `POST /api/provision/credentials/:jobId/reveal` | reveal and delete generated credentials once |
+
 | `GET /api/wordpress-packages` | list stored plugin/theme packages |
 | `POST /api/wordpress-packages/:kind` | upload a ZIP package |
 | `DELETE /api/wordpress-packages/:kind/:id` | remove a package |
@@ -472,6 +473,12 @@ not retryable after failure; refresh the preview and submit a new operation.
 | `PUT /api/maintenance/updates/pins` | replace persistent whole-site/core/package update exclusions for one site |
 | `POST /api/maintenance/updates/preview` | refresh and preview one explicit controlled update selection |
 | `POST /api/maintenance/updates/apply` | queue a confirmed backup-protected one-site update |
+
+Fresh WordPress provisioning accepts optional `add_second_admin: true` with
+`second_admin_user`, `second_admin_email`, and optional `second_admin_password`.
+The second account is created with the administrator role after core install.
+Passwords are kept out of persisted job payloads and appear only in the
+one-time credentials response. Imported sites preserve their existing users.
 
 Update apply requires the unchanged server preview and `confirm: "UPDATE"`.
 The job is non-cancellable, conflicts with server-heavy and same-site work, and

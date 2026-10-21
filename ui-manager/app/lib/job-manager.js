@@ -5,7 +5,7 @@ const { EventEmitter } = require("events");
 
 const ACTIVE_STATUSES = new Set(["queued", "running", "cancelling"]);
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "partially_succeeded", "cancelled"]);
-const SENSITIVE_KEY = /(?:password|passwd|secret|token|private.?key|authorization|cookie|sql|dump)/i;
+const SENSITIVE_KEY = /(?:password|passwd|user_?pass|secret|token|private.?key|authorization|cookie|sql|dump)/i;
 
 class JobCancelledError extends Error {
   constructor(message = "Job cancelled at a safe boundary") {
@@ -21,7 +21,7 @@ function clone(value) {
 function boundedText(value, maximum = 1000) {
   return String(value || "")
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
-    .replace(/\b(password|passwd|dbpass|admin_password|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(/\b(password|passwd|dbpass|admin_password|user_?pass|secret|token|authorization|cookie)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/\bIDENTIFIED\s+BY\s+(['"])[^'"]+\1/gi, "IDENTIFIED BY '[redacted]'")
     .replace(/[\r\n\t]+/g, " ")
     .trim()

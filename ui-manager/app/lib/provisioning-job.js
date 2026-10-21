@@ -1,5 +1,6 @@
 const SAFE_FIELDS = new Set([
   "domain", "directory", "source_mode", "site_type", "admin_email", "admin_user", "title",
+  "add_second_admin", "second_admin_email", "second_admin_user",
   "pool_tier", "opcache", "redis", "fastcgi_cache", "scheduled_backup",
   "scheduled_image_optimization", "enable_comments", "keep_default_plugins", "keep_default_themes",
   "plugin_packages", "theme_packages", "create_update_dns", "dns_ip", "apply_dns_preset",
@@ -11,6 +12,23 @@ const SAFE_FIELDS = new Set([
   "billing_domain_price", "billing_domain_paid_through", "billing_currency",
   "billing_grace_days", "billing_customer_name", "billing_contact_email",
 ]);
+
+function validateSecondAdministrator({ email, user, primaryEmail, primaryUser }) {
+  const secondEmail = String(email || "").trim().toLowerCase();
+  const secondUser = String(user || "").trim();
+  const invalid = (message) => Object.assign(new Error(message), { statusCode: 400 });
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(secondEmail)) {
+    throw invalid("Enter a valid second administrator email");
+  }
+  if (!/^[a-zA-Z0-9_.@-]{3,60}$/.test(secondUser)) {
+    throw invalid("Second administrator username is invalid");
+  }
+  if (secondEmail === String(primaryEmail || "").toLowerCase()
+    || secondUser.toLowerCase() === String(primaryUser || "").toLowerCase()) {
+    throw invalid("WordPress administrators need different usernames and email addresses");
+  }
+  return { email: secondEmail, user: secondUser };
+}
 
 function safeProvisionPayload(body = {}) {
   const payload = {};
@@ -55,4 +73,4 @@ function jobResult(result) {
   };
 }
 
-module.exports = { SAFE_FIELDS, jobInput, jobResult, safeProvisionPayload };
+module.exports = { SAFE_FIELDS, jobInput, jobResult, safeProvisionPayload, validateSecondAdministrator };

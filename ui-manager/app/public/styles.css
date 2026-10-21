@@ -119,6 +119,7 @@ h3 { margin-bottom: 4px; font-size: 15px; }
 .source-mode small, .import-source small { color: var(--muted); font-weight: 450; }
 .option-group.import-source { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; }
 .option-group { display: flex; flex-wrap: wrap; gap: 14px 22px; border: 1px solid var(--line); border-radius: 6px; padding: 13px; }
+.option-group > .form-grid { flex: 1 1 100%; width: 100%; }
 .option-group legend { padding: 0 6px; color: var(--muted); font-size: 12px; }
 .provision-dns-options { display: grid; grid-template-columns: minmax(190px, auto) minmax(220px, 1fr) minmax(180px, auto) minmax(220px, 1fr); align-items: end; }
 .package-selection { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

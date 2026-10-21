@@ -264,6 +264,7 @@ controls.
 | **Website title** | Sets the title during a fresh WordPress installation. |
 | **PHP pool profile** | Selects the initial Low, Medium, or High PHP-FPM resource profile. |
 | **WordPress admin email/username/password** | Creates the initial administrator. An empty password is generated and returned once in the result. |
+| **Add a second administrator** | Optional for new WordPress sites. Enter a distinct username and email; leave the password empty to generate one. Both administrator credentials appear in the one-time Jobs result. Imports preserve existing users. |
 | **Notes** | Stores an operator-facing site note. |
 
 ### Provisioning options

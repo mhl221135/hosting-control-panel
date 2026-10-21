@@ -369,6 +369,15 @@
             <label data-provision-wordpress data-provision-fresh>WordPress admin email<input name="admin_email" type="email" required /></label>
             <label data-provision-wordpress data-provision-fresh>WordPress admin username<input name="admin_user" value="admin" required /></label>
             <label data-provision-wordpress data-provision-fresh>WordPress admin password<input name="admin_password" type="password" placeholder="Generated when empty" /></label>
+            <fieldset class="option-group full" data-provision-wordpress data-provision-fresh>
+              <legend>Second WordPress administrator</legend>
+              <label class="check"><input name="add_second_admin" type="checkbox" /> Add a second administrator</label>
+              <div class="form-grid full hidden" id="provisionSecondAdminFields">
+                <label>Username<input name="second_admin_user" autocomplete="off" /></label>
+                <label>Email<input name="second_admin_email" type="email" autocomplete="off" /></label>
+                <label>Password<input name="second_admin_password" type="password" autocomplete="new-password" placeholder="Generated when empty" /></label>
+              </div>
+            </fieldset>
             <label>Notes<input name="notes" placeholder="Client or project note" /></label>
             <fieldset class="option-group full import-source hidden" data-provision-import>
               <legend>Import files</legend>

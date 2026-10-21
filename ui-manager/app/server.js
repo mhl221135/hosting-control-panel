@@ -88,7 +88,10 @@ const { TelegramCommandManager } = require("./lib/telegram-command-manager");
 const { HealthSettings } = require("./lib/health-settings");
 const { HealthMonitor } = require("./lib/health-monitor");
 const { OneTimeVault } = require("./lib/one-time-vault");
-const { jobInput: provisioningJobInput, jobResult: provisioningJobResult, safeProvisionPayload } = require("./lib/provisioning-job");
+const {
+  jobInput: provisioningJobInput, jobResult: provisioningJobResult,
+  safeProvisionPayload, validateSecondAdministrator,
+} = require("./lib/provisioning-job");
 const { IpinfoClient } = require("./lib/ipinfo-client");
 const { CertificateJobManager } = require("./lib/certificate-job-manager");
 const { provisionSecurityStep, selectedProvisionSecurity } = require("./lib/provision-security");
@@ -1618,6 +1621,12 @@ function validateProvisionRequest(body) {
   const siteType = normalizeSiteType(body.site_type);
   const adminEmail = String(body.admin_email || "").trim().toLowerCase();
   const adminUser = String(body.admin_user || "admin").trim();
+  const secondAdmin = siteType === "wordpress" && sourceMode === "fresh" && body.add_second_admin === true
+    ? validateSecondAdministrator({
+        email: body.second_admin_email, user: body.second_admin_user,
+        primaryEmail: adminEmail, primaryUser: adminUser,
+      })
+    : null;
   if (siteType === "wordpress" && sourceMode === "fresh" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(adminEmail)) {
     throw Object.assign(new Error("Enter a valid WordPress administrator email"), { statusCode: 400 });
   }
@@ -1636,11 +1645,11 @@ function validateProvisionRequest(body) {
   if (siteType === "static" && body.create_database) {
     throw Object.assign(new Error("Static HTML websites cannot create a database"), { statusCode: 400 });
   }
-  return { domain, directory, sourceMode, siteType, adminEmail, adminUser };
+  return { domain, directory, sourceMode, siteType, adminEmail, adminUser, secondAdmin };
 }
 
-async function executeProvisioning(body, jobContext, adminPassword = "") {
-  const { domain, directory, sourceMode, siteType, adminEmail, adminUser } = validateProvisionRequest(body);
+async function executeProvisioning(body, jobContext, secrets = {}) {
+  const { domain, directory, sourceMode, siteType, adminEmail, adminUser, secondAdmin } = validateProvisionRequest(body);
   const adapter = siteAdapter(siteType);
   const pluginPackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("plugins", body.plugin_packages) : [];
   const themePackages = siteType === "wordpress" && sourceMode === "fresh" ? wordpressPackages.resolve("themes", body.theme_packages) : [];
@@ -1742,7 +1751,10 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
       steps.push({ name: "database", status: "complete", database: database.name });
       await installWordPress({
         domain, directory, database, title: String(body.title || domain), adminEmail, adminUser,
-        adminPassword, redis: Boolean(body.redis), useHttps: false,
+        adminPassword: secrets.adminPassword, secondAdmin: secondAdmin ? {
+          ...secondAdmin, password: secrets.secondAdminPassword,
+        } : null,
+        redis: Boolean(body.redis), useHttps: false,
         commentsEnabled: Boolean(body.enable_comments), keepDefaultPlugins: Boolean(body.keep_default_plugins),
         keepDefaultThemes: Boolean(body.keep_default_themes), pluginPackages, themePackages,
       });
@@ -1888,7 +1900,10 @@ async function executeProvisioning(body, jobContext, adminPassword = "") {
   return {
     ok: true, imported: sourceMode === "import", siteType, domain, directory, port,
     database: database ? { name: database.name, user: database.user, password: database.password } : null,
-    wordpress: siteType === "wordpress" ? { adminUser, adminPassword, adminEmail } : null,
+    wordpress: siteType === "wordpress" ? {
+      adminUser, adminPassword: secrets.adminPassword, adminEmail,
+      secondAdmin: secondAdmin ? { ...secondAdmin, password: secrets.secondAdminPassword } : null,
+    } : null,
     npmHost, steps,
   };
 }
@@ -1897,7 +1912,7 @@ jobManager.register("site.provision", async (context, payload) => {
   const body = safeProvisionPayload(payload.request || {});
   const secret = payload.requestRef ? provisioningVault.take(payload.requestRef, payload.owner) : null;
   if (payload.requestRef && !secret) throw new Error("Provisioning request credentials expired; submit the form again");
-  const result = await executeProvisioning(body, context, secret?.adminPassword || "");
+  const result = await executeProvisioning(body, context, secret || {});
   const billing = billingProvisioningSettings.registration(body);
   if (billing.enabled) {
     context.update({ currentStep: "Registering billing service" });
@@ -3564,6 +3579,9 @@ if (req.method === "PUT" && new URL(req.url, "http://ui-manager.local").pathname
       requestRef = crypto.randomUUID();
       provisioningVault.put(requestRef, req.auth.email, {
         adminPassword: String(submitted.admin_password || "") || randomPassword(24),
+        ...(normalized.secondAdmin ? {
+          secondAdminPassword: String(submitted.second_admin_password || "") || randomPassword(24),
+        } : {}),
       });
     }
     try {
