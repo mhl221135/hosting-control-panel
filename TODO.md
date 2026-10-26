@@ -10,6 +10,14 @@ in `README.md`, `STACK_OVERVIEW.md`, and `docs/`.
 3. Finish remote WordPress billing enforcement.
 4. Build the isolated mail platform last.
 
+## Wix DNS Integration
+
+- Add per-site Wix account-level API credentials to encrypted panel settings.
+  Provisioning and the site detail view should offer a guarded DNS preview and
+  update, plus scheduled WAN-IP reconciliation for Wix-hosted zones. Preserve
+  unrelated records and honor the HA primary/witness fence. The standalone
+  `/root/wix-ddns.py` cron script is a temporary operator-managed bridge.
+
 ## 1. High Availability
 
 The current two-host system already provides one-way Syncthing website/runtime

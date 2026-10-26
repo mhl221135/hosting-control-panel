@@ -1,0 +1,10 @@
+{
+  "sites": [
+    {
+      "domain": "example.com",
+      "account_id": "WIX_ACCOUNT_ID",
+      "api_key": "WIX_ACCOUNT_API_KEY",
+      "hosts": ["@"]
+    }
+  ]
+}
