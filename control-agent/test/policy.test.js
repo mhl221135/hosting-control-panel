@@ -31,6 +31,25 @@ test("allows constrained WordPress and MySQL operations", () => {
   ]));
 });
 
+test("allows only the provisioning form of WordPress administrator creation", () => {
+  const command = [
+    "exec", "-u", "33:33", "hosting-php-fpm", "wp", "--allow-root",
+    "user", "create", "example_admin", "admin@example.com",
+    "--role=administrator", "--user_pass=temporary-password",
+    "--path=/var/www/example.com",
+  ];
+  assert.doesNotThrow(() => validateArgs(command));
+  const denied = [
+    command.filter((item) => item !== "-u" && item !== "33:33"),
+    command.map((item) => item === "create" ? "delete" : item),
+    command.map((item) => item === "--role=administrator" ? "--role=editor" : item),
+    command.map((item) => item === "--path=/var/www/example.com" ? "--path=/etc" : item),
+    [...command, "--skip-plugins"],
+    command.map((item) => item === "--user_pass=temporary-password" ? "--user_pass=" : item),
+  ];
+  for (const args of denied) assert.throws(() => validateArgs(args), /not allowed/);
+});
+
 test("allows bounded statistics and application health probes", () => {
   assert.doesNotThrow(() => validateArgs([
     "stats", "--no-stream", "--format", "{{json .}}",

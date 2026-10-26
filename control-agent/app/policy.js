@@ -112,7 +112,7 @@ function parseExec(argv) {
   return { options, environment, container, command };
 }
 
-function validateWp(command) {
+function validateWp(command, options) {
   let index = 0;
   if (command[0] === "nice") {
     if (command[1] !== "-n" || command[2] !== "10") deny("Invalid WordPress priority");
@@ -120,6 +120,19 @@ function validateWp(command) {
   }
   if (command[index] !== "wp" || command[index + 1] !== "--allow-root") deny("Invalid WordPress command");
   const args = command.slice(index + 2);
+  if (args[0] === "user") {
+    if (options.join("\0") !== ["-u", "33:33"].join("\0")
+      || args.length !== 7 || args[1] !== "create"
+      || !/^[a-zA-Z0-9_.@-]{3,60}$/.test(args[2])
+      || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(args[3])
+      || args[4] !== "--role=administrator"
+      || !args[5].startsWith("--user_pass=")
+      || !args[5].slice(12) || args[5].length > 268
+      || /[\r\n]/.test(args[5])
+      || !args[6].startsWith("--path=")) deny("WordPress user operation is not allowed");
+    validSitePath(args[6].slice(7));
+    return;
+  }
   if (!WP_COMMANDS.has(args[0])) deny("WordPress command is not allowed");
   for (const argument of args) {
     if (WP_BLOCKED_OPTIONS.some((option) => argument === option || argument.startsWith(`${option}=`))) {
@@ -148,10 +161,10 @@ function validateNginx(command) {
   deny("Nginx operation is not allowed");
 }
 
-function validatePhp(command) {
+function validatePhp(command, options) {
   if (command.join("\0") === ["php-fpm", "-t"].join("\0")) return;
   if (command[0] === "wp" || command[0] === "nice") {
-    validateWp(command);
+    validateWp(command, options);
     return;
   }
   if (command[0] === "php" && command[1] === "-l" && command.length === 3) {
@@ -244,7 +257,7 @@ function validateNpm(command) {
 function validateExec(argv) {
   const parsed = parseExec(argv);
   if (parsed.container === "hosting-nginx") validateNginx(parsed.command);
-  else if (parsed.container === "hosting-php-fpm") validatePhp(parsed.command);
+  else if (parsed.container === "hosting-php-fpm") validatePhp(parsed.command, parsed.options);
   else if (parsed.container === "hosting-db") validateMysql(parsed.command, parsed.environment);
   else if (parsed.container === "hosting-redis") validateRedis(parsed.command);
   else if (parsed.container === "hosting-npm") validateNpm(parsed.command);
